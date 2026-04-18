@@ -15,4 +15,4 @@ license: MIT
 
 targets:
   beryl:
-    main: src/beryl.cr
+    main: src/beryl/cli.cr

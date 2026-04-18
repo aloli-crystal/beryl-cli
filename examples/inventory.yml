@@ -1,0 +1,34 @@
+# Exemple d'inventaire beryl.
+#
+# Copiez ce fichier dans `inventory.yml` à la racine du projet (ou
+# utilisez `beryl -i examples/inventory.yml <commande>`).
+
+defaults:
+  user: root
+  port: 22
+  identity_file: ~/.ssh/id_ed25519
+
+hosts:
+  # Serveur OVH dédié en rescue Debian.
+  web01.aloli.fr:
+    provider: ovh
+    recipes:
+      - core-system
+      - nginx-crystal-deploy
+
+  # Dedibox Scaleway en rescue Ubuntu.
+  web02.scaleway.aloli.fr:
+    provider: scaleway
+    user: root
+    port: 22
+    recipes:
+      - core-system
+
+  # Hôte générique (autre hébergeur, VM locale UTM, etc.).
+  db01.aloli.fr:
+    provider: generic
+    port: 2222
+    recipes:
+      - core-system
+    variables:
+      timezone: Europe/Paris

@@ -108,9 +108,9 @@ module Beryl::Bootstrap
         port: @mfsbsd_conn.port,
       )
 
-      deadline = Time.monotonic + SSH_WAIT_TIMEOUT
+      deadline = Time.instant + SSH_WAIT_TIMEOUT
       last_error = nil
-      while Time.monotonic < deadline
+      while Time.instant < deadline
         begin
           result = conn.exec("uname -r", raise_on_error: false)
           if result.success? && result.stdout.strip.starts_with?("15.")
