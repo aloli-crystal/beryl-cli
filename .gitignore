@@ -1,0 +1,12 @@
+/bin/
+/.shards/
+/lib/
+*.dwarf
+
+# Fichiers d'inventaire et secrets (non versionnés)
+inventory.local.yml
+*.secret.yml
+.env
+
+# macOS
+.DS_Store

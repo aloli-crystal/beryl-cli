@@ -1,0 +1,16 @@
+= Changelog
+:toc: left
+:toclevels: 2
+
+Toutes les modifications notables de ce projet sont documentées dans ce fichier.
+
+Le format s'inspire de https://keepachangelog.com/fr/1.1.0/[Keep a Changelog]
+et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
+
+== [Non publié]
+
+=== Ajouté
+
+* Squelette initial du projet (shard.yml, LICENSE MIT, README bilingue).
+* Document d'architecture link:ARCHITECTURE.adoc[ARCHITECTURE.adoc] fixant les grandes décisions :
+  cible FreeBSD 15, pkgbase par défaut, SSH agentless, recettes YAML, conventions Mozilla Modern.

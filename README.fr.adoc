@@ -1,0 +1,83 @@
+= beryl
+:toc: left
+:toc-title: Table des matières
+:toclevels: 3
+:source-highlighter: rouge
+:icons: font
+
+Outil Crystal de gestion de configuration https://www.freebsd.org[FreeBSD], agentless SSH.
+Provisionne des serveurs FreeBSD 15 depuis une machine locale, puis applique des recettes idempotentes.
+
+[NOTE]
+====
+beryl se place *avant* https://github.com/aloli-crystal/crystal-deploy[crystal-deploy] : il prépare le serveur FreeBSD (OS, users, paquets système, durcissement, alerting).
+crystal-deploy déploie ensuite vos applications Marten ou Kemal dessus.
+====
+
+== Pourquoi beryl ?
+
+Les hébergeurs comme OVH, Scaleway ou Hetzner ne proposent pas FreeBSD en installation native.
+La procédure manuelle par KVM ou rescue n'est ni reproductible ni automatisable à l'échelle.
+
+beryl automatise le cycle complet :
+
+. Démarrage sur le Linux de rescue fourni par l'hébergeur.
+. Bascule vers https://mfsbsd.vx.sk/[mfsBSD] via `kexec` (ou `dd` sur disque secondaire).
+. Installation FreeBSD 15 en https://www.freebsd.org/releases/15.0R/announce/[pkgbase] (ou distribution sets en fallback).
+. Application des recettes de configuration via SSH (agentless).
+
+== Caractéristiques
+
+* *Agentless* : rien à installer sur le serveur cible, pilotage par SSH depuis votre poste.
+* *Binaire unique* : beryl compile en un seul binaire statique Crystal.
+* *Idempotent* : rejouer une recette ne modifie que ce qui a dérivé.
+* *Parallèle* : 50 serveurs en parallèle via les fibres Crystal.
+* *Convention over configuration* : défauts sensés (Mozilla Modern SSL, sshd durci), tout overridable.
+* *Recettes YAML* : composables, versionnables, partageables.
+
+== Installation
+
+[source,sh]
+----
+git clone https://github.com/aloli-crystal/crystal-beryl.git
+cd crystal-beryl
+shards install
+shards build --release
+----
+
+Le binaire `beryl` est produit dans `./bin/beryl`.
+
+== Démarrage rapide
+
+Déclarez votre inventaire dans `inventory.yml` :
+
+[source,yaml]
+----
+defaults:
+  user: root
+  port: 22
+
+hosts:
+  web01.aloli.fr:
+    provider: ovh
+    recipes:
+      - core-system
+      - nginx-crystal-deploy
+----
+
+Puis appliquez :
+
+[source,sh]
+----
+beryl apply web01.aloli.fr
+beryl apply --check web01.aloli.fr   # dry-run
+beryl bootstrap web01.aloli.fr       # bascule Linux → FreeBSD
+----
+
+== Statut
+
+Projet en phase initiale. Voir link:ARCHITECTURE.adoc[ARCHITECTURE.adoc] pour les décisions techniques et la feuille de route.
+
+== Licence
+
+MIT. Voir link:LICENSE[LICENSE].

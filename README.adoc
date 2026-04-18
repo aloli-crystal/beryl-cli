@@ -1,0 +1,83 @@
+= beryl
+:toc: left
+:toc-title: Table of Contents
+:toclevels: 3
+:source-highlighter: rouge
+:icons: font
+
+Crystal configuration management tool for https://www.freebsd.org[FreeBSD], agentless over SSH.
+Provisions FreeBSD 15 servers from a local workstation, then applies idempotent recipes.
+
+[NOTE]
+====
+beryl sits *before* https://github.com/aloli-crystal/crystal-deploy[crystal-deploy]: it prepares the FreeBSD server (OS, users, system packages, hardening, alerting).
+crystal-deploy then deploys your Marten or Kemal applications on top.
+====
+
+== Why beryl?
+
+Hosting providers like OVH, Scaleway or Hetzner do not offer FreeBSD as a native install option.
+The manual KVM or rescue-mode procedure is neither reproducible nor automatable at scale.
+
+beryl automates the full cycle:
+
+. Boot the provider's Linux rescue image.
+. Switch to https://mfsbsd.vx.sk/[mfsBSD] via `kexec` (or `dd` on a secondary disk).
+. Install FreeBSD 15 via https://www.freebsd.org/releases/15.0R/announce/[pkgbase] (or distribution sets as fallback).
+. Apply configuration recipes over SSH (agentless).
+
+== Features
+
+* *Agentless*: nothing to install on the target, driven from your workstation over SSH.
+* *Single binary*: beryl compiles into a single static Crystal binary.
+* *Idempotent*: re-running a recipe only changes what has drifted.
+* *Parallel*: 50 servers in parallel thanks to Crystal fibers.
+* *Convention over configuration*: sensible defaults (Mozilla Modern SSL, hardened sshd), everything overridable.
+* *YAML recipes*: composable, versionable, shareable.
+
+== Installation
+
+[source,sh]
+----
+git clone https://github.com/aloli-crystal/crystal-beryl.git
+cd crystal-beryl
+shards install
+shards build --release
+----
+
+The `beryl` binary is produced in `./bin/beryl`.
+
+== Quick start
+
+Declare your inventory in `inventory.yml`:
+
+[source,yaml]
+----
+defaults:
+  user: root
+  port: 22
+
+hosts:
+  web01.aloli.fr:
+    provider: ovh
+    recipes:
+      - core-system
+      - nginx-crystal-deploy
+----
+
+Then apply:
+
+[source,sh]
+----
+beryl apply web01.aloli.fr
+beryl apply --check web01.aloli.fr   # dry-run
+beryl bootstrap web01.aloli.fr       # switch Linux → FreeBSD
+----
+
+== Status
+
+Early stage. See link:ARCHITECTURE.adoc[ARCHITECTURE.adoc] for technical decisions and roadmap.
+
+== License
+
+MIT. See link:LICENSE[LICENSE].

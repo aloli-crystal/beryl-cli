@@ -1,0 +1,275 @@
+= beryl — Architecture
+:toc: left
+:toc-title: Table des matières
+:toclevels: 3
+:source-highlighter: rouge
+:icons: font
+
+Ce document fixe les grandes décisions techniques de beryl et sert de référence
+pour les contributeurs et les utilisateurs avancés.
+Les décisions de type « Accepted » sont figées ; les « Proposed » restent ouvertes
+à la discussion tant qu'aucun code ne s'appuie dessus.
+
+== Périmètre
+
+[cols="1,3"]
+|===
+| beryl fait | beryl ne fait pas
+
+| Provisionner un serveur FreeBSD depuis un rescue Linux (bootstrap).
+| Déployer des applications (voir https://github.com/aloli-crystal/crystal-deploy[crystal-deploy]).
+
+| Installer et configurer les logiciels système (nginx, PostgreSQL, sshd, cron, etc.).
+| Monitoring actif en production (voir Uptime Kuma, Healthchecks, Prometheus).
+
+| Durcir la configuration (SSH, TLS) avec des profils modernes par défaut.
+| Orchestration dynamique type Kubernetes.
+
+| Appliquer des recettes YAML composables et idempotentes.
+| Runtime côté serveur : beryl reste agentless.
+|===
+
+== Décisions clés
+
+=== ADR-001 — Cible : FreeBSD 15 en pkgbase (Accepted)
+
+*Contexte.* FreeBSD 15.0 (sortie le 2 décembre 2025) introduit
+https://www.freebsd.org/releases/15.0R/announce/[pkgbase] en _technology preview_.
+La gestion traditionnelle par distribution sets (`.txz`) reste supportée sur la branche 15.x
+mais sera *supprimée en FreeBSD 16*.
+
+*Décision.* beryl cible FreeBSD 15 et installe par défaut en *pkgbase*.
+Un mode `--distset` reste disponible en secours tant que la branche 15.x le permet.
+
+*Conséquences.*
+
+* Les upgrades se font via `pkg upgrade -r FreeBSD-base` (fini `freebsd-update`).
+* Les composants de base (kernel, lib32, src, debug) sont des paquets individuels.
+* La transition vers FreeBSD 16 sera plus fluide (pas de changement de mécanisme).
+
+=== ADR-002 — Architecture agentless via SSH (Accepted)
+
+*Contexte.* 50 serveurs à piloter. Les approches avec agent (Chef, Puppet)
+imposent un bootstrap complexe et un runtime permanent côté cible.
+
+*Décision.* beryl est *agentless* : il pilote les serveurs depuis un poste local
+via SSH (OpenSSH standard, pas de clé propriétaire).
+
+*Conséquences.*
+
+* Rien à installer côté serveur : un accès SSH suffit.
+* Les actions complexes sont encapsulées dans des scripts shell générés à la volée
+  ou dans un binaire beryl-helper poussé ponctuellement via `scp`.
+* Le parallélisme est géré côté local par des fibres Crystal, bornées par une
+  limite de concurrence configurable.
+
+=== ADR-003 — Bootstrap via mfsBSD + kexec (Accepted)
+
+*Contexte.* Les hébergeurs (OVH, Scaleway, Hetzner) ne proposent pas FreeBSD
+en installation native.
+
+*Décision.* beryl démarre sur le Linux de rescue fourni par l'hébergeur,
+puis bascule vers https://mfsbsd.vx.sk/[mfsBSD] via `kexec` (quand l'architecture le permet)
+ou via `dd` sur un disque secondaire.
+
+*Image de référence.* `mfsbsd-15.0-RELEASE-amd64.iso` depuis https://depenguin.me/[depenguin.me]
+(mfsBSD supporte 15.0 depuis janvier 2026).
+
+*Conséquences.*
+
+* beryl doit gérer deux connexions SSH successives pour la même machine :
+  l'environnement Linux puis l'environnement mfsBSD (la clé d'hôte change).
+* Un mode `--dd-mode` est prévu pour les cas où `kexec` n'est pas disponible.
+
+=== ADR-004 — Recettes YAML composables (Accepted)
+
+*Contexte.* Les procédures d'installation évoluent (exemple : Passenger installé
+dans `/opt/nginx` il y a cinq ans, aujourd'hui dans `/opt/ruby-X.Y-passenger-A.B`
+avec symlink). Les besoins varient d'un serveur à l'autre.
+
+*Décision.* Une *recette* est un fichier YAML qui compose des *ressources*
+(primitives idempotentes). Les recettes ont des variables et peuvent en inclure d'autres.
+
+*Conséquences.*
+
+* Le format YAML est prioritaire. Un format AsciiDoc littéraire reste une piste
+  pour une V2 si le besoin se confirme.
+* Un *catalogue officiel* de recettes est livré avec beryl (core-system,
+  nginx-crystal-deploy, nginx-passenger-classic, nginx-passenger-versioned, etc.).
+* Les utilisateurs peuvent écrire leurs propres recettes sans fork.
+
+=== ADR-005 — Convention over configuration, mais rien de figé (Accepted)
+
+*Contexte.* Les conventions personnelles de l'auteur (données de bases dans `/home`,
+utilisateurs `admin` csh + `deploy` zsh, Passenger dans `/opt/nginx`) sont pragmatiques,
+pas universelles.
+
+*Décision.* Chaque convention exposée dans beryl doit être :
+
+. Documentée ici avec la contrainte qui la justifie.
+. Overridable via les variables de recette ou d'inventaire.
+. Nommée comme une _opinion_, pas comme un _standard_.
+
+*Exemples à ne pas figer.*
+
+* `data_on_home` : option booléenne (par défaut `false`) qui active le symlink
+  `/var/db/postgres` → `/home/postgres`. Justifié par le refus de saucissonner
+  les partitions, à la discrétion de l'opérateur.
+* `users.admin.shell` : par défaut `csh` (tradition BSD), changeable par recette.
+* `users.deploy.shell` : par défaut `sh` (minimal), changeable par recette.
+
+=== ADR-006 — Durcissement cryptographique par défaut (Accepted)
+
+*Décision.* beryl applique par défaut des profils _modernes_ inspirés de
+https://infosec.mozilla.org/guidelines/openssh.html[Mozilla SSH] et
+https://ssl-config.mozilla.org/[Mozilla SSL] :
+
+* *sshd* : KexAlgorithms curve25519-sha256, clés hôte Ed25519, ChaCha20-Poly1305 et
+  AES-256-GCM uniquement, `PermitRootLogin no`, `PasswordAuthentication no`.
+* *nginx TLS* : profil Mozilla _modern_ (TLS 1.3 only), OCSP stapling, HSTS activé.
+
+Un profil `intermediate` est disponible en option pour les compatibilités legacy.
+Chaque paramètre reste overridable.
+
+=== ADR-007 — Alerting : relay SMTP + push HTTP (Accepted)
+
+*Contexte.* Un serveur doit pouvoir remonter des informations (cron, erreurs système).
+L'email local sur FreeBSD arrive à root par défaut et n'est jamais lu.
+
+*Décision.* Deux ressources dédiées :
+
+* `mail_relay` : configure `dma(8)` (DragonFly Mail Agent, dans la base) pour relayer
+  le mail local vers un smarthost SMTP authentifié.
+* `ntfy_topic` : envoie les alertes critiques par HTTP POST vers https://ntfy.sh[ntfy.sh]
+  (auto-hébergeable, libre).
+
+*Hors scope.* Le monitoring actif (disponibilité, métriques) reste du ressort
+d'un outil dédié externe (Uptime Kuma, Healthchecks, Prometheus).
+
+=== ADR-008 — Idempotence stricte (Accepted)
+
+*Décision.* Chaque ressource doit pouvoir être appliquée plusieurs fois sans effet
+de bord. Une ressource expose un contrat en trois parties :
+
+. `check` : l'état courant est-il conforme ?
+. `apply` : si non, converge vers l'état désiré.
+. `report` : retourne un diff structuré (changed / unchanged / failed).
+
+Le mode `--check` exécute seulement le premier étage (dry-run global).
+
+=== ADR-009 — Licence et dépôt (Accepted)
+
+* Licence : *MIT*, conforme à la convention des shards Crystal.
+* Organisation GitHub : https://github.com/aloli-crystal[aloli-crystal].
+* Nom du dépôt : `crystal-beryl`.
+* Branche par défaut : `main`.
+* Langue des messages de commit : français.
+
+== Modèle d'objet
+
+----
+Inventory
+  └── Host
+        ├── connection (user, port, jump, etc.)
+        ├── provider (ovh | scaleway | hetzner | generic)
+        └── recipes: [...]
+
+Recipe
+  ├── name, description
+  ├── variables (clé/valeur)
+  ├── includes: [...]       # autres recettes
+  └── resources: [...]
+
+Resource (abstract)
+  ├── type (pkg, service, file, user, ...)
+  ├── id (clé unique dans la recette)
+  ├── properties (dépendent du type)
+  └── check / apply / report
+----
+
+== Ressources — liste initiale
+
+[cols="1,3"]
+|===
+| Ressource | Rôle
+
+| `pkg` | Installation/retrait de paquets FreeBSD (`pkg install`).
+| `pkgbase` | Installation de paquets de la base (`pkg -r FreeBSD-base`).
+| `service` | Démarrage/arrêt/activation de services (`service X start/stop`).
+| `sysrc` | Édition idempotente de `/etc/rc.conf` via `sysrc(8)`.
+| `user` | Création/suppression d'utilisateurs (`pw useradd`).
+| `group` | Création/suppression de groupes (`pw groupadd`).
+| `file` | Fichier (contenu, mode, owner, symlink, template).
+| `directory` | Répertoire (mode, owner, créé récursivement).
+| `cmd` | Commande shell gardée par une condition `creates` / `unless`.
+| `cron` | Entrée cron idempotente dans `/etc/crontab` ou `crontab -u`.
+| `sudoers` | Fichier dans `/usr/local/etc/sudoers.d/` validé par `visudo -c`.
+| `postgresql_role` | Rôle PostgreSQL (user/password/privileges).
+| `postgresql_db` | Base de données PostgreSQL (owner, encoding, locale).
+| `sshd_hardening` | Profil Mozilla Modern pour sshd, override par clé.
+| `nginx_tls_profile` | Bloc `ssl_*` Mozilla Modern/Intermediate.
+| `mail_relay` | Configure `dma(8)` avec un smarthost SMTP.
+| `ntfy_topic` | Configure un client ntfy pour push HTTP.
+|===
+
+== Parallélisme
+
+beryl exécute chaque hôte dans sa propre fibre Crystal.
+La concurrence globale est bornée par un `Channel` (défaut : 10, overridable via `--parallel N`).
+Au sein d'un hôte, les ressources s'exécutent séquentiellement pour garantir l'ordre
+des dépendances (`pkg` avant `service`, etc.).
+
+== Feuille de route
+
+=== Phase 1 — Bootstrap (MVP)
+
+. Module `ssh.cr` (wrapper OpenSSH, exec, transfert).
+. Chargeur d'inventaire (`inventory.cr`).
+. Chargeur de recettes (`recipe.cr`).
+. Bootstrap mfsBSD (`bootstrap/mfsbsd.cr`).
+. Installeur pkgbase/distset (`bootstrap/installer.cr`).
+
+=== Phase 2 — Ressources et catalogue
+
+. Ressources de base : `pkg`, `service`, `sysrc`, `user`, `group`, `file`, `directory`, `cmd`.
+. Ressources système : `cron`, `sudoers`.
+. Ressources DB : `postgresql_role`, `postgresql_db`.
+. Ressources de durcissement : `sshd_hardening`, `nginx_tls_profile`.
+. Ressources d'alerting : `mail_relay`, `ntfy_topic`.
+. Catalogue de recettes de référence.
+
+=== Phase 3 — Industrialisation
+
+. CI GitHub Actions avec https://github.com/cross-platform-actions/action[cross-platform-actions] pour FreeBSD 15.
+. Banc d'essai en jails FreeBSD sur VM UTM unique (alternative libre à Parallels).
+. Inventaire dynamique via API OVH / Scaleway.
+. Reporting structuré (JSON) pour agrégation externe.
+
+=== V2 (non engagée)
+
+* Format de recettes en AsciiDoc littéraire (prose + blocs exécutables).
+* Mode agent optionnel (push d'état vers un collecteur central).
+* Support Linux (Debian, Alpine) en cible secondaire.
+
+== Choix d'outillage
+
+[cols="1,2,2"]
+|===
+| Besoin | Outil retenu | Justification
+
+| VM de test locale
+| https://mac.getutm.app/[UTM] (QEMU)
+| Libre, aligné avec l'esprit du projet.
+
+| CI FreeBSD
+| https://github.com/cross-platform-actions/action[cross-platform-actions/action]
+| Tourne FreeBSD 15 dans un runner Linux GitHub Actions.
+
+| Image mfsBSD
+| https://depenguin.me/[depenguin.me] (mfsbsd-15.0-RELEASE-amd64.iso)
+| Projet dédié à l'install FreeBSD depuis un rescue Linux.
+
+| SSH côté Crystal
+| Binaire `ssh` / `scp` système
+| Robustesse maximale, pas de lib native à maintenir.
+|===
