@@ -162,7 +162,7 @@ Le mode `--check` exécute seulement le premier étage (dry-run global).
 * Licence : *MIT*, conforme à la convention des shards Crystal.
 * Organisation GitHub : https://github.com/aloli-crystal[aloli-crystal].
 * Nom du dépôt : `crystal-beryl`.
-* Branche par défaut : `main`.
+* Branches : `production` (défaut, initial), `development` (ajoutée après la 1ʳᵉ version publiée) — convention Aloli.
 * Langue des messages de commit : français.
 
 == Modèle d'objet
