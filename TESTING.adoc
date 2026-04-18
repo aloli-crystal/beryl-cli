@@ -1,0 +1,263 @@
+= beryl — Guide de test grandeur nature
+:toc: left
+:toc-title: Table des matières
+:toclevels: 3
+:source-highlighter: rouge
+:icons: font
+
+Ce document décrit la procédure de test réel du bootstrap beryl :
+d'abord en local dans une VM UTM, puis sur des serveurs OVH et Scaleway.
+
+[WARNING]
+====
+Le bootstrap beryl est **destructif** : il efface intégralement le disque
+cible. N'exécutez ces tests que sur des machines explicitement dédiées aux
+tests et ne contenant *aucune* donnée à conserver.
+====
+
+== Pré-requis locaux
+
+* Un Mac avec https://mac.getutm.app/[UTM] installé (gratuit, libre).
+* Le binaire beryl compilé : `shards build` à la racine du projet.
+* Une paire de clés SSH utilisable (`~/.ssh/id_ed25519` par défaut).
+
+== 1. Test local avec UTM
+
+=== 1.1 Préparer la VM « rescue Linux »
+
+L'objectif est de reproduire ce que fournissent OVH ou Scaleway :
+un environnement Linux minimal avec SSH actif et un disque vide à côté.
+
+. Créer une VM UTM (Apple Silicon) :
+  * Architecture : *x86_64* (pour simuler un dédié standard) ou *aarch64* pour un test ARM natif plus rapide.
+  * RAM : *2 Go* minimum.
+  * Disque : *20 Go* minimum (le disque sur lequel beryl écrira mfsBSD, puis FreeBSD).
+  * Réseau : *Shared Network* ou *Bridged* (pour pouvoir SSH depuis le Mac).
+
+. Booter sur une ISO Debian 12 ou Ubuntu 24.04 *live* (pas installée) :
+  * https://www.debian.org/CD/live/ pour Debian.
+  * Lors du boot, choisir « Try without installing » ou équivalent.
+
+. Configurer SSH dans le live :
++
+[source,sh]
+----
+sudo passwd root                         # définit un mot de passe temporaire
+sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+sudo systemctl restart ssh
+----
+
+. Déposer votre clé publique :
++
+[source,sh]
+----
+mkdir -p /root/.ssh
+echo "votre-clé-publique-ici" > /root/.ssh/authorized_keys
+chmod 600 /root/.ssh/authorized_keys
+----
+
+. Noter l'IP attribuée à la VM (`ip -4 addr show` dans la VM).
+
+=== 1.2 Déclarer la VM dans l'inventaire
+
+Créer `inventory.yml` à la racine du projet :
+
+[source,yaml]
+----
+defaults:
+  user: root
+  identity_file: ~/.ssh/id_ed25519
+
+hosts:
+  utm-test.local:
+    provider: generic
+----
+
+Remplacer `utm-test.local` par l'IP ou un nom présent dans `/etc/hosts`.
+
+=== 1.3 Identifier le disque cible
+
+Depuis le Mac, se connecter manuellement à la VM pour vérifier le nom du disque :
+
+[source,sh]
+----
+ssh root@utm-test.local "lsblk -dno NAME,TYPE,SIZE | awk '\$2==\"disk\"'"
+----
+
+Attendu : `sda  disk  20G` (ou `vda`, `nvme0n1`, selon UTM).
+
+=== 1.4 Lancer le bootstrap
+
+[source,sh]
+----
+./bin/beryl bootstrap utm-test.local --disk=/dev/sda
+----
+
+Étapes observables (sur stderr) :
+
+. Vérification Linux (uname).
+. Téléchargement de `mfsbsd-15.0-RELEASE-amd64.img` (~500 Mo).
+. `dd` sur `/dev/sda` (~1 min).
+. Redémarrage (la connexion SSH se coupe).
+. Attente SSH sur mfsBSD (~1–2 min).
+. Upload du script d'installation.
+. Exécution de l'installation (partitionnement GPT, pool ZFS, pkgbase).
+. Redémarrage final.
+. Attente SSH sur le système installé (~1 min).
+
+=== 1.5 Vérifications
+
+[source,sh]
+----
+ssh -o StrictHostKeyChecking=no root@utm-test.local << 'EOF'
+  uname -srm
+  hostname
+  zpool list
+  zfs list
+  pkg info | head -20
+  cat /etc/rc.conf
+EOF
+----
+
+Attendu :
+
+* `uname -srm` → `FreeBSD 15.0-RELEASE amd64`.
+* `zpool list` → pool `zroot` en ligne.
+* `pkg info` → paquets `FreeBSD-runtime`, `FreeBSD-kernel-generic`, `FreeBSD-openssh-server`, etc.
+
+== 2. Test OVH dédié
+
+=== 2.1 Provisionner un serveur
+
+. Louer un serveur dédié OVH (Kimsufi, So you Start ou OVHcloud).
+. Depuis le manager OVH, activer le mode rescue :
+  * Menu *Serveur dédié → Netboot → Rescue (rescue64-pro)*.
+  * Redémarrer le serveur.
+
+. OVH envoie par mail les credentials (IP + mot de passe root temporaire).
+. Déposer votre clé publique :
++
+[source,sh]
+----
+ssh-copy-id root@<IP>        # entrer le mot de passe reçu
+----
+
+=== 2.2 Inventaire
+
+[source,yaml]
+----
+hosts:
+  test-ovh.aloli.fr:
+    provider: ovh
+    # Pointe vers l'IP OVH ; ajoutez une entrée /etc/hosts si besoin
+    # ou remplacez la clé du hash par l'IP.
+----
+
+=== 2.3 Identifier le disque
+
+[source,sh]
+----
+ssh root@test-ovh.aloli.fr "lsblk -dno NAME,TYPE,SIZE"
+----
+
+Les serveurs OVH sont souvent en NVMe : attendu `nvme0n1  disk  500G`.
+Si deux disques (configuration RAID), la v1 de beryl n'en prend qu'un.
+
+=== 2.4 Bootstrap
+
+[source,sh]
+----
+./bin/beryl bootstrap test-ovh.aloli.fr --disk=/dev/nvme0n1
+----
+
+=== 2.5 Filet de sécurité
+
+Si le premier boot FreeBSD échoue (pas de SSH au bout de 20 min) :
+
+. Repasser en mode rescue OVH depuis le manager.
+. Rebooter.
+. Diagnostiquer via la console KVM OVH si nécessaire.
+. Recommencer le bootstrap (idempotent : `dd` écrase l'image).
+
+== 3. Test Scaleway Dedibox
+
+=== 3.1 Provisionner
+
+. Console Scaleway → *Dedibox* → nouvelle commande.
+. Installer le *rescue Ubuntu* : *Mon compte → Serveur → Rescue*.
+. Récupérer les credentials par mail.
+. `ssh-copy-id root@<IP>`.
+
+=== 3.2 Inventaire
+
+[source,yaml]
+----
+hosts:
+  test-scaleway.aloli.fr:
+    provider: scaleway
+----
+
+=== 3.3 Bootstrap
+
+[source,sh]
+----
+./bin/beryl bootstrap test-scaleway.aloli.fr --disk=/dev/sda
+----
+
+=== 3.4 Console
+
+En cas de problème, accéder à la console série Scaleway depuis le panneau
+de contrôle (KVM IPMI sur certaines gammes).
+
+== 4. Résolution des pannes
+
+=== Le bootstrap timeout en phase « attente SSH mfsBSD »
+
+Cause probable : l'image mfsBSD n'a pas démarré (BIOS/UEFI incompatible,
+disque incorrect, réseau DHCP muet).
+
+. Accéder à la console IPMI/KVM de l'hébergeur pour voir l'écran de boot.
+. Vérifier que le disque passé à `--disk` est bien le disque principal
+  amorçable (et non un disque secondaire).
+. Si l'hébergeur utilise Secure Boot, le désactiver dans le BIOS.
+
+=== Le bootstrap timeout en phase « attente SSH système installé »
+
+Cause probable : `bsdinstall` a échoué quelque part (pkgbase indisponible,
+ZFS en conflit, bootloader EFI mal posé).
+
+. Se reconnecter à mfsBSD manuellement :
++
+[source,sh]
+----
+ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@<IP>
+cat /tmp/beryl-install.log
+----
+. Lire le log d'installation pour diagnostiquer.
+. Corriger manuellement ou relancer le bootstrap.
+
+=== Réinitialiser complètement
+
+Côté OVH ou Scaleway, il suffit de repasser en mode rescue et de relancer
+`beryl bootstrap` : le `dd` écrase l'image existante.
+
+== 5. Résultats attendus pour la v0.1
+
+À l'issue du bootstrap, le serveur doit :
+
+* [ ] Démarrer automatiquement sur FreeBSD 15 sans intervention.
+* [ ] Répondre en SSH sur le port 22 avec votre clé.
+* [ ] Refuser `PermitRootLogin` avec mot de passe.
+* [ ] Avoir un pool ZFS `zroot` en ligne.
+* [ ] Avoir le hostname configuré.
+* [ ] Avoir DHCP sur l'interface principale (IPv4 et IPv6).
+
+Ce qui **n'est pas encore couvert** (Phase 2) :
+
+* Création d'utilisateurs non-root.
+* Durcissement SSH complet (profil Mozilla Modern).
+* Services applicatifs (nginx, PostgreSQL, etc.).
+* Alerting (dma, ntfy).
+
+Ces aspects seront ajoutés après validation du bootstrap sur les trois
+environnements (UTM, OVH, Scaleway) et leur retour d'expérience.

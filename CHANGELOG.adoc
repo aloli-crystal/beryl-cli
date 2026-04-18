@@ -11,6 +11,42 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 === Ajouté
 
-* Squelette initial du projet (shard.yml, LICENSE MIT, README bilingue).
-* Document d'architecture link:ARCHITECTURE.adoc[ARCHITECTURE.adoc] fixant les grandes décisions :
-  cible FreeBSD 15, pkgbase par défaut, SSH agentless, recettes YAML, conventions Mozilla Modern.
+==== Fondations du projet
+
+* Squelette initial (shard.yml, LICENSE MIT, README bilingue FR/EN).
+* Document d'architecture link:ARCHITECTURE.adoc[ARCHITECTURE.adoc] avec 9 ADR fondateurs :
+  FreeBSD 15 pkgbase, agentless SSH, bootstrap mfsBSD + dd,
+  recettes YAML composables, conventions Mozilla Modern, idempotence.
+* Convention Aloli : branche par défaut `production`, `development` après la première version.
+
+==== Phase 1 — Bootstrap Linux → mfsBSD → FreeBSD 15 (MVP)
+
+* `Beryl::SSH` : wrapper agentless autour des binaires `ssh` / `scp`
+  systèmes. Connection, Result, CommandFailed, insecure_bootstrap
+  (pour la bascule mfsBSD où la clé d'hôte change).
+* `Beryl::Inventory` : chargeur YAML d'hôtes avec defaults + overrides,
+  `find` / `find?`, construction de `SSH::Connection` depuis un `Host`.
+* `Beryl::Bootstrap::MfsBSD` : bascule un rescue Linux vers mfsBSD via
+  `dd` + reboot + attente SSH. Image par défaut : depenguin.me FreeBSD 15.
+* `Beryl::Bootstrap::Installer` : installe FreeBSD 15 en pkgbase sur
+  ZFS (partition EFI + swap + pool zroot). Script shell embarqué à
+  la compilation (macro `read_file`), clés SSH en base64.
+* `Beryl::CLI` : sous-commandes `list-hosts`, `show`, `bootstrap`, `version`.
+
+==== Tests et documentation
+
+* 28 specs Crystal (SSH, Inventory, Bootstrap) — tous verts.
+* link:TESTING.adoc[TESTING.adoc] : guide de test grandeur nature
+  (UTM local, OVH dédié, Scaleway Dedibox).
+* CI GitHub Actions : format Crystal + specs sur Linux et FreeBSD 15
+  via `cross-platform-actions/action`.
+
+=== Prochaines étapes (Phase 2, après retour des tests)
+
+* Ressources idempotentes : `pkg`, `service`, `sysrc`, `user`, `group`,
+  `file`, `directory`, `cmd`, `cron`, `sudoers`.
+* Ressources DB : `postgresql_role`, `postgresql_db`.
+* Durcissement : `sshd_hardening`, `nginx_tls_profile` (profils Mozilla Modern).
+* Alerting : `mail_relay` (dma → smarthost), `ntfy_topic` (push HTTP).
+* Moteur de recettes YAML (`Beryl::Recipe`) avec variables et inclusions.
+* Catalogue de recettes de référence.

@@ -76,7 +76,11 @@ beryl bootstrap web01.aloli.fr       # bascule Linux → FreeBSD
 
 == Statut
 
-Projet en phase initiale. Voir link:ARCHITECTURE.adoc[ARCHITECTURE.adoc] pour les décisions techniques et la feuille de route.
+Projet en phase initiale (v0.1 — bootstrap end-to-end fonctionnel, en attente de validation sur serveurs réels).
+
+* link:ARCHITECTURE.adoc[ARCHITECTURE.adoc] — décisions techniques et feuille de route.
+* link:TESTING.adoc[TESTING.adoc] — procédure de test local (UTM) et distant (OVH, Scaleway).
+* link:CHANGELOG.adoc[CHANGELOG.adoc] — historique des changements.
 
 == Licence
 

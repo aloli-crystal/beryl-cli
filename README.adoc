@@ -76,7 +76,11 @@ beryl bootstrap web01.aloli.fr       # switch Linux → FreeBSD
 
 == Status
 
-Early stage. See link:ARCHITECTURE.adoc[ARCHITECTURE.adoc] for technical decisions and roadmap.
+Early stage (v0.1 — end-to-end bootstrap working, awaiting validation on real servers).
+
+* link:ARCHITECTURE.adoc[ARCHITECTURE.adoc] — technical decisions and roadmap.
+* link:TESTING.adoc[TESTING.adoc] — local (UTM) and remote (OVH, Scaleway) testing procedure.
+* link:CHANGELOG.adoc[CHANGELOG.adoc] — changelog.
 
 == License
 
