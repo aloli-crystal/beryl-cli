@@ -52,20 +52,41 @@ if [ ! -f "$DISK_IMAGE" ]; then
   qemu-img create -f "$DISK_FORMAT" "$DISK_IMAGE" "${DISK_GB}G"
 fi
 
-# Localise le firmware UEFI fourni par QEMU sur macOS/Homebrew.
+# Localise le firmware UEFI (edk2) fourni par Homebrew/QEMU.
+# QEMU récent exige le chargement via `-drive if=pflash` (pas `-bios`) pour
+# le format split code + vars. Les "vars" persistent les paramètres NVRAM
+# de chaque VM : on en fait une copie propre par VM au premier lancement.
 firmware_args=""
 if [ "$FIRMWARE" = "uefi" ]; then
-  # brew installe les firmwares dans share/qemu.
-  OVMF=""
-  for candidate in \
-    "/opt/homebrew/share/qemu/edk2-x86_64-code.fd" \
-    "/usr/local/share/qemu/edk2-x86_64-code.fd" \
-    "/opt/homebrew/share/qemu/OVMF.fd" \
-    "/usr/local/share/qemu/OVMF.fd"; do
-    [ -f "$candidate" ] && OVMF="$candidate" && break
+  CODE=""
+  VARS_TEMPLATE=""
+  for prefix in "/opt/homebrew/share/qemu" "/usr/local/share/qemu"; do
+    case "$ARCH" in
+      x86_64|x86-64|amd64)
+        [ -f "$prefix/edk2-x86_64-code.fd" ] && CODE="$prefix/edk2-x86_64-code.fd"
+        [ -f "$prefix/edk2-i386-vars.fd" ] && VARS_TEMPLATE="$prefix/edk2-i386-vars.fd"
+        ;;
+      aarch64|arm64)
+        [ -f "$prefix/edk2-aarch64-code.fd" ] && CODE="$prefix/edk2-aarch64-code.fd"
+        [ -f "$prefix/edk2-arm-vars.fd" ] && VARS_TEMPLATE="$prefix/edk2-arm-vars.fd"
+        ;;
+    esac
+    [ -n "$CODE" ] && break
   done
-  [ -n "$OVMF" ] || { echo "erreur : firmware UEFI introuvable (OVMF/edk2)" >&2; exit 1; }
-  firmware_args="-bios $OVMF"
+  [ -n "$CODE" ] && [ -n "$VARS_TEMPLATE" ] || {
+    echo "erreur : firmware UEFI edk2 introuvable pour $ARCH" >&2
+    exit 1
+  }
+
+  VARS="$(dirname "$DISK_IMAGE")/${NAME}-vars.fd"
+  if [ ! -f "$VARS" ]; then
+    mkdir -p "$(dirname "$VARS")"
+    cp "$VARS_TEMPLATE" "$VARS"
+    echo "==> copie du template NVRAM UEFI : $VARS"
+  fi
+
+  firmware_args="-drive if=pflash,format=raw,unit=0,readonly=on,file=$CODE \
+                 -drive if=pflash,format=raw,unit=1,file=$VARS"
 fi
 
 # Display flag
