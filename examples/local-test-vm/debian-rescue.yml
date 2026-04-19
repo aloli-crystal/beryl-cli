@@ -42,5 +42,10 @@ network:
 # "serial" → sortie sur stdio (utile pour CI et debug).
 display: gui
 
-# Amorçage : `d` = cdrom, `c` = hdd. `dc` tente le cdrom puis le disque.
-boot_order: dc
+# Amorçage :
+#   cdrom-once : cdrom au 1ᵉʳ boot puis disque pour tous les reboots suivants
+#                (par défaut, parfait pour installer un OS : on boot le live
+#                la 1ʳᵉ fois, puis les reboots internes utilisent le disque).
+#   cdrom      : toujours booter le cdrom (rescue permanent).
+#   disk       : toujours booter le disque (OS déjà installé).
+boot_mode: cdrom-once

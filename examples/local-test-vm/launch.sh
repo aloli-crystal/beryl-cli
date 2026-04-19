@@ -35,7 +35,7 @@ DISK_IMAGE=$(expand_home "$(yq -r '.disk.image' "$CONFIG")")
 DISK_FORMAT=$(yq -r '.disk.format' "$CONFIG")
 SSH_PORT=$(yq -r '.network.ssh_port_forward' "$CONFIG")
 DISPLAY=$(yq -r '.display' "$CONFIG")
-BOOT=$(yq -r '.boot_order' "$CONFIG")
+BOOT_MODE=$(yq -r '.boot_mode' "$CONFIG")
 
 QEMU_BIN="qemu-system-${ARCH}"
 command -v "$QEMU_BIN" >/dev/null 2>&1 || {
@@ -97,6 +97,18 @@ case "$DISPLAY" in
   *)      display_args="-display cocoa" ;;
 esac
 
+# Boot mode — gère le piège classique où un reboot reboucle sur le cdrom.
+#   cdrom-once : cdrom au 1ᵉʳ boot de la session QEMU puis disque pour tous
+#                les reboots suivants (recommandé pour installer un OS).
+#   cdrom      : toujours booter le cdrom (live/rescue).
+#   disk       : toujours booter le disque (OS déjà installé).
+case "$BOOT_MODE" in
+  cdrom-once|"") boot_args="-boot once=d,order=c,menu=off" ;;
+  cdrom)         boot_args="-boot order=d,menu=off" ;;
+  disk)          boot_args="-boot order=c,menu=off" ;;
+  *)             echo "erreur : boot_mode inconnu : $BOOT_MODE" >&2; exit 1 ;;
+esac
+
 echo "==> démarrage de la VM $NAME ($ARCH, ${RAM} Mo, ${CPUS} vCPU)"
 echo "==> SSH : ssh -p $SSH_PORT root@localhost"
 echo "==> arrêt : fermer la fenêtre QEMU ou Ctrl+A X (si serial)"
@@ -109,7 +121,7 @@ exec "$QEMU_BIN" \
   $firmware_args \
   -drive "file=$DISK_IMAGE,format=$DISK_FORMAT,if=virtio" \
   -cdrom "$ISO" \
-  -boot "order=$BOOT" \
+  $boot_args \
   -netdev "user,id=net0,hostfwd=tcp::${SSH_PORT}-:22" \
   -device "virtio-net-pci,netdev=net0" \
   $display_args
