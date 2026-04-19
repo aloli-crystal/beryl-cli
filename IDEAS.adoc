@@ -266,6 +266,147 @@ supérieur. À instruire quand la voie (A) montrera ses limites.
 * *mfsBSD* : le même outillage de remastering s'applique à mfsBSD avant
   le `dd` — exactement ce que fait depenguin.me.
 
+== Bootstrap UEFI-compatible — pivot post-ADR-010
+
+=== Contexte
+
+link:ARCHITECTURE.adoc[ADR-010] a invalidé le flux « dd mfsBSD ISO +
+reboot » sur les dédiés UEFI-only (cas majoritaire OVH/Scaleway/Hetzner
+en 2026). Cette section compare les deux pistes viables pour le pivot
+de l'architecture `Beryl::Bootstrap::*`.
+
+=== Piste A — QEMU-in-rescue (pattern depenguin.me)
+
+*Principe.* Ne pas booter mfsBSD sur le métal. L'exécuter en machine
+virtuelle *depuis le rescue Linux*, avec le disque physique en
+passthrough. Lancer `bsdinstall` à l'intérieur du QEMU qui écrit un
+FreeBSD nativement UEFI-bootable sur le disque. À l'arrêt du QEMU,
+rebooter le métal : UEFI trouve une ESP + `loader.efi` FreeBSD normal.
+
+*Flux beryl.*
+
+. `apt install -y qemu-system-x86 ovmf` dans le rescue Linux (ou
+  equivalent de la distro).
+. Téléchargement mfsBSD ISO + vérification empreinte.
+. Lancement QEMU : `-machine q35 -bios OVMF.fd -drive file=/dev/nvme0n1,format=raw,if=virtio -cdrom mfsbsd.iso -netdev user,hostfwd=tcp::2222-:22`.
+. Attente SSH dans le QEMU (ligne de vie via user-mode networking).
+. Upload + exécution de notre `installerconfig` / `install-pkgbase.sh`
+  à l'intérieur du QEMU.
+. bsdinstall écrit FreeBSD sur le disque réel (vu comme `/dev/vda`
+  dans le QEMU).
+. Shutdown QEMU propre (poweroff depuis la VM).
+. `reboot -f` du métal.
+. Attente SSH sur le FreeBSD fraîchement posé.
+
+*Avantages.*
+
+* Pattern éprouvé (depenguin.me tourne ainsi depuis 2022).
+* QEMU fournit son propre firmware (OVMF) donc UEFI en VM,
+  indépendant du firmware bare metal.
+* `bsdinstall` fait le travail standard FreeBSD : partitionnement
+  UEFI-compatible, `loader.efi`, rc.conf, etc.
+
+*Inconvénients.*
+
+* Couche QEMU lourde : ~50 Mo d'install dans le rescue, RAM partagée
+  entre rescue Linux et VM mfsBSD (4 Go minimum conseillé).
+* Dépendances hôte : `qemu-system-x86`, `ovmf`. Certains rescues
+  minimaux (notamment Hetzner netboot) n'ont pas `apt` fonctionnel par
+  défaut — il faut prévoir un fallback.
+* Orchestration à deux étages : beryl côté poste local pilote le rescue
+  Linux, qui pilote mfsBSD dans QEMU. Trois cercles de SSH à gérer,
+  avec un changement de clé d'hôte entre mfsBSD et FreeBSD final.
+* Temps d'install plus long : lancement QEMU + boot mfsBSD dans la VM
+  (~1 min) avant bsdinstall.
+
+=== Piste B — FreeBSD memstick hybride + `installerconfig` embarqué
+
+*Principe.* Utiliser l'image officielle
+`FreeBSD-15.0-RELEASE-amd64-memstick.img`, qui est une **image disque
+hybride** (MBR + GPT + ESP + UFS + installateur) déjà UEFI-bootable
+nativement. Remasteriser l'image côté rescue pour y injecter un
+`/etc/installerconfig` qui scripte l'install (pkgbase, hostname, clé
+SSH root). `dd` l'image remasterisée sur le disque, reboot : UEFI
+amorce directement FreeBSD-installer, qui lit installerconfig, fait
+l'install non interactive, puis reboote sur FreeBSD final.
+
+*Flux beryl.*
+
+. Téléchargement memstick officiel + vérification empreinte.
+. Montage en loopback de l'image (read-only UFS, Linux le lit avec
+  `ufstype=ufs2`).
+. Copie du contenu vers un working dir dans le rescue.
+. Ajout de `/etc/installerconfig` généré par beryl (partitionnement
+  ZFS, liste de paquets pkgbase, hostname, authorized_keys root).
+. Regénération d'une image UFS avec `makefs -t ffs` (provient de
+  `freebsd-buildutils` ou compilé depuis `src/usr.sbin/makefs` de
+  FreeBSD).
+. Reconstruction des entêtes GPT + ESP autour du nouveau UFS (peut
+  se faire en Crystal pur via `crystal-silex` étendu ou à la main
+  avec `sgdisk` + `mkfs.vfat`).
+. `dd` sur le disque, `reboot -f`.
+. Attente SSH sur le FreeBSD installé.
+
+*Avantages.*
+
+* Une seule image, un seul boot : pas de couche QEMU, pas de double
+  passage rescue → mfsBSD → FreeBSD.
+* Architecture beryl simplifiée : `Bootstrap::MfsBSD` et
+  `Bootstrap::Installer` fusionnent en un `Bootstrap::Memstick`.
+* Image officielle FreeBSD, signée, distribuée sur tous les miroirs.
+  Pas de dépendance à un projet tiers (depenguin.me).
+
+*Inconvénients.*
+
+* **Remastering UFS depuis Linux non trivial.** Le kernel Linux lit
+  UFS mais écrit difficilement (support en lecture stable, écriture
+  expérimentale). Il faut passer par `makefs` qui est un binaire BSD —
+  cross-compilable pour Linux mais pas packagé dans Debian/Ubuntu.
+  Alternatives :
+** Fournir un binaire `makefs` statique pré-compilé dans un futur
+   shard `crystal-ufs-tools` (autonomie mais maintien du binaire).
+** Utiliser `mtools` + un contournement : `mtools` sait manipuler
+   FAT uniquement. Pas applicable.
+** Extraire les fichiers de l'image, modifier, et `dd` l'image intacte
+   puis écraser le fichier `installerconfig` à l'offset où il se
+   trouve dans l'image. Hack ingénieux mais fragile (UFS avec
+   journaling peut déplacer les blocs).
+* Dépendance à `installerconfig` : bien documenté mais rare à
+  automatiser en dehors des environnements cloud/Vagrant.
+
+=== Questions ouvertes à trancher lors de la refonte
+
+* Quelle piste valider en premier ? Plutôt *A* (plus rapide à
+  prototyper, pattern éprouvé) avant de tenter *B* (plus élégant à
+  long terme mais remastering UFS à résoudre).
+* Peut-on faire un **fallback BIOS Legacy** pour les quelques serveurs
+  encore en mode Legacy (ancien Kimsufi, VM QEMU locales) ? Oui, l'ADR
+  actuel marche encore pour ces cas — conserver le code existant en
+  chemin secondaire activable via `--legacy-bios`.
+* Est-ce qu'on **pousse** la piste A vers un shard dédié
+  `crystal-qemu-orchestrator` si le patron se réutilise ailleurs
+  (tests locaux, CI FreeBSD custom, etc.) ?
+* Pour la piste B, y a-t-il une **piste C** (serveur HTTP beryl qui
+  sert l'installerconfig, boot loader FreeBSD configuré pour
+  fetch) qui éviterait le remastering UFS ? À creuser — le loader
+  FreeBSD a des variables `installerconfig_url` théoriquement
+  fetchables.
+
+=== Recommandation immédiate
+
+Piste **A (QEMU-in-rescue)** pour le premier pivot, parce que :
+
+. Elle repose sur un pattern validé en production depuis 3+ ans (depenguin.me).
+. Elle peut être prototypée manuellement dans le rescue lors du prochain
+  test — on valide le concept avant de l'automatiser dans beryl.
+. Les dépendances (`qemu-system-x86`, `ovmf`) sont dans les dépôts
+  standards Debian/Ubuntu/Alma — `apt install` suffit dans la majorité
+  des rescues.
+
+Piste **B** reste la cible long terme pour simplifier l'architecture
+quand le remastering UFS sera outillé proprement (shard Crystal ou
+binaire statique embarqué dans beryl, cf. principe d'autonomie).
+
 == Provisioning via API hébergeur (OVH, Scaleway)
 
 === Idée

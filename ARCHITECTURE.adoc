@@ -163,6 +163,47 @@ de bord. Une ressource expose un contrat en trois parties :
 
 Le mode `--check` exécute seulement le premier étage (dry-run global).
 
+=== ADR-010 — L'ISO mfsBSD n'est pas UEFI-bootable en dd direct (Accepted)
+
+*Contexte.* Test grandeur nature du 19 avril 2026 sur un serveur dédié
+OVH (Kimsufi, UEFI-only). Le flux `beryl bootstrap` :
+
+. Écrit `mfsbsd-15.0-RELEASE-amd64.iso` (depenguin.me) via `dd` sur le disque.
+. Déclenche `reboot -f`.
+. Attend mfsBSD sur SSH.
+
+Résultat : la machine retombe dans le chargeur PXE puis le BIOS. FreeBSD
+ne boote jamais.
+
+*Diagnostic* (via inspection de l'image depenguin.me) :
+
+* L'ISO est un **ISO 9660 pur** : 512 premiers octets = zéros (pas de MBR),
+  LBA 1 = zéros (pas de GPT).
+* Elle contient bien `/BOOT/BOOTX64.EFI` en interne, mais n'est accessible
+  que via El Torito (lecture CD-ROM), ce que ne fait pas une UEFI
+  firmware quand elle scanne un disque.
+* Sur les dédiés OVH/Scaleway modernes (UEFI-only, pas de Legacy BIOS),
+  le disque ainsi `dd`-é n'offre rien à amorcer.
+
+*Décision.* L'architecture actuelle ADR-003 (mfsBSD en RAM via `dd`
++ reboot) est **invalidée** pour les serveurs UEFI-only. Elle reste
+théoriquement utilisable sur des machines BIOS Legacy, mais ce cas est
+marginal en 2026 sur les gammes OVH / Scaleway / Hetzner.
+
+*Conséquences.*
+
+* `Beryl::Bootstrap::MfsBSD` et `Beryl::Bootstrap::Installer` doivent
+  être remplacés par une architecture UEFI-compatible.
+* Deux pistes évaluées dans link:IDEAS.adoc[IDEAS.adoc] § « Bootstrap
+  UEFI-compatible » : QEMU-in-rescue (pattern depenguin.me) ou memstick
+  hybride + `installerconfig` (pattern FreeBSD officiel).
+* La branche `production` reste à sa version actuelle : le code
+  fonctionne logiquement et peut servir de base à la refonte. Les
+  prochains commits rebranchent simplement le flux sur la bonne
+  mécanique d'amorçage.
+* Première validation end-to-end de Phase 1 décalée au prochain test
+  grandeur nature, sur une base propre.
+
 === ADR-009 — Licence et dépôt (Accepted)
 
 * Licence : *MIT*, conforme à la convention des shards Crystal.
