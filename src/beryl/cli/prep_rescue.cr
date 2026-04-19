@@ -39,6 +39,13 @@ module Beryl::CLI::PrepRescue
   chmod 600 /root/.ssh/authorized_keys
   sort -u /root/.ssh/authorized_keys -o /root/.ssh/authorized_keys
 
+  # Ne garde que la clé d'hôte ED25519. Évite de polluer known_hosts côté
+  # opérateur avec trois entrées par VM (RSA, ECDSA, ED25519) à purger à
+  # chaque recréation. Aligné sur Mozilla Modern OpenSSH.
+  echo "==> [beryl prep-rescue] retire les clés d'hôte RSA/ECDSA"
+  rm -f /etc/ssh/ssh_host_rsa_key /etc/ssh/ssh_host_rsa_key.pub
+  rm -f /etc/ssh/ssh_host_ecdsa_key /etc/ssh/ssh_host_ecdsa_key.pub
+
   systemctl enable --now ssh
 
   echo "==> [beryl prep-rescue] terminé. beryl bootstrap peut maintenant se connecter."
