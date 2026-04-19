@@ -1,0 +1,267 @@
+= beryl — Idées et pistes d'évolution
+:toc: left
+:toc-title: Table des matières
+:toclevels: 3
+:source-highlighter: rouge
+:icons: font
+
+Ce document rassemble les *intentions*, *esquisses* et *questions ouvertes*
+pour beryl. Contrairement à link:ARCHITECTURE.adoc[ARCHITECTURE.adoc] qui
+fige les décisions (ADR « Accepted »), ce fichier est volontairement
+spéculatif : chaque section décrit une piste à instruire avant de la
+graver comme ADR.
+
+[NOTE]
+====
+Les idées ici ne sont pas encore planifiées. Quand l'une d'elles est
+validée et devient une tâche concrète, elle migre vers un ADR dans
+ARCHITECTURE.adoc et vers la feuille de route du CHANGELOG.
+====
+
+== Groupes de serveurs
+
+=== Idée
+
+Permettre de regrouper les hôtes de l'inventaire par *groupe*, où chaque
+groupe partage la même installation : mêmes recettes appliquées, mêmes
+variables de base, possiblement même hébergeur. Un hôte est alors
+*installé à la façon de son groupe*.
+
+=== Pourquoi
+
+À 50 serveurs, la plupart ne sont pas uniques : on a typiquement des
+rôles récurrents (`web-front`, `db-primary`, `worker`, `proxy`, etc.).
+Recopier la même liste de recettes sur chaque hôte crée de la redondance
+et dérive facilement (on oublie de mettre à jour un hôte sur dix).
+
+Le groupe comme *unité d'installation* simplifie aussi le diff mental :
+« ce qui change entre deux hôtes du même groupe doit être une exception
+documentée, pas un oubli ».
+
+=== Esquisse YAML
+
+[source,yaml]
+----
+# Sections de groupe déclarées au niveau racine de inventory.yml.
+groups:
+  web-front:
+    provider: ovh
+    recipes:
+      - core-system
+      - nginx-crystal-deploy
+      - sshd-hardening
+    variables:
+      timezone: Europe/Paris
+      nginx_profile: mozilla-modern
+
+  db-primary:
+    provider: ovh
+    recipes:
+      - core-system
+      - postgresql-primary
+    variables:
+      postgres_version: "17"
+      data_on_home: true
+
+hosts:
+  web01.aloli.fr:
+    group: web-front
+
+  web02.aloli.fr:
+    group: web-front
+    port: 2222 # override ponctuel, reste dans web-front
+
+  db01.aloli.fr:
+    group: db-primary
+----
+
+=== Questions ouvertes à trancher
+
+* *Héritage et override.* Priorité de résolution `host > group > defaults`,
+  comme pour les champs actuels (`user`, `port`, etc.) ? C'est le plus
+  cohérent avec l'existant.
+* *Multi-groupes.* Un hôte peut-il appartenir à *plusieurs* groupes
+  (`group: [web-front, monitoring-client]`) ? Utile pour composer des
+  rôles mais complique la résolution des conflits.
+* *Héritage entre groupes.* Un groupe `all` comme base implicite,
+  puis `web-front` qui en étend les recettes ? Ou interdire l'héritage
+  entre groupes pour rester simple ?
+* *Impact CLI.*
+** `beryl apply web01.aloli.fr` : applique les recettes effectives
+   (groupe + overrides).
+** `beryl apply --group web-front` : applique sur tous les hôtes du
+   groupe en parallèle.
+** `beryl list-hosts --group web-front` : filtre par groupe.
+* *Variables fusionnées vs scalaires.* Si le groupe a
+  `variables.nginx_upstreams: [a, b]` et l'hôte définit
+  `variables.nginx_upstreams: [c]`, est-ce override (remplacement) ou
+  fusion ? Probablement override, avec une syntaxe `!merge` ou `+=` si
+  fusion explicite souhaitée. Trancher.
+* *Validation.* Refuser un inventaire qui référence un groupe inexistant
+  (`group: web-fornt` typo) pour éviter un silencieux « aucune recette ».
+
+=== Impact sur les structures Crystal existantes
+
+Dans l'état actuel de `Beryl::Inventory` :
+
+* `Host` récupère aujourd'hui ses recettes directement depuis sa section
+  YAML. Il faudra introduire une résolution à deux étages : lookup du
+  groupe, fusion avec les overrides de l'hôte.
+* Ajouter une classe `Group` symétrique de `Host` (provider, recipes,
+  variables).
+* Méthode `Inventory#resolve(host_name)` qui renvoie un `Host` effectif
+  avec toutes les variables/recettes résolues (sans mutation de
+  l'original).
+
+== Cible d'installation multi-OS (pas uniquement FreeBSD)
+
+=== Idée
+
+L'installation actuelle est verrouillée sur FreeBSD 15 en pkgbase (ADR-001).
+À terme, beryl doit pouvoir provisionner *d'autres systèmes d'exploitation*
+avec la même mécanique (rescue → bascule → installation → configuration).
+
+Cibles envisageables :
+
+* *Linux* : Debian, Ubuntu, Alpine, Rocky/AlmaLinux, NixOS.
+* *BSD* : OpenBSD, NetBSD en plus de FreeBSD.
+* *Illumos* : OmniOS, SmartOS pour les amateurs.
+
+=== Pourquoi
+
+* Les 50 serveurs cibles actuels sont tous FreeBSD, mais l'écosystème
+  beryl (architecture agentless SSH, recettes YAML, conventions Mozilla
+  Modern) est par nature générique.
+* Beaucoup d'opérateurs voudront un seul outil pour leur parc hétérogène.
+* Reste pertinent face à Chef/Puppet/Ansible qui gèrent tous plusieurs OS.
+
+=== Esquisse
+
+Dans l'inventaire, chaque groupe (ou hôte) déclare son *target_os* :
+
+[source,yaml]
+----
+groups:
+  web-front:
+    target_os: freebsd-15
+    recipes: [core-system, nginx-crystal-deploy]
+
+  worker-linux:
+    target_os: debian-13
+    recipes: [core-system, nginx, docker]
+
+  edge:
+    target_os: openbsd-7.6
+    recipes: [core-system, pf-firewall]
+----
+
+Chaque `target_os` implique :
+
+* Une *stratégie de bootstrap* dédiée (mfsBSD pour FreeBSD, debootstrap
+  ou ISO live pour Debian, ramdisk OpenBSD, etc.).
+* Un *installeur* spécifique (pkgbase pour FreeBSD, debootstrap + chroot
+  pour Debian, auto_install pour OpenBSD, etc.).
+* Un *catalogue de ressources* adapté (`pkg` FreeBSD vs `apt` Debian vs
+  `pkg_add` OpenBSD).
+
+=== Questions ouvertes à trancher
+
+* *Architecture du code.* Interface `Bootstrapper` et `Installer`
+  abstraite, implémentations concrètes par OS. Un dossier `bootstrap/`
+  contiendrait `freebsd/`, `debian/`, `openbsd/`, etc.
+* *Abstraction des ressources.* Une ressource `pkg` cross-OS qui délègue
+  à `pkg`/`apt`/`pkg_add` selon le `target_os` ? Ou des ressources
+  distinctes `pkg_freebsd`, `pkg_debian`, etc. ? Pencher vers la
+  première (abstraction) pour que les recettes restent portables.
+* *Gestion des différences fondamentales.* FreeBSD a ZFS natif, rc.d,
+  jails ; Debian a systemd, LVM, containers ; OpenBSD a rcctl, pf.
+  Comment exprimer ces différences dans les recettes ? Variantes de
+  recettes par OS ? Blocs conditionnels `when_os:` ?
+* *Bootstrap mfsBSD réutilisable.* Voir la section suivante
+  « Génération d'ISO préprovisionnées ».
+* *Priorité.* Tant que FreeBSD n'est pas *complètement* éprouvé (Phase 2
+  terminée, 50 serveurs en production), ne pas disperser l'effort sur
+  d'autres OS. Ouvrir le chantier multi-OS après v1.0 stable.
+
+=== Impact sur les ADR existants
+
+ADR-001 (FreeBSD 15 en pkgbase) deviendrait : « OS par défaut : FreeBSD 15,
+avec architecture ouverte pour d'autres cibles via `target_os:` ». À
+re-documenter le moment venu, en parallèle d'un nouvel ADR décrivant
+l'architecture de l'abstraction multi-OS.
+
+== Génération d'ISO préprovisionnées
+
+=== Idée
+
+Produire une ISO *self-contained* qui, une fois bootée, a déjà la clé SSH
+dans `/root/.ssh/authorized_keys` et sshd démarré. Plus rien à taper
+dans la fenêtre QEMU ni dans la console KVM distante — on boote, on se
+connecte en SSH, c'est prêt.
+
+C'est le même pattern que `depenguin.me` applique à mfsBSD : partir
+d'une ISO officielle, y injecter les clés de l'opérateur, servir l'ISO
+custom. beryl ferait de même pour Linux (et éventuellement reprendrait
+ce mécanisme pour mfsBSD afin de fermer la boucle du bootstrap).
+
+=== Deux voies techniques
+
+==== (A) Seed cloud-init
+
+Laisse l'ISO principale intacte. Génère à côté une *toute petite* ISO
+(~5 Ko) qui contient :
+
+* `meta-data` : identifiants de l'instance
+* `user-data` : configuration cloud-init (installer openssh, injecter la clé)
+
+QEMU attache les *deux* ISO en cdrom. Cloud-init, présent par défaut
+dans Ubuntu Server live et les images cloud Debian, lit automatiquement
+la seconde ISO au boot et applique la configuration.
+
+*Avantages* : simple, outil nécessaire minime (`xorriso` ou
+`cloud-localds`), ISO principale inchangée (mises à jour Debian faciles).
+
+*Limite* : nécessite un OS cible avec cloud-init actif. Les ISO Debian
+live « standard » ne l'ont pas toujours.
+
+==== (B) ISO remastérisée
+
+Modifie l'ISO principale elle-même : extraction, modification du
+squashfs/initrd pour y ajouter la clé et un script de démarrage sshd,
+recompilation.
+
+*Avantages* : fonctionne même sans cloud-init. Résultat : une seule
+ISO, bootable telle quelle partout (même un rescue distant où on
+uploade un fichier unique).
+
+*Inconvénients* : chaîne d'outils plus lourde (`xorriso`,
+`squashfs-tools`, parfois `mkinitramfs`). Rebuild de quelques minutes
+à chaque nouvelle clé ou changement de script.
+
+=== Piste à privilégier
+
+Pour démarrer : *voie (A)* avec Ubuntu Server live (déjà cloud-init).
+Nouvelle sous-commande :
+
+[source,sh]
+----
+beryl bake-seed --pubkey ~/.ssh/id_ed25519.pub --output ~/vms/seed.iso
+----
+
+Extension de `launch.sh` : si le YAML VM contient un champ `seed_iso:`,
+QEMU attache un second cdrom.
+
+La voie (B) reste pertinente pour produire un « beryl-rescue-debian.iso »
+utilisable *sans* cloud-init (typiquement un rescue bas niveau), mais
+son coût d'implémentation (unsquashfs/resquashfs + tests) est bien
+supérieur. À instruire quand la voie (A) montrera ses limites.
+
+=== Cas d'usage
+
+* *Local UTM/QEMU* : `bake-seed` + attache du seed.iso → VM prête sans
+  `prep-rescue`.
+* *Rescue hébergeur* : si l'hébergeur autorise l'upload d'une ISO custom
+  (Hetzner oui, OVH plutôt non), l'ISO remastérisée (B) devient utile.
+  Sinon `prep-rescue` reste pertinent.
+* *mfsBSD* : le même outillage de remastering s'applique à mfsBSD avant
+  le `dd` — exactement ce que fait depenguin.me.
