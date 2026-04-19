@@ -77,8 +77,18 @@ module Beryl::Bootstrap
     end
 
     private def trigger_reboot : Nil
+      # Après le `dd`, le disque contient mfsBSD mais le Linux courant tourne
+      # encore en mémoire. Un `reboot` systemd peut vouloir lire `/etc` ou
+      # déclencher des units → disque incohérent → échec. `reboot -f` court-
+      # circuite systemd et redémarre directement via l'appel kernel.
+      # Le fallback `echo b > /proc/sysrq-trigger` est la voie la plus
+      # agressive si `reboot -f` échoue (kernel panic contrôlé).
+      #
       # La connexion SSH meurt pendant le reboot, donc on ignore l'exit code.
-      @rescue_conn.exec("reboot", raise_on_error: false)
+      @rescue_conn.exec(
+        "sync && (reboot -f 2>/dev/null || echo b > /proc/sysrq-trigger)",
+        raise_on_error: false,
+      )
       sleep REBOOT_GRACE_PERIOD
     end
 
