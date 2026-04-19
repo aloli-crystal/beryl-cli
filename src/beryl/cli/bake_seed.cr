@@ -2,13 +2,15 @@ require "option_parser"
 require "silex"
 
 module Beryl::CLI::BakeSeed
-  DEFAULT_OUTPUT   = "~/vms/seed.img"
+  # Par défaut, le seed est écrit dans `tmp/` à la racine du projet beryl
+  # (hors git). Le répertoire est créé à la demande. Override via --output.
+  DEFAULT_OUTPUT   = "tmp/seed.img"
   DEFAULT_PUBKEY   = "~/.ssh/id_ed25519.pub"
   DEFAULT_HOSTNAME = "beryl-test-vm"
   DEFAULT_SIZE_KB  = 128
 
   def self.run(args : Array(String)) : Int32
-    output_path = File.expand_path(DEFAULT_OUTPUT, home: true)
+    output_path = File.expand_path(DEFAULT_OUTPUT)
     pubkey_path = File.expand_path(DEFAULT_PUBKEY, home: true)
     hostname = DEFAULT_HOSTNAME
     size_kb = DEFAULT_SIZE_KB

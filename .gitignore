@@ -1,6 +1,7 @@
 /bin/
 /.shards/
 /lib/
+/tmp/
 *.dwarf
 
 # Le global gitignore utilisateur exclut `bootstrap` (typique front-end Bootstrap).

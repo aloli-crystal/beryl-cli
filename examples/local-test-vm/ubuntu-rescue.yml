@@ -35,10 +35,15 @@ display: gui
 boot_mode: cdrom-once
 
 # Seed cloud-init (optionnel) : si présent, est attaché comme 2ᵉ cdrom.
-# Ubuntu Server live a cloud-init actif et le détecte automatiquement via
-# le label CIDATA. Résultat : SSH configuré avec votre clé au premier
-# boot, sans `beryl prep-rescue`.
+# Pointe vers le chemin par défaut de `beryl bake-seed` (= tmp/seed.img
+# à la racine du projet beryl, non suivi par git).
 #
 # Générez-le (une seule fois, ou à chaque changement de clé) avec :
-#   beryl bake-seed --output ~/vms/seed.img
-seed_iso: ~/vms/seed.img
+#   beryl bake-seed
+#
+# ATTENTION : cette ISO est une ISO d'installation Ubuntu (subiquity),
+# pas un live minimaliste. Elle posera plusieurs questions à l'écran.
+# Le seed cloud-init n'est pas idéal ici : envisagez l'approche « image
+# cloud » (qcow2 directement bootable) plutôt que l'ISO live-server.
+# Voir IDEAS.adoc § « Génération d'ISO préprovisionnées ».
+seed_iso: tmp/seed.img
