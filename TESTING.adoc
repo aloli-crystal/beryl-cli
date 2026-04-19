@@ -129,17 +129,79 @@ Attendu :
 
 === 2.1 Provisionner un serveur
 
-. Louer un serveur dédié OVH (Kimsufi, So you Start ou OVHcloud).
+Deux chemins possibles, selon l'état actuel du serveur :
+
+==== 2.1.a Debian/Ubuntu déjà installé via l'installateur OVH
+
+Si vous (ou un précédent opérateur) avez installé Debian ou Ubuntu
+depuis le manager OVH et que votre clé SSH publique était déclarée
+sur votre compte OVH au moment du provisioning, elle est **déjà
+présente** dans `/root/.ssh/authorized_keys` — vous pouvez vous
+connecter directement :
+
+[source,sh]
+----
+ssh root@<IP> uname -a
+----
+
+Dans ce cas `beryl prep-rescue` n'est **pas utile** (la clé est déjà
+posée). Passez directement à la section « Inventaire » ci-dessous.
+
+[IMPORTANT]
+====
+**Vérifiez quelle clé est posée côté serveur** et utilisez *la même*
+localement. Si votre `~/.ssh/id_ed25519` local ne correspond pas à la
+clé déclarée sur le compte OVH au moment du provisioning, la connexion
+échouera malgré tout.
+
+Côté serveur :
+
+[source,sh]
+----
+ssh root@<IP> "cat /root/.ssh/authorized_keys"
+----
+
+Côté poste local :
+
+[source,sh]
+----
+for p in ~/.ssh/*.pub; do
+  echo "=== $p ==="; cat "$p"
+done
+----
+
+Si la clé attendue n'est pas `~/.ssh/id_ed25519`, précisez-la dans
+votre inventaire (`identity_file:`) ou dans `~/.ssh/config`.
+====
+
+[NOTE]
+====
+En théorie seulement : OVH n'installe la clé que si elle était
+associée à votre compte *au moment de l'installation*. Si vous l'avez
+ajoutée après coup, ou si l'image utilisée ne supporte pas cloud-init,
+il faut la poser manuellement via `beryl prep-rescue` ou `ssh-copy-id`.
+====
+
+==== 2.1.b Mode rescue OVH (serveur sans clé accessible)
+
+Si aucun SSH ne répond (serveur neuf, reinstallation en cours, etc.) :
+
 . Depuis le manager OVH, activer le mode rescue :
   * Menu *Serveur dédié → Netboot → Rescue (rescue64-pro)*.
   * Redémarrer le serveur.
 
 . OVH envoie par mail les credentials (IP + mot de passe root temporaire).
-. Déposer votre clé publique :
+. Déposer votre clé publique — deux méthodes :
 +
 [source,sh]
 ----
+# Méthode 1 : ssh-copy-id classique (votre poste doit pouvoir atteindre <IP>)
 ssh-copy-id root@<IP>        # entrer le mot de passe reçu
+
+# Méthode 2 : beryl prep-rescue (utile si le copier-coller est bloqué
+# sur un accès console/KVM hors-bande, voir section test local UTM).
+./bin/beryl prep-rescue --bind 0.0.0.0
+# puis, dans le rescue : curl -fL http://<IP_poste>:8080/s | sh
 ----
 
 === 2.2 Inventaire
@@ -183,10 +245,41 @@ Si le premier boot FreeBSD échoue (pas de SSH au bout de 20 min) :
 
 === 3.1 Provisionner
 
-. Console Scaleway → *Dedibox* → nouvelle commande.
-. Installer le *rescue Ubuntu* : *Mon compte → Serveur → Rescue*.
+Comme pour OVH (section 2.1), deux chemins :
+
+==== 3.1.a Ubuntu/Debian déjà installé via l'installateur Scaleway
+
+Si un OS a été installé depuis la console Scaleway avec votre clé SSH
+publique déclarée sur le compte, elle est **déjà** dans
+`/root/.ssh/authorized_keys`. `beryl prep-rescue` n'est alors **pas
+utile**. Vérifiez :
+
+[source,sh]
+----
+ssh root@<IP> uname -a
+----
+
+Attention (comme pour OVH) à utiliser la *même* clé localement que
+celle posée sur le serveur — sinon la connexion échouera malgré tout
+(voir la section 2.1.a « IMPORTANT » pour la procédure de vérification
+côté serveur et côté poste local).
+
+==== 3.1.b Mode rescue Scaleway
+
+. Console Scaleway → *Mon compte → Serveur → Rescue*.
+. Choisir le rescue Ubuntu, rebooter.
 . Récupérer les credentials par mail.
-. `ssh-copy-id root@<IP>`.
+. Déposer votre clé publique avec l'une des deux méthodes :
++
+[source,sh]
+----
+# classique :
+ssh-copy-id root@<IP>
+
+# ou, si copier-coller bloqué côté console :
+./bin/beryl prep-rescue --bind 0.0.0.0
+# dans le rescue : curl -fL http://<IP_poste>:8080/s | sh
+----
 
 === 3.2 Inventaire
 
