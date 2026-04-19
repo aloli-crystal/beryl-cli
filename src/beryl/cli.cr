@@ -146,7 +146,7 @@ module Beryl::CLI
 
   private def self.cmd_bootstrap(inventory_path : String, args : Array(String)) : Int32
     target_disk = nil
-    image_url = Beryl::Bootstrap::MfsBSD::DEFAULT_IMAGE_URL
+    image_url_override : String? = nil
     authorized_keys_file = File.expand_path("~/.ssh/authorized_keys", home: true)
     hostname_override = nil
     pool_name = "zroot"
@@ -158,7 +158,7 @@ module Beryl::CLI
     parser = OptionParser.new do |p|
       p.banner = "USAGE : beryl bootstrap <host> --disk PATH [options]"
       p.on("--disk=PATH", "Disque cible sur l'hôte (REQUIS, ex. /dev/sda, /dev/nvme0n1)") { |v| target_disk = v }
-      p.on("--image=URL", "URL de l'image mfsBSD (défaut : #{Beryl::Bootstrap::MfsBSD::DEFAULT_IMAGE_URL})") { |v| image_url = v }
+      p.on("--image=URL", "URL de l'image mfsBSD (priorité : --image > inventaire > défaut)") { |v| image_url_override = v }
       p.on("--authorized-keys=FILE", "Fichier local contenant les clés SSH (défaut : ~/.ssh/authorized_keys)") { |v| authorized_keys_file = v }
       p.on("--hostname=NAME", "Hostname à configurer (défaut : nom dans l'inventaire)") { |v| hostname_override = v }
       p.on("--pool=NAME", "Nom du pool ZFS (défaut : zroot)") { |v| pool_name = v }
@@ -200,10 +200,30 @@ module Beryl::CLI
 
     override_snapshot = hostname_override
     hostname = override_snapshot.nil? ? host.name : override_snapshot
+
+    # Priorité de l'URL de l'image mfsBSD :
+    #   1. --image passé au CLI
+    #   2. defaults.bootstrap.mfsbsd_image_url dans inventory.yml
+    #   3. constante de dernier recours MfsBSD::DEFAULT_IMAGE_URL (dépannage hors connexion).
+    image_url = image_url_override ||
+                inv.bootstrap_defaults.mfsbsd_image_url ||
+                Beryl::Bootstrap::MfsBSD::DEFAULT_IMAGE_URL
+
     STDERR.puts "[beryl] bootstrap de #{host_name} (hostname cible : #{hostname}, disque : #{disk})"
     STDERR.puts "[beryl] #{keys.size} clé(s) SSH chargée(s) depuis #{authorized_keys_file}"
+    STDERR.puts "[beryl] image mfsBSD : #{image_url}"
 
-    rescue_conn = host.connection
+    # Connexion SSH au rescue : la clé d'hôte n'est probablement pas encore
+    # connue (machine fraîche ou reprovisionnée) et va de toute façon changer
+    # après la bascule mfsBSD. On accepte la première clé puis on la retient
+    # (accept-new protège contre le MITM après la première connexion).
+    rescue_conn = Beryl::SSH::Connection.new(
+      host: host.name,
+      user: host.user,
+      port: host.port,
+      identity_file: host.identity_file,
+      options: {"StrictHostKeyChecking" => "accept-new"},
+    )
 
     mfsbsd = Beryl::Bootstrap::MfsBSD.new(
       rescue_conn: rescue_conn,

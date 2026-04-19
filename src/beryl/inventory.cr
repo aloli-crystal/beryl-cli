@@ -53,9 +53,25 @@ module Beryl
   class Inventory
     class NotFound < Exception; end
 
-    getter hosts : Hash(String, Host)
+    # Paramètres valables pour le bootstrap, optionnellement surchargés dans
+    # la section `bootstrap:` au niveau `defaults:` de l'inventaire.
+    #
+    # ```yaml
+    # defaults:
+    #   bootstrap:
+    #     mfsbsd_image_url: https://depenguin.me/files/mfsbsd-15.0-RELEASE-amd64.iso
+    # ```
+    class BootstrapDefaults
+      getter mfsbsd_image_url : String?
 
-    def initialize(@hosts : Hash(String, Host))
+      def initialize(@mfsbsd_image_url : String? = nil)
+      end
+    end
+
+    getter hosts : Hash(String, Host)
+    getter bootstrap_defaults : BootstrapDefaults
+
+    def initialize(@hosts : Hash(String, Host), @bootstrap_defaults : BootstrapDefaults = BootstrapDefaults.new)
     end
 
     def self.load(path : String) : Inventory
@@ -69,6 +85,11 @@ module Beryl
       default_user = defaults["user"]?.try(&.as_s) || "root"
       default_port = defaults["port"]?.try(&.as_i) || 22
       default_identity = defaults["identity_file"]?.try(&.as_s)
+
+      bootstrap_section = defaults["bootstrap"]?.try(&.as_h) || empty_hash
+      bootstrap_defaults = BootstrapDefaults.new(
+        mfsbsd_image_url: bootstrap_section["mfsbsd_image_url"]?.try(&.as_s),
+      )
 
       hosts_any = root["hosts"]?.try(&.as_h) || empty_hash
 
@@ -88,7 +109,7 @@ module Beryl
         )
       end
 
-      new(hosts)
+      new(hosts, bootstrap_defaults)
     end
 
     def find?(name : String) : Host?

@@ -75,6 +75,12 @@ ou via `dd` sur un disque secondaire.
 *Image de référence.* `mfsbsd-15.0-RELEASE-amd64.iso` depuis https://depenguin.me/[depenguin.me]
 (mfsBSD supporte 15.0 depuis janvier 2026).
 
+*Résolution de l'URL au bootstrap.* Priorité décroissante :
+. Flag CLI `--image=URL`.
+. `defaults.bootstrap.mfsbsd_image_url` dans `inventory.yml`.
+. Constante `Beryl::Bootstrap::MfsBSD::DEFAULT_IMAGE_URL` (dernier recours,
+  documentée comme pouvant évoluer avec les versions FreeBSD).
+
 *Conséquences.*
 
 * beryl doit gérer deux connexions SSH successives pour la même machine :

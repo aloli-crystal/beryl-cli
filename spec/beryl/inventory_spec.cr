@@ -77,4 +77,24 @@ describe Beryl::Inventory do
       conn.port.should eq(2222)
     end
   end
+
+  describe "#bootstrap_defaults" do
+    it "est vide par défaut" do
+      inv = Beryl::Inventory.from_yaml(YAML_MINIMAL)
+      inv.bootstrap_defaults.mfsbsd_image_url.should be_nil
+    end
+
+    it "lit mfsbsd_image_url depuis defaults.bootstrap" do
+      yaml = <<-YAML
+        defaults:
+          bootstrap:
+            mfsbsd_image_url: https://example.com/custom.iso
+
+        hosts:
+          web01.aloli.fr: {}
+        YAML
+      inv = Beryl::Inventory.from_yaml(yaml)
+      inv.bootstrap_defaults.mfsbsd_image_url.should eq("https://example.com/custom.iso")
+    end
+  end
 end

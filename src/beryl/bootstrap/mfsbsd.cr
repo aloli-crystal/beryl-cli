@@ -13,7 +13,7 @@ module Beryl::Bootstrap
   # volontairement la vérification (MITM possible, mais c'est le seul
   # mode envisageable pour le bootstrap initial).
   class MfsBSD
-    DEFAULT_IMAGE_URL   = "https://depenguin.me/files/mfsbsd-15.0-RELEASE-amd64.img"
+    DEFAULT_IMAGE_URL   = "https://depenguin.me/files/mfsbsd-15.0-RELEASE-amd64.iso"
     SSH_WAIT_TIMEOUT    = 20.minutes
     SSH_POLL_INTERVAL   = 15.seconds
     REBOOT_GRACE_PERIOD = 30.seconds

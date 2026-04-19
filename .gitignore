@@ -9,6 +9,7 @@
 !**/bootstrap/**
 
 # Fichiers d'inventaire et secrets (non versionnés)
+/inventory.yml
 inventory.local.yml
 *.secret.yml
 .env
