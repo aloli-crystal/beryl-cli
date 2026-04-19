@@ -1,5 +1,6 @@
 require "option_parser"
 require "../beryl"
+require "./cli/prep_rescue"
 
 # Point d'entrée CLI de beryl.
 #
@@ -10,6 +11,8 @@ require "../beryl"
 #   list-hosts             Affiche les hôtes de l'inventaire.
 #   show <host>            Détaille un hôte.
 #   bootstrap <host> …     Installe FreeBSD sur un rescue Linux distant.
+#   prep-rescue            Sert la clé SSH et un script de provisioning sur
+#                          HTTP local pour préparer un rescue Debian/Ubuntu.
 #   version                Affiche la version.
 module Beryl::CLI
   DEFAULT_INVENTORY = "inventory.yml"
@@ -55,11 +58,12 @@ module Beryl::CLI
     sub_args = rest[1..]? || [] of String
 
     case subcommand
-    when nil          then show_usage(global_parser); 1
-    when "list-hosts" then cmd_list_hosts(inventory_path)
-    when "show"       then cmd_show(inventory_path, sub_args)
-    when "bootstrap"  then cmd_bootstrap(inventory_path, sub_args)
-    when "version"    then puts "beryl #{Beryl::VERSION}"; 0
+    when nil           then show_usage(global_parser); 1
+    when "list-hosts"  then cmd_list_hosts(inventory_path)
+    when "show"        then cmd_show(inventory_path, sub_args)
+    when "bootstrap"   then cmd_bootstrap(inventory_path, sub_args)
+    when "prep-rescue" then Beryl::CLI::PrepRescue.run(sub_args)
+    when "version"     then puts "beryl #{Beryl::VERSION}"; 0
     else
       STDERR.puts "beryl : sous-commande inconnue : #{subcommand}"
       show_usage(global_parser)
@@ -77,6 +81,9 @@ module Beryl::CLI
       list-hosts            Liste les hôtes de l'inventaire
       show <host>           Affiche les détails d'un hôte
       bootstrap <host>      Installe FreeBSD 15 sur un rescue Linux distant
+      prep-rescue           Serveur HTTP local (clé SSH + script) pour
+                            préparer un rescue Debian/Ubuntu sans
+                            copier-coller
       version               Affiche la version
 
     Options globales :

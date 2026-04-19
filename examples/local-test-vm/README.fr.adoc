@@ -45,26 +45,49 @@ Au premier lancement :
 . QEMU démarre une fenêtre graphique Cocoa qui ouvre le live Debian.
 . Le port 2222 de votre Mac est routé vers le port 22 de la VM.
 
-== Préparer le rescue Debian
+== Préparer le rescue Debian — méthode automatique
 
-Dans la VM Debian live (fenêtre QEMU), en tant qu'utilisateur par défaut
-`user` :
+Le copier-coller n'est pas disponible dans la fenêtre QEMU cocoa. beryl
+fournit une sous-commande `prep-rescue` qui contourne le problème :
+elle sert la clé SSH publique et un script de provisioning sur HTTP
+local, et l'opérateur tape une seule ligne courte dans la VM.
+
+**Terminal 1 (sur votre Mac, gardez-le ouvert pendant l'opération) :**
 
 [source,sh]
 ----
-sudo passwd root                                            # <1>
-sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
-sudo systemctl restart ssh
-sudo mkdir -p /root/.ssh
-sudo sh -c 'cat >> /root/.ssh/authorized_keys' <<'EOF'
-<copiez votre clé publique ici>
-EOF
-sudo chmod 700 /root/.ssh
-sudo chmod 600 /root/.ssh/authorized_keys
+cd ~/prod-crystal/crystal-beryl
+./bin/beryl prep-rescue
 ----
-<1> Définit un mot de passe temporaire pour root (utile si vous perdez l'accès SSH).
 
-Depuis votre Mac, testez la connexion :
+Affiche :
+
+....
+Dans la VM (rescue Linux Debian/Ubuntu), tapez cette ligne unique :
+
+    curl -fL http://10.0.2.2:8080/s | sudo sh
+
+Ctrl+C pour arrêter le serveur.
+....
+
+**Dans la fenêtre QEMU** (VM Debian live, en tant qu'utilisateur `user`,
+mot de passe `live`), tapez simplement la ligne proposée :
+
+[source,sh]
+----
+curl -fL http://10.0.2.2:8080/s | sudo sh
+----
+
+Le script :
+
+. installe `openssh-server` et `curl`,
+. récupère votre clé publique depuis le serveur beryl,
+. l'ajoute à `/root/.ssh/authorized_keys`,
+. active `PermitRootLogin yes` et démarre sshd.
+
+Durée : ~10 à 30 s selon la bande passante apt.
+
+**Vérification depuis votre Mac :**
 
 [source,sh]
 ----
@@ -73,6 +96,24 @@ ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
 ----
 
 Attendu : `Linux ... GNU/Linux`.
+
+Ctrl+C dans le terminal du serveur beryl pour l'arrêter quand la
+vérification SSH passe.
+
+=== Options de `beryl prep-rescue`
+
+[cols="1,3"]
+|===
+| Option | Description
+
+| `--port PORT` | Port d'écoute HTTP local (défaut : `8080`).
+| `--bind ADDR` | Adresse d'écoute (défaut : `127.0.0.1`).
+| `--pubkey FILE` | Fichier de clé publique SSH (défaut : `~/.ssh/id_ed25519.pub`).
+|===
+
+Pour un rescue **distant** (OVH, Scaleway) : remplacez `10.0.2.2`
+par l'IP publique de votre poste et pensez à ouvrir le port dans votre
+firewall. Le flux : rescue → HTTP → poste opérateur.
 
 == Déclarer la VM dans beryl
 

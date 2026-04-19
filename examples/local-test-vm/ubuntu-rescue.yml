@@ -1,0 +1,46 @@
+# Configuration d'une VM Debian 13 live pour simuler localement le rescue
+# d'un hébergeur (OVH, Scaleway, etc.) avant un bootstrap beryl.
+#
+# Consommée par `./launch.sh debian-rescue.yml` (QEMU direct).
+#
+# Les chemins en ~ sont résolus par le script de lancement.
+
+name: debian-rescue
+description: Debian 13 live — rescue Linux simulé pour tester `beryl bootstrap`.
+
+# Architecture cible. Pour coller à la réalité des dédiés OVH/Scaleway :
+# x86_64 (lent sur Apple Silicon, mais fidèle à la production).
+# Alternative aarch64 plus rapide sur Apple Silicon mais ne reflète pas la prod.
+arch: x86_64
+
+# Ressources allouées à la VM.
+resources:
+  ram_mb: 4096      # Confortable pour mfsBSD + installeur FreeBSD en RAM.
+  cpus: 2
+  disk_gb: 40       # Taille du disque virtuel qcow2 créé à la volée.
+
+# Image ISO utilisée comme cdrom (booté en premier).
+iso: ~/iso-linux/debian-live-13.4.0-amd64-standard.iso
+
+# Micrologiciel. UEFI correspond aux serveurs modernes ; bios pour les cas legacy.
+firmware: uefi
+
+# Emplacement du disque virtuel. Créé automatiquement s'il n'existe pas.
+disk:
+  image: ~/vms/debian-rescue.qcow2
+  format: qcow2
+
+# Réseau : user-mode NAT (pas besoin de privilèges, pas besoin de bridge).
+# Le port 22 de la VM est exposé sur localhost:2222 de l'hôte.
+network:
+  mode: user
+  ssh_port_forward: 2222
+
+# Options d'affichage QEMU.
+# "gui"    → fenêtre graphique (pratique pour le premier démarrage live).
+# "none"   → headless (contrôle uniquement via SSH).
+# "serial" → sortie sur stdio (utile pour CI et debug).
+display: gui
+
+# Amorçage : `d` = cdrom, `c` = hdd. `dc` tente le cdrom puis le disque.
+boot_order: dc
