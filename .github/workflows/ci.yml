@@ -37,7 +37,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Lance les specs dans une VM FreeBSD 15
-        uses: cross-platform-actions/action@v0.28.0
+        uses: cross-platform-actions/action@v1.0.0
         with:
           operating_system: freebsd
           version: '15.0'
