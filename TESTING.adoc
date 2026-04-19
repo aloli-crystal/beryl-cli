@@ -302,7 +302,150 @@ hosts:
 En cas de problème, accéder à la console série Scaleway depuis le panneau
 de contrôle (KVM IPMI sur certaines gammes).
 
-== 4. Résolution des pannes
+== 4. Capture et partage pour diagnostic collaboratif
+
+Quand un test échoue ou qu'on veut revoir exactement ce qu'il s'est
+passé, la qualité du diagnostic dépend de ce qui a été capturé pendant
+le run. Voici le setup recommandé — particulièrement utile pour un
+debug à deux (opérateur + contributeur / mainteneur à distance).
+
+=== 4.1 Formats utiles
+
+[cols="1,2,1"]
+|===
+| Type | Usage | Exploitable à distance ?
+
+| Vidéo MP4
+| Archive visuelle, preuve, démos
+| Limité — impossible à ingérer automatiquement ; utile si l'autre
+  partie peut la visionner.
+
+| Capture terminal (`script -t` ou `asciinema rec`)
+| Enregistre *toutes* les commandes tapées et leurs sorties, en texte
+  rejouable
+| *Idéal* : chaque ligne peut être lue et citée dans un échange écrit.
+
+| Screenshots console KVM/IPMI
+| Capture l'écran du serveur *hors-bande* (utile aux moments où SSH
+  n'est plus joignable : reboot, boot mfsBSD, boot FreeBSD)
+| *Très utile* pour les phases post-reboot.
+
+| Fichier log d'installation (`/tmp/beryl-install.log`)
+| Généré côté mfsBSD par le script d'installation pkgbase, détail de
+  chaque étape
+| *Utile après coup* pour reconstituer une phase qui a échoué dans
+  mfsBSD.
+
+| Sortie `dmesg`, `journalctl -b`
+| Messages kernel et systemd pour les échecs bas niveau (drivers,
+  montage ZFS, etc.)
+| Utile quand le boot ne va même pas jusqu'au rc.conf.
+|===
+
+=== 4.2 Setup recommandé avant un test
+
+Dans le terminal sur le poste opérateur, avant de lancer beryl :
+
+[source,sh]
+----
+cd ~/prod-crystal/crystal-beryl
+mkdir -p tmp # dossier non suivi par git pour les artéfacts
+script -q -t 2>tmp/beryl-timing.txt tmp/beryl-session.log
+# une nouvelle session shell s'ouvre, tout est enregistré
+----
+
+Ensuite, dans cette session enregistrée, exécuter la séquence de test
+normale :
+
+[source,sh]
+----
+./bin/beryl -i inventory.yml list-hosts
+./bin/beryl -i inventory.yml show <host>
+./bin/beryl -i inventory.yml bootstrap <host> --disk=/dev/nvme0n1
+----
+
+Quand la session est finie (réussite ou échec), sortir de script :
+
+[source,sh]
+----
+exit
+----
+
+Le fichier `tmp/beryl-session.log` contient tout (commandes + sorties).
+Si besoin de le partager, il est en `tmp/` donc non versionné — vous
+pouvez le coller dans un gist, un fichier attaché à une issue, ou
+directement dans un chat.
+
+Alternative `asciinema` (rendu plus agréable, animation possible) :
+
+[source,sh]
+----
+brew install asciinema
+asciinema rec tmp/beryl-session.cast
+# ... commandes beryl ...
+# Ctrl+D pour arrêter
+asciinema play tmp/beryl-session.cast
+----
+
+=== 4.3 Screenshots console à prendre
+
+Quand beryl atteint ces messages, ouvrir la console KVM/IPMI de
+l'hébergeur (ou la fenêtre QEMU en local) et capturer l'écran :
+
+* `[beryl bootstrap mfsbsd] 5/5 — attend le retour SSH sur mfsBSD`
+  → capture de l'écran de boot mfsBSD (confirme si mfsBSD a démarré ou
+  si le BIOS a échoué).
+* `[beryl bootstrap installer] 4/4 — attend le retour SSH sur le système installé`
+  → capture de l'écran de boot FreeBSD 15 (confirme si bsdinstall s'est
+  passé correctement).
+* En cas de timeout : capturer l'écran courant, il montre souvent
+  l'erreur (kernel panic, mountroot prompt, etc.).
+
+=== 4.4 Logs internes à récupérer (si accessible en SSH)
+
+Une fois connecté en SSH à mfsBSD ou au système installé :
+
+[source,sh]
+----
+# sur mfsBSD, pendant l'install :
+tail -f /tmp/beryl-install.log
+
+# après boot FreeBSD 15 :
+dmesg | tail -100
+cat /var/log/messages | tail -200
+zpool status
+zfs list
+pkg info | head -30
+cat /etc/rc.conf
+----
+
+Copier ces sorties dans la session `script` enregistrée — elles feront
+partie du log partagé.
+
+=== 4.5 Checklist pré-test
+
+Avant de lancer `beryl bootstrap`, vérifier :
+
+* [ ] Clé SSH en local : `ssh-add -l` montre la clé ou un agent dispo.
+* [ ] Inventaire prêt : `./bin/beryl list-hosts` affiche bien l'hôte cible.
+* [ ] Accès SSH ok : `./bin/beryl show <host>` puis `ssh root@<host> uname -a`.
+* [ ] Disque identifié : `ssh root@<host> "lsblk -dno NAME,TYPE,SIZE"` → noter le bon `/dev/...`.
+* [ ] Filet de sécurité : savoir comment repasser en rescue via le panel hébergeur si besoin.
+* [ ] Binaire beryl à jour : `git pull && shards build` sur le poste opérateur.
+* [ ] Session `script` ou `asciinema` lancée.
+
+=== 4.6 Quoi partager ensuite
+
+Pour un diagnostic rapide à deux, coller ou attacher :
+
+. `tmp/beryl-session.log` (ou le fichier `.cast` asciinema) — la session complète.
+. 2-3 screenshots console KVM aux moments clés (surtout si SSH n'a jamais répondu).
+. Un résumé en une phrase de l'étape où ça a coincé.
+
+C'est largement suffisant pour démarrer l'enquête, sans avoir à rejouer
+tout le test ensemble.
+
+== 5. Résolution des pannes
 
 === Le bootstrap timeout en phase « attente SSH mfsBSD »
 
@@ -334,7 +477,7 @@ cat /tmp/beryl-install.log
 Côté OVH ou Scaleway, il suffit de repasser en mode rescue et de relancer
 `beryl bootstrap` : le `dd` écrase l'image existante.
 
-== 5. Résultats attendus pour la v0.1
+== 6. Résultats attendus pour la v0.1
 
 À l'issue du bootstrap, le serveur doit :
 
