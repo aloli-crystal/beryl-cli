@@ -153,6 +153,58 @@ The bootstrap:
 
 The QEMU window shows each boot phase.
 
+== SSH tip: stop cleaning `known_hosts`
+
+Because the Debian/Ubuntu live ISO boots into RAM and regenerates its
+host keys on every boot, `~/.ssh/known_hosts` goes stale on every VM
+recreation and `ssh` refuses to reconnect (``host key verification
+failed'').
+
+`beryl prep-rescue` already deletes the RSA/ECDSA host keys so only
+ED25519 remains (one line to purge instead of three). To *never* have
+to clean at all, add a dedicated block to your `~/.ssh/config`:
+
+[source,config]
+----
+# beryl test VMs — ports 2222+ on localhost
+Host vm-beryl vm-beryl-*
+  Hostname localhost
+  User root
+  IdentityFile ~/.ssh/id_ed25519
+  StrictHostKeyChecking no
+  UserKnownHostsFile /dev/null
+  LogLevel ERROR
+
+Host vm-beryl
+  Port 2222
+
+Host vm-beryl-ubuntu
+  Port 2223
+----
+
+[IMPORTANT]
+====
+`StrictHostKeyChecking no` + `UserKnownHostsFile /dev/null` are
+**only** acceptable here because:
+
+* traffic stays on the loopback (127.0.0.1), never leaves your Mac;
+* the VM is recreated at will, no persistent data flows through it;
+* the `Host vm-beryl*` pattern *scopes* these relaxed rules to test VMs.
+
+Never apply this laxity to production hosts.
+====
+
+You can then:
+
+[source,sh]
+----
+ssh vm-beryl uname -a
+ssh vm-beryl-ubuntu uname -a
+----
+
+without ever polluting `known_hosts`. Your beryl inventory
+(`localhost: port: 2222`) keeps working independently.
+
 == Variants and extensions
 
 === Ubuntu Server instead of Debian
