@@ -265,3 +265,154 @@ supérieur. À instruire quand la voie (A) montrera ses limites.
   Sinon `prep-rescue` reste pertinent.
 * *mfsBSD* : le même outillage de remastering s'applique à mfsBSD avant
   le `dd` — exactement ce que fait depenguin.me.
+
+== Provisioning via API hébergeur (OVH, Scaleway)
+
+=== Idée
+
+Piloter le cycle de vie *complet* d'un serveur via les APIs OVH et
+Scaleway : commander, installer, nommer, configurer DNS direct + reverse
+DNS, enregistrer dans l'inventaire beryl — **sans jamais toucher au panel
+web**. L'opérateur déclare ce qu'il veut dans un YAML, beryl fait tout le
+reste.
+
+Objectif : zéro interaction, zéro erreur humaine, déploiement de 10 ou
+50 serveurs en parallèle.
+
+=== Portée fonctionnelle
+
+. *Acheter* un serveur dédié via l'API.
+  ** OVH : `/order/cart` (plus complexe, workflow panier + validation).
+  ** Scaleway : `POST /baremetal/v1/zones/{zone}/servers` (order + install
+     en un appel).
+. *Attribuer un nom* — soit passé par l'opérateur, soit suggéré par
+  beryl selon une convention (`<role>-<index>-<région>`, ex. `web-01-gra`).
+. *Enregistrer en DNS* (A/AAAA) via l'API du registrar (crystal-deploy
+  le fait déjà pour OVH et Gandi).
+. *Configurer le reverse DNS* IPv4 et IPv6 :
+  ** OVH : `POST /ip/{ip}/reverse` pour chaque IP (v4 + v6).
+  ** Scaleway : champ `reverse` dans la config du serveur bare metal.
+. *Installer Debian* (ou Ubuntu) via l'API avec la clé SSH du compte.
+. *Attendre la fin de l'install* en polling sur le `taskId` (OVH) ou les
+  `events` (Scaleway).
+. *Enregistrer l'hôte dans `inventory.yml`* (update automatique).
+. *Enchaîner `beryl bootstrap`* → mfsBSD → FreeBSD.
+
+Tout en idempotent : rejouer la commande sur un serveur déjà provisionné
+ne recrée rien, elle vérifie et passe.
+
+=== Exemple d'utilisation cible
+
+[source,sh]
+----
+beryl provision \
+  --provider ovh \
+  --template kimsufi-ks-a \
+  --role web \
+  --region gra \
+  --dns-zone aloli.fr \
+  --ssh-key-id papilip
+----
+
+Ou via un fichier déclaratif `orders.yml` :
+
+[source,yaml]
+----
+orders:
+  - provider: ovh
+    template: kimsufi-ks-a
+    count: 3
+    role: web
+    region: gra
+    dns_zone: aloli.fr
+
+  - provider: scaleway
+    template: EM-A115X-SSD
+    count: 2
+    role: db
+    zone: fr-par-2
+    dns_zone: aloli.fr
+----
+
+`beryl provision --orders orders.yml` → 5 serveurs achetés, installés,
+en DNS, avec reverse DNS, prêts pour `beryl bootstrap`.
+
+=== Architecture technique
+
+Deux shards **crystal-ovh-api** et **crystal-scw-api** (organisation
+`aloli-crystal`), réutilisables pour d'autres projets Aloli (crystal-deploy
+par exemple).
+
+Périmètre minimal de chaque shard :
+
+* Auth signée (OVH : consumer key + app key/secret) ou bearer (Scaleway).
+* Client HTTP Crystal pur (pas de wrapper lourd).
+* Modèles des entités utilisées : `Server`, `Task`, `SshKey`, `Install`,
+  `ReverseDns`.
+* Gestion des erreurs typées (`RateLimited`, `Unauthorized`,
+  `NotFound`, etc.).
+
+Dans beryl :
+
+----
+src/beryl/
+├── providers/
+│   ├── provider.cr     # interface abstraite commune
+│   ├── ovh.cr          # instancie crystal-ovh-api
+│   └── scaleway.cr     # instancie crystal-scw-api
+└── cli/
+    └── provision.cr    # sous-commande `beryl provision`
+----
+
+=== Gestion des secrets
+
+Variables d'environnement ou fichier local `~/.config/beryl/credentials.yml`
+*non versionné*. beryl les lit à la demande, ne les stocke pas en clair
+dans l'inventaire.
+
+Exemple de `credentials.yml` :
+
+[source,yaml]
+----
+ovh:
+  application_key:    XXXXX
+  application_secret: XXXXX
+  consumer_key:       XXXXX
+  endpoint:           ovh-eu
+
+scaleway:
+  secret_key:     XXXXX
+  default_zone:   fr-par-2
+  default_project_id: XXXXX
+----
+
+=== Questions ouvertes à trancher
+
+* *Commander par API OVH* : workflow `/order/cart` est complexe et
+  implique validation manuelle (paiement). Jusqu'où pousse-t-on
+  l'automatisation ? Probablement : beryl prépare le cart, demande
+  confirmation, l'utilisateur clique. Ensuite beryl prend la main sur
+  le serveur livré.
+* *Validation des ressources avant achat* : vérifier la disponibilité,
+  le prix, le datacenter — avant de finaliser l'order. Éviter qu'un
+  script se fasse commander accidentellement 50 serveurs à 500 €/mois.
+* *Suggestion de noms* : convention par défaut à proposer
+  (`<role>-<NN>-<dc>`), avec vérification d'unicité dans l'inventaire
+  et dans le DNS.
+* *Reverse DNS sur `/ip`* : OVH gère le reverse par IP individuelle ;
+  pour un /64 IPv6 entier c'est impraticable, il faut cibler l'IP
+  principale du serveur.
+* *Inventaire auto-rempli* : après provisioning, comment merger la
+  nouvelle entrée dans un `inventory.yml` existant tout en préservant
+  les commentaires / customisations de l'opérateur ? Piste : écrire
+  dans un fichier séparé `inventory.d/provisioned.yml` qu'on `include`.
+
+=== Impact sur les ADR
+
+Ajoutera un nouvel ADR (post-v1) décrivant :
+
+* L'architecture provider-agnostic (interface `Beryl::Providers::Provider`).
+* La convention de gestion des secrets.
+* La politique de validation avant achat (confirmations interactives).
+* L'intégration avec l'idée « Groupes de serveurs » (un ordre produit
+  plusieurs membres d'un groupe).
