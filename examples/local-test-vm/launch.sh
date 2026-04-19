@@ -36,6 +36,12 @@ DISK_FORMAT=$(yq -r '.disk.format' "$CONFIG")
 SSH_PORT=$(yq -r '.network.ssh_port_forward' "$CONFIG")
 DISPLAY=$(yq -r '.display' "$CONFIG")
 BOOT_MODE=$(yq -r '.boot_mode' "$CONFIG")
+# Seed cloud-init optionnel (généré par `beryl bake-seed`). Attaché en 2ᵉ cdrom.
+SEED_ISO_RAW=$(yq -r '.seed_iso // ""' "$CONFIG")
+SEED_ISO=""
+if [ -n "$SEED_ISO_RAW" ] && [ "$SEED_ISO_RAW" != "null" ]; then
+  SEED_ISO=$(expand_home "$SEED_ISO_RAW")
+fi
 
 QEMU_BIN="qemu-system-${ARCH}"
 command -v "$QEMU_BIN" >/dev/null 2>&1 || {
@@ -114,6 +120,17 @@ echo "==> SSH : ssh -p $SSH_PORT root@localhost"
 echo "==> arrêt : fermer la fenêtre QEMU ou Ctrl+A X (si serial)"
 echo
 
+seed_args=""
+if [ -n "$SEED_ISO" ]; then
+  if [ ! -f "$SEED_ISO" ]; then
+    echo "erreur : seed_iso introuvable : $SEED_ISO" >&2
+    echo "         (générez-le avec : beryl bake-seed --output \"$SEED_ISO\")" >&2
+    exit 1
+  fi
+  seed_args="-drive file=$SEED_ISO,media=cdrom,readonly=on,if=virtio"
+  echo "==> seed cloud-init attaché : $SEED_ISO"
+fi
+
 exec "$QEMU_BIN" \
   -name "$NAME" \
   -m "$RAM" \
@@ -121,6 +138,7 @@ exec "$QEMU_BIN" \
   $firmware_args \
   -drive "file=$DISK_IMAGE,format=$DISK_FORMAT,if=virtio" \
   -cdrom "$ISO" \
+  $seed_args \
   $boot_args \
   -netdev "user,id=net0,hostfwd=tcp::${SSH_PORT}-:22" \
   -device "virtio-net-pci,netdev=net0" \

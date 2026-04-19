@@ -33,3 +33,12 @@ network:
 display: gui
 
 boot_mode: cdrom-once
+
+# Seed cloud-init (optionnel) : si présent, est attaché comme 2ᵉ cdrom.
+# Ubuntu Server live a cloud-init actif et le détecte automatiquement via
+# le label CIDATA. Résultat : SSH configuré avec votre clé au premier
+# boot, sans `beryl prep-rescue`.
+#
+# Générez-le (une seule fois, ou à chaque changement de clé) avec :
+#   beryl bake-seed --output ~/vms/seed.img
+seed_iso: ~/vms/seed.img

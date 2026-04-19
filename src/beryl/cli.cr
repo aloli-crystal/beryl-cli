@@ -1,6 +1,7 @@
 require "option_parser"
 require "../beryl"
 require "./cli/prep_rescue"
+require "./cli/bake_seed"
 
 # Point d'entrée CLI de beryl.
 #
@@ -63,6 +64,7 @@ module Beryl::CLI
     when "show"        then cmd_show(inventory_path, sub_args)
     when "bootstrap"   then cmd_bootstrap(inventory_path, sub_args)
     when "prep-rescue" then Beryl::CLI::PrepRescue.run(sub_args)
+    when "bake-seed"   then Beryl::CLI::BakeSeed.run(sub_args)
     when "version"     then puts "beryl #{Beryl::VERSION}"; 0
     else
       STDERR.puts "beryl : sous-commande inconnue : #{subcommand}"
@@ -84,6 +86,8 @@ module Beryl::CLI
       prep-rescue           Serveur HTTP local (clé SSH + script) pour
                             préparer un rescue Debian/Ubuntu sans
                             copier-coller
+      bake-seed             Génère un seed.img cloud-init avec votre clé
+                            SSH, à attacher à une VM Ubuntu Server live
       version               Affiche la version
 
     Options globales :

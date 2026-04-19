@@ -13,6 +13,11 @@ crystal: ">= 1.19.1"
 
 license: MIT
 
+dependencies:
+  silex:
+    github: aloli-crystal/crystal-silex
+    branch: production
+
 targets:
   beryl:
     main: src/beryl/cli.cr

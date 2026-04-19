@@ -1,0 +1,6 @@
+version: 2.0
+shards:
+  silex:
+    git: https://github.com/aloli-crystal/crystal-silex.git
+    version: 0.1.0+git.commit.ce121c113033d93d45cdc09a2a7e1c68e8512717
+
