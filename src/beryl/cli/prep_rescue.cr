@@ -9,11 +9,11 @@ module Beryl::CLI::PrepRescue
   # Gabarit du script de provisioning Debian/Ubuntu.
   # `__PORT__` est substitué à la volée par le port d'écoute effectif.
   #
-  # Principe : on ne touche PAS le mot de passe root et on force
-  # `PermitRootLogin prohibit-password` (valeur par défaut de Debian 12+,
-  # explicitement posée pour rester déterministe sur d'autres distros).
-  # Seul le pubkey permet la connexion : pas de surface d'attaque par
-  # mot de passe, et rien à reserrer après coup.
+  # Principe minimaliste : on ne touche à RIEN dans sshd_config. Debian 12+
+  # et Ubuntu 22.04+ ont déjà `PermitRootLogin prohibit-password` par défaut
+  # (accepte la clé, refuse le mot de passe). Comme aucun mot de passe root
+  # n'est défini, la seule auth possible est par clé — exactement ce qu'on
+  # veut. Le script se contente donc d'installer sshd et d'injecter la clé.
   SETUP_SCRIPT_TEMPLATE = <<-'SH'
   #!/bin/sh
   # Script de provisioning Debian/Ubuntu généré par `beryl prep-rescue`.
@@ -32,14 +32,6 @@ module Beryl::CLI::PrepRescue
   curl -fL "$HOST_URL/k" >> /root/.ssh/authorized_keys
   chmod 600 /root/.ssh/authorized_keys
   sort -u /root/.ssh/authorized_keys -o /root/.ssh/authorized_keys
-
-  echo "==> [beryl prep-rescue] sshd : PermitRootLogin prohibit-password"
-  # Force prohibit-password : accepte la clé, refuse le mot de passe et
-  # l'auth interactive clavier pour root. Aligné sur Mozilla Modern OpenSSH.
-  mkdir -p /etc/ssh/sshd_config.d
-  cat > /etc/ssh/sshd_config.d/10-beryl-prep-rescue.conf <<SSHD
-  PermitRootLogin prohibit-password
-  SSHD
 
   systemctl enable --now ssh
 
