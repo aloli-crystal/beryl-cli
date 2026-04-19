@@ -1,0 +1,167 @@
+= VMs de test local pour beryl
+:toc: left
+:toc-title: Table des matières
+:toclevels: 3
+:source-highlighter: rouge
+:icons: font
+
+Ce dossier fournit les outils pour créer *automatiquement* une VM locale
+simulant le rescue Linux d'un hébergeur, afin de tester `beryl bootstrap`
+sans dépendre d'OVH ou Scaleway.
+
+Le descriptif de VM est un *fichier YAML* — lisible, versionnable, facile
+à dupliquer — et le script `launch.sh` s'en sert pour piloter QEMU.
+
+== Pré-requis
+
+Installer QEMU et yq via Homebrew :
+
+[source,sh]
+----
+brew install qemu yq
+----
+
+Télécharger l'ISO Debian 13 live (~1 Go) dans `~/iso-linux/` :
+
+[source,sh]
+----
+mkdir -p ~/iso-linux
+curl -fLo ~/iso-linux/debian-live-13.4.0-amd64-standard.iso \
+  https://cdimage.debian.org/debian-cd/current-live/amd64/iso-hybrid/debian-live-13.4.0-amd64-standard.iso
+----
+
+== Lancer la VM
+
+Depuis la racine du projet beryl :
+
+[source,sh]
+----
+./examples/local-test-vm/launch.sh examples/local-test-vm/debian-rescue.yml
+----
+
+Au premier lancement :
+
+. Un disque virtuel `~/vms/debian-rescue.qcow2` est créé (40 Go sparse, occupe ~200 Ko tant qu'il n'est pas rempli).
+. QEMU démarre une fenêtre graphique Cocoa qui ouvre le live Debian.
+. Le port 2222 de votre Mac est routé vers le port 22 de la VM.
+
+== Préparer le rescue Debian
+
+Dans la VM Debian live (fenêtre QEMU), en tant qu'utilisateur par défaut
+`user` :
+
+[source,sh]
+----
+sudo passwd root                                            # <1>
+sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+sudo systemctl restart ssh
+sudo mkdir -p /root/.ssh
+sudo sh -c 'cat >> /root/.ssh/authorized_keys' <<'EOF'
+<copiez votre clé publique ici>
+EOF
+sudo chmod 700 /root/.ssh
+sudo chmod 600 /root/.ssh/authorized_keys
+----
+<1> Définit un mot de passe temporaire pour root (utile si vous perdez l'accès SSH).
+
+Depuis votre Mac, testez la connexion :
+
+[source,sh]
+----
+ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+  root@localhost uname -a
+----
+
+Attendu : `Linux ... GNU/Linux`.
+
+== Déclarer la VM dans beryl
+
+Ajoutez-la à votre `inventory.yml` :
+
+[source,yaml]
+----
+hosts:
+  localhost:
+    provider: generic
+    port: 2222
+    user: root
+----
+
+Identifiez le disque virtuel vu *depuis la VM* :
+
+[source,sh]
+----
+ssh -p 2222 root@localhost "lsblk -dno NAME,TYPE,SIZE | awk '\$2==\"disk\"'"
+----
+
+Attendu : `vda  disk  40G` (virtio-blk expose les disques en `/dev/vda`).
+
+== Lancer le bootstrap beryl
+
+[source,sh]
+----
+./bin/beryl -i inventory.yml bootstrap localhost --disk=/dev/vda
+----
+
+Le bootstrap :
+
+. Télécharge l'image mfsBSD depuis `depenguin.me`.
+. Écrit via `dd` sur `/dev/vda` (le disque virtuel, aucun risque pour votre Mac).
+. Redémarre la VM vers mfsBSD.
+. Installe FreeBSD 15 en pkgbase sur ZFS.
+. Redémarre vers le système installé.
+
+La fenêtre QEMU vous montrera les différentes phases de boot.
+
+== Variantes et extensions
+
+=== Ubuntu Server plutôt que Debian
+
+Dupliquez `debian-rescue.yml` en `ubuntu-rescue.yml` et pointez
+`iso:` vers `~/iso-linux/ubuntu-24.04.4-live-server-amd64.iso`.
+
+=== Mode headless (pas de fenêtre)
+
+Remplacez `display: gui` par `display: none` dans le YAML et
+connectez-vous uniquement en SSH. Utile pour une future CI locale.
+
+=== Mode série pour debug
+
+`display: serial` attache stdio à la console série : vous voyez le boot
+complet dans votre terminal (utile si la VM ne démarre pas la fenêtre).
+
+=== Plusieurs VMs simultanées
+
+Chaque VM doit avoir un `ssh_port_forward` unique (2222, 2223, 2224…) et
+un `disk.image` distinct.
+
+== Structure du dossier
+
+....
+examples/local-test-vm/
+├── README.fr.adoc         Ce document
+├── README.adoc            Version anglaise
+├── launch.sh              Launcher QEMU paramétré par YAML
+└── debian-rescue.yml      Config VM Debian 13 live
+....
+
+== Limitations connues
+
+* *Apple Silicon + x86_64* : QEMU émule, 5 à 10 fois plus lent que natif.
+  Suffisant pour le bootstrap one-shot ; pour de l'itération rapide,
+  testez d'abord sur une VM `aarch64` (modifier `arch:` dans le YAML et
+  utiliser une ISO Debian ARM64).
+* *Pas d'accélération KVM/HVF* en x86_64 sur ARM. C'est une limite QEMU,
+  pas de beryl.
+* *UTM comme alternative GUI* : UTM peut ouvrir le même disque qcow2 si
+  vous préférez sa fenêtre à la fenêtre Cocoa de QEMU (utile pour
+  copier-coller depuis/vers la VM).
+
+== Nettoyage
+
+[source,sh]
+----
+rm -f ~/vms/debian-rescue.qcow2    # détruit l'état de la VM
+----
+
+Pour tout recommencer, le script recrée un disque propre au prochain lancement.

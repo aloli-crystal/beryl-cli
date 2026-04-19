@@ -1,0 +1,163 @@
+= Local test VMs for beryl
+:toc: left
+:toc-title: Table of Contents
+:toclevels: 3
+:source-highlighter: rouge
+:icons: font
+
+This directory provides tools to *automatically* create a local VM that
+simulates a hosting provider's Linux rescue environment, so you can test
+`beryl bootstrap` without depending on OVH or Scaleway.
+
+The VM descriptor is a *YAML file* — readable, version-controlled, easy
+to duplicate — and the `launch.sh` script uses it to drive QEMU.
+
+== Prerequisites
+
+Install QEMU and yq via Homebrew:
+
+[source,sh]
+----
+brew install qemu yq
+----
+
+Download the Debian 13 live ISO (~1 GB) into `~/iso-linux/`:
+
+[source,sh]
+----
+mkdir -p ~/iso-linux
+curl -fLo ~/iso-linux/debian-live-13.4.0-amd64-standard.iso \
+  https://cdimage.debian.org/debian-cd/current-live/amd64/iso-hybrid/debian-live-13.4.0-amd64-standard.iso
+----
+
+== Launch the VM
+
+From the beryl project root:
+
+[source,sh]
+----
+./examples/local-test-vm/launch.sh examples/local-test-vm/debian-rescue.yml
+----
+
+First run:
+
+. A virtual disk `~/vms/debian-rescue.qcow2` is created (40 GB sparse, ~200 KB actual until filled).
+. QEMU opens a Cocoa window booting the Debian live ISO.
+. Host port 2222 is forwarded to VM port 22.
+
+== Prepare the Debian rescue
+
+In the Debian live VM (QEMU window), as user `user`:
+
+[source,sh]
+----
+sudo passwd root
+sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+sudo systemctl restart ssh
+sudo mkdir -p /root/.ssh
+sudo sh -c 'cat >> /root/.ssh/authorized_keys' <<'EOF'
+<paste your public SSH key here>
+EOF
+sudo chmod 700 /root/.ssh
+sudo chmod 600 /root/.ssh/authorized_keys
+----
+
+From your Mac, verify the connection:
+
+[source,sh]
+----
+ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+  root@localhost uname -a
+----
+
+Expected: `Linux ... GNU/Linux`.
+
+== Declare the VM in beryl
+
+Add it to your `inventory.yml`:
+
+[source,yaml]
+----
+hosts:
+  localhost:
+    provider: generic
+    port: 2222
+    user: root
+----
+
+Identify the virtual disk as seen *from inside the VM*:
+
+[source,sh]
+----
+ssh -p 2222 root@localhost "lsblk -dno NAME,TYPE,SIZE | awk '\$2==\"disk\"'"
+----
+
+Expected: `vda  disk  40G` (virtio-blk exposes disks as `/dev/vda`).
+
+== Run the beryl bootstrap
+
+[source,sh]
+----
+./bin/beryl -i inventory.yml bootstrap localhost --disk=/dev/vda
+----
+
+The bootstrap:
+
+. Downloads the mfsBSD image from `depenguin.me`.
+. Writes it to `/dev/vda` via `dd` (the virtual disk — no risk to your Mac).
+. Reboots the VM into mfsBSD.
+. Installs FreeBSD 15 as pkgbase on ZFS.
+. Reboots into the installed system.
+
+The QEMU window shows each boot phase.
+
+== Variants and extensions
+
+=== Ubuntu Server instead of Debian
+
+Duplicate `debian-rescue.yml` as `ubuntu-rescue.yml` and point `iso:`
+at `~/iso-linux/ubuntu-24.04.4-live-server-amd64.iso`.
+
+=== Headless mode
+
+Change `display: gui` to `display: none` in the YAML and connect via SSH
+only. Useful for a future local CI.
+
+=== Serial mode for debugging
+
+`display: serial` attaches stdio to the serial console: full boot log
+in your terminal (handy if the VM window doesn't open).
+
+=== Multiple concurrent VMs
+
+Each VM must have a unique `ssh_port_forward` (2222, 2223, 2224…) and a
+distinct `disk.image`.
+
+== Directory layout
+
+....
+examples/local-test-vm/
+├── README.adoc            This file
+├── README.fr.adoc         French version
+├── launch.sh              YAML-driven QEMU launcher
+└── debian-rescue.yml      Debian 13 live VM config
+....
+
+== Known limitations
+
+* *Apple Silicon + x86_64*: QEMU emulates, 5–10× slower than native.
+  Fine for a one-off bootstrap test; for fast iteration, test first with
+  an `aarch64` VM (change `arch:` in the YAML and use an ARM64 Debian ISO).
+* *No KVM/HVF acceleration* for x86_64 on ARM Macs. A QEMU limitation,
+  not a beryl one.
+* *UTM as a GUI alternative*: UTM can open the same qcow2 disk if you
+  prefer its window to QEMU's Cocoa window (useful for clipboard sharing).
+
+== Cleanup
+
+[source,sh]
+----
+rm -f ~/vms/debian-rescue.qcow2    # destroys VM state
+----
+
+To start fresh, the launcher recreates a clean disk on the next run.
