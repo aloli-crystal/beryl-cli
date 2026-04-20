@@ -174,11 +174,13 @@ module Beryl::Bootstrap
       # `apt-get install` en mode non interactif — idempotent si les
       # paquets sont déjà posés. `xorriso` est utilisé pour l'ajout
       # de `installerconfig` dans l'ISO.
-      @rescue_conn.exec(
-        "mkdir -p #{Process.quote(WORK_DIR)} && " \
-        "DEBIAN_FRONTEND=noninteractive apt-get update -qq && " \
-        "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq qemu-system-x86 ovmf xorriso curl"
-      )
+      with_progress("apt install qemu/ovmf/xorriso en cours") do
+        @rescue_conn.exec(
+          "mkdir -p #{Process.quote(WORK_DIR)} && " \
+          "DEBIAN_FRONTEND=noninteractive apt-get update -qq && " \
+          "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq qemu-system-x86 ovmf xorriso curl"
+        )
+      end
     end
 
     private def download_iso_if_needed : Nil
@@ -188,9 +190,11 @@ module Beryl::Bootstrap
       # ne retouche à rien.
       quoted_iso = Process.quote(ISO_PATH)
       quoted_url = Process.quote(@iso_url)
-      @rescue_conn.exec(
-        "test -s #{quoted_iso} || curl -fLo #{quoted_iso} #{quoted_url}"
-      )
+      with_progress("téléchargement ISO FreeBSD #{@freebsd_version} (~1.3 Go)") do
+        @rescue_conn.exec(
+          "test -s #{quoted_iso} || curl -fLo #{quoted_iso} #{quoted_url}"
+        )
+      end
     end
 
     private def remaster_iso : Nil
@@ -225,7 +229,9 @@ module Beryl::Bootstrap
       # attend. La sortie série est capturée côté rescue dans un log.
       cmd = "timeout #{QEMU_MAX_RUNTIME.total_seconds.to_i} #{qemu_command} " \
             "|| ec=$?; echo \"[beryl] qemu exit = ${ec:-0}\"; test \"${ec:-0}\" = 0"
-      @rescue_conn.exec(cmd)
+      with_progress("QEMU tourne (bsdinstall scripted, 15-30 min attendus)") do
+        @rescue_conn.exec(cmd)
+      end
     end
 
     private def reboot_bare_metal : Nil
@@ -245,27 +251,61 @@ module Beryl::Bootstrap
         port: @installed_port,
       )
 
-      deadline = Time.instant + SSH_WAIT_TIMEOUT
+      start = Time.instant
+      deadline = start + SSH_WAIT_TIMEOUT
       last_error = nil
       while Time.instant < deadline
         begin
           result = conn.exec("uname -s", raise_on_error: false)
           if result.success? && result.stdout.strip == "FreeBSD"
+            STDERR.print "\n"
             log "FreeBSD installé et joignable (uname -s = FreeBSD, user = #{@installed_user})"
             return conn
           end
         rescue ex
           last_error = ex
         end
+        elapsed = (Time.instant - start).total_seconds.to_i
+        STDERR.printf("  [%4ds] attente SSH FreeBSD sur %s...\r", elapsed, @rescue_conn.host)
+        STDERR.flush
         sleep SSH_POLL_INTERVAL
       end
 
+      STDERR.print "\n"
       raise "timeout : le FreeBSD installé n'a pas répondu en SSH au bout de #{SSH_WAIT_TIMEOUT.total_minutes.to_i} min (dernière erreur : #{last_error.try(&.message)})"
     end
 
     # Échappement pour insertion dans une chaîne shell double-guillemets.
     private def shell_escape(value : String) : String
       value.gsub(/["$`\\]/) { |c| "\\#{c}" }
+    end
+
+    # Wrapper qui exécute un bloc long et affiche un compteur écoulé
+    # toutes les *interval* secondes, sur une ligne rafraîchie en place
+    # (`\r`, motif crystal-deploy). Démarre un fiber de tick, le coupe
+    # quand le bloc sort. Rien si le bloc se termine en moins d'un tick.
+    private def with_progress(label : String, interval : Time::Span = 10.seconds, & : -> T) : T forall T
+      start = Time.instant
+      done = Channel(Nil).new
+      ticker = spawn do
+        loop do
+          select
+          when done.receive?
+            break
+          when timeout(interval)
+            elapsed = (Time.instant - start).total_seconds.to_i
+            STDERR.printf("  [%4ds] %s\r", elapsed, label)
+            STDERR.flush
+          end
+        end
+      end
+      begin
+        result = yield
+        result
+      ensure
+        done.send(nil)
+        STDERR.print "\n"
+      end
     end
 
     private def log(message : String) : Nil
