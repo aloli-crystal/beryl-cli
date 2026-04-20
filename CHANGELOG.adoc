@@ -9,14 +9,53 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Pivot bootstrap — ADR-010 / ADR-011 (avril 2026)
+
+Le test grandeur nature du 19 avril 2026 sur un Kimsufi OVH UEFI-only
+a révélé que l'ISO mfsBSD `dd`-ée n'est pas amorçable par un firmware
+UEFI (ADR-010). Le test manuel du 20 avril a validé end-to-end la
+voie de remplacement : FreeBSD est désormais installé *depuis* le
+rescue Linux via une VM QEMU en passthrough disque (ADR-011).
+
+==== Ajouté
+
+* `Beryl::Bootstrap::QemuInRescue` : classe unifiée qui remplace le
+  couple `MfsBSD` + `Installer`. Orchestre apt → ISO → remasterisation
+  xorriso → OVMF → QEMU (-no-reboot, UEFI, KVM, passthrough disque)
+  → `reboot -f` → attente SSH.
+* Template `templates/installerconfig.sh` : format bsdinstall en deux
+  parties (variables ZFSBOOT + distributions pkgbase, puis post-install
+  chroot pour `rc.conf` en `ifconfig_DEFAULT`, `fstab` en labels GPT,
+  users `admin`/`deploy`, sudoers wheel NOPASSWD, clé SSH, poweroff).
+* CLI `beryl bootstrap` : nouveau flag `--iso-url` et
+  `--freebsd-version`, et `--installed-user` (défaut `admin`,
+  `PermitRootLogin no` respecté).
+* Specs : 24 nouveaux specs pour `QemuInRescue` (render, base64, qemu
+  command line, argument validation). Total : 54 specs verts.
+
+==== Déprécié
+
+* `Beryl::Bootstrap::MfsBSD` et `Beryl::Bootstrap::Installer` : restent
+  compilés pour un éventuel support Legacy BIOS, mais ne sont plus
+  appelés par `beryl bootstrap`. En-tête de fichier marqué DEPRECATED
+  avec pointeur vers ADR-010 / ADR-011.
+
+==== Documentation
+
+* `ARCHITECTURE.adoc` ADR-003 passé à « Superseded by ADR-011 ».
+* `TESTING.adoc` : sections UTM, OVH et Scaleway réécrites pour le
+  nouveau flux (plus de `prep-rescue`, plus de `dd` bare metal, simple
+  `beryl bootstrap <host>` pendant 25-35 min).
+
 === Ajouté
 
 ==== Fondations du projet
 
 * Squelette initial (shard.yml, LICENSE MIT, README bilingue FR/EN).
-* Document d'architecture link:ARCHITECTURE.adoc[ARCHITECTURE.adoc] avec 9 ADR fondateurs :
-  FreeBSD 15 pkgbase, agentless SSH, bootstrap mfsBSD + dd,
-  recettes YAML composables, conventions Mozilla Modern, idempotence.
+* Document d'architecture link:ARCHITECTURE.adoc[ARCHITECTURE.adoc] avec 11 ADR fondateurs :
+  FreeBSD 15 pkgbase, agentless SSH, bootstrap mfsBSD + dd (superseded
+  par QEMU-in-rescue), recettes YAML composables, conventions Mozilla
+  Modern, idempotence.
 * Convention Aloli : branche par défaut `production`, `development` après la première version.
 
 ==== Phase 1 — Bootstrap Linux → mfsBSD → FreeBSD 15 (MVP)

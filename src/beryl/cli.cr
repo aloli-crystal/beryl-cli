@@ -82,7 +82,7 @@ module Beryl::CLI
     Sous-commandes :
       list-hosts            Liste les hôtes de l'inventaire
       show <host>           Affiche les détails d'un hôte
-      bootstrap <host>      Installe FreeBSD 15 sur un rescue Linux distant
+      bootstrap <host>      Installe FreeBSD 15 (voie QEMU-in-rescue, ADR-011)
       prep-rescue           Serveur HTTP local (clé SSH + script) pour
                             préparer un rescue Debian/Ubuntu sans
                             copier-coller
@@ -157,24 +157,28 @@ module Beryl::CLI
 
   private def self.cmd_bootstrap(inventory_path : String, args : Array(String)) : Int32
     target_disk = nil
-    image_url_override : String? = nil
+    iso_url_override : String? = nil
     authorized_keys_file = File.expand_path("~/.ssh/authorized_keys", home: true)
     hostname_override = nil
     pool_name = "zroot"
     swap_gb = 4
     timezone = "Europe/Paris"
+    freebsd_version = "15.0"
+    installed_user = "admin"
 
     positional = [] of String
 
     parser = OptionParser.new do |p|
       p.banner = "USAGE : beryl bootstrap <host> --disk PATH [options]"
       p.on("--disk=PATH", "Disque cible sur l'hôte (REQUIS, ex. /dev/sda, /dev/nvme0n1)") { |v| target_disk = v }
-      p.on("--image=URL", "URL de l'image mfsBSD (priorité : --image > inventaire > défaut)") { |v| image_url_override = v }
+      p.on("--iso-url=URL", "URL de l'ISO FreeBSD disc1 (priorité : --iso-url > défaut paramétré par --freebsd-version)") { |v| iso_url_override = v }
+      p.on("--freebsd-version=VER", "Version FreeBSD à installer (défaut : 15.0)") { |v| freebsd_version = v }
       p.on("--authorized-keys=FILE", "Fichier local contenant les clés SSH (défaut : ~/.ssh/authorized_keys)") { |v| authorized_keys_file = v }
       p.on("--hostname=NAME", "Hostname à configurer (défaut : nom dans l'inventaire)") { |v| hostname_override = v }
       p.on("--pool=NAME", "Nom du pool ZFS (défaut : zroot)") { |v| pool_name = v }
       p.on("--swap=GB", "Taille du swap en Go (défaut : 4)") { |v| swap_gb = v.to_i }
       p.on("--timezone=TZ", "Fuseau horaire (défaut : Europe/Paris)") { |v| timezone = v }
+      p.on("--installed-user=USER", "User pour le SSH post-install (défaut : admin ; root refusé par sshd FreeBSD 15)") { |v| installed_user = v }
       p.on("-h", "--help", "Aide") do
         puts p
         exit(0)
@@ -212,22 +216,15 @@ module Beryl::CLI
     override_snapshot = hostname_override
     hostname = override_snapshot.nil? ? host.name : override_snapshot
 
-    # Priorité de l'URL de l'image mfsBSD :
-    #   1. --image passé au CLI
-    #   2. defaults.bootstrap.mfsbsd_image_url dans inventory.yml
-    #   3. constante de dernier recours MfsBSD::DEFAULT_IMAGE_URL (dépannage hors connexion).
-    image_url = image_url_override ||
-                inv.bootstrap_defaults.mfsbsd_image_url ||
-                Beryl::Bootstrap::MfsBSD::DEFAULT_IMAGE_URL
-
     STDERR.puts "[beryl] bootstrap de #{host_name} (hostname cible : #{hostname}, disque : #{disk})"
+    STDERR.puts "[beryl] FreeBSD #{freebsd_version} — voie QEMU-in-rescue (ADR-011)"
     STDERR.puts "[beryl] #{keys.size} clé(s) SSH chargée(s) depuis #{authorized_keys_file}"
-    STDERR.puts "[beryl] image mfsBSD : #{image_url}"
 
-    # Connexion SSH au rescue : la clé d'hôte n'est probablement pas encore
-    # connue (machine fraîche ou reprovisionnée) et va de toute façon changer
-    # après la bascule mfsBSD. On accepte la première clé puis on la retient
-    # (accept-new protège contre le MITM après la première connexion).
+    # Connexion SSH au rescue : la clé d'hôte n'est probablement pas
+    # encore connue et va changer après le reboot sur FreeBSD installé.
+    # `accept-new` pose la clé au premier contact puis la retient — pas
+    # de prompt, mais MITM possible lors du premier échange (acceptable
+    # pour un bootstrap de serveur neuf).
     rescue_conn = Beryl::SSH::Connection.new(
       host: host.name,
       user: host.user,
@@ -236,23 +233,20 @@ module Beryl::CLI
       options: {"StrictHostKeyChecking" => "accept-new"},
     )
 
-    mfsbsd = Beryl::Bootstrap::MfsBSD.new(
+    bootstrap = Beryl::Bootstrap::QemuInRescue.new(
       rescue_conn: rescue_conn,
-      target_disk: disk,
-      image_url: image_url,
-    )
-    mfsbsd_conn = mfsbsd.run
-
-    installer = Beryl::Bootstrap::Installer.new(
-      mfsbsd_conn: mfsbsd_conn,
       target_disk: disk,
       hostname: hostname,
       authorized_keys: keys,
+      freebsd_version: freebsd_version,
+      timezone: timezone,
+      iso_url: iso_url_override,
       pool_name: pool_name,
       swap_gb: swap_gb,
-      timezone: timezone,
+      installed_user: installed_user,
+      installed_port: host.port,
     )
-    installer.run
+    bootstrap.run
 
     STDERR.puts "[beryl] bootstrap terminé pour #{host_name}"
     0

@@ -93,29 +93,49 @@ Attendu : `sda  disk  20G` (ou `vda`, `nvme0n1`, selon UTM).
 ./bin/beryl bootstrap utm-test.local --disk=/dev/sda
 ----
 
+Le nouveau flux (ADR-011, QEMU-in-rescue) ne fait plus de `dd` direct
+sur le disque : il lance une VM QEMU *depuis le rescue Linux* avec le
+disque réel en passthrough, et laisse `bsdinstall` écrire une FreeBSD
+nativement UEFI-bootable.
+
 Étapes observables (sur stderr) :
 
 . Vérification Linux (uname).
-. Téléchargement de `mfsbsd-15.0-RELEASE-amd64.img` (~500 Mo).
-. `dd` sur `/dev/sda` (~1 min).
-. Redémarrage (la connexion SSH se coupe).
-. Attente SSH sur mfsBSD (~1–2 min).
-. Upload du script d'installation.
-. Exécution de l'installation (partitionnement GPT, pool ZFS, pkgbase).
-. Redémarrage final.
-. Attente SSH sur le système installé (~1 min).
+. Installation `qemu-system-x86`, `ovmf`, `xorriso` dans le rescue (apt).
+. Téléchargement de `FreeBSD-15.0-RELEASE-amd64-disc1.iso` (~1 Go) —
+  réutilisée si déjà présente dans `/root/beryl-test/`.
+. Remasterisation de l'ISO via `xorriso` pour y insérer
+  `/etc/installerconfig` (script `bsdinstall` non interactif).
+. Copie de `OVMF_VARS_4M.fd` pour donner à QEMU un état UEFI modifiable.
+. Lancement de QEMU (UEFI via OVMF, `-enable-kvm`, `-machine q35`,
+  disque réel en virtio passthrough, `-no-reboot`).
+. `bsdinstall` tourne à l'intérieur de la VM : partitionnement ZFS,
+  distribution pkgbase, users `admin` + `deploy`, clé SSH posée,
+  `rc.conf` (ifconfig_DEFAULT), `fstab` (labels GPT), timezone.
+. Au `poweroff` final, QEMU quitte proprement (-no-reboot).
+. `reboot -f` du rescue → l'UEFI bare metal trouve la FreeBSD posée.
+. Attente SSH sur le système installé en tant que `admin`.
+
+Durée totale typique : **25 à 35 min**. La plus grosse partie va dans
+le téléchargement de l'ISO (première passe seulement) et dans
+`bsdinstall` (pkgbase).
 
 === 1.5 Vérifications
 
+Le FreeBSD installé pose `PermitRootLogin no` par défaut : on se
+connecte en tant que `admin` (qui est dans le groupe `wheel` avec
+`sudo NOPASSWD`).
+
 [source,sh]
 ----
-ssh -o StrictHostKeyChecking=no root@utm-test.local << 'EOF'
+ssh -o StrictHostKeyChecking=no admin@utm-test.local << 'EOF'
   uname -srm
   hostname
-  zpool list
-  zfs list
+  sudo zpool list
+  sudo zfs list
   pkg info | head -20
   cat /etc/rc.conf
+  id deploy
 EOF
 ----
 
@@ -123,9 +143,16 @@ Attendu :
 
 * `uname -srm` → `FreeBSD 15.0-RELEASE amd64`.
 * `zpool list` → pool `zroot` en ligne.
-* `pkg info` → paquets `FreeBSD-runtime`, `FreeBSD-kernel-generic`, `FreeBSD-openssh-server`, etc.
+* `pkg info` → `sudo`, `zsh`, `chruby`, `ruby-install` en plus de la base.
+* `id deploy` → user `deploy` dans le groupe primaire `www` (pas `wheel`).
 
 == 2. Test OVH dédié
+
+Depuis ADR-011 (20 avril 2026), le flux n'a plus besoin de `beryl
+prep-rescue`, ni de craindre le `dd` bare metal : tout passe par une
+VM QEMU lancée dans le rescue Linux. On arrive donc avec un rescue
+Debian fonctionnel, on lance `beryl bootstrap <host>` et on va boire
+un café — 25 à 35 min plus tard, FreeBSD répond en SSH.
 
 === 2.1 Provisionner un serveur
 
@@ -232,14 +259,35 @@ Si deux disques (configuration RAID), la v1 de beryl n'en prend qu'un.
 ./bin/beryl bootstrap test-ovh.aloli.fr --disk=/dev/nvme0n1
 ----
 
+C'est la seule commande à lancer. Pas de `beryl prep-rescue`,
+pas de phase intermédiaire mfsBSD. Ouvrez la console KVM/IPMI
+du manager OVH en parallèle pour observer les phases visibles
+sur l'écran :
+
+. BIOS/UEFI du bare metal (début et fin du flux).
+. Prompt du rescue Linux Debian (pendant que beryl tourne côté
+  rescue, 25-35 min).
+. Écran de boot FreeBSD 15 via UEFI (après le reboot final).
+. Prompt `login:` FreeBSD 15 (= fini, SSH doit répondre en `admin`).
+
+Entre ces points, QEMU tourne en mode `-nographic` — il n'y a rien à
+l'écran côté KVM pendant ~20 min. C'est normal. La sortie série de la
+VM QEMU est capturée dans `/root/beryl-test/qemu-serial.log` côté
+rescue (utile si le bootstrap échoue).
+
 === 2.5 Filet de sécurité
 
-Si le premier boot FreeBSD échoue (pas de SSH au bout de 20 min) :
+Si le premier boot FreeBSD échoue (pas de SSH au bout de 30 min) :
 
-. Repasser en mode rescue OVH depuis le manager.
-. Rebooter.
-. Diagnostiquer via la console KVM OVH si nécessaire.
-. Recommencer le bootstrap (idempotent : `dd` écrase l'image).
+. Repasser en mode rescue OVH depuis le manager et récupérer
+  `/root/beryl-test/qemu-serial.log` qui contient toute la sortie
+  série de la VM : partitionnement, install pkgbase, post-install
+  chroot, poweroff.
+. Diagnostiquer via la console KVM OVH si l'UEFI ne trouve plus rien
+  (Secure Boot activé ? ordre de boot ? ESP non détectée ?).
+. Relancer `beryl bootstrap` — le flux est idempotent : l'ISO est
+  re-téléchargée seulement si absente, et `bsdinstall` réécrit tout
+  le disque.
 
 == 3. Test Scaleway Dedibox
 
@@ -297,6 +345,14 @@ hosts:
 ./bin/beryl bootstrap test-scaleway.aloli.fr --disk=/dev/sda
 ----
 
+Comme pour OVH (section 2.4), c'est la seule commande à lancer. Le
+flux `QEMU-in-rescue` tourne pendant 25-35 min puis le serveur
+redémarre sur FreeBSD. SSH ensuite en tant que `admin`.
+
+Si le rescue Scaleway n'a pas `apt` (variantes non-Debian), il faudra
+choisir un rescue Ubuntu depuis la console pour que
+`beryl bootstrap` puisse poser `qemu-system-x86`, `ovmf` et `xorriso`.
+
 === 3.4 Console
 
 En cas de problème, accéder à la console série Scaleway depuis le panneau
@@ -330,11 +386,10 @@ debug à deux (opérateur + contributeur / mainteneur à distance).
   n'est plus joignable : reboot, boot mfsBSD, boot FreeBSD)
 | *Très utile* pour les phases post-reboot.
 
-| Fichier log d'installation (`/tmp/beryl-install.log`)
-| Généré côté mfsBSD par le script d'installation pkgbase, détail de
-  chaque étape
-| *Utile après coup* pour reconstituer une phase qui a échoué dans
-  mfsBSD.
+| Fichier log série QEMU (`/root/beryl-test/qemu-serial.log`)
+| Capture côté rescue de toute la sortie série de la VM QEMU pendant
+  `bsdinstall` : partitionnement, pkgbase, post-install chroot, poweroff.
+| *Utile après coup* pour reconstituer une phase qui a échoué dans QEMU.
 
 | Sortie `dmesg`, `journalctl -b`
 | Messages kernel et systemd pour les échecs bas niveau (drivers,
@@ -421,31 +476,36 @@ arch -x86_64 /Library/Java/JavaVirtualMachines/temurin-8.jdk/Contents/Home/bin/j
 === 4.3 Screenshots console à prendre
 
 Quand beryl atteint ces messages, ouvrir la console KVM/IPMI de
-l'hébergeur (ou la fenêtre QEMU en local) et capturer l'écran :
+l'hébergeur et capturer l'écran :
 
-* `[beryl bootstrap mfsbsd] 5/5 — attend le retour SSH sur mfsBSD`
-  → capture de l'écran de boot mfsBSD (confirme si mfsBSD a démarré ou
-  si le BIOS a échoué).
-* `[beryl bootstrap installer] 4/4 — attend le retour SSH sur le système installé`
-  → capture de l'écran de boot FreeBSD 15 (confirme si bsdinstall s'est
-  passé correctement).
+* `[beryl bootstrap qemu-in-rescue] 7/8 — redémarre le bare metal`
+  → capture au moment du reboot (confirme que le rescue a bien fermé
+  et laissé la place au firmware UEFI).
+* `[beryl bootstrap qemu-in-rescue] 8/8 — attend le retour SSH sur le FreeBSD installé`
+  → capture de l'écran de boot FreeBSD 15 via UEFI (confirme que
+  `loader.efi` + noyau ont été trouvés par le firmware).
 * En cas de timeout : capturer l'écran courant, il montre souvent
-  l'erreur (kernel panic, mountroot prompt, etc.).
+  l'erreur (kernel panic, mountroot prompt, PXE loop, etc.).
 
 === 4.4 Logs internes à récupérer (si accessible en SSH)
 
-Une fois connecté en SSH à mfsBSD ou au système installé :
+Pendant que QEMU tourne (rescue Linux accessible en SSH) :
 
 [source,sh]
 ----
-# sur mfsBSD, pendant l'install :
-tail -f /tmp/beryl-install.log
+# sur le rescue, pour suivre l'install en direct :
+tail -f /root/beryl-test/qemu-serial.log
+----
 
-# après boot FreeBSD 15 :
-dmesg | tail -100
-cat /var/log/messages | tail -200
-zpool status
-zfs list
+Une fois connecté en SSH au système installé (`admin@<host>`) :
+
+[source,sh]
+----
+uname -srm
+sudo dmesg | tail -100
+sudo cat /var/log/messages | tail -200
+sudo zpool status
+sudo zfs list
 pkg info | head -30
 cat /etc/rc.conf
 ----
@@ -478,50 +538,65 @@ tout le test ensemble.
 
 == 5. Résolution des pannes
 
-=== Le bootstrap timeout en phase « attente SSH mfsBSD »
+=== QEMU refuse de démarrer côté rescue
 
-Cause probable : l'image mfsBSD n'a pas démarré (BIOS/UEFI incompatible,
-disque incorrect, réseau DHCP muet).
+Causes typiques :
 
-. Accéder à la console IPMI/KVM de l'hébergeur pour voir l'écran de boot.
-. Vérifier que le disque passé à `--disk` est bien le disque principal
-  amorçable (et non un disque secondaire).
-. Si l'hébergeur utilise Secure Boot, le désactiver dans le BIOS.
+* CPU sans VT-x/AMD-V (rare en dédié moderne, possible sur du cloud).
+  `beryl` s'appuie sur `-enable-kvm` qui échoue sans virtualisation
+  matérielle. Vérifier côté rescue : `egrep -c '(vmx|svm)' /proc/cpuinfo`.
+* Rescue non-Debian-like sans `apt` : `qemu-system-x86`, `ovmf` et
+  `xorriso` ne seront pas installables automatiquement. Basculer sur
+  un rescue Debian/Ubuntu.
+* ISO corrompue ou tronquée dans `/root/beryl-test/disc1.iso` : supprimer
+  le fichier et relancer, beryl re-téléchargera.
 
-=== Le bootstrap timeout en phase « attente SSH système installé »
+=== `bsdinstall` a échoué dans la VM
 
-Cause probable : `bsdinstall` a échoué quelque part (pkgbase indisponible,
-ZFS en conflit, bootloader EFI mal posé).
+Symptôme : `beryl` sort en timeout sur la phase 8/8 (attente SSH
+FreeBSD), ou QEMU quitte avec un code non nul avant le `poweroff`.
 
-. Se reconnecter à mfsBSD manuellement :
-+
-[source,sh]
-----
-ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@<IP>
-cat /tmp/beryl-install.log
-----
-. Lire le log d'installation pour diagnostiquer.
-. Corriger manuellement ou relancer le bootstrap.
+. Se reconnecter au rescue Linux (il doit encore être là, beryl n'a pas
+  lancé `reboot -f` tant que QEMU tourne).
+. Lire `/root/beryl-test/qemu-serial.log` : toute la sortie série de la
+  VM est capturée, depuis le boot UEFI OVMF jusqu'au `poweroff`.
+. Corriger (par exemple `installerconfig` mal rendu — auquel cas le
+  template côté beryl doit être retouché) et relancer `beryl bootstrap`.
+
+=== UEFI ne trouve rien à amorcer après le reboot final
+
+Symptôme : `bsdinstall` a terminé proprement dans la VM (log série
+clair), mais l'UEFI du bare metal retombe dans PXE ou un menu de boot
+vide.
+
+. Vérifier côté manager que Secure Boot est désactivé (OVH/Scaleway
+  ont des options dans le BIOS netboot).
+. Vérifier que l'ESP est bien sur le même disque que celui passé à
+  `--disk` (pas de confusion NVMe0/NVMe1 sur machine à deux disques).
+. Forcer l'ordre de boot UEFI sur le disque passé (certains firmwares
+  privilégient la NIC par défaut).
 
 === Réinitialiser complètement
 
-Côté OVH ou Scaleway, il suffit de repasser en mode rescue et de relancer
-`beryl bootstrap` : le `dd` écrase l'image existante.
+Repasser en mode rescue et relancer `beryl bootstrap` : `bsdinstall`
+écrase intégralement la table de partition + ZFS.
 
 == 6. Résultats attendus pour la v0.1
 
 À l'issue du bootstrap, le serveur doit :
 
-* [ ] Démarrer automatiquement sur FreeBSD 15 sans intervention.
-* [ ] Répondre en SSH sur le port 22 avec votre clé.
-* [ ] Refuser `PermitRootLogin` avec mot de passe.
+* [ ] Démarrer automatiquement sur FreeBSD 15 via UEFI sans intervention.
+* [ ] Répondre en SSH sur le port 22 en `admin` (avec votre clé).
+* [ ] Refuser `root` en SSH (défaut FreeBSD 15 `PermitRootLogin no`).
 * [ ] Avoir un pool ZFS `zroot` en ligne.
 * [ ] Avoir le hostname configuré.
-* [ ] Avoir DHCP sur l'interface principale (IPv4 et IPv6).
+* [ ] Avoir DHCP sur l'interface principale via `ifconfig_DEFAULT`
+  (survit au changement de nom de NIC entre VM QEMU et bare metal).
+* [ ] Avoir `deploy` créé dans le groupe primaire `www` (pas `wheel`).
+* [ ] `sudo -n true` en tant qu'`admin` (wheel NOPASSWD).
 
 Ce qui **n'est pas encore couvert** (Phase 2) :
 
-* Création d'utilisateurs non-root.
 * Durcissement SSH complet (profil Mozilla Modern).
 * Services applicatifs (nginx, PostgreSQL, etc.).
 * Alerting (dma, ntfy).

@@ -8,11 +8,13 @@ defaults:
   port: 22
   identity_file: ~/.ssh/id_ed25519
 
-  # Paramètres du bootstrap (optionnel). Toutes les clés sont overridables
-  # par un flag CLI. Si rien n'est précisé ici ni au CLI, beryl retombe
-  # sur la constante par défaut du module `Beryl::Bootstrap::MfsBSD`.
-  bootstrap:
-    mfsbsd_image_url: https://depenguin.me/files/mfsbsd-15.0-RELEASE-amd64.iso
+  # Paramètres du bootstrap (optionnel). Depuis ADR-011, la voie
+  # principale est QEMU-in-rescue : aucune clé d'inventaire n'est
+  # nécessaire, `beryl bootstrap` prend `--iso-url` et `--freebsd-version`
+  # au CLI si besoin d'overrider. La clé `mfsbsd_image_url` reste lue
+  # pour compat ascendante mais n'est plus utilisée par le flux courant.
+  # bootstrap:
+  #   mfsbsd_image_url: https://depenguin.me/files/mfsbsd-15.0-RELEASE-amd64.iso
 
 hosts:
   # Serveur OVH dédié en rescue Debian.

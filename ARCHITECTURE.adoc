@@ -63,7 +63,14 @@ via SSH (OpenSSH standard, pas de clé propriétaire).
 * Le parallélisme est géré côté local par des fibres Crystal, bornées par une
   limite de concurrence configurable.
 
-=== ADR-003 — Bootstrap via mfsBSD + kexec (Accepted)
+=== ADR-003 — Bootstrap via mfsBSD + kexec (Superseded by ADR-011)
+
+NOTE: Cette décision a été **remplacée par ADR-011** (« Bootstrap via
+QEMU-in-rescue ») le 20 avril 2026, après le test grandeur nature qui
+a validé ADR-010 (l'ISO mfsBSD `dd`-ée n'est pas UEFI-bootable sur les
+dédiés modernes). Elle est conservée ici pour mémoire et parce que son
+code (`Beryl::Bootstrap::MfsBSD`, `Beryl::Bootstrap::Installer`) reste
+dans le dépôt en support Legacy BIOS éventuel.
 
 *Contexte.* Les hébergeurs (OVH, Scaleway, Hetzner) ne proposent pas FreeBSD
 en installation native.
