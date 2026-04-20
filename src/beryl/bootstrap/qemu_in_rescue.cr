@@ -146,6 +146,7 @@ module Beryl::Bootstrap
         launch_qemu_background
         wait_for_vm_ssh
       end
+      hint_follow_bsdinstall
       log_step("6/7 — upload installerconfig + bsdinstall (10-25 min)") do
         scp_installerconfig_to_vm
         run_bsdinstall_in_vm
@@ -369,6 +370,26 @@ module Beryl::Bootstrap
       ensure
         done.send(nil)
       end
+    end
+
+    # Affiche un pense-bête en « commentaire » (préfixe `#`) juste avant
+    # l'étape 6/7, expliquant comment suivre la progression bsdinstall
+    # en direct dans un autre terminal. Non horodaté pour ressembler à
+    # du commentaire shell ; indentation pour se détacher visuellement
+    # du flux d'étapes.
+    private def hint_follow_bsdinstall : Nil
+      rescue_host = @rescue_conn.host
+      STDERR.puts "#"
+      STDERR.puts "# Pour suivre bsdinstall en direct depuis un autre terminal :"
+      STDERR.puts "#"
+      STDERR.puts "#   ssh root@#{rescue_host} \\"
+      STDERR.puts "#     'sshpass -p #{MFSBSD_ROOT_PASSWORD} ssh \\"
+      STDERR.puts "#      -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \\"
+      STDERR.puts "#      -o PreferredAuthentications=keyboard-interactive \\"
+      STDERR.puts "#      -o PubkeyAuthentication=no \\"
+      STDERR.puts "#      -p #{VM_SSH_PORT} root@#{VM_SSH_HOST} \\"
+      STDERR.puts "#      \"tail -f #{VM_BSDINSTALL_LG}\"'"
+      STDERR.puts "#"
     end
 
     # Horodatage sensible à la locale :
