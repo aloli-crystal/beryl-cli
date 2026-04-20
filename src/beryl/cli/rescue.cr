@@ -179,6 +179,10 @@ module Beryl::CLI::Rescue
   # Fonction d'attente SSH par défaut : poll un `ssh user@host uname -s`
   # toutes les *poll* secondes jusqu'à obtenir un succès ou dépasser
   # *timeout*. Renvoie true si SSH a répondu, false si timeout.
+  #
+  # Affiche une ligne de progression compacte (une tentative par ligne avec
+  # le temps écoulé) pour que l'utilisateur voie que le process travaille ;
+  # un poll toutes les 15 s sur 10 min c'est ~40 lignes, tenable.
   def self.default_wait_for_ssh(
     host : String,
     port : Int32,
@@ -191,14 +195,24 @@ module Beryl::CLI::Rescue
       user: user,
       port: port,
     )
-    deadline = Time.instant + timeout
+    start = Time.instant
+    deadline = start + timeout
+    attempt = 0
     while Time.instant < deadline
+      attempt += 1
+      elapsed = (Time.instant - start).total_seconds.to_i
+      STDERR.printf("[beryl rescue] tentative %d à %02d:%02d / %dmn… ",
+        attempt, elapsed // 60, elapsed % 60, timeout.total_minutes.to_i)
       begin
         result = conn.exec("uname -s", raise_on_error: false)
-        return true if result.success?
+        if result.success?
+          STDERR.puts "OK"
+          return true
+        end
       rescue
         # silencieux : rescue pas encore debout, retente au prochain tour
       end
+      STDERR.puts "pas encore"
       sleep poll
     end
     false
