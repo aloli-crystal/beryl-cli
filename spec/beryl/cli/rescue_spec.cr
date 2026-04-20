@@ -4,7 +4,7 @@ require "../../../src/beryl/cli/rescue"
 # Transport HTTP factice pour l'API OVH : enregistre chaque requête et
 # répond avec un scénario pré-câblé. Les réponses sont consommées dans
 # l'ordre (FIFO) pour refléter l'enchaînement `boots → boot → set_boot →
-# set_netboot_option → reboot` de `prepare_rescue`.
+# set_boot (avec rescueSshKey) → reboot` de `prepare_rescue`.
 private class StubOvhTransport < OvhApi::HttpTransport
   getter calls : Array({String, String, String}) = [] of {String, String, String}
   getter responses : Array({Int32, String})
@@ -88,11 +88,11 @@ describe Beryl::CLI::Rescue do
           {200, %({"bootId": 2, "bootType": "rescue", "supportsUEFI": "yes"})},
           # GET boot 3 : type power → ignoré
           {200, %({"bootId": 3, "bootType": "power"})},
-          # PUT /dedicated/server/... (set_boot) → vide
+          # PUT /dedicated/server/... (set_boot avec bootId + rescueSshKey) → vide
           {200, ""},
-          # POST netbootOption → vide
-          {200, ""},
-          # POST /reboot → Task
+          # POST /reboot → Task (depuis ovh-api 0.2.1, prepare_rescue fait
+          # 3 étapes : boot lookup → PUT combiné → reboot, plus de POST
+          # netbootOption qui n'existe pas côté OVH).
           {200, %({"taskId": 42, "function": "hardReboot", "status": "todo"})},
         ])
 
@@ -118,6 +118,9 @@ describe Beryl::CLI::Rescue do
         # sur /reboot).
         transport.calls.last[0].should eq("POST")
         transport.calls.last[1].should contain("/reboot")
+        # Vérifie que le PUT set_boot a bien inclus rescueSshKey (0.2.1).
+        put = transport.calls.find { |c| c[0] == "PUT" }.not_nil!
+        put[2].should contain(%("rescueSshKey":"philippe-aloli-fr"))
       ensure
         File.delete(inventory) if File.exists?(inventory)
       end
@@ -130,7 +133,6 @@ describe Beryl::CLI::Rescue do
           {200, "1745000000"},
           {200, "[2]"},
           {200, %({"bootId": 2, "bootType": "rescue", "supportsUEFI": "yes"})},
-          {200, ""},
           {200, ""},
           {200, %({"taskId": 42, "function": "hardReboot", "status": "todo"})},
         ])
@@ -163,7 +165,6 @@ describe Beryl::CLI::Rescue do
           {200, "1745000000"},
           {200, "[2]"},
           {200, %({"bootId": 2, "bootType": "rescue", "supportsUEFI": "yes"})},
-          {200, ""},
           {200, ""},
           {200, %({"taskId": 42, "function": "hardReboot", "status": "todo"})},
         ])
