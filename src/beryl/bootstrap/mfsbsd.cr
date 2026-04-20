@@ -1,6 +1,22 @@
 require "../ssh"
 
 module Beryl::Bootstrap
+  # DEPRECATED (ADR-010 / ADR-011) — n'est plus sur le chemin principal.
+  #
+  # Le pattern `dd mfsBSD ISO + reboot` ne boote pas sur les dédiés
+  # UEFI-only (OVH/Scaleway/Hetzner modernes) : l'ISO mfsBSD est un
+  # ISO 9660 pur sans MBR/GPT, donc un UEFI ne trouve rien à amorcer
+  # quand le disque est ainsi `dd`-é. Voir `ARCHITECTURE.adoc` ADR-010.
+  #
+  # La voie actuelle est `Beryl::Bootstrap::QemuInRescue` (ADR-011) :
+  # FreeBSD est posé directement via `bsdinstall` depuis une VM QEMU
+  # lancée dans le rescue Linux, avec le disque réel en passthrough.
+  #
+  # Cette classe reste disponible pour l'éventuel cas Legacy BIOS (machines
+  # antérieures qui supportent encore l'amorçage MBR). Elle peut être
+  # ressortie en tant que voie secondaire (`--legacy-bios`) si le besoin
+  # remonte du terrain.
+  #
   # Bascule un serveur depuis son rescue Linux (fourni par l'hébergeur)
   # vers une image mfsBSD bootable qui tourne entièrement en RAM.
   #

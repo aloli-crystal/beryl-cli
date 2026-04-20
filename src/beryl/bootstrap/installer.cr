@@ -2,6 +2,17 @@ require "base64"
 require "../ssh"
 
 module Beryl::Bootstrap
+  # DEPRECATED (ADR-010 / ADR-011) — n'est plus sur le chemin principal.
+  #
+  # Cette classe est la seconde phase du flux legacy mfsBSD + installer,
+  # conçu pour installer FreeBSD depuis mfsBSD en RAM. Elle ne marche que
+  # si la phase mfsBSD a pu booter, ce qui n'est pas le cas sur les dédiés
+  # UEFI-only. Voir `ARCHITECTURE.adoc` ADR-010 et ADR-011.
+  #
+  # La voie actuelle est `Beryl::Bootstrap::QemuInRescue` qui remplace
+  # `MfsBSD + Installer` en une seule étape (bsdinstall non interactif
+  # dans une VM QEMU lancée côté rescue Linux).
+  #
   # Installe FreeBSD 15 sur disque depuis une image mfsBSD active en RAM,
   # en mode **pkgbase** par défaut (le nouveau système 15.0).
   #
