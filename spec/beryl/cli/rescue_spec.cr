@@ -72,6 +72,12 @@ private class FakeSshWaiter
   end
 end
 
+# Fake résolveur DNS pour les specs : les hôtes `loulou.aloli.fr` et
+# `mysrv-scw.aloli.fr` utilisés dans les fixtures ne résolvent pas en
+# DNS réel, on court-circuite.
+private ALWAYS_RESOLVE = ->(_host : String) { true }
+private NEVER_RESOLVE  = ->(_host : String) { false }
+
 describe Beryl::CLI::Rescue do
   describe ".run — OVH" do
     it "déclenche prepare_rescue puis retourne 0 si SSH répond" do
@@ -95,7 +101,7 @@ describe Beryl::CLI::Rescue do
           # PUT /dedicated/server/... (set_boot avec bootId + rescueSshKey=<contenu>) → vide
           {200, ""},
           # POST /reboot → Task
-          {200, %({"taskId": 42, "function": "hardReboot", "status": "todo"})},
+          {200, %({"taskId": 42, "function": "hardReboot", "status": "done"})},
         ])
 
         client = OvhApi::Client.new(
@@ -110,6 +116,7 @@ describe Beryl::CLI::Rescue do
           ovh_client_factory: -> { client },
           scaleway_client_factory: -> { raise "ne devrait pas être appelé" },
           wait_for_ssh: waiter.to_proc,
+          dns_resolver: ALWAYS_RESOLVE,
         )
 
         exit_code.should eq(0)
@@ -138,7 +145,7 @@ describe Beryl::CLI::Rescue do
           {200, %({"bootId": 2, "bootType": "rescue", "kernel": "rescue64-pro", "supportsUEFI": "yes"})},
           {200, %({"keyName":"philippe-aloli-fr","key":"ssh-ed25519 AAAA...","default":false})},
           {200, ""},
-          {200, %({"taskId": 42, "function": "hardReboot", "status": "todo"})},
+          {200, %({"taskId": 42, "function": "hardReboot", "status": "done"})},
         ])
         client = OvhApi::Client.new(
           application_key: "AK", application_secret: "AS", consumer_key: "CK",
@@ -153,6 +160,7 @@ describe Beryl::CLI::Rescue do
           ovh_client_factory: -> { client },
           scaleway_client_factory: -> { raise "skip" },
           wait_for_ssh: waiter.to_proc,
+          dns_resolver: ALWAYS_RESOLVE,
         )
 
         exit_code.should eq(Beryl::CLI::Rescue::EXIT_SSH_FAILED)
@@ -171,7 +179,7 @@ describe Beryl::CLI::Rescue do
           {200, %({"bootId": 2, "bootType": "rescue", "kernel": "rescue64-pro", "supportsUEFI": "yes"})},
           {200, %({"keyName":"philippe-aloli-fr","key":"ssh-ed25519 AAAA...","default":false})},
           {200, ""},
-          {200, %({"taskId": 42, "function": "hardReboot", "status": "todo"})},
+          {200, %({"taskId": 42, "function": "hardReboot", "status": "done"})},
         ])
         client = OvhApi::Client.new(
           application_key: "AK", application_secret: "AS", consumer_key: "CK",
@@ -185,6 +193,7 @@ describe Beryl::CLI::Rescue do
           ovh_client_factory: -> { client },
           scaleway_client_factory: -> { raise "skip" },
           wait_for_ssh: waiter.to_proc,
+          dns_resolver: ALWAYS_RESOLVE,
         )
 
         exit_code.should eq(0)
@@ -208,6 +217,7 @@ describe Beryl::CLI::Rescue do
           ovh_client_factory: -> { raise "skip" },
           scaleway_client_factory: -> { raise "skip" },
           wait_for_ssh: FakeSshWaiter.new.to_proc,
+          dns_resolver: ALWAYS_RESOLVE,
         )
         exit_code.should eq(Beryl::CLI::Rescue::EXIT_MISSING_CONFIG)
       ensure
@@ -235,6 +245,7 @@ describe Beryl::CLI::Rescue do
           ovh_client_factory: -> { raise "skip" },
           scaleway_client_factory: -> { client },
           wait_for_ssh: waiter.to_proc,
+          dns_resolver: ALWAYS_RESOLVE,
         )
 
         exit_code.should eq(0)
@@ -263,6 +274,7 @@ describe Beryl::CLI::Rescue do
           ovh_client_factory: -> { raise "skip" },
           scaleway_client_factory: -> { raise "skip" },
           wait_for_ssh: FakeSshWaiter.new.to_proc,
+          dns_resolver: ALWAYS_RESOLVE,
         )
         exit_code.should eq(Beryl::CLI::Rescue::EXIT_MISSING_CONFIG)
       ensure
@@ -281,6 +293,7 @@ describe Beryl::CLI::Rescue do
           ovh_client_factory: -> { raise "skip" },
           scaleway_client_factory: -> { raise "skip" },
           wait_for_ssh: FakeSshWaiter.new.to_proc,
+          dns_resolver: ALWAYS_RESOLVE,
         )
         exit_code.should eq(Beryl::CLI::Rescue::EXIT_USAGE)
       ensure
@@ -297,6 +310,7 @@ describe Beryl::CLI::Rescue do
           ovh_client_factory: -> { raise "skip" },
           scaleway_client_factory: -> { raise "skip" },
           wait_for_ssh: FakeSshWaiter.new.to_proc,
+          dns_resolver: ALWAYS_RESOLVE,
         )
         exit_code.should eq(Beryl::CLI::Rescue::EXIT_USAGE)
       ensure
@@ -318,6 +332,7 @@ describe Beryl::CLI::Rescue do
           ovh_client_factory: -> { raise "skip" },
           scaleway_client_factory: -> { raise "skip" },
           wait_for_ssh: FakeSshWaiter.new.to_proc,
+          dns_resolver: ALWAYS_RESOLVE,
         )
         exit_code.should eq(Beryl::CLI::Rescue::EXIT_BAD_PROVIDER)
       ensure
@@ -338,8 +353,68 @@ describe Beryl::CLI::Rescue do
           ovh_client_factory: -> { raise "skip" },
           scaleway_client_factory: -> { raise "skip" },
           wait_for_ssh: FakeSshWaiter.new.to_proc,
+          dns_resolver: ALWAYS_RESOLVE,
         )
         exit_code.should eq(Beryl::CLI::Rescue::EXIT_BAD_PROVIDER)
+      ensure
+        File.delete(inventory) if File.exists?(inventory)
+      end
+    end
+
+    it "retourne EXIT_DNS si l'hôte ne résout pas (garde-fou avant API)" do
+      inventory = write_tmp_inventory(OVH_INVENTORY)
+      begin
+        ovh_calls = 0
+        factory = -> do
+          ovh_calls += 1
+          raise "l'API OVH ne devrait pas être appelée quand le DNS échoue"
+          OvhApi::Client.new(application_key: "x", application_secret: "x", consumer_key: "x")
+        end
+        exit_code = Beryl::CLI::Rescue.run(
+          inventory_path: inventory,
+          args: ["loulou.aloli.fr"],
+          ovh_client_factory: factory,
+          scaleway_client_factory: -> { raise "skip" },
+          wait_for_ssh: FakeSshWaiter.new.to_proc,
+          dns_resolver: NEVER_RESOLVE,
+        )
+        exit_code.should eq(Beryl::CLI::Rescue::EXIT_DNS)
+        ovh_calls.should eq(0)
+      ensure
+        File.delete(inventory) if File.exists?(inventory)
+      end
+    end
+
+    it "retourne EXIT_TASK_FAILED si la task OVH finit en ovhError" do
+      inventory = write_tmp_inventory(OVH_INVENTORY)
+      begin
+        transport = StubOvhTransport.new([
+          {200, "1745000000"},
+          {200, "[2]"},
+          {200, %({"bootId": 2, "bootType": "rescue", "kernel": "rescue64-pro", "supportsUEFI": "yes"})},
+          {200, %({"keyName":"philippe-aloli-fr","key":"ssh-ed25519 AAAA...","default":false})},
+          {200, ""},
+          # Reboot démarre en init puis, au premier poll, repasse en ovhError.
+          {200, %({"taskId": 42, "function": "hardReboot", "status": "init"})},
+          {200, %({"taskId": 42, "function": "hardReboot", "status": "ovhError", "comment": "Server does not awake on rescue system"})},
+        ])
+        client = OvhApi::Client.new(
+          application_key: "AK", application_secret: "AS", consumer_key: "CK",
+          endpoint: :eu, transport: transport,
+        )
+        waiter = FakeSshWaiter.new
+        exit_code = Beryl::CLI::Rescue.run(
+          inventory_path: inventory,
+          args: ["loulou.aloli.fr"],
+          ovh_client_factory: -> { client },
+          scaleway_client_factory: -> { raise "skip" },
+          wait_for_ssh: waiter.to_proc,
+          dns_resolver: ALWAYS_RESOLVE,
+          task_poll_interval: 0.seconds,
+        )
+        exit_code.should eq(Beryl::CLI::Rescue::EXIT_TASK_FAILED)
+        # SSH ne devrait pas avoir été tenté puisque la task a échoué avant.
+        waiter.calls.should be_empty
       ensure
         File.delete(inventory) if File.exists?(inventory)
       end
@@ -358,6 +433,7 @@ describe Beryl::CLI::Rescue do
           ovh_client_factory: factory,
           scaleway_client_factory: -> { raise "skip" },
           wait_for_ssh: FakeSshWaiter.new.to_proc,
+          dns_resolver: ALWAYS_RESOLVE,
         )
         exit_code.should eq(Beryl::CLI::Rescue::EXIT_BAD_CREDS)
       ensure
