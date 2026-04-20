@@ -97,4 +97,66 @@ describe Beryl::Inventory do
       inv.bootstrap_defaults.mfsbsd_image_url.should eq("https://example.com/custom.iso")
     end
   end
+
+  describe "provider_config" do
+    it "parse le bloc ovh: d'un hôte et expose service_name / ssh_key_name" do
+      yaml = <<-YAML
+        hosts:
+          loulou.aloli.fr:
+            provider: ovh
+            ovh:
+              service_name: ns3156789.ip-51-83-6.eu
+              ssh_key_name: philippe-aloli-fr
+        YAML
+      host = Beryl::Inventory.from_yaml(yaml).find("loulou.aloli.fr")
+      host.ovh_service_name.should eq("ns3156789.ip-51-83-6.eu")
+      host.ovh_ssh_key_name.should eq("philippe-aloli-fr")
+      host.scaleway_zone.should be_nil
+      host.scaleway_server_id.should be_nil
+    end
+
+    it "parse le bloc scaleway: d'un hôte et expose zone / server_id" do
+      yaml = <<-YAML
+        hosts:
+          mysrv-scw.aloli.fr:
+            provider: scaleway
+            scaleway:
+              zone: fr-par-2
+              server_id: abc-123-def
+        YAML
+      host = Beryl::Inventory.from_yaml(yaml).find("mysrv-scw.aloli.fr")
+      host.scaleway_zone.should eq("fr-par-2")
+      host.scaleway_server_id.should eq("abc-123-def")
+      host.ovh_service_name.should be_nil
+      host.ovh_ssh_key_name.should be_nil
+    end
+
+    it "retourne nil sur les accesseurs provider mismatch" do
+      yaml = <<-YAML
+        hosts:
+          web01.aloli.fr:
+            provider: ovh
+            ovh:
+              service_name: ns.example
+              ssh_key_name: laptop
+        YAML
+      host = Beryl::Inventory.from_yaml(yaml).find("web01.aloli.fr")
+      # provider ≠ scaleway → tous les accesseurs scaleway sont nil même si
+      # le bloc était présent.
+      host.scaleway_zone.should be_nil
+      host.scaleway_server_id.should be_nil
+    end
+
+    it "tolère l'absence de bloc provider-spécifique" do
+      yaml = <<-YAML
+        hosts:
+          web01.aloli.fr:
+            provider: ovh
+        YAML
+      host = Beryl::Inventory.from_yaml(yaml).find("web01.aloli.fr")
+      host.ovh_service_name.should be_nil
+      host.ovh_ssh_key_name.should be_nil
+      host.provider_config.should be_empty
+    end
+  end
 end

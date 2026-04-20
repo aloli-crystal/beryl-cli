@@ -12,6 +12,13 @@ module Beryl
     getter recipes : Array(String)
     getter variables : Hash(String, YAML::Any)
 
+    # Configuration spécifique au fournisseur, lue depuis le bloc YAML
+    # portant le nom du provider (ex. `ovh:` ou `scaleway:`). Permet de
+    # porter des identifiants d'API (serviceName OVH, server_id Scaleway,
+    # etc.) sans polluer le schéma général. Vide si aucun bloc n'est
+    # présent.
+    getter provider_config : Hash(String, YAML::Any)
+
     def initialize(
       @name : String,
       @provider : String? = nil,
@@ -20,6 +27,7 @@ module Beryl
       @identity_file : String? = nil,
       @recipes : Array(String) = [] of String,
       @variables : Hash(String, YAML::Any) = {} of String => YAML::Any,
+      @provider_config : Hash(String, YAML::Any) = {} of String => YAML::Any,
     )
     end
 
@@ -31,6 +39,34 @@ module Beryl
         port: @port,
         identity_file: @identity_file,
       )
+    end
+
+    # Nom du service OVH (`serviceName`, ex. `ns3156789.ip-51-83-6.eu`).
+    # Retourne nil si le provider n'est pas `ovh` ou si le champ est absent.
+    def ovh_service_name : String?
+      return nil unless @provider == "ovh"
+      @provider_config["service_name"]?.try(&.as_s)
+    end
+
+    # Nom de la clé SSH déclarée dans `/me/sshKey` côté OVH. Utilisée par
+    # `prepare_rescue` pour injecter la clé dans le rescue.
+    def ovh_ssh_key_name : String?
+      return nil unless @provider == "ovh"
+      @provider_config["ssh_key_name"]?.try(&.as_s)
+    end
+
+    # Zone Scaleway où réside le serveur (ex. `fr-par-2`). Retourne nil si
+    # le provider n'est pas `scaleway` ou si le champ est absent.
+    def scaleway_zone : String?
+      return nil unless @provider == "scaleway"
+      @provider_config["zone"]?.try(&.as_s)
+    end
+
+    # UUID du serveur Elastic Metal Scaleway. Retourne nil si le provider
+    # n'est pas `scaleway` ou si le champ est absent.
+    def scaleway_server_id : String?
+      return nil unless @provider == "scaleway"
+      @provider_config["server_id"]?.try(&.as_s)
     end
   end
 
@@ -97,15 +133,26 @@ module Beryl
       hosts_any.each do |name_any, cfg_any|
         name = name_any.as_s
         cfg = cfg_any.as_h? || empty_hash
+        provider = cfg["provider"]?.try(&.as_s)
+
+        # Bloc spécifique au provider (ex. sous la clé `ovh:` ou
+        # `scaleway:`). Les identifiants d'API y vivent pour éviter
+        # d'encombrer le schéma général.
+        provider_config = if provider
+                            extract_string_keyed_hash(cfg[provider]?)
+                          else
+                            {} of String => YAML::Any
+                          end
 
         hosts[name] = Host.new(
           name: name,
-          provider: cfg["provider"]?.try(&.as_s),
+          provider: provider,
           user: cfg["user"]?.try(&.as_s) || default_user,
           port: cfg["port"]?.try(&.as_i) || default_port,
           identity_file: cfg["identity_file"]?.try(&.as_s) || default_identity,
           recipes: extract_string_array(cfg["recipes"]?),
           variables: extract_string_keyed_hash(cfg["variables"]?),
+          provider_config: provider_config,
         )
       end
 
