@@ -275,11 +275,9 @@ module Beryl::CLI::Rescue
   # toutes les *poll* secondes jusqu'à obtenir un succès ou dépasser
   # *timeout*. Renvoie true si SSH a répondu, false si timeout.
   #
-  # Progression visuelle : un `.` par tentative, un `-` toutes les 10
-  # tentatives, et un jalon textuel `[MmSSs]` toutes les 10 tentatives
-  # pour situer dans le temps sans mathématique mentale. À 15 s de poll,
-  # 10 tentatives = 2 min 30 s, et 10 min de timeout = ~40 signes : lisible
-  # sans scroller.
+  # Progression : une ligne unique rafraîchie en place (retour chariot `\r`)
+  # avec le temps écoulé. Motif déjà éprouvé dans crystal-deploy, pas de
+  # scrolling, pas de bruit.
   def self.default_wait_for_ssh(
     host : String,
     port : Int32,
@@ -294,30 +292,22 @@ module Beryl::CLI::Rescue
     )
     start = Time.instant
     deadline = start + timeout
-    attempt = 0
-    STDERR.print "[beryl rescue] "
-    STDERR.flush
     while Time.instant < deadline
-      attempt += 1
       begin
         result = conn.exec("uname -s", raise_on_error: false)
         if result.success?
-          STDERR.puts " OK"
+          STDERR.print "\n"
           return true
         end
       rescue
         # silencieux : rescue pas encore debout, retente au prochain tour
       end
-      if attempt % 10 == 0
-        elapsed = (Time.instant - start).total_seconds.to_i
-        STDERR.printf("- [%dmn%02ds] ", elapsed // 60, elapsed % 60)
-      else
-        STDERR.print "."
-      end
+      elapsed = (Time.instant - start).total_seconds.to_i
+      STDERR.printf("  [%3ds] attente SSH sur %s...\r", elapsed, host)
       STDERR.flush
       sleep poll
     end
-    STDERR.puts
+    STDERR.print "\n"
     false
   end
 
