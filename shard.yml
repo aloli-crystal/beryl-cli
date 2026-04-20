@@ -23,6 +23,9 @@ dependencies:
   scaleway-api:
     github: aloli-crystal/crystal-api-scaleway
     branch: production
+  load-env:
+    github: aloli-crystal/crystal-load-env
+    branch: production
 
 targets:
   beryl:

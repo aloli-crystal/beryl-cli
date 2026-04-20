@@ -1,4 +1,5 @@
 require "option_parser"
+require "load-env"
 require "../beryl"
 require "./cli/prep_rescue"
 require "./cli/bake_seed"
@@ -28,7 +29,7 @@ module Beryl::CLI
     # Charge `.env` du cwd en priorité basse (les variables déjà exportées
     # dans le shell l'emportent). Évite à l'utilisateur le rituel
     # `set -a && source .env && set +a` avant chaque commande.
-    Beryl::Dotenv.load
+    LoadEnv.load
 
     inventory_path = DEFAULT_INVENTORY
 
