@@ -387,6 +387,37 @@ asciinema rec tmp/beryl-session.cast
 asciinema play tmp/beryl-session.cast
 ----
 
+=== 4.2.bis KVM / IPMI hors-bande
+
+Quand le serveur ne boote pas et SSH ne répond pas, la console KVM
+hors-bande (IPMI, iKVM, Intel vPro) est **indispensable** pour voir
+ce que l'UEFI/BIOS affiche : écran d'erreur, loop PXE, prompt bootloader,
+kernel panic…
+
+==== Sur Apple Silicon
+
+Les JNLP Supermicro/ASPEED d'OVH chargent une `.dylib` native
+(`iKVM64.dylib`) compilée en x86_64 uniquement. Java arm64 natif refuse
+de la charger (`no iKVM64 in java.library.path`). Solution :
+
+[source,sh]
+----
+brew install --cask openwebstart
+----
+
+https://openwebstart.com/[OpenWebStart] remplace `javaws` (retiré depuis
+Java 11) et bootstrape un JDK x86_64 sous Rosetta à la demande. Après
+installation, double-cliquer le `.jnlp` téléchargé → fenêtre KVM.
+
+Alternative manuelle (si OpenWebStart pose problème) :
+
+[source,sh]
+----
+arch -x86_64 brew install --cask temurin8
+arch -x86_64 /Library/Java/JavaVirtualMachines/temurin-8.jdk/Contents/Home/bin/java \
+  -jar /chemin/vers/ikvm-launch.jar
+----
+
 === 4.3 Screenshots console à prendre
 
 Quand beryl atteint ces messages, ouvrir la console KVM/IPMI de
