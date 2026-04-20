@@ -229,8 +229,19 @@ module Beryl::CLI
     hostname = override_snapshot.nil? ? host.name : override_snapshot
 
     STDERR.puts "[beryl] bootstrap de #{host_name} (hostname cible : #{hostname}, disque : #{disk})"
-    STDERR.puts "[beryl] FreeBSD #{freebsd_version} — voie QEMU-in-rescue (ADR-011)"
+    STDERR.puts "[beryl] FreeBSD #{freebsd_version} — voie mfsBSD-in-QEMU (ADR-012)"
     STDERR.puts "[beryl] #{keys.size} clé(s) SSH chargée(s) depuis #{authorized_keys_file}"
+
+    # Nettoie l'éventuelle clé d'hôte stockée dans ~/.ssh/known_hosts :
+    # par définition bootstrap change la clé (rescue Linux → FreeBSD
+    # installé). Sans ça, les runs successifs échouent avec « REMOTE
+    # HOST IDENTIFICATION HAS CHANGED » dès le premier ssh au rescue.
+    # On dégage aussi la variante [host]:port qu'OpenSSH pose quand le
+    # port n'est pas 22.
+    Process.run("ssh-keygen", ["-R", host.name], output: Process::Redirect::Close, error: Process::Redirect::Close)
+    if host.port != 22
+      Process.run("ssh-keygen", ["-R", "[#{host.name}]:#{host.port}"], output: Process::Redirect::Close, error: Process::Redirect::Close)
+    end
 
     # Connexion SSH au rescue : la clé d'hôte n'est probablement pas
     # encore connue et va changer après le reboot sur FreeBSD installé.
