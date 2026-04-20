@@ -2,47 +2,61 @@ require "base64"
 require "../ssh"
 
 module Beryl::Bootstrap
-  # Bootstrap complet FreeBSD 15 via la technique « QEMU-in-rescue ».
+  # Bootstrap complet FreeBSD via mfsBSD-dans-QEMU-dans-rescue (ADR-012).
   #
-  # Remplace les classes MfsBSD + Installer (dépréciées, cf. ADR-010)
-  # pour les serveurs UEFI-only. Voir ADR-011 (« Bootstrap via
-  # QEMU-in-rescue ») dans ARCHITECTURE.adoc.
+  # Remplace l'ancienne voie `disc1.iso + xorriso remaster` (ADR-011) qui
+  # cassait la chaîne UEFI hybride FreeBSD à chaque remaster. La voie
+  # actuelle est celle que la communauté utilise (depenguin.me) : mfsBSD
+  # est une miniroot FreeBSD pré-construite conçue pour être scriptée, on
+  # la boote intacte dans QEMU et on injecte l'installerconfig via SSH
+  # une fois la VM démarrée.
   #
   # Flux :
   #
   # . SSH sur le rescue Linux Debian-like fourni par l'hébergeur.
-  # . `apt install qemu-system-x86 ovmf xorriso`.
-  # . Téléchargement de l'ISO officielle FreeBSD `disc1.iso` (hybride
-  #   ISO 9660 + ESP UEFI + Legacy).
-  # . Remasterisation de l'ISO via `xorriso` : ajout d'un fichier
-  #   `/etc/installerconfig` généré par beryl qui scripte `bsdinstall`.
-  # . Copie du template OVMF_VARS_4M.fd.
-  # . Lancement QEMU avec `-machine q35 -enable-kvm`, OVMF UEFI,
-  #   passthrough du disque réel en virtio, `-no-reboot` pour que QEMU
-  #   quitte proprement au `poweroff` final du script.
-  # . `bsdinstall` installe FreeBSD sur le disque réel (vtbd1 dans la
-  #   VM). Au final, `poweroff` → QEMU se termine (grâce à `-no-reboot`).
+  # . `apt install qemu-system-x86 sshpass curl` (pas d'OVMF, pas de xorriso).
+  # . Téléchargement (une fois) de l'image mfsBSD SE depuis mfsbsd.vx.sk.
+  # . Lancement QEMU avec l'image mfsBSD + passthrough du disque réel en
+  #   virtio-blk. mfsBSD boote en BIOS (pas d'UEFI donc pas d'OVMF_VARS).
+  # . Attente SSH sur le port QEMU forwardé (127.0.0.1:2223, root/mfsroot
+  #   en keyboard-interactive côté mfsBSD SE).
+  # . Upload de l'installerconfig via `scp` + lancement `bsdinstall script`.
+  # . bsdinstall installe FreeBSD sur `/dev/vtbd1` (le disque réel
+  #   passthrough). Au poweroff final du script, QEMU quitte via `-no-reboot`.
   # . `reboot -f` du bare metal rescue → l'UEFI trouve la FreeBSD posée.
   # . Attente SSH sur l'hôte, avec clé d'hôte nouvelle.
   class QemuInRescue
-    # ISO officielle FreeBSD (hybride : boot Legacy + UEFI) —
-    # `__VERSION__` est remplacé par `@freebsd_version` au runtime.
-    DEFAULT_ISO_URL_TEMPLATE =
-      "https://download.freebsd.org/releases/amd64/amd64/ISO-IMAGES/__VERSION__/FreeBSD-__VERSION__-RELEASE-amd64-disc1.iso"
+    # URL par défaut de l'image mfsBSD SE (Special Edition, password root
+    # prédéfini à `mfsroot`). `__VERSION_MFS__` est remplacé par
+    # `@mfsbsd_version`. Le numéro de version mfsBSD est découplé de la
+    # FreeBSD cible : mfsBSD 14.2 peut installer FreeBSD 15.0 via
+    # `BSDINSTALL_DISTSITE`.
+    DEFAULT_MFSBSD_URL_TEMPLATE =
+      "https://mfsbsd.vx.sk/files/images/__VERSION_MAJOR__/amd64/mfsbsd-se-__VERSION_MFS__-RELEASE-amd64.img"
 
     # Chemins utilisés côté rescue. Tout est groupé sous /root/beryl-test/
     # pour pouvoir reprendre sans retélécharger.
-    WORK_DIR         = "/root/beryl-test"
-    ISO_PATH         = "#{WORK_DIR}/disc1.iso"
-    ISO_REMASTERED   = "#{WORK_DIR}/disc1-beryl.iso"
-    OVMF_VARS_PATH   = "#{WORK_DIR}/vars.fd"
-    OVMF_CODE_SOURCE = "/usr/share/OVMF/OVMF_CODE_4M.fd"
-    OVMF_VARS_SOURCE = "/usr/share/OVMF/OVMF_VARS_4M.fd"
-    INSTALLERCFG     = "#{WORK_DIR}/installerconfig"
-    QEMU_SERIAL_LOG  = "#{WORK_DIR}/qemu-serial.log"
+    WORK_DIR      = "/root/beryl-test"
+    MFSBSD_PATH   = "#{WORK_DIR}/mfsbsd-se.img"
+    INSTALLERCFG  = "#{WORK_DIR}/installerconfig"
+    QEMU_SERIAL   = "#{WORK_DIR}/qemu-serial.log"
+    BSDINSTALL_LG = "#{WORK_DIR}/bsdinstall.log"
 
+    # Port local sur le rescue, forwardé vers le 22 de la VM par QEMU.
+    VM_SSH_HOST = "127.0.0.1"
+    VM_SSH_PORT = 2223
+
+    # Password root de mfsBSD-SE (documenté upstream, image éditée par
+    # mmatuska pour être immédiatement scriptable via sshpass).
+    MFSBSD_ROOT_PASSWORD = "mfsroot"
+
+    # Timings. Les reboots OVH et le boot de mfsBSD sont rapides (<2 min) ;
+    # l'install FreeBSD + fetch des txz prend 10-25 min selon la bande
+    # passante du rescue.
     SSH_WAIT_TIMEOUT    = 30.minutes
     SSH_POLL_INTERVAL   = 15.seconds
+    VM_BOOT_TIMEOUT     = 3.minutes
+    VM_POLL_INTERVAL    = 5.seconds
     REBOOT_GRACE_PERIOD = 30.seconds
     QEMU_MAX_RUNTIME    = 45.minutes
 
@@ -53,8 +67,9 @@ module Beryl::Bootstrap
     getter hostname : String
     getter authorized_keys : Array(String)
     getter freebsd_version : String
+    getter mfsbsd_version : String
     getter timezone : String
-    getter iso_url : String
+    getter mfsbsd_url : String
     getter pool_name : String
     getter swap_gb : Int32
     getter abi : String
@@ -69,6 +84,7 @@ module Beryl::Bootstrap
       @hostname : String,
       @authorized_keys : Array(String),
       @freebsd_version : String = "15.0",
+      @mfsbsd_version : String = "14.2",
       @timezone : String = "Europe/Paris",
       iso_url : String? = nil,
       @pool_name : String = "zroot",
@@ -83,47 +99,60 @@ module Beryl::Bootstrap
       raise ArgumentError.new("hostname requis") if @hostname.empty?
       raise ArgumentError.new("target_disk requis") if @target_disk.empty?
       raise ArgumentError.new("freebsd_version requis") if @freebsd_version.empty?
+      raise ArgumentError.new("mfsbsd_version requis") if @mfsbsd_version.empty?
       raise ArgumentError.new("qemu_ram_mb doit être >= 1024") if @qemu_ram_mb < 1024
       raise ArgumentError.new("qemu_cpus doit être >= 1") if @qemu_cpus < 1
 
-      @iso_url = iso_url || self.class.default_iso_url(@freebsd_version)
+      # Le paramètre historique `iso_url` (ADR-011) reste accepté pour
+      # rétrocompatibilité côté CLI mais pilote maintenant l'URL mfsBSD.
+      @mfsbsd_url = iso_url || self.class.default_mfsbsd_url(@mfsbsd_version)
     end
 
-    # URL par défaut de l'ISO disc1, paramétrée par la version FreeBSD.
-    def self.default_iso_url(freebsd_version : String) : String
-      DEFAULT_ISO_URL_TEMPLATE.gsub("__VERSION__", freebsd_version)
+    # URL par défaut de l'image mfsBSD SE, paramétrée par la version.
+    def self.default_mfsbsd_url(mfsbsd_version : String) : String
+      major = mfsbsd_version.split('.').first
+      DEFAULT_MFSBSD_URL_TEMPLATE
+        .gsub("__VERSION_MAJOR__", major)
+        .gsub("__VERSION_MFS__", mfsbsd_version)
+    end
+
+    # Alias rétrocompat : le paramètre CLI historique s'appelait `iso_url`
+    # (voie ADR-011). Il pilote maintenant l'URL mfsBSD.
+    def iso_url : String
+      @mfsbsd_url
     end
 
     # Exécute le bootstrap complet et renvoie une `SSH::Connection`
     # prête vers le FreeBSD fraîchement installé (utilisateur `admin`
     # par défaut — `PermitRootLogin no` est appliqué par FreeBSD 15).
     def run : SSH::Connection
-      log "1/8 — vérifie que le rescue tourne bien sous Linux"
+      log "1/7 — vérifie que le rescue tourne bien sous Linux"
       verify_linux_rescue
 
-      log "2/8 — installe qemu-system-x86, ovmf et xorriso côté rescue"
-      install_qemu_if_needed
+      log "2/7 — installe qemu-system-x86, sshpass et curl côté rescue"
+      install_packages
 
-      log "3/8 — télécharge l'ISO FreeBSD #{@freebsd_version} si nécessaire"
-      download_iso_if_needed
+      log "3/7 — télécharge l'image mfsBSD SE #{@mfsbsd_version} si nécessaire"
+      download_mfsbsd_if_needed
 
-      log "4/8 — remasterise l'ISO pour embarquer l'installerconfig"
-      remaster_iso
+      log "4/7 — écrit l'installerconfig côté rescue (sera scpé dans la VM)"
+      @rescue_conn.write_file(INSTALLERCFG, render_installerconfig, mode: "0644")
 
-      log "5/8 — prépare une copie privée de OVMF_VARS"
-      prepare_ovmf_vars
+      log "5/7 — lance QEMU avec mfsBSD + disque #{@target_disk} passthrough"
+      launch_qemu_background
+      wait_for_vm_ssh
 
-      log "6/8 — lance QEMU (UEFI, KVM, disque #{@target_disk} passthrough)"
-      launch_qemu_and_wait
+      log "6/7 — pose authorized_keys dans la VM, upload installerconfig, lance bsdinstall"
+      inject_vm_pubkey
+      scp_installerconfig_to_vm
+      run_bsdinstall_in_vm
 
-      log "7/8 — redémarre le bare metal (la connexion SSH va se fermer)"
+      log "7/7 — reboot bare metal sur la FreeBSD posée, attente SSH"
       reboot_bare_metal
-
-      log "8/8 — attend le retour SSH sur le FreeBSD installé"
       wait_for_installed_ssh
     end
 
-    # Rend le fichier `installerconfig` à embarquer dans l'ISO.
+    # Rend le fichier `installerconfig` à embarquer dans la VM.
     # Exposé pour les tests.
     def render_installerconfig : String
       TEMPLATE_INSTALLERCONFIG
@@ -135,9 +164,6 @@ module Beryl::Bootstrap
         .gsub("__AUTHORIZED_KEYS_B64__", authorized_keys_base64)
     end
 
-    # Concatène les clés autorisées et encode en base64 pour transport
-    # sûr à travers le shell (et pour que `b64decode -r` les récupère
-    # côté FreeBSD).
     def authorized_keys_base64 : String
       plain = @authorized_keys.join('\n') + "\n"
       Base64.strict_encode(plain)
@@ -152,14 +178,12 @@ module Beryl::Bootstrap
         "-cpu", "host",
         "-smp", @qemu_cpus.to_s,
         "-m", "#{@qemu_ram_mb}M",
-        "-drive", "if=pflash,format=raw,readonly=on,file=#{OVMF_CODE_SOURCE}",
-        "-drive", "if=pflash,format=raw,file=#{OVMF_VARS_PATH}",
-        "-drive", "file=#{ISO_REMASTERED},format=raw,if=virtio,media=cdrom",
+        "-drive", "file=#{MFSBSD_PATH},format=raw,if=virtio",
         "-drive", "file=#{@target_disk},format=raw,if=virtio,cache=none",
-        "-netdev", "user,id=net0,hostfwd=tcp::2223-:22",
+        "-netdev", "user,id=net0,hostfwd=tcp::#{VM_SSH_PORT}-:22",
         "-device", "virtio-net-pci,netdev=net0",
         "-nographic",
-        "-serial", "file:#{QEMU_SERIAL_LOG}",
+        "-serial", "file:#{QEMU_SERIAL}",
         "-no-reboot",
       ]
       args.map { |a| Process.quote(a) }.join(' ')
@@ -170,73 +194,121 @@ module Beryl::Bootstrap
       raise "le rescue ne tourne pas sous Linux (uname -s = #{uname.inspect})" unless uname == "Linux"
     end
 
-    private def install_qemu_if_needed : Nil
-      # `apt-get install` en mode non interactif — idempotent si les
-      # paquets sont déjà posés. `xorriso` est utilisé pour l'ajout
-      # de `installerconfig` dans l'ISO.
-      with_progress("apt install qemu/ovmf/xorriso en cours") do
+    private def install_packages : Nil
+      with_progress("apt install qemu/sshpass/curl en cours") do
         @rescue_conn.exec(
           "mkdir -p #{Process.quote(WORK_DIR)} && " \
           "DEBIAN_FRONTEND=noninteractive apt-get update -qq && " \
-          "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq qemu-system-x86 ovmf xorriso curl"
+          "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq qemu-system-x86 sshpass curl"
         )
       end
     end
 
-    private def download_iso_if_needed : Nil
-      # `curl -fLo` ne retélécharge pas si l'ISO existe et est lisible,
-      # tant qu'on teste sa présence avant. On évite `-C -` qui peut
-      # échouer sur un serveur sans Range. Simple : si l'ISO existe, on
-      # ne retouche à rien.
-      quoted_iso = Process.quote(ISO_PATH)
-      quoted_url = Process.quote(@iso_url)
-      with_progress("téléchargement ISO FreeBSD #{@freebsd_version} (~1.3 Go)") do
+    private def download_mfsbsd_if_needed : Nil
+      quoted = Process.quote(MFSBSD_PATH)
+      quoted_url = Process.quote(@mfsbsd_url)
+      with_progress("téléchargement mfsBSD SE #{@mfsbsd_version} (~400 Mo)") do
         @rescue_conn.exec(
-          "test -s #{quoted_iso} || curl -fLo #{quoted_iso} #{quoted_url}"
+          "test -s #{quoted} || curl -fLo #{quoted} #{quoted_url}"
         )
       end
     end
 
-    private def remaster_iso : Nil
-      # Télé-upload de l'installerconfig dans le rescue puis injection
-      # dans l'ISO via `xorriso -indev ... -outdev ...` en copiant
-      # le fichier à l'emplacement `/etc/installerconfig` lu par
-      # `bsdinstall` au boot.
-      @rescue_conn.write_file(INSTALLERCFG, render_installerconfig, mode: "0755")
-
-      script = <<-SH
-      set -eu
-      rm -f #{Process.quote(ISO_REMASTERED)}
-      xorriso -indev #{Process.quote(ISO_PATH)} \\
-              -outdev #{Process.quote(ISO_REMASTERED)} \\
-              -boot_image any keep \\
-              -pathspecs on \\
-              -update #{Process.quote(INSTALLERCFG)} /etc/installerconfig
-      SH
-      @rescue_conn.exec(script)
+    private def launch_qemu_background : Nil
+      # Lance QEMU en nohup + detaché, stdout/stderr noyés. Le process
+      # survit à notre session SSH : on ne l'attend pas ici, la fin de
+      # l'install se détecte via le poweroff de la VM (QEMU quitte seul).
+      cmd = "cd #{Process.quote(WORK_DIR)} && " \
+            ": > #{Process.quote(QEMU_SERIAL)} && " \
+            "nohup timeout #{QEMU_MAX_RUNTIME.total_seconds.to_i} #{qemu_command} " \
+            ">/dev/null 2>&1 & disown"
+      @rescue_conn.exec(cmd)
     end
 
-    private def prepare_ovmf_vars : Nil
-      @rescue_conn.exec(
-        "cp -f #{Process.quote(OVMF_VARS_SOURCE)} #{Process.quote(OVMF_VARS_PATH)}"
-      )
-    end
-
-    private def launch_qemu_and_wait : Nil
-      # QEMU quitte de lui-même au `poweroff` final du script
-      # installerconfig (grâce à `-no-reboot`). On se contente de
-      # l'invoquer synchronement : tant qu'il tourne, notre `ssh exec`
-      # attend. La sortie série est capturée côté rescue dans un log.
-      cmd = "timeout #{QEMU_MAX_RUNTIME.total_seconds.to_i} #{qemu_command} " \
-            "|| ec=$?; echo \"[beryl] qemu exit = ${ec:-0}\"; test \"${ec:-0}\" = 0"
-      with_progress("QEMU tourne (bsdinstall scripted, 15-30 min attendus)") do
-        @rescue_conn.exec(cmd)
+    private def wait_for_vm_ssh : Nil
+      # Boucle sshpass de polling ; succès dès que `uname -s` répond.
+      deadline = Time.instant + VM_BOOT_TIMEOUT
+      start = Time.instant
+      last_error = nil
+      while Time.instant < deadline
+        begin
+          check = mfsbsd_ssh_cmd("uname -s")
+          result = @rescue_conn.exec(check, raise_on_error: false)
+          if result.success? && result.stdout.strip == "FreeBSD"
+            STDERR.print "\n"
+            log "mfsBSD joignable en SSH (port #{VM_SSH_PORT})"
+            return
+          end
+        rescue ex
+          last_error = ex
+        end
+        elapsed = (Time.instant - start).total_seconds.to_i
+        STDERR.printf("  [%4ds] attente boot mfsBSD...\r", elapsed)
+        STDERR.flush
+        sleep VM_POLL_INTERVAL
       end
+      STDERR.print "\n"
+      raise "timeout : mfsBSD n'a pas répondu en SSH au bout de #{VM_BOOT_TIMEOUT.total_minutes.to_i} min" \
+            " (dernière erreur : #{last_error.try(&.message)})"
+    end
+
+    private def inject_vm_pubkey : Nil
+      # Dépose une clé publique pour que les appels suivants puissent se
+      # faire sans sshpass (plus simple pour chainer scp + bsdinstall).
+      # On utilise la première clé autorisée de la liste comme clé du
+      # rescue vers la VM : c'est celle qu'on a déjà chargée, donc on
+      # s'évite une clé dédiée. En pratique c'est la pub de l'opérateur.
+      pub_key = @authorized_keys.first
+      mkssh = "mkdir -p /root/.ssh && " \
+              "echo #{Process.quote(pub_key)} > /root/.ssh/authorized_keys && " \
+              "chmod 700 /root/.ssh && chmod 600 /root/.ssh/authorized_keys"
+      @rescue_conn.exec(mfsbsd_ssh_cmd(mkssh))
+    end
+
+    private def scp_installerconfig_to_vm : Nil
+      # Après l'injection de la clé, scp fonctionne sans sshpass.
+      cmd = "scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null " \
+            "-P #{VM_SSH_PORT} #{Process.quote(INSTALLERCFG)} " \
+            "root@#{VM_SSH_HOST}:/tmp/installerconfig"
+      @rescue_conn.exec(cmd)
+    end
+
+    private def run_bsdinstall_in_vm : Nil
+      # BSDINSTALL_DISTSITE pointe sur le mirror FreeBSD 15 ; mfsBSD 14.2
+      # sert juste de porteur. `nohup` + `&` + disown, puis on attend la
+      # fin de QEMU (poweroff côté guest = QEMU qui exit).
+      distsite = "http://ftp.freebsd.org/pub/FreeBSD/releases/amd64/#{@freebsd_version}-RELEASE"
+      remote = "export BSDINSTALL_DISTSITE=#{Process.quote(distsite)} && " \
+               "nohup bsdinstall script /tmp/installerconfig >#{BSDINSTALL_LG} 2>&1 & disown ; sleep 1"
+      @rescue_conn.exec(
+        "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null " \
+        "-p #{VM_SSH_PORT} root@#{VM_SSH_HOST} #{Process.quote(remote)}"
+      )
+
+      # Attente : la VM s'éteint quand installerconfig termine par poweroff.
+      # QEMU exit alors via `-no-reboot`. Le process QEMU sur le rescue
+      # disparaît — on poll son absence.
+      with_progress("bsdinstall en cours (fetch + ZFS + post-install, 10-25 min)") do
+        wait_for_qemu_exit
+      end
+    end
+
+    private def wait_for_qemu_exit : Nil
+      # Poll tant que le process qemu-system-x86_64 existe.
+      deadline = Time.instant + QEMU_MAX_RUNTIME
+      while Time.instant < deadline
+        result = @rescue_conn.exec(
+          "pgrep -f 'qemu-system-x86_64.*mfsbsd-se.img' >/dev/null",
+          raise_on_error: false,
+        )
+        return unless result.success?
+        sleep 10.seconds
+      end
+      raise "timeout : QEMU n'a pas terminé en #{QEMU_MAX_RUNTIME.total_minutes.to_i} min"
     end
 
     private def reboot_bare_metal : Nil
-      # Rescue Linux : `reboot -f` court-circuite systemd (équivalent de
-      # l'approche MfsBSD). `sync` d'abord pour rien oublier.
+      # Rescue Linux : `reboot -f` court-circuite systemd. `sync` d'abord.
       @rescue_conn.exec(
         "sync && (reboot -f 2>/dev/null || echo b > /proc/sysrq-trigger)",
         raise_on_error: false,
@@ -275,6 +347,17 @@ module Beryl::Bootstrap
       raise "timeout : le FreeBSD installé n'a pas répondu en SSH au bout de #{SSH_WAIT_TIMEOUT.total_minutes.to_i} min (dernière erreur : #{last_error.try(&.message)})"
     end
 
+    # Assemble une commande shell qui ouvre un ssh authentifié en
+    # keyboard-interactive (mfsBSD SE) vers la VM, avec les options
+    # anti-known_hosts standards pour un usage one-shot.
+    private def mfsbsd_ssh_cmd(remote : String) : String
+      "sshpass -p #{Process.quote(MFSBSD_ROOT_PASSWORD)} " \
+      "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null " \
+      "-o PreferredAuthentications=keyboard-interactive " \
+      "-o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 " \
+      "-p #{VM_SSH_PORT} root@#{VM_SSH_HOST} #{Process.quote(remote)}"
+    end
+
     # Échappement pour insertion dans une chaîne shell double-guillemets.
     private def shell_escape(value : String) : String
       value.gsub(/["$`\\]/) { |c| "\\#{c}" }
@@ -282,12 +365,11 @@ module Beryl::Bootstrap
 
     # Wrapper qui exécute un bloc long et affiche un compteur écoulé
     # toutes les *interval* secondes, sur une ligne rafraîchie en place
-    # (`\r`, motif crystal-deploy). Démarre un fiber de tick, le coupe
-    # quand le bloc sort. Rien si le bloc se termine en moins d'un tick.
+    # (`\r`, motif crystal-deploy).
     private def with_progress(label : String, interval : Time::Span = 10.seconds, & : -> T) : T forall T
       start = Time.instant
       done = Channel(Nil).new
-      ticker = spawn do
+      spawn do
         loop do
           select
           when done.receive?
@@ -309,7 +391,7 @@ module Beryl::Bootstrap
     end
 
     private def log(message : String) : Nil
-      STDERR.puts "[beryl bootstrap qemu-in-rescue] #{message}"
+      STDERR.puts "[beryl bootstrap mfsbsd] #{message}"
     end
   end
 end

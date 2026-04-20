@@ -63,21 +63,20 @@ describe Beryl::Bootstrap::QemuInRescue do
       bs.installed_user.should eq("admin")
     end
 
-    it "construit l'URL de l'ISO à partir de la version FreeBSD par défaut" do
+    it "construit l'URL mfsBSD SE par défaut (ADR-012)" do
       bs = make_bootstrap
-      bs.iso_url.should contain("15.0")
-      bs.iso_url.should contain("FreeBSD-15.0-RELEASE-amd64-disc1.iso")
-      bs.iso_url.should_not contain("__VERSION__")
+      bs.iso_url.should contain("mfsbsd-se")
+      bs.iso_url.should contain("14.2")
+      bs.iso_url.should_not contain("__VERSION_MFS__")
     end
 
-    it "paramètre l'URL selon la version FreeBSD passée" do
-      bs = make_bootstrap(freebsd_version: "15.1")
-      bs.iso_url.should contain("15.1")
-      bs.iso_url.should contain("FreeBSD-15.1-RELEASE-amd64-disc1.iso")
+    it "paramètre l'URL mfsBSD selon la version passée" do
+      bs = make_bootstrap(mfsbsd_version: "14.1")
+      bs.iso_url.should contain("14.1")
     end
 
-    it "accepte un iso_url explicite qui court-circuite le template" do
-      custom = "https://mirror.example.com/FreeBSD.iso"
+    it "accepte un iso_url explicite qui court-circuite le template (rétrocompat CLI)" do
+      custom = "https://mirror.example.com/mfsbsd.img"
       bs = make_bootstrap(iso_url: custom)
       bs.iso_url.should eq(custom)
     end
@@ -176,23 +175,27 @@ describe Beryl::Bootstrap::QemuInRescue do
   end
 
   describe "#qemu_command" do
-    it "passe OVMF CODE en pflash readonly et VARS en pflash inscriptible" do
+    it "attache l'image mfsBSD comme premier disque virtio (plus d'OVMF — mfsBSD boote BIOS)" do
       cmd = make_bootstrap.qemu_command
-      cmd.should contain("OVMF_CODE_4M.fd")
-      cmd.should contain("readonly=on")
-      cmd.should contain("vars.fd")
+      cmd.should contain("mfsbsd-se.img")
+      cmd.should contain("if=virtio")
+      cmd.should_not contain("OVMF")
     end
 
     it "passe le disque cible en virtio passthrough" do
       cmd = make_bootstrap(target_disk: "/dev/nvme0n1").qemu_command
       cmd.should contain("/dev/nvme0n1")
-      cmd.should contain("if=virtio")
     end
 
     it "inclut -no-reboot et -enable-kvm" do
       cmd = make_bootstrap.qemu_command
       cmd.should contain("-no-reboot")
       cmd.should contain("-enable-kvm")
+    end
+
+    it "forwarde le 22 de la VM sur le port 2223 local (scp/ssh depuis le rescue)" do
+      cmd = make_bootstrap.qemu_command
+      cmd.should contain("hostfwd=tcp::2223-:22")
     end
 
     it "dirige la sortie série vers un fichier du working dir" do

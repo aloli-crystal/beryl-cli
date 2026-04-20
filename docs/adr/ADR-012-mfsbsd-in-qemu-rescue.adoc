@@ -1,0 +1,276 @@
+= ADR-012 — mfsBSD comme porteur de l'automatisation bsdinstall, dans QEMU-in-rescue
+:toc: left
+:toc-title: Table des matières
+:toclevels: 3
+:source-highlighter: rouge
+:icons: font
+
+*Statut.* Accepté — supersede ADR-011. +
+*Date.* 20 avril 2026. +
+*Auteur.* Philippe Nénert (Aloli).
+
+== Résumé
+
+Le pivot acté par link:../../ARCHITECTURE.adoc[ADR-011] (QEMU-in-rescue avec
+ISO officielle FreeBSD `disc1.iso` remasterisée via `xorriso` pour injecter
+`/etc/installerconfig`) a été invalidé par le test grandeur nature du
+20 avril 2026 sur `loulou.aloli.net`. Deux échecs fondamentaux, détaillés
+plus bas, rendent la remasterisation d'ISO hybride FreeBSD non viable sous
+Debian.
+
+Nouvelle décision : beryl continue d'utiliser QEMU-in-rescue, mais **le
+porteur de l'automatisation devient mfsBSD**, une miniroot FreeBSD conçue
+pour être scriptée et validée en production par le projet depenguin.me.
+L'ISO FreeBSD officielle n'est plus touchée : elle n'est même plus
+nécessaire.
+
+== Contexte
+
+=== Le pari d'ADR-011 et ce qui l'a cassé
+
+ADR-011 retenait la chaîne suivante :
+
+. Rescue Linux → `apt install qemu-system-x86 ovmf xorriso`.
+. Téléchargement de `FreeBSD-15.0-RELEASE-amd64-disc1.iso` (hybride
+  ISO 9660 + UEFI + Legacy BIOS).
+. Remasterisation via `xorriso -boot_image any keep -update installerconfig
+  /etc/installerconfig` pour injecter le script bsdinstall non interactif.
+. Boot QEMU UEFI (OVMF) sur l'ISO patchée, disque réel en passthrough,
+  bsdinstall exécute l'installerconfig, QEMU quitte, reboot bare metal.
+
+Le test réel du 20 avril 2026 sur loulou a révélé deux problèmes
+imbriqués :
+
+. *Casse de la chaîne de boot UEFI.* `xorriso -boot_image any keep` **altère
+  le contenu de l'ESP FAT embarquée dans le GPT hybride FreeBSD**. OVMF
+  trouve bien `BOOTX64.EFI` et le loader FreeBSD démarre, mais ce dernier
+  ne retrouve plus le kernel (les chemins ISO 9660 qu'il ouvre ne
+  correspondent plus à ce que `xorriso` a produit).
+. *Patch manuel de l'ESP insuffisant.* Une tentative de réinjection
+  chirurgicale avec `dd if=disc1.iso of=disc1-beryl.iso bs=512 skip=80
+  seek=80 count=4096 conv=notrunc` restaure l'ESP FAT à l'identique et
+  OVMF boote correctement — mais `xorriso` a aussi déplacé les fichiers
+  dans le système ISO 9660 lui-même, que le loader FreeBSD attend à des
+  offsets précis. Le boot échoue au même point, juste un cran plus tard.
+
+Autrement dit : l'hybride GPT + ESP + ISO 9660 + El Torito + Legacy MBR
+empilé par FreeBSD n'est pas modifiable proprement avec les outils
+disponibles sous Debian. `xorriso` sait manipuler l'un ou l'autre, pas
+l'ensemble simultanément.
+
+=== Ce que fait la communauté FreeBSD
+
+Recherche croisée sur les forums FreeBSD, la liste `freebsd-stable` et
+le code de release :
+
+* *Personne ne remasterise `disc1.iso` depuis un Linux.* Le pattern
+  officiel documenté est `release/amd64/mkisoimages.sh` dans l'arbre
+  source FreeBSD, qui construit l'ISO from scratch via `makefs` +
+  `mkimg` + `dd bs=32k`, en trois étapes orchestrées.
+* Ces trois binaires sont *FreeBSD-natifs* et **non packagés sous Debian**.
+  Aucun paquet `.deb` officiel ou communautaire à jour. Les tentatives
+  de cross-build existantes (`freebsd-pkg-base-tools` sur GitHub, essais
+  ponctuels Gentoo) sont soit abandonnées, soit cassées sur les versions
+  récentes de `makefs` qui suivent l'évolution de l'arbre FreeBSD.
+* La route « on cross-compile `makefs`/`mkimg`/`etdump` depuis les
+  sources FreeBSD vers Linux » a été considérée : elle nécessite de
+  suivre les évolutions de ces outils à chaque release FreeBSD, plus une
+  chaîne de build libbsd complète. Trop de pièces mobiles pour un projet
+  agentless minimaliste.
+
+=== Alternatives « live CD + double boot »
+
+Une autre piste consisterait à booter QEMU deux fois :
+
+. Premier boot : FreeBSD live CD, on entre dans un shell, on remasterise
+  `disc1.iso` *avec les vrais outils FreeBSD* (`makefs`, `mkimg`), on
+  écrit l'ISO remasterisée quelque part.
+. Second boot : QEMU relance sur l'ISO fraîchement construite,
+  bsdinstall déroule.
+
+C'est possible. C'est aussi *l'exact opposé* de la philosophie Aloli
+« noir et blanc, sans chichi » : deux boot QEMU successifs, transfert
+d'ISO entre les deux, orchestration côté Crystal qui doit parler à un
+shell FreeBSD interactif via série ou SSH. Maintenance continue assurée
+à chaque release FreeBSD.
+
+== Décision
+
+*Pivot.* beryl utilise désormais **mfsBSD comme porteur de l'automatisation**
+à l'intérieur du QEMU-in-rescue. mfsBSD est une miniroot FreeBSD de ~50 Mo,
+conçue dès l'origine pour être amorçable en RAM et scriptée (`rc.local`
+custom, binaires FreeBSD natifs disponibles sur place).
+
+=== Pattern retenu
+
+Le pattern est celui validé en production par https://depenguin.me/[depenguin.me]
+(déjà cité dans ADR-011 comme référence open source MIT, projet
+https://github.com/depenguin-me/depenguin-run[depenguin-me/depenguin-run]) :
+
+[source]
+----
+rescue Linux
+  └─ QEMU (user-net 10.0.2.0/24, disque réel en virtio passthrough)
+       └─ boot mfsBSD image
+            └─ rc.local (custom)
+                 ├─ fetch http://10.0.2.2:PORT/installerconfig
+                 └─ bsdinstall script /tmp/installerconfig
+----
+
+La VM QEMU boote sur une image mfsBSD stable. Au démarrage, `rc.local`
+appelle un mini serveur HTTP éphémère exposé par beryl sur le rescue
+(accessible depuis la VM via l'IP hôte de QEMU user-net, `10.0.2.2`). Ce
+serveur sert l'`installerconfig` généré dynamiquement (hostname, disque
+cible, clés SSH, version FreeBSD à poser, timezone, etc.). mfsBSD exécute
+ensuite `bsdinstall script` qui lit le fichier, fait l'install unattended,
+et `poweroff` à la fin.
+
+=== Pourquoi ça marche là où ADR-011 a cassé
+
+* *Zéro modification d'ISO au runtime.* L'image mfsBSD est téléchargée
+  une fois, mise en cache dans le rescue, utilisée telle quelle. Aucun
+  `xorriso`, aucun hybride GPT à malmener.
+* *Binaires FreeBSD natifs disponibles dans la VM.* `makefs`, `mkimg`,
+  `bsdinstall`, `zfs` — tout est là, exécuté sur son OS cible. Pas de
+  cross-build.
+* *Image mfsBSD stable.* La version de l'image mfsBSD est découplée de
+  la version FreeBSD cible à installer : `bsdinstall` accepte un
+  `BSDINSTALL_DISTSITE` pointant vers le miroir de la version souhaitée.
+  Une même image mfsBSD `15.0` peut installer 15.0, 15.1 ou 15.2 sans
+  rebuild côté beryl.
+* *Pattern communautaire éprouvé.* depenguin.me tourne en production
+  depuis 2024, code MIT, logique `rc.local → fetch → bsdinstall`
+  directement recopiable. Maintenance quasi-nulle entre versions mfsBSD.
+* *Rupture nette avec les pièges d'hybrid GPT.* On quitte le terrain
+  miné « ISO hybride modifiable depuis Linux » pour un terrain plat
+  « miniroot scriptable ».
+
+=== Philosophie Aloli
+
+Le flux résultant est *un fichier image + un serveur HTTP éphémère +
+un script bsdinstall*. Trois briques simples, chacune maintenable
+isolément, zéro outil externe non trivial sous le rescue au-delà de
+`qemu-system-x86`. C'est la définition même de « noir et blanc, sans
+chichi » posée dans l'ADR-005.
+
+== Conséquences
+
+=== Code Crystal
+
+* `Beryl::Bootstrap::QemuInRescue` devient `Beryl::Bootstrap::MfsbsdInRescue`.
+  Le nom reflète le porteur réel de l'automation.
+* Les classes `Beryl::Bootstrap::MfsBSD` et `Beryl::Bootstrap::Installer`,
+  déclarées _legacy_ par ADR-011, redeviennent d'une certaine manière le
+  cœur — mais leur rôle a changé : mfsBSD n'est plus `dd`-é sur disque
+  (ce qu'ADR-010 a invalidé), il est booté *dans une VM QEMU* sur le
+  rescue. Pas de retour à ADR-003.
+* Plus de dépendance à `xorriso`. Plus de dépendance à OVMF non plus :
+  mfsBSD boote en Legacy BIOS dans QEMU (plus simple, `-bios` par
+  défaut). Le disque réel ensuite écrit par bsdinstall est lui UEFI-
+  compatible, c'est bsdinstall qui pose le schéma GPT + ESP correct sur
+  le disque physique.
+* beryl embarque un **mini serveur HTTP éphémère** (Crystal stdlib
+  `HTTP::Server`, une trentaine de lignes) pour servir l'installerconfig
+  à la VM sur le réseau QEMU user-net. Port aléatoire sur `127.0.0.1`,
+  exposé à la VM via le NAT user-net de QEMU (hôte = `10.0.2.2`). Durée
+  de vie : démarré juste avant `qemu-system-x86_64`, arrêté quand QEMU
+  quitte.
+
+=== Image mfsBSD
+
+* Téléchargée une fois depuis https://mfsbsd.vx.sk/files/images/[mfsbsd.vx.sk/files/images]
+  (ou un mirror Aloli ultérieur pour éviter la dépendance externe).
+* Mise en cache côté rescue dans `/tmp/beryl/mfsbsd-XX.YY.img` avec
+  vérification de somme SHA256.
+* Taille : ~50 Mo, téléchargement négligeable sur un rescue OVH/Scaleway.
+* Version de référence : `mfsbsd-se-15.0-RELEASE-amd64.img` (édition
+  « se » = special edition avec ZFS et outils d'install).
+
+=== `rc.local` custom
+
+Deux lignes shell, littéralement :
+
+[source,sh]
+----
+fetch -o /tmp/installerconfig http://10.0.2.2:${PORT}/installerconfig
+bsdinstall script /tmp/installerconfig
+----
+
+Deux options pour les embarquer dans l'image mfsBSD :
+
+. *Rebuild mfsBSD avec le rc.local embarqué.* Utilise le Makefile mfsBSD
+  upstream, produit une image custom publiée dans l'organisation
+  `aloli-crystal`. Reproductible, versionnée, mais demande un build
+  FreeBSD (paradoxe : il faudrait un hôte FreeBSD pour rebuilder mfsBSD
+  proprement).
+. *Exploiter un point d'extension documenté de mfsBSD.* mfsBSD lit
+  `/etc/rc.local` dès qu'il est présent dans la miniroot, et propose
+  plusieurs vecteurs d'injection au boot (DHCP options, `boot_config`
+  sur média externe, ou simplement patcher la miniroot avant le boot
+  QEMU avec `tar` sur le système de fichiers exposé).
+
+Le choix entre ces deux options se fera lors de l'implémentation. La
+seconde est préférée a priori (pas de chaîne de build FreeBSD à
+maintenir), à confirmer avec le code depenguin.me comme référence
+directe.
+
+=== Documentation
+
+* ADR-011 est marqué `Superseded by ADR-012` dans
+  link:../../ARCHITECTURE.adoc[ARCHITECTURE.adoc].
+* link:../../IDEAS.adoc[IDEAS.adoc] § « Bootstrap UEFI-compatible » est
+  mis à jour : la piste A devient « QEMU-in-rescue + mfsBSD », la piste B
+  (memstick FreeBSD hybride + installerconfig) reste documentée comme
+  alternative théorique mais non retenue.
+* `CHANGELOG.adoc` note l'entrée « ADR-012 (20 avril 2026) — pivot
+  mfsBSD-in-QEMU après l'échec xorriso du test loulou ».
+
+=== Tests
+
+* Le prochain test grandeur nature sur `loulou.aloli.net` (ou un autre
+  Kimsufi de remplacement) valide le flux `beryl bootstrap` version
+  ADR-012 end-to-end.
+* La spec Crystal couvre : génération d'installerconfig, serveur HTTP
+  éphémère (handler + cycle de vie), montage CLI de `qemu-system-x86_64`
+  avec les bons flags.
+
+== Alternatives écartées
+
+*A — Extraction + `makefs` + `mkimg` + `dd` (recette officielle FreeBSD).*
+Rustique sur le papier : c'est ce que fait FreeBSD upstream. En pratique,
+nécessite trois binaires FreeBSD natifs non packagés sous Debian, avec
+un cross-build fragile qui doit suivre l'arbre source FreeBSD release
+après release. Les pieds au mur dès qu'une version change un format
+interne.
+
+*B — Automation via `QEMU monitor` + `sendkey`.* Scripter les menus
+bsdinstall en envoyant des touches via le monitor QEMU. Marche pour des
+démos, fragile en production : timings sensibles, drift des menus
+bsdinstall entre versions FreeBSD, pas de feedback structuré sur les
+erreurs. Anti-pattern pour un outil idempotent.
+
+*C — Approche Colin Percival / `FreeBSD-EC2-AMI-builder`.* Extraire
+directement `base.txz` + `kernel.txz` sur le disque sans passer par
+bsdinstall, puis poser manuellement fstab, rc.conf, ESP, ZFS root. C'est
+réinventer bsdinstall, beaucoup de code custom à maintenir, chaque
+release FreeBSD risque de changer un détail qui casse le posage. À
+garder en tête si un jour bsdinstall devient un blocage, mais pas pour
+la version actuelle.
+
+*D — Double boot QEMU (live CD FreeBSD puis reboot).* Utiliser un premier
+boot QEMU sur `disc1.iso` en mode live pour remasterer l'ISO via les
+vrais outils FreeBSD, puis rebooter QEMU sur l'ISO remasterisée. Deux
+pièces mobiles, orchestration interactive avec un shell FreeBSD,
+transfert de fichier entre deux boot QEMU, maintenance continue. Rejeté
+pour violation de la philosophie « noir et blanc, sans chichi ».
+
+== Références
+
+* depenguin.me (pattern mfsBSD-in-QEMU) : https://github.com/depenguin-me/depenguin-run
+* mfsBSD (upstream) : https://github.com/mmatuska/mfsbsd
+* Images mfsBSD pré-construites : https://mfsbsd.vx.sk/files/images/
+* `bsdinstall(8)` : https://man.freebsd.org/cgi/man.cgi?query=bsdinstall&sektion=8
+* FreeBSD 15.0 `disc1.iso` et `BSDINSTALL_DISTSITE` : https://forums.freebsd.org/threads/100547/
+* ADR précédent : link:../../ARCHITECTURE.adoc[ADR-011] (superseded par
+  celui-ci).
+* ADR invalidant mfsBSD `dd` direct : link:../../ARCHITECTURE.adoc[ADR-010].
