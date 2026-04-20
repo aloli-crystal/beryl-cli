@@ -36,11 +36,16 @@ module Beryl::Bootstrap
 
     # Chemins utilisés côté rescue. Tout est groupé sous /root/beryl-test/
     # pour pouvoir reprendre sans retélécharger.
-    WORK_DIR      = "/root/beryl-test"
-    MFSBSD_PATH   = "#{WORK_DIR}/mfsbsd-se.img"
-    INSTALLERCFG  = "#{WORK_DIR}/installerconfig"
-    QEMU_SERIAL   = "#{WORK_DIR}/qemu-serial.log"
-    BSDINSTALL_LG = "#{WORK_DIR}/bsdinstall.log"
+    # Chemins côté rescue Linux (le programme tourne là).
+    WORK_DIR     = "/root/beryl-test"
+    MFSBSD_PATH  = "#{WORK_DIR}/mfsbsd-se.img"
+    INSTALLERCFG = "#{WORK_DIR}/installerconfig"
+    QEMU_SERIAL  = "#{WORK_DIR}/qemu-serial.log"
+
+    # Chemins côté VM mfsBSD (FS tmpfs en RAM, pas de /root/beryl-test).
+    # Bsdinstall log dans /tmp, accessible en lecture via SSH dans la VM.
+    VM_INSTALLERCFG  = "/tmp/installerconfig"
+    VM_BSDINSTALL_LG = "/tmp/bsdinstall.log"
 
     # Port local sur le rescue, forwardé vers le 22 de la VM par QEMU.
     VM_SSH_HOST = "127.0.0.1"
@@ -248,7 +253,7 @@ module Beryl::Bootstrap
             "-o PreferredAuthentications=keyboard-interactive " \
             "-o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 " \
             "-P #{VM_SSH_PORT} #{Process.quote(INSTALLERCFG)} " \
-            "root@#{VM_SSH_HOST}:/tmp/installerconfig"
+            "root@#{VM_SSH_HOST}:#{VM_INSTALLERCFG}"
       @rescue_conn.exec(cmd)
     end
 
@@ -258,7 +263,7 @@ module Beryl::Bootstrap
       # fin de QEMU (poweroff côté guest = QEMU qui exit).
       distsite = "http://ftp.freebsd.org/pub/FreeBSD/releases/amd64/#{@freebsd_version}-RELEASE"
       remote = "export BSDINSTALL_DISTSITE=#{Process.quote(distsite)} && " \
-               "nohup bsdinstall script /tmp/installerconfig >#{BSDINSTALL_LG} 2>&1 & disown ; sleep 1"
+               "nohup bsdinstall script #{VM_INSTALLERCFG} >#{VM_BSDINSTALL_LG} 2>&1 & disown ; sleep 1"
       @rescue_conn.exec(mfsbsd_ssh_cmd(remote))
 
       # Attente : la VM s'éteint quand installerconfig termine par poweroff.

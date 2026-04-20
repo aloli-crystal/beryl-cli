@@ -228,9 +228,9 @@ module Beryl::CLI
     override_snapshot = hostname_override
     hostname = override_snapshot.nil? ? host.name : override_snapshot
 
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl] bootstrap de #{host_name} (hostname cible : #{hostname}, disque : #{disk})"
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl] FreeBSD #{freebsd_version} — voie mfsBSD-in-QEMU (ADR-012)"
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl] #{keys.size} clé(s) SSH chargée(s) depuis #{authorized_keys_file}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl] #{Beryl::I18n.t(:bootstrap_header, host: host_name, hostname: hostname, disk: disk)}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl] #{Beryl::I18n.t(:bootstrap_path, version: freebsd_version)}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl] #{Beryl::I18n.t(:bootstrap_keys_loaded, count: keys.size, path: authorized_keys_file)}"
 
     # Nettoie l'éventuelle clé d'hôte stockée dans ~/.ssh/known_hosts
     # au cas où l'utilisateur s'y serait connecté manuellement avant
@@ -276,7 +276,7 @@ module Beryl::CLI
     )
     bootstrap.run
 
-    STDERR.puts "[beryl] bootstrap terminé pour #{host_name}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl] #{Beryl::I18n.t(:bootstrap_done, host: host_name)}"
     0
   rescue ex : Beryl::Inventory::NotFound
     STDERR.puts "beryl : #{ex.message}"
