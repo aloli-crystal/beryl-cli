@@ -163,6 +163,62 @@ de bord. Une ressource expose un contrat en trois parties :
 
 Le mode `--check` exécute seulement le premier étage (dry-run global).
 
+=== ADR-011 — Bootstrap via QEMU-in-rescue (Accepted, supersede ADR-003)
+
+*Contexte.* ADR-010 a invalidé l'approche ADR-003 (dd mfsBSD ISO + reboot)
+sur les serveurs UEFI-only modernes. Deux pistes étaient en lice dans
+link:IDEAS.adoc[IDEAS.adoc] : A (QEMU-in-rescue, pattern depenguin.me)
+et B (FreeBSD memstick hybride + installerconfig).
+
+Un test grandeur nature manuel a été mené le 20 avril 2026 sur un
+serveur Kimsufi OVH (`loulou.aloli.net`, Intel I350, firmware Legacy
+BIOS) avec la piste A. Résultat : FreeBSD 15.0-RELEASE-p5 installé
+et accessible en SSH par clé sur le bare metal. Le pattern est validé
+end-to-end.
+
+*Décision.* Le bootstrap beryl utilise **QEMU-in-rescue** comme voie
+principale :
+
+. beryl SSH dans le rescue Linux fourni par l'hébergeur (clé SSH du
+  compte pré-injectée par OVH/Scaleway, ou posée via
+  `beryl prep-rescue`).
+. `apt install qemu-system-x86 ovmf xorriso` dans le rescue.
+. Téléchargement de l'ISO officielle FreeBSD `disc1.iso` (hybride
+  ISO 9660 + UEFI + Legacy).
+. Remasterisation de l'ISO via `xorriso` : ajout de
+  `/etc/installerconfig` contenant le script bsdinstall non
+  interactif généré par beryl.
+. Lancement de QEMU : `-enable-kvm -machine q35` + OVMF UEFI +
+  passthrough du disque réel en virtio + `-no-reboot` pour que
+  QEMU quitte proprement au `poweroff` final.
+. bsdinstall lit l'installerconfig et fait l'install unattended
+  (partitionnement ZFS, distribution pkgbase, users admin/deploy,
+  clé SSH, rc.conf avec `ifconfig_DEFAULT`, fstab avec labels GPT,
+  sudoers wheel NOPASSWD, etc.).
+. QEMU quitte → beryl `reboot -f` le rescue → l'UEFI/BIOS du bare
+  metal trouve la FreeBSD fraîchement posée (ESP + pmbr hybrides)
+  → boot final.
+. beryl attend SSH sur l'hôte, connexion en `admin` ou `deploy`.
+
+*Conséquences.*
+
+* L'architecture `Beryl::Bootstrap::MfsBSD` + `Beryl::Bootstrap::Installer`
+  devient *legacy* — conservée pour les cas BIOS Legacy marginaux mais
+  plus appelée par défaut. Nouvelle classe principale :
+  `Beryl::Bootstrap::QemuInRescue`.
+* Le script `templates/install-pkgbase.sh` devient `templates/installerconfig.sh`
+  (format bsdinstall : variables en-tête + script post-install chroot).
+* L'installerconfig résout **à la source** les deux bugs trouvés
+  manuellement : `rc.conf` utilise `ifconfig_DEFAULT` (survit au changement
+  de NIC VM → bare metal) et `fstab` utilise des labels GPT
+  (indépendants des noms de devices).
+* `PermitRootLogin no` est respecté (défaut FreeBSD 15), la clé SSH
+  atterrit dans `admin`, `deploy` *et* `root` — les deux premiers
+  accessibles, root non.
+* Les hébergeurs doivent offrir un rescue Linux Debian-like avec
+  sudo/apt. OVH et Scaleway cochent ces cases. Hetzner via son
+  netboot custom nécessitera probablement une adaptation.
+
 === ADR-010 — L'ISO mfsBSD n'est pas UEFI-bootable en dd direct (Accepted)
 
 *Contexte.* Test grandeur nature du 19 avril 2026 sur un serveur dédié
