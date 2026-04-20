@@ -2,7 +2,7 @@ version: 2.0
 shards:
   ovh-api:
     git: https://github.com/aloli-crystal/crystal-api-ovh.git
-    version: 0.2.1+git.commit.15dee998e6b615663d53c2185a2078652376b6ad
+    version: 0.2.3+git.commit.92e0d12a7d3a91916660c52ef34551e1842364d2
 
   scaleway-api:
     git: https://github.com/aloli-crystal/crystal-api-scaleway.git

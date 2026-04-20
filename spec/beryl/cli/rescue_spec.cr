@@ -85,14 +85,16 @@ describe Beryl::CLI::Rescue do
           # GET boot 1 : type harddisk → rejeté
           {200, %({"bootId": 1, "bootType": "harddisk"})},
           # GET boot 2 : type rescue, UEFI compatible → retenu
-          {200, %({"bootId": 2, "bootType": "rescue", "supportsUEFI": "yes"})},
+          {200, %({"bootId": 2, "bootType": "rescue", "kernel": "rescue64-pro", "supportsUEFI": "yes"})},
           # GET boot 3 : type power → ignoré
           {200, %({"bootId": 3, "bootType": "power"})},
-          # PUT /dedicated/server/... (set_boot avec bootId + rescueSshKey) → vide
+          # GET /me/sshKey/philippe-aloli-fr → contenu brut (requis depuis
+          # ovh-api 0.2.2, car OVH refuse les noms et exige la clé brute
+          # dans le corps du PUT).
+          {200, %({"keyName":"philippe-aloli-fr","key":"ssh-ed25519 AAAA... philippe@aloli.fr","default":false})},
+          # PUT /dedicated/server/... (set_boot avec bootId + rescueSshKey=<contenu>) → vide
           {200, ""},
-          # POST /reboot → Task (depuis ovh-api 0.2.1, prepare_rescue fait
-          # 3 étapes : boot lookup → PUT combiné → reboot, plus de POST
-          # netbootOption qui n'existe pas côté OVH).
+          # POST /reboot → Task
           {200, %({"taskId": 42, "function": "hardReboot", "status": "todo"})},
         ])
 
@@ -118,9 +120,10 @@ describe Beryl::CLI::Rescue do
         # sur /reboot).
         transport.calls.last[0].should eq("POST")
         transport.calls.last[1].should contain("/reboot")
-        # Vérifie que le PUT set_boot a bien inclus rescueSshKey (0.2.1).
+        # Vérifie que le PUT set_boot a bien inclus rescueSshKey avec le
+        # contenu brut de la clé (depuis 0.2.2, pas le nom).
         put = transport.calls.find { |c| c[0] == "PUT" }.not_nil!
-        put[2].should contain(%("rescueSshKey":"philippe-aloli-fr"))
+        put[2].should contain(%("rescueSshKey":"ssh-ed25519 AAAA... philippe@aloli.fr"))
       ensure
         File.delete(inventory) if File.exists?(inventory)
       end
@@ -132,7 +135,8 @@ describe Beryl::CLI::Rescue do
         transport = StubOvhTransport.new([
           {200, "1745000000"},
           {200, "[2]"},
-          {200, %({"bootId": 2, "bootType": "rescue", "supportsUEFI": "yes"})},
+          {200, %({"bootId": 2, "bootType": "rescue", "kernel": "rescue64-pro", "supportsUEFI": "yes"})},
+          {200, %({"keyName":"philippe-aloli-fr","key":"ssh-ed25519 AAAA...","default":false})},
           {200, ""},
           {200, %({"taskId": 42, "function": "hardReboot", "status": "todo"})},
         ])
@@ -164,7 +168,8 @@ describe Beryl::CLI::Rescue do
         transport = StubOvhTransport.new([
           {200, "1745000000"},
           {200, "[2]"},
-          {200, %({"bootId": 2, "bootType": "rescue", "supportsUEFI": "yes"})},
+          {200, %({"bootId": 2, "bootType": "rescue", "kernel": "rescue64-pro", "supportsUEFI": "yes"})},
+          {200, %({"keyName":"philippe-aloli-fr","key":"ssh-ed25519 AAAA...","default":false})},
           {200, ""},
           {200, %({"taskId": 42, "function": "hardReboot", "status": "todo"})},
         ])
