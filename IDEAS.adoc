@@ -429,24 +429,61 @@ Rupture volontaire avec la convention historique du gist v2ror
   aucun sudo, aucun droit système.
 |===
 
-=== Installation Ruby dans `/opt` (pas en home utilisateur)
+=== Installation Ruby via ruby-install + chruby (pattern FreeBSD-idiomatique)
 
-*Convention par défaut* :
+*Outils* (tous installés en pkg, pas de compilation manuelle) :
+
+* `pkg install sudo` : non présent dans la base FreeBSD, à installer
+  explicitement.
+* `pkg install ruby-install` : installateur de Rubies upstream (support
+  MRI, jruby, truffle, etc.).
+* `pkg install chruby` : bascule de version via `~/.ruby-version` +
+  shim `auto.sh` qui déclenche le switch sur `cd`.
+* `pkg install zsh` : shell par défaut de `deploy`, complété par
+  oh-my-zsh installé au niveau utilisateur.
+
+*Chemins résultants* :
 
 [source,sh]
 ----
-/opt/ruby-3.3.0/            # compilation ruby-install
-/opt/ruby → ruby-3.3.0/     # symlink version active
-/opt/ruby-3.3.0-passenger-6.0.20/   # build Passenger
-/opt/nginx → ruby-3.3.0-passenger-6.0.20/   # nginx + Passenger actif
+/usr/local/share/rubies/ruby-3.3.0/    # ruby-install système (sudo)
+/usr/local/share/rubies/ruby-3.4.0/    # versions multiples cohabitent
 ----
 
-Responsabilités :
+`chruby` détecte automatiquement `/usr/local/share/rubies/*` et le
+`~/.rubies/*` de chaque user.
 
-* *`admin`* compile et installe tout ce qui est dans `/opt` (avec `sudo`).
-* *`deploy`* **utilise** `/opt/ruby/bin/ruby` sans jamais toucher à l'install.
-* Bascule d'une version à l'autre : `sudo ln -sfn ruby-3.4.0 /opt/ruby` +
-  recompilation Passenger pour la nouvelle Ruby.
+*Passenger + nginx* (même logique `/opt` mais tourne sur la Ruby
+choisie par chruby pendant la compilation) :
+
+[source,sh]
+----
+/opt/ruby-3.3.0-passenger-6.0.20/      # build Passenger pour Ruby 3.3
+/opt/nginx → ruby-3.3.0-passenger-6.0.20/   # actif
+----
+
+*Responsabilités* :
+
+* *`admin`* + `sudo` : installe les pkgs, lance `sudo ruby-install ...`,
+  compile Passenger, maintient les symlinks `/opt/nginx`.
+* *`deploy`* : ne touche pas aux versions. Son `~/.zshenv` source
+  chruby et sélectionne via `~/.ruby-version` dans les dossiers d'app.
+
+*Exemple de `.zshenv` de référence* (depuis la production v2ror) :
+
+[source,sh]
+----
+source /usr/local/share/chruby/chruby.sh
+source /usr/local/share/chruby/auto.sh
+chruby `cat ~/.ruby-version`
+export LANG=fr_FR.UTF-8
+export LC_ALL=fr_FR.UTF-8
+umask 0002
+----
+
+Bascule entre versions : modifier `~/.ruby-version` de l'app et
+`cd`-re-dans le dossier → chruby re-sélectionne la bonne Ruby,
+aucune commande admin requise.
 
 === Pourquoi
 
@@ -472,15 +509,30 @@ Côté sshd, le défaut FreeBSD `PermitRootLogin no` est **conservé**.
 Connexions administratives : `ssh admin@host && sudo -i`.
 Connexions applicatives (crystal-deploy) : `ssh deploy@host`.
 
-=== Phase 2 — recettes à écrire
+=== Phase 2 — recettes à écrire (= reproduire le gist v2ror)
 
-* `recipes/opt-ruby.yml` : installe ruby-install + Ruby dans `/opt/ruby-X.Y`
-  (exécute en `admin` avec sudo), pose le symlink.
-* `recipes/opt-passenger-nginx.yml` : compile Passenger-Nginx pour la Ruby
-  courante, pose les symlinks `/opt/nginx` + `/opt/ruby-X.Y-passenger-A.B`.
-* `recipes/user-deploy.yml` : crée l'utilisateur deploy *en plus* de ce
-  que l'installerconfig fait — utile si on doit ajouter deploy sur un
-  serveur déjà installé (cas d'étude rare).
+Référence : le https://gist.github.com/papilip/fe474d2bfd7abbddea0c7629df3afe18[gist
+post-install FreeBSD] de Philippe synthétise le setup cible. Les
+recettes beryl à produire :
+
+* `recipes/core-system.yml` : cron freebsd-update, pkgs de base (curl
+  git gnuls lynx p7zip sudo tree wget zsh), locale fr_FR.UTF-8,
+  umask 0002.
+* `recipes/users-admin-deploy.yml` : création des users selon l'ADR
+  (admin dans wheel/csh, deploy dans www seul, zsh + oh-my-zsh), clés
+  SSH posées, `.zshenv` chruby+auto pour deploy.
+* `recipes/sudo-wheel-nopasswd.yml` : fichier `sudoers.d/wheel-nopasswd`.
+* `recipes/chruby-rubies.yml` : `pkg install ruby-install chruby`, puis
+  `sudo ruby-install ruby X.Y.Z` dans `/usr/local/share/rubies/`.
+* `recipes/passenger-nginx.yml` : `gem install bundler passenger`,
+  `passenger-install-nginx-module --auto --prefix=/opt/ruby-X.Y-passenger-A.B`,
+  symlink `/opt/nginx`.
+* `recipes/postgresql.yml` : install PG 17, datadir en `/home/postgres`
+  avec symlink, user + DB pour l'app.
+* `recipes/app-dirs.yml` : arborescence déploiement Capistrano
+  (`/home/<app>/{releases,shared,current}`, owner `deploy:www`).
+* `recipes/nginx-service.yml` : init script rc.d custom, enable.
+* `recipes/mail-relay.yml` + `recipes/ntfy.yml` (alerting, ADR-007).
 
 == Provisioning via API hébergeur (OVH, Scaleway)
 
