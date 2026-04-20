@@ -17,6 +17,12 @@ dependencies:
   silex:
     github: aloli-crystal/crystal-silex
     branch: production
+  ovh-api:
+    github: aloli-crystal/crystal-api-ovh
+    branch: production
+  scaleway-api:
+    github: aloli-crystal/crystal-api-scaleway
+    branch: production
 
 targets:
   beryl:
