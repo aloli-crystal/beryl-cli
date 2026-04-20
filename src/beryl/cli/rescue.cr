@@ -327,7 +327,8 @@ module Beryl::CLI::Rescue
 
   private def self.log_step(label : String, & : -> T) : T forall T
     line = "[#{timestamp}] [beryl rescue] #{label}"
-    STDERR.printf("%-#{STEP_LINE_WIDTH}s  [   0s]", line)
+    pad = Beryl::Bootstrap::QemuInRescue.pad_to(line, STEP_LINE_WIDTH)
+    STDERR.print "#{line}#{pad}  [   0s]"
     STDERR.flush
     start = Time.instant
     done = Channel(Nil).new
@@ -338,7 +339,7 @@ module Beryl::CLI::Rescue
           break
         when timeout(1.second)
           elapsed = (Time.instant - start).total_seconds.to_i
-          STDERR.printf("\r%-#{STEP_LINE_WIDTH}s  [%4ds]", line, elapsed)
+          STDERR.printf("\r%s%s  [%4ds]", line, pad, elapsed)
           STDERR.flush
         end
       end
@@ -346,7 +347,7 @@ module Beryl::CLI::Rescue
     begin
       result = yield
       elapsed = (Time.instant - start).total_seconds.to_i
-      STDERR.printf("\r%-#{STEP_LINE_WIDTH}s  [%4ds]\n", line, elapsed)
+      STDERR.printf("\r%s%s  [%4ds]\n", line, pad, elapsed)
       result
     ensure
       done.send(nil)

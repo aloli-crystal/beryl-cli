@@ -68,9 +68,11 @@ module Beryl::Bootstrap
     TEMPLATE_INSTALLERCONFIG = {{ read_file("#{__DIR__}/templates/installerconfig.sh") }}
 
     # Largeur cible pour l'alignement du compteur `[   Ns]` en fin de
-    # ligne. Choisie pour cadrer la plus longue étape (« 6/7 — upload
-    # installerconfig + bsdinstall (10-25 min) » avec timestamp en tête).
-    STEP_LINE_WIDTH = 100
+    # ligne (en *caractères*, pas en octets — on utilise `String#size`
+    # pour pader, sinon les tirets cadratins UTF-8 faussent le calcul
+    # de `printf %-Ns`). Cadrée pour la plus longue étape (~105 chars
+    # avec timestamp + tag + label).
+    STEP_LINE_WIDTH = 110
 
     getter rescue_conn : SSH::Connection
     getter target_disk : String
@@ -346,7 +348,8 @@ module Beryl::Bootstrap
     #   20-04-2026 21h35m26 [beryl bootstrap mfsbsd] 3/7 — …              [  …]
     private def log_step(label : String, & : -> T) : T forall T
       line = "[#{self.class.timestamp}] [beryl bootstrap mfsbsd] #{label}"
-      STDERR.printf("%-#{STEP_LINE_WIDTH}s  [   0s]", line)
+      pad = self.class.pad_to(line, STEP_LINE_WIDTH)
+      STDERR.print "#{line}#{pad}  [   0s]"
       STDERR.flush
       start = Time.instant
       done = Channel(Nil).new
@@ -357,7 +360,7 @@ module Beryl::Bootstrap
             break
           when timeout(1.second)
             elapsed = (Time.instant - start).total_seconds.to_i
-            STDERR.printf("\r%-#{STEP_LINE_WIDTH}s  [%4ds]", line, elapsed)
+            STDERR.printf("\r%s%s  [%4ds]", line, pad, elapsed)
             STDERR.flush
           end
         end
@@ -365,11 +368,19 @@ module Beryl::Bootstrap
       begin
         result = yield
         elapsed = (Time.instant - start).total_seconds.to_i
-        STDERR.printf("\r%-#{STEP_LINE_WIDTH}s  [%4ds]\n", line, elapsed)
+        STDERR.printf("\r%s%s  [%4ds]\n", line, pad, elapsed)
         result
       ensure
         done.send(nil)
       end
+    end
+
+    # Retourne les espaces nécessaires pour pader `line` jusqu'à `width`
+    # caractères (pas octets : `%-Ns` de printf compte en octets et
+    # fausse l'alignement avec les tirets cadratins UTF-8).
+    def self.pad_to(line : String, width : Int32) : String
+      needed = width - line.size
+      needed > 0 ? " " * needed : ""
     end
 
     # Affiche un pense-bête en « commentaire » (préfixe `#`) juste avant
@@ -379,16 +390,21 @@ module Beryl::Bootstrap
     # du flux d'étapes.
     private def hint_follow_bsdinstall : Nil
       rescue_host = @rescue_conn.host
+      # `-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`
+      # sur le ssh extérieur aussi : aucune clé ajoutée à
+      # ~/.ssh/known_hosts du user pendant le tail (le rescue OVH est
+      # éphémère, polluer son ~/.ssh/known_hosts ne sert à rien).
       STDERR.puts "#"
       STDERR.puts "# Pour suivre bsdinstall en direct depuis un autre terminal :"
       STDERR.puts "#"
-      STDERR.puts "#   ssh root@#{rescue_host} \\"
-      STDERR.puts "#     'sshpass -p #{MFSBSD_ROOT_PASSWORD} ssh \\"
-      STDERR.puts "#      -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \\"
-      STDERR.puts "#      -o PreferredAuthentications=keyboard-interactive \\"
-      STDERR.puts "#      -o PubkeyAuthentication=no \\"
-      STDERR.puts "#      -p #{VM_SSH_PORT} root@#{VM_SSH_HOST} \\"
-      STDERR.puts "#      \"tail -f #{VM_BSDINSTALL_LG}\"'"
+      STDERR.puts "#   ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \\"
+      STDERR.puts "#       root@#{rescue_host} \\"
+      STDERR.puts "#       'sshpass -p #{MFSBSD_ROOT_PASSWORD} ssh \\"
+      STDERR.puts "#        -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \\"
+      STDERR.puts "#        -o PreferredAuthentications=keyboard-interactive \\"
+      STDERR.puts "#        -o PubkeyAuthentication=no \\"
+      STDERR.puts "#        -p #{VM_SSH_PORT} root@#{VM_SSH_HOST} \\"
+      STDERR.puts "#        \"tail -f #{VM_BSDINSTALL_LG}\"'"
       STDERR.puts "#"
     end
 
