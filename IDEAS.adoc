@@ -407,6 +407,81 @@ Piste **B** reste la cible long terme pour simplifier l'architecture
 quand le remastering UFS sera outillé proprement (shard Crystal ou
 binaire statique embarqué dans beryl, cf. principe d'autonomie).
 
+== Séparation des utilisateurs système : `admin` vs `deploy`
+
+=== Principe
+
+Rupture volontaire avec la convention historique du gist v2ror
+(où `deploy` était dans `wheel`). Dans beryl, les rôles se séparent :
+
+[cols="1,2,2"]
+|===
+| User | Groupe primaire + groupes secondaires | Rôle
+
+| `admin`
+| `staff` + `wheel`
+| Humain. Shell `csh` (tradition BSD). Maintenance système, sudo,
+  installation dans `/opt`, upgrades.
+
+| `deploy`
+| `www` (**pas** `wheel`)
+| Fonctionnel. Shell `sh`. Exécute les applis Marten/Kemal/Rails,
+  aucun sudo, aucun droit système.
+|===
+
+=== Installation Ruby dans `/opt` (pas en home utilisateur)
+
+*Convention par défaut* :
+
+[source,sh]
+----
+/opt/ruby-3.3.0/            # compilation ruby-install
+/opt/ruby → ruby-3.3.0/     # symlink version active
+/opt/ruby-3.3.0-passenger-6.0.20/   # build Passenger
+/opt/nginx → ruby-3.3.0-passenger-6.0.20/   # nginx + Passenger actif
+----
+
+Responsabilités :
+
+* *`admin`* compile et installe tout ce qui est dans `/opt` (avec `sudo`).
+* *`deploy`* **utilise** `/opt/ruby/bin/ruby` sans jamais toucher à l'install.
+* Bascule d'une version à l'autre : `sudo ln -sfn ruby-3.4.0 /opt/ruby` +
+  recompilation Passenger pour la nouvelle Ruby.
+
+=== Pourquoi
+
+* *Moindre privilège* : `deploy` compromis → aucune escalade root possible.
+* *Partage* : d'autres utilisateurs système (monitoring, backup, etc.)
+  peuvent invoquer `/opt/ruby/bin/ruby` sans friction.
+* *Versions multiples cohabitantes* : zéro modif utilisateur, juste des symlinks.
+* *Réversibilité* : `ln -sfn` atomique permet un rollback trivial.
+
+=== Impact sur `Beryl::Bootstrap::QemuInRescue`
+
+L'`installerconfig` généré par beryl doit créer **les deux utilisateurs
+dès l'install** avec la clé SSH de l'opérateur :
+
+[source,sh]
+----
+pw useradd admin  -g staff -G wheel -s /bin/csh -m
+pw useradd deploy -g www              -s /bin/sh  -m
+# Pose la clé SSH dans les deux homes
+----
+
+Côté sshd, le défaut FreeBSD `PermitRootLogin no` est **conservé**.
+Connexions administratives : `ssh admin@host && sudo -i`.
+Connexions applicatives (crystal-deploy) : `ssh deploy@host`.
+
+=== Phase 2 — recettes à écrire
+
+* `recipes/opt-ruby.yml` : installe ruby-install + Ruby dans `/opt/ruby-X.Y`
+  (exécute en `admin` avec sudo), pose le symlink.
+* `recipes/opt-passenger-nginx.yml` : compile Passenger-Nginx pour la Ruby
+  courante, pose les symlinks `/opt/nginx` + `/opt/ruby-X.Y-passenger-A.B`.
+* `recipes/user-deploy.yml` : crée l'utilisateur deploy *en plus* de ce
+  que l'installerconfig fait — utile si on doit ajouter deploy sur un
+  serveur déjà installé (cas d'étude rare).
+
 == Provisioning via API hébergeur (OVH, Scaleway)
 
 === Idée
