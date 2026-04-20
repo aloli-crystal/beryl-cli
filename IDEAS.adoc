@@ -534,6 +534,106 @@ recettes beryl à produire :
 * `recipes/nginx-service.yml` : init script rc.d custom, enable.
 * `recipes/mail-relay.yml` + `recipes/ntfy.yml` (alerting, ADR-007).
 
+== Multi-disque et RAID : `beryl list-disks` + `DiskLayout`
+
+=== Contexte
+
+Le bootstrap v1 (ADR-011, single-disk) couvre le cas minimaliste des
+Kimsufi 1 disque. Dès qu'un serveur a plusieurs disques (2 SSD mirror,
+2×NVMe + 4×HDD, etc.), il faut enrichir l'architecture.
+
+Deux cas d'usage concrets identifiés :
+
+* Serveur **aito** (OVH) — 2×512 Go NVMe, RAID 0. Équivalent ZFS :
+  boot pool `zroot` en `stripe` sur les deux NVMe (2× capacité, 0
+  redondance — assumée par le choix de l'opérateur).
+* Serveur de test **4×6 To HDD SATA + 1×500 Go NVMe**. Layout idiomatique :
+  ** *boot pool* `zroot` sur NVMe seul (petit, réinstallable en cas de perte)
+  ** *data pool* `ztank` sur les 4 HDD en `raidz2` (tolérance 2 pannes)
+
+=== `beryl list-disks <host>`
+
+Sous-commande à ajouter. Rôle : inspecter le rescue, présenter l'état
+brut + une suggestion.
+
+*Sortie type* :
+
+----
+Host: loulou.aloli.net (rescue OVH Debian 12)
+
+SSD/NVMe :
+  nvme0n1   INTEL SSDPE2KE016T8   500 Go    rota=0
+
+HDD :
+  sda       WDC WD60EFAX-68SHWN0  6000 Go   rota=1
+  sdb       WDC WD60EFAX-68SHWN0  6000 Go   rota=1
+  sdc       WDC WD60EFAX-68SHWN0  6000 Go   rota=1
+  sdd       WDC WD60EFAX-68SHWN0  6000 Go   rota=1
+
+Suggestion beryl :
+  boot_pool: nvme0n1 (stripe)
+  data_pool: sda/sdb/sdc/sdd (raidz2, ~12 To usables, 2 pannes tolérées)
+----
+
+*Implémentation* : parse `lsblk -Jdno NAME,SIZE,ROTA,MODEL,TYPE` (JSON
+pour robustesse), regroupe par type, génère une suggestion heuristique.
+
+=== `DiskLayout` — structure passée à `QemuInRescue`
+
+[source,crystal]
+----
+struct DiskLayout
+  struct Pool
+    getter name : String
+    getter disks : Array(String)
+    getter topology : Topology # :stripe | :mirror | :raidz1 | :raidz2 | :raidz3
+  end
+
+  getter boot : Pool                 # celui que bsdinstall installe
+  getter data : Array(Pool)          # pools supplémentaires créés en post-install
+end
+----
+
+*bsdinstall* gère nativement `ZFSBOOT_VDEV_TYPE` (stripe/mirror/raidz*)
+et `ZFSBOOT_DISKS` pour le pool de boot. Les pools data sont créés en
+post-install via `zpool create ztank raidz2 ada0 ada1 ada2 ada3`.
+
+=== Inventaire YAML (déclaratif, recommandé)
+
+[source,yaml]
+----
+hosts:
+  big-db-01.aloli.fr:
+    provider: ovh
+    install:
+      disk_layout:
+        boot:
+          name: zroot
+          disks: [nvme0n1]
+          topology: stripe
+        data:
+          - name: tank
+            disks: [sda, sdb, sdc, sdd]
+            topology: raidz2
+----
+
+*Note* : les noms des disques sont ceux vus *depuis la VM QEMU*
+(`vtbd0`, `vtbd1`…) *ou* ceux du bare metal ; beryl doit traduire
+automatiquement — en passant les disques réels à QEMU via `-drive`,
+l'ordre détermine le nom en VM (`vtbd0` = premier `-drive`, etc.).
+
+=== Questions ouvertes
+
+* Faut-il *chiffrer* le data pool par défaut (ZFS native encryption) ?
+  Probablement non — overhead perf, gestion clés, contexte serveur
+  dédié physiquement contrôlé.
+* Que faire si le rescue voit un disque qui n'est *pas* cité dans le
+  layout YAML ? Erreur stricte ? Warning ? Ne rien faire ?
+  Pencher vers erreur stricte pour éviter les mauvaises surprises
+  (oublier un disque = data perdue en silence).
+* Comment gérer les upgrades (ajouter un disque à un pool raidz
+  existant) ? Pas dans bootstrap, mais recette Phase 2 dédiée.
+
 == Provisioning via API hébergeur (OVH, Scaleway)
 
 === Idée
