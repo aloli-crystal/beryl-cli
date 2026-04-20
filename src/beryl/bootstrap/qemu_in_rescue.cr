@@ -205,7 +205,7 @@ module Beryl::Bootstrap
       rm -f #{Process.quote(ISO_REMASTERED)}
       xorriso -indev #{Process.quote(ISO_PATH)} \\
               -outdev #{Process.quote(ISO_REMASTERED)} \\
-              -boot_image any replay \\
+              -boot_image any keep \\
               -pathspecs on \\
               -update #{Process.quote(INSTALLERCFG)} /etc/installerconfig
       SH
