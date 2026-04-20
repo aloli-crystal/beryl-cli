@@ -228,9 +228,9 @@ module Beryl::CLI
     override_snapshot = hostname_override
     hostname = override_snapshot.nil? ? host.name : override_snapshot
 
-    STDERR.puts "[beryl] bootstrap de #{host_name} (hostname cible : #{hostname}, disque : #{disk})"
-    STDERR.puts "[beryl] FreeBSD #{freebsd_version} — voie mfsBSD-in-QEMU (ADR-012)"
-    STDERR.puts "[beryl] #{keys.size} clé(s) SSH chargée(s) depuis #{authorized_keys_file}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl] bootstrap de #{host_name} (hostname cible : #{hostname}, disque : #{disk})"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl] FreeBSD #{freebsd_version} — voie mfsBSD-in-QEMU (ADR-012)"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl] #{keys.size} clé(s) SSH chargée(s) depuis #{authorized_keys_file}"
 
     # Nettoie l'éventuelle clé d'hôte stockée dans ~/.ssh/known_hosts
     # au cas où l'utilisateur s'y serait connecté manuellement avant

@@ -136,8 +136,7 @@ module Beryl::Bootstrap
         launch_qemu_background
         wait_for_vm_ssh
       end
-      log_step("6/7 — pose authorized_keys, upload installerconfig, bsdinstall (10-25 min)") do
-        inject_vm_pubkey
+      log_step("6/7 — upload installerconfig + bsdinstall (10-25 min)") do
         scp_installerconfig_to_vm
         run_bsdinstall_in_vm
       end
@@ -235,22 +234,14 @@ module Beryl::Bootstrap
             " (dernière erreur : #{last_error.try(&.message)})"
     end
 
-    private def inject_vm_pubkey : Nil
-      # Dépose une clé publique pour que les appels suivants puissent se
-      # faire sans sshpass (plus simple pour chainer scp + bsdinstall).
-      # On utilise la première clé autorisée de la liste comme clé du
-      # rescue vers la VM : c'est celle qu'on a déjà chargée, donc on
-      # s'évite une clé dédiée. En pratique c'est la pub de l'opérateur.
-      pub_key = @authorized_keys.first
-      mkssh = "mkdir -p /root/.ssh && " \
-              "echo #{Process.quote(pub_key)} > /root/.ssh/authorized_keys && " \
-              "chmod 700 /root/.ssh && chmod 600 /root/.ssh/authorized_keys"
-      @rescue_conn.exec(mfsbsd_ssh_cmd(mkssh))
-    end
-
     private def scp_installerconfig_to_vm : Nil
-      # Après l'injection de la clé, scp fonctionne sans sshpass.
-      cmd = "scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null " \
+      # sshpass + scp : mfsBSD SE accepte keyboard-interactive ; pas
+      # besoin d'injecter une clé au préalable, sshpass suffit pour
+      # toute la durée de l'install.
+      cmd = "sshpass -p #{Process.quote(MFSBSD_ROOT_PASSWORD)} " \
+            "scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null " \
+            "-o PreferredAuthentications=keyboard-interactive " \
+            "-o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 " \
             "-P #{VM_SSH_PORT} #{Process.quote(INSTALLERCFG)} " \
             "root@#{VM_SSH_HOST}:/tmp/installerconfig"
       @rescue_conn.exec(cmd)
@@ -263,10 +254,7 @@ module Beryl::Bootstrap
       distsite = "http://ftp.freebsd.org/pub/FreeBSD/releases/amd64/#{@freebsd_version}-RELEASE"
       remote = "export BSDINSTALL_DISTSITE=#{Process.quote(distsite)} && " \
                "nohup bsdinstall script /tmp/installerconfig >#{BSDINSTALL_LG} 2>&1 & disown ; sleep 1"
-      @rescue_conn.exec(
-        "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null " \
-        "-p #{VM_SSH_PORT} root@#{VM_SSH_HOST} #{Process.quote(remote)}"
-      )
+      @rescue_conn.exec(mfsbsd_ssh_cmd(remote))
 
       # Attente : la VM s'éteint quand installerconfig termine par poweroff.
       # QEMU exit alors via `-no-reboot`. Le process QEMU sur le rescue
@@ -346,7 +334,7 @@ module Beryl::Bootstrap
     #   20-04-2026 21h35m26 [beryl bootstrap mfsbsd] 2/7 — apt install …  [ 14s]\n
     #   20-04-2026 21h35m26 [beryl bootstrap mfsbsd] 3/7 — …              [  …]
     private def log_step(label : String, & : -> T) : T forall T
-      line = "#{self.class.timestamp} [beryl bootstrap mfsbsd] #{label}"
+      line = "[#{self.class.timestamp}] [beryl bootstrap mfsbsd] #{label}"
       STDERR.print "#{line}  [   0s]"
       STDERR.flush
       start = Time.instant

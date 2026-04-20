@@ -309,7 +309,7 @@ module Beryl::CLI::Rescue
   end
 
   private def self.log(message : String) : Nil
-    STDERR.puts "#{timestamp} [beryl rescue] #{message}"
+    STDERR.puts "[#{timestamp}] [beryl rescue] #{message}"
   end
 
   # Horodatage sensible à la locale (voir `Beryl.format_timestamp`).
@@ -322,7 +322,7 @@ module Beryl::CLI::Rescue
   # quand le bloc sort. Ligne horodatée : « DD-MM-YYYY HHhMMmSS
   # [beryl rescue] <label>  [NNs] ».
   private def self.log_step(label : String, & : -> T) : T forall T
-    line = "#{timestamp} [beryl rescue] #{label}"
+    line = "[#{timestamp}] [beryl rescue] #{label}"
     STDERR.print "#{line}  [   0s]"
     STDERR.flush
     start = Time.instant
