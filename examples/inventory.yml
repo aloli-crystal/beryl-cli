@@ -18,21 +18,44 @@ defaults:
 
 hosts:
   # Serveur OVH dédié en rescue Debian.
+  #
+  # Les champs sous `ovh:` sont utilisés par `beryl rescue` pour piloter
+  # le panneau via l'API OVH (bascule en rescue + injection clé SSH +
+  # reboot). Les trouver dans le manager OVH :
+  #
+  #  * service_name : « Nom du service » affiché sous le serveur
+  #    (forme `ns1234.ip-1-2-3.eu`, `kimsufi-xxx.kimsufi.com`…).
+  #  * ssh_key_name : nom d'une clé SSH déjà déclarée dans « Mes clés »
+  #    du compte OVH. Créer d'abord la clé côté OVH si nécessaire.
   web01.aloli.fr:
     provider: ovh
+    ovh:
+      service_name: ns1234567.ip-51-83-6.eu
+      ssh_key_name: philippe-aloli-fr
     recipes:
       - core-system
       - nginx-crystal-deploy
 
   # Dedibox Scaleway en rescue Ubuntu.
+  #
+  # Les champs sous `scaleway:` sont utilisés par `beryl rescue` :
+  #
+  #  * zone      : zone Elastic Metal du serveur (fr-par-2 par défaut,
+  #                voir `ScalewayApi::ZONES`).
+  #  * server_id : UUID du serveur Elastic Metal (onglet « Informations »
+  #                de la console Scaleway).
   web02.scaleway.aloli.fr:
     provider: scaleway
+    scaleway:
+      zone: fr-par-2
+      server_id: 11111111-2222-3333-4444-555555555555
     user: root
     port: 22
     recipes:
       - core-system
 
   # Hôte générique (autre hébergeur, VM locale UTM, etc.).
+  # Pas de bascule rescue automatique : beryl rescue refusera ce provider.
   db01.aloli.fr:
     provider: generic
     port: 2222

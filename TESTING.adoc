@@ -536,7 +536,117 @@ Pour un diagnostic rapide à deux, coller ou attacher :
 C'est largement suffisant pour démarrer l'enquête, sans avoir à rejouer
 tout le test ensemble.
 
-== 5. Résolution des pannes
+== 5. Reboot en rescue par API
+
+Depuis la v0.2.0 des shards `ovh-api` et `scaleway-api`, `beryl` sait
+basculer un hôte en mode rescue *sans passer par le manager web* :
+
+[source,sh]
+----
+beryl rescue loulou.aloli.fr           # 1. l'hôte repart en rescue
+beryl bootstrap loulou.aloli.fr \      # 2. on installe FreeBSD par-dessus
+  --disk /dev/sda
+----
+
+L'étape 1 remplace l'aller-retour « clic dans le panneau → attendre le
+mail de credentials → ssh avec mot de passe » par un appel API unique.
+
+=== 5.1 Variables d'environnement à exporter
+
+Pour OVH (trois crédentials à générer sur
+https://api.ovh.com/createToken/) :
+
+[source,sh]
+----
+export OVH_APPLICATION_KEY=...
+export OVH_APPLICATION_SECRET=...
+export OVH_CONSUMER_KEY=...
+# Optionnel, défaut = eu :
+# export OVH_ENDPOINT=eu    # ou ca, us, kimsufi_eu…
+----
+
+Pour Scaleway (une seule clé IAM depuis
+https://console.scaleway.com/iam/api-keys) :
+
+[source,sh]
+----
+export SCW_SECRET_KEY=...
+export SCW_DEFAULT_ZONE=fr-par-2           # optionnel, défaut : fr-par-2
+# export SCW_DEFAULT_PROJECT_ID=...        # pas requis pour le rescue
+----
+
+=== 5.2 Champs d'inventaire
+
+Chaque hôte qu'on veut piloter par API doit porter un bloc au nom du
+provider avec les identifiants exposés par l'hébergeur :
+
+[source,yaml]
+----
+hosts:
+  loulou.aloli.fr:
+    provider: ovh
+    ovh:
+      service_name: ns3156789.ip-51-83-6.eu    # « Nom du service » OVH
+      ssh_key_name: philippe-aloli-fr          # nom dans /me/sshKey
+
+  mysrv-scw.aloli.fr:
+    provider: scaleway
+    scaleway:
+      zone: fr-par-2
+      server_id: 11111111-2222-3333-4444-555555555555
+----
+
+NOTE: `ssh_key_name` côté OVH doit *exister* dans le compte avant le
+`beryl rescue`. Passer par `client.ssh_keys.create` du shard
+`ovh-api` ou par le manager web. Côté Scaleway, les clés sont
+ré-injectées automatiquement depuis celles posées à la création du
+serveur : rien à déclarer dans l'inventaire beryl.
+
+=== 5.3 Flux observé
+
+[source,sh]
+----
+$ beryl rescue loulou.aloli.fr
+[beryl rescue] OVH : prepare_rescue pour ns3156789.ip-51-83-6.eu (clé : philippe-aloli-fr)
+[beryl rescue] OVH : tâche #42 (hardReboot) en todo
+[beryl rescue] attente du retour SSH sur loulou.aloli.fr (port 22, user root, timeout 10 min)
+[beryl rescue] ready : SSH répond sur loulou.aloli.fr
+$ beryl bootstrap loulou.aloli.fr --disk /dev/sda
+…flux QEMU-in-rescue habituel, 25-35 min…
+----
+
+Côté OVH, `beryl` enchaîne sous le capot : `GET /boot` → filtre le
+`bootType == "rescue"` UEFI-compatible → `PUT` `bootId` → `POST
+rescueSshKey` → `POST /reboot`. Côté Scaleway, un seul appel
+`POST /servers/{id}/reboot` avec `boot_type: "rescue"` suffit.
+
+=== 5.4 Options utiles
+
+[cols="1,2"]
+|===
+| Option | Rôle
+
+| `--timeout=MIN`
+| Délai d'attente maximum du retour SSH (défaut : 10 minutes).
+
+| `--no-wait`
+| Retour immédiat après l'appel API, sans attendre SSH. Pratique pour
+  lancer plusieurs rescues en parallèle puis attendre à la main, ou
+  pour enchaîner depuis un autre outil.
+|===
+
+=== 5.5 Quand préférer le chemin manuel
+
+* Serveur *non-OVH / non-Scaleway* (Hetzner, générique, VM UTM) :
+  `beryl rescue` refusera avec `EXIT_BAD_PROVIDER`. Passer par le
+  panneau de l'hébergeur et `beryl prep-rescue` comme avant.
+* Rescue *sans API publique* (gammes anciennes, comptes partagés
+  sans droit IAM) : idem, chemin manuel.
+* Premier test de bout en bout : faire tourner une fois en manuel pour
+  valider que l'hôte répond correctement, puis automatiser via `beryl
+  rescue`.
+
+== 6. Résolution des pannes
 
 === QEMU refuse de démarrer côté rescue
 
@@ -581,7 +691,7 @@ vide.
 Repasser en mode rescue et relancer `beryl bootstrap` : `bsdinstall`
 écrase intégralement la table de partition + ZFS.
 
-== 6. Résultats attendus pour la v0.1
+== 7. Résultats attendus pour la v0.1
 
 À l'issue du bootstrap, le serveur doit :
 

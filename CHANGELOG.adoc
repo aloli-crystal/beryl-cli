@@ -9,6 +9,40 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Sous-commande `rescue` par API hébergeur (avril 2026)
+
+==== Ajouté
+
+* `beryl rescue <host>` : bascule un hôte OVH ou Scaleway en mode
+  rescue par l'API de l'hébergeur, puis attend le retour de SSH. Évite
+  la séquence clic-dans-le-panel + mail de credentials + `ssh-copy-id`
+  qui précédait le `beryl bootstrap`.
+  * OVH : enchaîne `boots → find rescue id → set_boot → set_netboot_option
+    rescueSshKey → reboot` via `client.dedicated_servers.prepare_rescue`.
+  * Scaleway : un appel `servers.reboot(boot_type: Rescue)`. Les clés
+    SSH déclarées à la création du serveur sont ré-injectées
+    automatiquement par Scaleway.
+* Extension de l'inventaire : un hôte peut porter un bloc au nom de son
+  provider (`ovh:` ou `scaleway:`) avec les identifiants d'API
+  (`service_name`, `ssh_key_name` pour OVH ; `zone`, `server_id` pour
+  Scaleway). `Beryl::Host` expose les accesseurs correspondants.
+* Helper `Beryl::CLI::Credentials` : lecture des variables d'env
+  `OVH_APPLICATION_KEY`, `OVH_APPLICATION_SECRET`, `OVH_CONSUMER_KEY`,
+  `OVH_ENDPOINT`, `SCW_SECRET_KEY`, `SCW_DEFAULT_ZONE`, avec messages
+  d'erreur francophones.
+* Specs : 15 nouveaux specs (inventory provider_config + rescue CLI
+  avec transports HTTP stub pour simuler OVH et Scaleway sans réseau).
+  Total : 69 specs verts.
+* Documentation : nouvelle section 5 dans `TESTING.adoc` et exemples
+  `ovh:` / `scaleway:` mis à jour dans `examples/inventory.yml`.
+
+==== Dépendances
+
+* `ovh-api` v0.2.0 (shard `aloli-crystal/crystal-api-ovh`, branche
+  `production`) — nouveaux endpoints rescue.
+* `scaleway-api` v0.2.0 (shard `aloli-crystal/crystal-api-scaleway`,
+  branche `production`) — `servers.reboot` avec `BootType::Rescue`.
+
 === Pivot bootstrap — ADR-010 / ADR-011 (avril 2026)
 
 Le test grandeur nature du 19 avril 2026 sur un Kimsufi OVH UEFI-only
