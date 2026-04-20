@@ -137,9 +137,10 @@ module Beryl::CLI::Rescue
     end
 
     if wait
-      log "attente du retour SSH sur #{host.name} (port #{host.port}, user root, timeout #{timeout.total_minutes.to_i} min)"
-      if wait_for_ssh.call(host.name, host.port, "root", timeout, SSH_POLL_INTERVAL)
-        log "ready : SSH répond sur #{host.name}"
+      ssh_ok = log_step("attente SSH sur #{host.name} (port #{host.port}, user root, timeout #{timeout.total_minutes.to_i} min)") do
+        wait_for_ssh.call(host.name, host.port, "root", timeout, SSH_POLL_INTERVAL)
+      end
+      if ssh_ok
         EXIT_OK
       else
         STDERR.puts "beryl : timeout — SSH n'a pas répondu sur #{host.name} au bout de #{timeout.total_minutes.to_i} min"
@@ -246,39 +247,32 @@ module Beryl::CLI::Rescue
     service_name = host.ovh_service_name.not_nil!
     client = ovh_client_factory.call
 
-    start = Time.instant
-    deadline = start + TASK_WAIT_TIMEOUT
-    last_status = task.status
+    deadline = Time.instant + TASK_WAIT_TIMEOUT
     current = task
     while Time.instant < deadline
-      if current.success?
-        STDERR.print "\n"
-        return
-      end
-
+      return if current.success?
       if current.failed? || current.status == "cancelled"
-        STDERR.print "\n"
         raise TaskFailed.new(
           "tâche OVH ##{current.id} (#{current.function}) terminée en #{current.status} — #{current.comment}"
         )
       end
 
-      elapsed = (Time.instant - start).total_seconds.to_i
-      STDERR.printf("  [%4ds] tâche OVH ##{current.id} en %s...\r", elapsed, current.status)
-      STDERR.flush
-
-      sleep poll_interval
-      current = client.dedicated_servers.task(service_name, task.id)
-      if current.status != last_status
-        STDERR.print "\n"
-        log "OVH : tâche ##{current.id} → #{current.status}"
-        last_status = current.status
+      # Une ligne frozen par état (init, todo, doing, …) : le log_step
+      # tient la ligne jusqu'au prochain changement d'état et fige le
+      # temps passé en _cet_ état. L'opérateur voit clairement où on est
+      # et combien chaque transition a pris.
+      current_status = current.status
+      log_step("OVH : tâche ##{task.id} en #{current_status}") do
+        while Time.instant < deadline
+          sleep poll_interval
+          current = client.dedicated_servers.task(service_name, task.id)
+          break if current.status != current_status
+        end
       end
     end
 
-    STDERR.print "\n"
     raise TaskFailed.new(
-      "tâche OVH ##{task.id} (#{task.function}) non aboutie après #{TASK_WAIT_TIMEOUT.total_minutes.to_i} min (dernier état : #{last_status})"
+      "tâche OVH ##{task.id} (#{task.function}) non aboutie après #{TASK_WAIT_TIMEOUT.total_minutes.to_i} min (dernier état : #{current.status})"
     )
   end
 
@@ -301,28 +295,57 @@ module Beryl::CLI::Rescue
       user: user,
       port: port,
     )
-    start = Time.instant
-    deadline = start + timeout
+    deadline = Time.instant + timeout
     while Time.instant < deadline
       begin
         result = conn.exec("uname -s", raise_on_error: false)
-        if result.success?
-          STDERR.print "\n"
-          return true
-        end
+        return true if result.success?
       rescue
         # silencieux : rescue pas encore debout, retente au prochain tour
       end
-      elapsed = (Time.instant - start).total_seconds.to_i
-      STDERR.printf("  [%3ds] attente SSH sur %s...\r", elapsed, host)
-      STDERR.flush
       sleep poll
     end
-    STDERR.print "\n"
     false
   end
 
   private def self.log(message : String) : Nil
-    STDERR.puts "[beryl rescue] #{message}"
+    STDERR.puts "#{timestamp} [beryl rescue] #{message}"
+  end
+
+  # Horodatage sensible à la locale (voir `Beryl.format_timestamp`).
+  private def self.timestamp : String
+    Beryl.format_timestamp(Time.local)
+  end
+
+  # Exécute un bloc en affichant le préfixe + un compteur de temps inline,
+  # rafraîchi en place (`\r`), qui fige à sa valeur finale avec un `\n`
+  # quand le bloc sort. Ligne horodatée : « DD-MM-YYYY HHhMMmSS
+  # [beryl rescue] <label>  [NNs] ».
+  private def self.log_step(label : String, & : -> T) : T forall T
+    line = "#{timestamp} [beryl rescue] #{label}"
+    STDERR.print "#{line}  [   0s]"
+    STDERR.flush
+    start = Time.instant
+    done = Channel(Nil).new
+    spawn do
+      loop do
+        select
+        when done.receive?
+          break
+        when timeout(1.second)
+          elapsed = (Time.instant - start).total_seconds.to_i
+          STDERR.printf("\r%s  [%4ds]", line, elapsed)
+          STDERR.flush
+        end
+      end
+    end
+    begin
+      result = yield
+      elapsed = (Time.instant - start).total_seconds.to_i
+      STDERR.printf("\r%s  [%4ds]\n", line, elapsed)
+      result
+    ensure
+      done.send(nil)
+    end
   end
 end

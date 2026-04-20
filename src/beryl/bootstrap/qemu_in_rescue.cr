@@ -126,30 +126,26 @@ module Beryl::Bootstrap
     # prête vers le FreeBSD fraîchement installé (utilisateur `admin`
     # par défaut — `PermitRootLogin no` est appliqué par FreeBSD 15).
     def run : SSH::Connection
-      log "1/7 — vérifie que le rescue tourne bien sous Linux"
-      verify_linux_rescue
-
-      log "2/7 — installe qemu-system-x86, sshpass et curl côté rescue"
-      install_packages
-
-      log "3/7 — télécharge l'image mfsBSD SE #{@mfsbsd_version} si nécessaire"
-      download_mfsbsd_if_needed
-
-      log "4/7 — écrit l'installerconfig côté rescue (sera scpé dans la VM)"
-      @rescue_conn.write_file(INSTALLERCFG, render_installerconfig, mode: "0644")
-
-      log "5/7 — lance QEMU avec mfsBSD + disque #{@target_disk} passthrough"
-      launch_qemu_background
-      wait_for_vm_ssh
-
-      log "6/7 — pose authorized_keys dans la VM, upload installerconfig, lance bsdinstall"
-      inject_vm_pubkey
-      scp_installerconfig_to_vm
-      run_bsdinstall_in_vm
-
-      log "7/7 — reboot bare metal sur la FreeBSD posée, attente SSH"
-      reboot_bare_metal
-      wait_for_installed_ssh
+      log_step("1/7 — vérifie que le rescue tourne bien sous Linux") { verify_linux_rescue }
+      log_step("2/7 — installe qemu-system-x86, sshpass et curl côté rescue") { install_packages }
+      log_step("3/7 — télécharge l'image mfsBSD SE #{@mfsbsd_version} si nécessaire") { download_mfsbsd_if_needed }
+      log_step("4/7 — écrit l'installerconfig côté rescue") do
+        @rescue_conn.write_file(INSTALLERCFG, render_installerconfig, mode: "0644")
+      end
+      log_step("5/7 — lance QEMU avec mfsBSD + disque #{@target_disk} passthrough") do
+        launch_qemu_background
+        wait_for_vm_ssh
+      end
+      log_step("6/7 — pose authorized_keys, upload installerconfig, bsdinstall (10-25 min)") do
+        inject_vm_pubkey
+        scp_installerconfig_to_vm
+        run_bsdinstall_in_vm
+      end
+      result = log_step("7/7 — reboot bare metal sur la FreeBSD posée, attente SSH") do
+        reboot_bare_metal
+        wait_for_installed_ssh
+      end
+      result
     end
 
     # Rend le fichier `installerconfig` à embarquer dans la VM.
@@ -195,23 +191,19 @@ module Beryl::Bootstrap
     end
 
     private def install_packages : Nil
-      with_progress("apt install qemu/sshpass/curl en cours") do
-        @rescue_conn.exec(
-          "mkdir -p #{Process.quote(WORK_DIR)} && " \
-          "DEBIAN_FRONTEND=noninteractive apt-get update -qq && " \
-          "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq qemu-system-x86 sshpass curl"
-        )
-      end
+      @rescue_conn.exec(
+        "mkdir -p #{Process.quote(WORK_DIR)} && " \
+        "DEBIAN_FRONTEND=noninteractive apt-get update -qq && " \
+        "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq qemu-system-x86 sshpass curl"
+      )
     end
 
     private def download_mfsbsd_if_needed : Nil
       quoted = Process.quote(MFSBSD_PATH)
       quoted_url = Process.quote(@mfsbsd_url)
-      with_progress("téléchargement mfsBSD SE #{@mfsbsd_version} (~400 Mo)") do
-        @rescue_conn.exec(
-          "test -s #{quoted} || curl -fLo #{quoted} #{quoted_url}"
-        )
-      end
+      @rescue_conn.exec(
+        "test -s #{quoted} || curl -fLo #{quoted} #{quoted_url}"
+      )
     end
 
     private def launch_qemu_background : Nil
@@ -228,26 +220,17 @@ module Beryl::Bootstrap
     private def wait_for_vm_ssh : Nil
       # Boucle sshpass de polling ; succès dès que `uname -s` répond.
       deadline = Time.instant + VM_BOOT_TIMEOUT
-      start = Time.instant
       last_error = nil
       while Time.instant < deadline
         begin
           check = mfsbsd_ssh_cmd("uname -s")
           result = @rescue_conn.exec(check, raise_on_error: false)
-          if result.success? && result.stdout.strip == "FreeBSD"
-            STDERR.print "\n"
-            log "mfsBSD joignable en SSH (port #{VM_SSH_PORT})"
-            return
-          end
+          return if result.success? && result.stdout.strip == "FreeBSD"
         rescue ex
           last_error = ex
         end
-        elapsed = (Time.instant - start).total_seconds.to_i
-        STDERR.printf("  [%4ds] attente boot mfsBSD...\r", elapsed)
-        STDERR.flush
         sleep VM_POLL_INTERVAL
       end
-      STDERR.print "\n"
       raise "timeout : mfsBSD n'a pas répondu en SSH au bout de #{VM_BOOT_TIMEOUT.total_minutes.to_i} min" \
             " (dernière erreur : #{last_error.try(&.message)})"
     end
@@ -287,10 +270,9 @@ module Beryl::Bootstrap
 
       # Attente : la VM s'éteint quand installerconfig termine par poweroff.
       # QEMU exit alors via `-no-reboot`. Le process QEMU sur le rescue
-      # disparaît — on poll son absence.
-      with_progress("bsdinstall en cours (fetch + ZFS + post-install, 10-25 min)") do
-        wait_for_qemu_exit
-      end
+      # disparaît — on poll son absence. Le compteur inline du log_step
+      # englobant donne le feedback visuel.
+      wait_for_qemu_exit
     end
 
     private def wait_for_qemu_exit : Nil
@@ -323,27 +305,17 @@ module Beryl::Bootstrap
         port: @installed_port,
       )
 
-      start = Time.instant
-      deadline = start + SSH_WAIT_TIMEOUT
+      deadline = Time.instant + SSH_WAIT_TIMEOUT
       last_error = nil
       while Time.instant < deadline
         begin
           result = conn.exec("uname -s", raise_on_error: false)
-          if result.success? && result.stdout.strip == "FreeBSD"
-            STDERR.print "\n"
-            log "FreeBSD installé et joignable (uname -s = FreeBSD, user = #{@installed_user})"
-            return conn
-          end
+          return conn if result.success? && result.stdout.strip == "FreeBSD"
         rescue ex
           last_error = ex
         end
-        elapsed = (Time.instant - start).total_seconds.to_i
-        STDERR.printf("  [%4ds] attente SSH FreeBSD sur %s...\r", elapsed, @rescue_conn.host)
-        STDERR.flush
         sleep SSH_POLL_INTERVAL
       end
-
-      STDERR.print "\n"
       raise "timeout : le FreeBSD installé n'a pas répondu en SSH au bout de #{SSH_WAIT_TIMEOUT.total_minutes.to_i} min (dernière erreur : #{last_error.try(&.message)})"
     end
 
@@ -363,10 +335,20 @@ module Beryl::Bootstrap
       value.gsub(/["$`\\]/) { |c| "\\#{c}" }
     end
 
-    # Wrapper qui exécute un bloc long et affiche un compteur écoulé
-    # toutes les *interval* secondes, sur une ligne rafraîchie en place
-    # (`\r`, motif crystal-deploy).
-    private def with_progress(label : String, interval : Time::Span = 10.seconds, & : -> T) : T forall T
+    # Exécute un bloc en affichant le préfixe + un compteur de temps inline,
+    # rafraîchi en place (`\r`), qui fige à sa valeur finale avec un `\n`
+    # quand le bloc sort. La ligne qui suit vient donc *sous* le compteur
+    # figé, qui reste trace permanente. Chaque ligne est horodatée
+    # (JJ-MM-AAAA HHhMMmSS, convention Aloli) pour que le log entier
+    # serve aussi d'historique horaire.
+    #
+    #   20-04-2026 21h35m12 [beryl bootstrap mfsbsd] 2/7 — apt install …  [  0s]\r
+    #   20-04-2026 21h35m26 [beryl bootstrap mfsbsd] 2/7 — apt install …  [ 14s]\n
+    #   20-04-2026 21h35m26 [beryl bootstrap mfsbsd] 3/7 — …              [  …]
+    private def log_step(label : String, & : -> T) : T forall T
+      line = "#{self.class.timestamp} [beryl bootstrap mfsbsd] #{label}"
+      STDERR.print "#{line}  [   0s]"
+      STDERR.flush
       start = Time.instant
       done = Channel(Nil).new
       spawn do
@@ -374,24 +356,32 @@ module Beryl::Bootstrap
           select
           when done.receive?
             break
-          when timeout(interval)
+          when timeout(1.second)
             elapsed = (Time.instant - start).total_seconds.to_i
-            STDERR.printf("  [%4ds] %s\r", elapsed, label)
+            STDERR.printf("\r%s  [%4ds]", line, elapsed)
             STDERR.flush
           end
         end
       end
       begin
         result = yield
+        elapsed = (Time.instant - start).total_seconds.to_i
+        STDERR.printf("\r%s  [%4ds]\n", line, elapsed)
         result
       ensure
         done.send(nil)
-        STDERR.print "\n"
       end
     end
 
-    private def log(message : String) : Nil
-      STDERR.puts "[beryl bootstrap mfsbsd] #{message}"
+    # Horodatage sensible à la locale :
+    #
+    # * `LANG=fr*` → `20/04/2026 21h35m12` (convention française)
+    # * autres / non défini → `2026-04-20 21:35:12` (ISO 8601)
+    #
+    # Exposé comme méthode de classe pour que `log_step` (et autres
+    # helpers) le partagent sans duplication.
+    def self.timestamp : String
+      Beryl.format_timestamp(Time.local)
     end
   end
 end
