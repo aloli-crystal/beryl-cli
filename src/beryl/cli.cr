@@ -2,6 +2,7 @@ require "option_parser"
 require "../beryl"
 require "./cli/prep_rescue"
 require "./cli/bake_seed"
+require "./cli/rescue"
 
 # Point d'entrée CLI de beryl.
 #
@@ -11,6 +12,7 @@ require "./cli/bake_seed"
 # Sous-commandes disponibles au MVP :
 #   list-hosts             Affiche les hôtes de l'inventaire.
 #   show <host>            Détaille un hôte.
+#   rescue <host>          Bascule un hôte en mode rescue via l'API hébergeur.
 #   bootstrap <host> …     Installe FreeBSD sur un rescue Linux distant.
 #   prep-rescue            Sert la clé SSH et un script de provisioning sur
 #                          HTTP local pour préparer un rescue Debian/Ubuntu.
@@ -63,6 +65,7 @@ module Beryl::CLI
     when "list-hosts"  then cmd_list_hosts(inventory_path)
     when "show"        then cmd_show(inventory_path, sub_args)
     when "bootstrap"   then cmd_bootstrap(inventory_path, sub_args)
+    when "rescue"      then Beryl::CLI::Rescue.run(inventory_path, sub_args)
     when "prep-rescue" then Beryl::CLI::PrepRescue.run(sub_args)
     when "bake-seed"   then Beryl::CLI::BakeSeed.run(sub_args)
     when "version"     then puts "beryl #{Beryl::VERSION}"; 0
@@ -82,6 +85,9 @@ module Beryl::CLI
     Sous-commandes :
       list-hosts            Liste les hôtes de l'inventaire
       show <host>           Affiche les détails d'un hôte
+      rescue <host>         Bascule un hôte en rescue via l'API
+                            de l'hébergeur (OVH, Scaleway) puis
+                            attend le retour SSH
       bootstrap <host>      Installe FreeBSD 15 (voie QEMU-in-rescue, ADR-011)
       prep-rescue           Serveur HTTP local (clé SSH + script) pour
                             préparer un rescue Debian/Ubuntu sans
