@@ -232,28 +232,33 @@ module Beryl::CLI
     STDERR.puts "[beryl] FreeBSD #{freebsd_version} — voie mfsBSD-in-QEMU (ADR-012)"
     STDERR.puts "[beryl] #{keys.size} clé(s) SSH chargée(s) depuis #{authorized_keys_file}"
 
-    # Nettoie l'éventuelle clé d'hôte stockée dans ~/.ssh/known_hosts :
-    # par définition bootstrap change la clé (rescue Linux → FreeBSD
-    # installé). Sans ça, les runs successifs échouent avec « REMOTE
-    # HOST IDENTIFICATION HAS CHANGED » dès le premier ssh au rescue.
-    # On dégage aussi la variante [host]:port qu'OpenSSH pose quand le
-    # port n'est pas 22.
+    # Nettoie l'éventuelle clé d'hôte stockée dans ~/.ssh/known_hosts
+    # au cas où l'utilisateur s'y serait connecté manuellement avant
+    # bootstrap (accept-new en mode interactif, ou session précédente).
+    # Les connexions internes de beryl contournent already known_hosts
+    # via UserKnownHostsFile=/dev/null, mais c'est une politesse vis-à-vis
+    # du user qui rouvrira la session SSH post-bootstrap.
     Process.run("ssh-keygen", ["-R", host.name], output: Process::Redirect::Close, error: Process::Redirect::Close)
     if host.port != 22
       Process.run("ssh-keygen", ["-R", "[#{host.name}]:#{host.port}"], output: Process::Redirect::Close, error: Process::Redirect::Close)
     end
 
-    # Connexion SSH au rescue : la clé d'hôte n'est probablement pas
-    # encore connue et va changer après le reboot sur FreeBSD installé.
-    # `accept-new` pose la clé au premier contact puis la retient — pas
-    # de prompt, mais MITM possible lors du premier échange (acceptable
-    # pour un bootstrap de serveur neuf).
+    # Connexion SSH au rescue : la clé d'hôte va changer plusieurs fois
+    # pendant le bootstrap (rescue Linux → mfsBSD dans QEMU → FreeBSD
+    # installé). On neutralise complètement la vérification + le stockage
+    # des clés d'hôtes : zéro prompt, zéro entrée polluée dans
+    # ~/.ssh/known_hosts du user (qui récupèrera la clé FreeBSD finale
+    # au premier ssh manuel post-bootstrap).
     rescue_conn = Beryl::SSH::Connection.new(
       host: host.name,
       user: host.user,
       port: host.port,
       identity_file: host.identity_file,
-      options: {"StrictHostKeyChecking" => "accept-new"},
+      options: {
+        "StrictHostKeyChecking" => "no",
+        "UserKnownHostsFile"    => "/dev/null",
+        "LogLevel"              => "ERROR",
+      },
     )
 
     bootstrap = Beryl::Bootstrap::QemuInRescue.new(
