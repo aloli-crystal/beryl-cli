@@ -62,6 +62,11 @@ module Beryl::Bootstrap
 
     TEMPLATE_INSTALLERCONFIG = {{ read_file("#{__DIR__}/templates/installerconfig.sh") }}
 
+    # Largeur cible pour l'alignement du compteur `[   Ns]` en fin de
+    # ligne. Choisie pour cadrer la plus longue étape (« 6/7 — upload
+    # installerconfig + bsdinstall (10-25 min) » avec timestamp en tête).
+    STEP_LINE_WIDTH = 100
+
     getter rescue_conn : SSH::Connection
     getter target_disk : String
     getter hostname : String
@@ -335,7 +340,7 @@ module Beryl::Bootstrap
     #   20-04-2026 21h35m26 [beryl bootstrap mfsbsd] 3/7 — …              [  …]
     private def log_step(label : String, & : -> T) : T forall T
       line = "[#{self.class.timestamp}] [beryl bootstrap mfsbsd] #{label}"
-      STDERR.print "#{line}  [   0s]"
+      STDERR.printf("%-#{STEP_LINE_WIDTH}s  [   0s]", line)
       STDERR.flush
       start = Time.instant
       done = Channel(Nil).new
@@ -346,7 +351,7 @@ module Beryl::Bootstrap
             break
           when timeout(1.second)
             elapsed = (Time.instant - start).total_seconds.to_i
-            STDERR.printf("\r%s  [%4ds]", line, elapsed)
+            STDERR.printf("\r%-#{STEP_LINE_WIDTH}s  [%4ds]", line, elapsed)
             STDERR.flush
           end
         end
@@ -354,7 +359,7 @@ module Beryl::Bootstrap
       begin
         result = yield
         elapsed = (Time.instant - start).total_seconds.to_i
-        STDERR.printf("\r%s  [%4ds]\n", line, elapsed)
+        STDERR.printf("\r%-#{STEP_LINE_WIDTH}s  [%4ds]\n", line, elapsed)
         result
       ensure
         done.send(nil)
