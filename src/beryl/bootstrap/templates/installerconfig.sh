@@ -96,6 +96,16 @@ chmod 700 /root/.ssh
 chmod 600 /root/.ssh/authorized_keys
 rm -f /tmp/keys
 
+echo "==> [beryl] sshd : autorise root via pubkey (FreeBSD patche 'no' par défaut)"
+# Filet de sauvetage : si jamais admin n'a pas sudo (pkg échoue en
+# chroot), on doit pouvoir ssh root@ pour réparer. Clé pubkey uniquement,
+# pas de password (c'est la valeur 'prohibit-password' d'OpenSSH upstream).
+if grep -q '^PermitRootLogin' /etc/ssh/sshd_config; then
+  sed -i '' -E 's/^PermitRootLogin .*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
+else
+  echo 'PermitRootLogin prohibit-password' >> /etc/ssh/sshd_config
+fi
+
 echo "==> [beryl] poweroff : QEMU va quitter grâce à -no-reboot, le rescue reprend la main"
 sync
 poweroff
