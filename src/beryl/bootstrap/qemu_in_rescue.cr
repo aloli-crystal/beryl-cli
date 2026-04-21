@@ -418,22 +418,13 @@ module Beryl::Bootstrap
     # du flux d'étapes.
     private def hint_follow_bsdinstall : Nil
       rescue_host = @rescue_conn.host
-      # `-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`
-      # sur le ssh extérieur aussi : aucune clé ajoutée à
-      # ~/.ssh/known_hosts du user pendant le tail (le rescue OVH est
-      # éphémère, polluer son ~/.ssh/known_hosts ne sert à rien).
-      STDERR.puts "#"
-      STDERR.puts "# Pour suivre bsdinstall en direct depuis un autre terminal :"
-      STDERR.puts "#"
-      STDERR.puts "#   ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \\"
-      STDERR.puts "#       root@#{rescue_host} \\"
-      STDERR.puts "#       'sshpass -p #{MFSBSD_ROOT_PASSWORD} ssh \\"
-      STDERR.puts "#        -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \\"
-      STDERR.puts "#        -o PreferredAuthentications=keyboard-interactive \\"
-      STDERR.puts "#        -o PubkeyAuthentication=no \\"
-      STDERR.puts "#        -p #{VM_SSH_PORT} root@#{VM_SSH_HOST} \\"
-      STDERR.puts "#        \"tail -f #{VM_BSDINSTALL_LG}\"'"
-      STDERR.puts "#"
+      # La commande est imprimée SANS préfixe `#` pour rester copiable
+      # d'un coup ; seul le commentaire d'intro en a. Aucune clé ajoutée
+      # à ~/.ssh/known_hosts du user (le rescue OVH est éphémère).
+      STDERR.puts "# Pour suivre bsdinstall en direct depuis un autre terminal, copiez-collez :"
+      STDERR.puts
+      STDERR.puts %(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@#{rescue_host} 'sshpass -p #{MFSBSD_ROOT_PASSWORD} ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=keyboard-interactive -o PubkeyAuthentication=no -p #{VM_SSH_PORT} root@#{VM_SSH_HOST} "tail -f #{VM_BSDINSTALL_LG}"')
+      STDERR.puts
     end
 
     # Horodatage sensible à la locale :
