@@ -78,14 +78,16 @@ FSTAB
 echo "==> [beryl] fuseau horaire $TIMEZONE"
 cp "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime || true
 
-echo "==> [beryl] création du user admin (wheel, csh — base FreeBSD uniquement)"
-pw useradd admin -g staff -G wheel -s /bin/csh -m -d /home/admin || true
+echo "==> [beryl] création du user admin (groupe primaire www, secondaire wheel, shell csh)"
+pw useradd -n admin -d /home/admin -g www -G wheel -m -s /bin/csh
+id admin
+test -d /home/admin || { echo "ERREUR : /home/admin n'existe pas après useradd -m" >&2; exit 1; }
 
 echo "==> [beryl] injection de la clé SSH pour admin et root"
 printf '%s' "$AUTHORIZED_KEYS_B64" | b64decode -r > /tmp/keys
 mkdir -p /home/admin/.ssh
 cp /tmp/keys /home/admin/.ssh/authorized_keys
-chown -R admin /home/admin/.ssh
+chown -R admin:www /home/admin/.ssh
 chmod 700 /home/admin/.ssh
 chmod 600 /home/admin/.ssh/authorized_keys
 mkdir -p /root/.ssh

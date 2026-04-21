@@ -128,9 +128,10 @@ describe Beryl::Bootstrap::QemuInRescue do
       cfg.should contain("/dev/gpt/swap0")
     end
 
-    it "crée le user admin (wheel, csh) — base FreeBSD uniquement, deploy pour plus tard" do
+    it "crée le user admin (primaire www, secondaire wheel, csh)" do
       cfg = make_bootstrap.render_installerconfig
-      cfg.should contain("pw useradd admin")
+      cfg.should contain("pw useradd -n admin")
+      cfg.should contain("-g www")
       cfg.should contain("-G wheel")
       cfg.should contain("-s /bin/csh")
     end
