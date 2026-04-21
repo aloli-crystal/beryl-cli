@@ -332,11 +332,17 @@ module Beryl::Bootstrap
     # Assemble une commande shell qui ouvre un ssh authentifié en
     # keyboard-interactive (mfsBSD SE) vers la VM, avec les options
     # anti-known_hosts standards pour un usage one-shot.
+    #
+    # Préfixé par `timeout 10` (coreutils du rescue) pour éviter qu'un
+    # ssh imbriqué qui se bloque silencieusement fige la boucle de poll
+    # de `wait_for_vm_ssh` : mieux vaut un exit code non-zéro ressenti
+    # et retenté que 180 secondes d'attente muette.
     private def mfsbsd_ssh_cmd(remote : String) : String
-      "sshpass -p #{Process.quote(MFSBSD_ROOT_PASSWORD)} " \
+      "timeout 10 sshpass -p #{Process.quote(MFSBSD_ROOT_PASSWORD)} " \
       "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null " \
       "-o PreferredAuthentications=keyboard-interactive " \
       "-o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 " \
+      "-o ConnectTimeout=5 -o ServerAliveInterval=3 -o ServerAliveCountMax=2 " \
       "-p #{VM_SSH_PORT} root@#{VM_SSH_HOST} #{Process.quote(remote)}"
     end
 
