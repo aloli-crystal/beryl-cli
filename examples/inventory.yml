@@ -36,6 +36,21 @@ hosts:
       - core-system
       - nginx-crystal-deploy
 
+    # Bloc `freebsd:` (optionnel) — consommé par `beryl bootstrap` pour
+    # éviter d'avoir à passer toutes les options en ligne de commande.
+    # Les flags CLI (--disk, --raid, --authorized-keys, …) priment sur
+    # ces valeurs. Règle Aloli « no silent defaults » : un champ absent
+    # reste absent, pas de magie. Pour un exemple plus fourni (users,
+    # packages, sudoers) voir `loulou.aloli.net` plus bas.
+    freebsd:
+      hostname: web01
+      disks: [/dev/sda]
+      raid: stripe              # stripe|mirror|raidz|raidz2|raidz3
+      install_type: distribution_sets  # distribution_sets|packages (pkgbase, opt-in)
+      timezone: Europe/Paris
+      pool_name: zroot
+      swap_gb: 4
+
   # Dedibox Scaleway en rescue Ubuntu.
   #
   # Les champs sous `scaleway:` sont utilisés par `beryl rescue` :
@@ -63,3 +78,46 @@ hosts:
       - core-system
     variables:
       timezone: Europe/Paris
+
+  # Exemple complet d'un serveur Rails (RAID 0 ZFS, admin + deploy users,
+  # packages base et sudoers). À consommer par `beryl bootstrap` :
+  #
+  #   beryl bootstrap loulou.aloli.net
+  #
+  # Sans flag CLI — tout est dans le YAML. Les clés SSH inline dans
+  # `users[].ssh_keys` sont injectées dans `~/.ssh/authorized_keys` du
+  # user correspondant sur le FreeBSD posé. Pour forcer une clé unique
+  # (tous users) depuis un fichier, ajouter `--authorized-keys=FILE`.
+  loulou.aloli.net:
+    provider: ovh
+    ovh:
+      service_name: ns3156789.ip-51-83-6.eu
+      ssh_key_name: philippe-aloli-fr
+
+    freebsd:
+      hostname: loulou
+      timezone: Europe/Paris
+      pool_name: zroot
+      swap_gb: 4
+      disks: [/dev/sda]
+      raid: stripe
+      install_type: distribution_sets
+      users:
+        - name: admin
+          primary_group: www
+          secondary_groups: [wheel]
+          shell: /bin/csh
+          ssh_keys:
+            - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample philippe@aloli.fr
+        - name: deploy
+          primary_group: www
+          secondary_groups: []
+          shell: /bin/csh
+          ssh_keys:
+            - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample deploy@aloli.fr
+      packages:
+        - sudo
+        - zsh
+        - curl
+      sudoers:
+        - '%wheel ALL=(ALL) NOPASSWD:ALL'

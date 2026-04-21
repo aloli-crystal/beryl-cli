@@ -9,6 +9,53 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Post-install sans chroot et conf FreeBSD par YAML (21 avril 2026)
+
+==== Ajouté
+
+* ADR-013 — *post-install sans chroot.* Le chroot `bsdinstall` déclenche
+  un `SIGSYS` Capsicum sur `pkg install` (vérif de signature tuée par le
+  sandbox). `beryl` ne l'utilise plus : l'installerconfig est devenu un
+  préambule `ZFSBOOT_*` + `DISTRIBUTIONS=` seul, tout le post-install
+  (users via `pw -R /mnt`, packages via `pkg -r /mnt`, rc.conf,
+  timezone, sudoers) est piloté par mfsBSD hors chroot en ciblant
+  explicitement `/mnt/`. Validé bout-en-bout sur `loulou.aloli.net`.
+* `Beryl::Bootstrap::UserSpec` : record décrivant un user à créer
+  (name, primary_group, secondary_groups, shell, ssh_keys) avec
+  `validate!` + `to_tsv` pour le driver shell.
+* `Beryl::Bootstrap::QemuInRescue.new` accepte désormais
+  `disks : Array(String)`, `raid`, `users`, `packages`, `sudoers`
+  (multi-disque et RAID ZFS stripe/mirror/raidz{,2,3}).
+* Template `rescue-run-vm.sh` : driver shell complet qui fait tourner
+  QEMU via `systemd-run --unit=qemu-vm` (survit à la déconnexion ssh),
+  pilote mfsBSD en SSH, fait le post-install, puis `poweroff`.
+* `beryl boot-hd <host>` : bascule un hôte OVH en boot disque via
+  l'API (inverse de `rescue`). Utilisé en interne par `bootstrap` après
+  le `poweroff` de la VM, disponible aussi en CLI.
+* `beryl wipe <host> --disk=PATH` : wipe destructif (zpool destroy +
+  labelclear + sgdisk --zap-all + dd zéros). Demande confirmation
+  `OUI`/`YES`. Pour ré-installer sur un disque qui porte déjà un pool
+  BSD (garde-fou NOGO de `beryl bootstrap`).
+* `Beryl::FreebsdConfig` + `Beryl::UserSpecYaml` : parser du bloc
+  `freebsd:` de l'inventaire YAML. Champs : hostname, timezone,
+  pool_name, swap_gb, disks, raid, install_type, users, packages,
+  sudoers. Valide `raid ∈ {stripe, mirror, raidz, raidz2, raidz3}` et
+  `install_type ∈ {distribution_sets, packages}` à la lecture
+  (ArgumentError sinon, pas de défaut silencieux).
+* `beryl bootstrap <host>` lit `freebsd:` de l'inventaire quand il est
+  présent. Priorité : flag CLI > YAML > défaut MVP > erreur explicite.
+  Un `--disk` / `freebsd.disks` manquant déclenche une erreur claire
+  avant toute action destructive.
+* 13 nouveaux specs pour `FreebsdConfig` et son intégration dans
+  `Inventory`. Total : 83 specs verts.
+* `examples/inventory.yml` : bloc `freebsd:` ajouté à `web01.aloli.fr`
+  et exemple complet (`loulou.aloli.net`) avec users, packages, sudoers.
+
+==== Dépendances
+
+* `ovh-api` v0.2.4 — méthode `boot_from_disk(service_name)` (bascule
+  OVH inverse de `prepare_rescue`).
+
 === Sous-commande `rescue` par API hébergeur (avril 2026)
 
 ==== Ajouté

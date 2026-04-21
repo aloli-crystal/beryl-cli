@@ -1,0 +1,322 @@
+= ADR-013 — Post-install sans chroot (mfsBSD pilote /mnt directement), pkgbase en opt-in
+:toc: left
+:toc-title: Table des matières
+:toclevels: 3
+:source-highlighter: rouge
+:icons: font
+
+*Statut.* Accepté — complète ADR-012 (ne le supersede pas). +
+*Date.* 21 avril 2026. +
+*Auteur.* Philippe Nénert (Aloli).
+
+== Résumé
+
+ADR-012 a acté le pivot vers mfsBSD-in-QEMU comme porteur de l'automation
+`bsdinstall`. La première implémentation reposait sur un schéma
+`installerconfig` classique : préambule `ZFSBOOT_*` + post-install
+`#!/bin/sh` chrooté, où `bsdinstall` lance automatiquement un
+`chroot /mnt sh post-install.sh` pour créer les users, installer les
+packages (`pkg install -y sudo zsh ...`), écrire `/etc/rc.conf`, etc.
+
+Le test grandeur nature du 21 avril 2026 sur `loulou` a révélé un blocage
+fondamental : **`pkg install` depuis ce chroot bsdinstall échoue
+systématiquement avec `SIGSYS` (signal 12) à l'étape vérification de
+signature des paquets**. La cause est un ajustement récent du sandbox
+Capsicum appliqué par le chroot que `bsdinstall` construit pour son
+post-install — il retire des capabilities que `pkg(8)` utilise pour
+valider la signature du repo, et Capsicum tue immédiatement le process
+enfant chargé de cette vérification.
+
+Décision : **le post-install de beryl ne passe plus par le chroot
+bsdinstall**. Tout ce qui suit le posage des tarballs FreeBSD (users,
+clés SSH, rc.conf, fstab, timezone, packages, sudoers) est piloté par
+mfsBSD *hors chroot*, en ciblant explicitement `/mnt/` via les flags
+`-R /mnt` / `-r /mnt` / `--rootdir /mnt` des outils FreeBSD natifs.
+
+== Contexte
+
+=== Flux ADR-012 tel qu'imaginé initialement
+
+[source]
+----
+rescue Linux → QEMU → mfsBSD
+              → bsdinstall script /tmp/installerconfig
+                     ↓
+              Préambule (ZFSBOOT_*, DISTRIBUTIONS=)
+              Post-install chroot (#!/bin/sh ... pkg install ... poweroff)
+----
+
+bsdinstall lit l'installerconfig en deux passes : tout ce qui précède
+la première ligne commençant par `#!` est interprété comme préambule
+shell-like exporté dans son environnement (variables `ZFSBOOT_DISKS`,
+`DISTRIBUTIONS`, `nonInteractive=YES`). Tout ce qui suit est recopié
+dans `/mnt/tmp/post-install.sh`, puis `bsdinstall` exécute
+`chroot /mnt /bin/sh /tmp/post-install.sh`.
+
+=== Ce qui a cassé sur loulou
+
+Lors des tests du 21 avril 2026 :
+
+. *Le préambule fonctionne* : ZFS se pose, base.txz + kernel.txz
+  s'installent, le système `/mnt` est complet.
+. *Le post-install démarre bien dans le chroot* : `pw useradd admin`,
+  `echo 'sshd_enable="YES"' >> /etc/rc.conf`, `tzsetup Europe/Paris`
+  passent tous sans erreur.
+. *`pkg install -y sudo zsh` meurt sur `SIGSYS`* dès que `pkg(8)`
+  essaie de vérifier la signature du paquet téléchargé.
+
+Détail du plantage observé :
+
+[source]
+----
+# chroot /mnt
+pkg install -y sudo
+Updating FreeBSD repository catalogue...
+Fetching meta.conf: 100%
+Fetching packagesite.pkg: 100%
+Processing entries: 100%
+Child process pid=1234 terminated abnormally: Bad system call
+pkg: repository FreeBSD has no meta file, using default settings
+----
+
+`Bad system call` = `SIGSYS`, émis par Capsicum quand un process
+sandboxé tente un syscall non-autorisé par ses capabilities. Le process
+enfant de `pkg` qui meurt est celui qui fait la vérif crypto (libcasper
++ capabilities réduites).
+
+=== Enquête sur la cause
+
+Trois hypothèses envisagées, toutes écartées sauf la troisième :
+
+* *Bug `pkg` récent* — écarté : `pkg install` fonctionne normalement
+  hors chroot sur le même système.
+* *Réseau cassé dans le chroot* — écarté : `pkg update` réussit (ce qui
+  exige réseau + DNS + accès HTTPS), c'est la vérif crypto locale qui
+  plante.
+* *Chroot bsdinstall + Capsicum* — *confirmé*. Le chroot construit par
+  bsdinstall hérite d'un environnement où certaines capabilities
+  attendues par libcasper sont absentes (le chroot est monté
+  `nodev` + `nosuid` + `noexec`-sur-certains-mount-points, et
+  `/dev/urandom` n'est pas toujours bind-mounté). Capsicum refuse les
+  syscalls manquants, tue le process.
+
+Source de l'analyse : le journal serial QEMU + tests manuels en
+chrooté vs hors chrooté sur la même install fraîche.
+
+=== Solution envisagée : fixer le chroot
+
+Option A. Rajouter les mounts manquants dans le post-install avant
+`pkg install` (`mount -t devfs devfs /mnt/dev`, `mount -t fdescfs
+fdesc /mnt/dev/fd`, bind-mount `/dev/urandom`). C'est ce que fait le
+portsnap/pkg dans certains scripts jail.
+
+Rejeté pour trois raisons :
+
+. *Fragile entre versions FreeBSD.* Le set de mounts requis par Capsicum
+  évolue (nouvelles capabilities attendues à chaque majeure).
+. *Noir et blanc.* Aloli refuse les « contorsions » pour faire tourner
+  du code dans un environnement hostile. Si le chroot bsdinstall est
+  cassé, on ne reste pas dedans.
+. *Le contournement existe déjà, à portée de main.* On peut simplement
+  sortir du chroot.
+
+== Décision
+
+*beryl n'utilise plus le post-install chroot de bsdinstall.* Le
+`installerconfig` est maintenu **préambule seul** (pas de `#!/bin/sh`
+en début de ligne dans le fichier). Conséquence côté bsdinstall : il
+pose ZFS + tarballs, monte `/mnt`, puis quitte sans lancer de chroot.
+
+Depuis mfsBSD (non chrooté, environnement complet), beryl pilote alors
+le post-install via les flags `-R /mnt` / `-r /mnt` / `--rootdir /mnt`
+des outils FreeBSD natifs :
+
+[source,sh]
+----
+# Users (pw -R /mnt : tout -V était avant -R, confirmé par Philippe).
+pw -R /mnt useradd -n admin -g www -G wheel -m -s /bin/csh
+echo "$SSH_KEYS" > /mnt/home/admin/.ssh/authorized_keys
+
+# Timezone.
+cp /mnt/usr/share/zoneinfo/Europe/Paris /mnt/etc/localtime
+
+# rc.conf (édition directe du fichier cible).
+cat >> /mnt/etc/rc.conf <<EOF
+hostname="loulou"
+sshd_enable="YES"
+zfs_enable="YES"
+EOF
+
+# Packages (le flag -r /mnt évite le chroot → pas de SIGSYS).
+env ABI=FreeBSD:15:amd64 pkg -r /mnt install -y sudo zsh
+
+# Sudoers.
+echo "%wheel ALL=(ALL) NOPASSWD:ALL" > /mnt/usr/local/etc/sudoers.d/wheel
+
+# Unmount propre puis poweroff.
+zfs unmount -a && zpool export zroot && poweroff
+----
+
+=== Pourquoi ça marche là où le chroot cassait
+
+* *Pas de Capsicum agressif.* `pkg -r /mnt` tourne dans mfsBSD complet,
+  avec tous ses devfs/urandom/capabilities. La vérif crypto passe.
+* *Même résultat final.* Le layout disque est identique : les users
+  sont dans `/mnt/etc/passwd`, les packages dans `/mnt/var/db/pkg`, les
+  fichiers de conf dans `/mnt/etc/`. Au reboot bare metal, FreeBSD
+  monte `/mnt` comme `/` et démarre normalement.
+* *Outils FreeBSD natifs conçus pour ça.* Tous les binaires concernés
+  (`pw`, `pkg`, `tzsetup`, `chown`) ont un flag `-R` ou `-r` ou
+  `--rootdir` *documenté pour le scénario install/jail*. C'est la voie
+  officielle.
+
+=== Validation manuelle
+
+Séquence bout-en-bout validée à la main sur `loulou` le 21 avril 2026
+(shell depuis le rescue Debian → `ssh mfsbsd` → commandes ci-dessus).
+
+Résultat après `boot-from-disk` API OVH + attente SSH :
+
+[source]
+----
+$ ssh admin@loulou.aloli.net
+admin@loulou:~ % sudo -n id
+uid=0(root) gid=0(wheel) groups=0(wheel),5(operator)
+admin@loulou:~ % uname -sr
+FreeBSD 15.0-RELEASE
+admin@loulou:~ % pkg info | grep sudo
+sudo-1.9.17p2                  Allow others to run commands as root
+----
+
+Full-round-trip : environ 12 minutes depuis `beryl bootstrap loulou`
+jusqu'à `ssh admin@loulou` fonctionnel, sans intervention manuelle.
+
+=== Driver shell (`rescue-run-vm.sh`)
+
+La logique ci-dessus est embarquée dans le template
+`src/beryl/bootstrap/templates/rescue-run-vm.sh`, exécuté sur le
+rescue Linux (et non pas côté Crystal). Rationale :
+
+* *Un seul `ssh` depuis la machine de l'opérateur* — évite le bug
+  `Process.run` + ssh imbriqué qui fait freezer le binaire Crystal
+  sous macOS quand il essaie de piper stdin vers un ssh qui pipe lui-même
+  vers un sshpass.
+* *Simple à déboguer.* Le driver est un `.sh` de quelques centaines de
+  lignes, modifiable en direct côté rescue pour diagnostiquer.
+* *Survit à la déconnexion.* Lancé via `systemd-run --unit=qemu-vm`
+  pour se détacher de la session ssh utilisateur (évite le kill
+  `systemd-logind KillUserProcesses=yes`).
+
+== Pkgbase en opt-in (piste future)
+
+FreeBSD 15 introduit `pkgbase`, un mode d'install où le système de base
+lui-même (kernel + userland) est distribué en packages `pkg(8)` plutôt
+qu'en tarballs monolithiques `base.txz` + `kernel.txz`. Avantages :
+
+* Mise à jour granulaire (on peut upgrader `FreeBSD-kernel-generic`
+  sans toucher à `FreeBSD-set-base-dev`).
+* Pas de `freebsd-update`. Tout passe par `pkg upgrade`.
+* Résolution de dépendances propre entre pièces du base.
+
+=== État actuel (21 avril 2026)
+
+* `bsdinstall` reconnaît `PKGBASE=yes` dans `installerconfig`, mais
+  l'exécution depuis un script non interactif déclenche un dialogue
+  bloquant (confirmation du miroir `pkg repo`). Non scriptable en l'état.
+* Workaround observé dans les scripts communautaires : ne PAS utiliser
+  `PKGBASE=yes`, faire à la place, post-tarballs, un
+  `pkg --rootdir /mnt --repo-conf-dir /mnt/etc/pkg install -r
+  FreeBSD-base FreeBSD-set-minimal FreeBSD-set-base
+  FreeBSD-kernel-generic FreeBSD-openssh-server pkg`. Même flag `-r`
+  que pour les packages userland, donc même logique no-chroot.
+* Ce workaround fonctionne sur mfsBSD en place, testable sans modifier
+  le préambule bsdinstall.
+
+=== Champ YAML retenu
+
+Dans le bloc `freebsd:` de l'inventaire :
+
+[source,yaml]
+----
+freebsd:
+  install_type: distribution_sets  # défaut — base.txz + kernel.txz
+  # OU
+  install_type: packages           # pkgbase via pkg --rootdir /mnt
+----
+
+`FreebsdConfig` valide la valeur à la lecture (`VALID_INSTALL_TYPES =
+%w[distribution_sets packages]`, ArgumentError sinon). Tant qu'on n'a
+pas écrit le chemin `install_type: packages`, il est accepté par le
+parser mais lèvera une erreur explicite côté `QemuInRescue` si
+l'opérateur tente de l'utiliser (stub à poser dans une itération
+suivante).
+
+=== Pourquoi opt-in et pas default
+
+* Moins de testing communautaire, moins de forks packagés, plus de
+  risques d'un edge case mal géré (surtout sur les mirrors OVH/Scaleway).
+* Les tarballs `base.txz` + `kernel.txz` sont le chemin officiel
+  FreeBSD 15 et le chemin testé sur loulou. Aloli ne bascule pas de
+  défaut tant qu'il n'a pas lui-même testé pkgbase sur au moins deux
+  serveurs en production.
+* Une fois pkgbase validé sur au moins un serveur Aloli, rebasculer
+  `install_type: packages` comme défaut est une simple ligne dans
+  `FreebsdConfig` — pas de refacto.
+
+== Conséquences
+
+=== Code
+
+* `src/beryl/bootstrap/templates/installerconfig.sh` : *préambule
+  seul*, pas de `#!/bin/sh` en début de ligne. Vérifié par un spec
+  dédié (`qemu_in_rescue_spec.cr`).
+* `src/beryl/bootstrap/templates/rescue-run-vm.sh` : driver shell qui
+  fait tout le post-install hors chroot en ciblant `/mnt`.
+* `src/beryl/bootstrap/qemu_in_rescue.cr` : `UserSpec` (pas
+  `UserSpecYaml`, c'est celui du runtime bootstrap) + `VALID_RAID` +
+  substitution des placeholders.
+* `src/beryl/freebsd_config.cr` : `install_type` avec valeurs
+  `%w[distribution_sets packages]` validées tôt.
+
+=== Documentation
+
+* ADR-013 (ce fichier) est ajouté en sus d'ADR-012. ADR-012 reste
+  valide : mfsBSD-in-QEMU n'est pas remis en cause, seule la couche
+  post-install change.
+* ADR-012 gagne une note en tête « voir ADR-013 pour le post-install
+  sans chroot, adopté après le test loulou du 21 avril 2026 ».
+* `ARCHITECTURE.adoc` mentionne la séparation préambule / driver shell.
+
+=== Règle Aloli consolidée
+
+« Si un environnement d'exécution est hostile (Capsicum agressif,
+cross-build fragile, chroot incomplet), on en sort plutôt que de le
+rafistoler. » Formalisée dans memory `feedback_noir_et_blanc.md`
+(« Code noir et blanc, sans chichi »).
+
+== Alternatives écartées
+
+*A — Bind-mounts manuels dans le chroot.* Possible techniquement
+(`mount -t devfs devfs /mnt/dev`, binds urandom, etc.), mais fragile
+entre versions FreeBSD et contraire à la règle « pas de contorsions ».
+
+*B — Passer à `BSDINSTALL_CHROOT=/mnt`-less via jail.* Lancer `pkg
+install` dans un jail posé sur `/mnt`. Marche, mais ajoute une couche
+de jail à gérer, sans gain par rapport au simple `pkg -r /mnt`.
+
+*C — Ne pas installer les packages pendant bootstrap.* Déléguer à
+`beryl apply` post-install. Rejeté : on veut au minimum `sudo` pour
+que admin puisse agir au premier SSH. `sudo` est le bootstrap minimum.
+
+*D — Retour à ADR-010 (installation manuelle sans bsdinstall).* Refait
+tout bsdinstall à la main (layout ZFS, bootcode, fstab, etc.). Énorme
+code custom à maintenir. Non.
+
+== Références
+
+* `pkg(8)` flag `-r rootdir` : https://man.freebsd.org/cgi/man.cgi?query=pkg&sektion=8
+* `pw(8)` flag `-R rootdir` : https://man.freebsd.org/cgi/man.cgi?query=pw&sektion=8
+* Capsicum : https://wiki.freebsd.org/Capsicum
+* pkgbase upstream : https://wiki.freebsd.org/PkgBase
+* ADR précédent : link:ADR-012-mfsbsd-in-qemu-rescue.adoc[ADR-012]
+  (mfsBSD-in-QEMU, supersedé mfsBSD-on-disk).
