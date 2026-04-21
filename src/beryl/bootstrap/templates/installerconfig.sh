@@ -83,28 +83,17 @@ pw useradd -n admin -d /home/admin -g www -G wheel -m -s /bin/csh
 id admin
 test -d /home/admin || { echo "ERREUR : /home/admin n'existe pas après useradd -m" >&2; exit 1; }
 
-echo "==> [beryl] injection de la clé SSH pour admin et root"
+echo "==> [beryl] injection de la clé SSH pour admin uniquement"
+# Volontairement PAS de clé root + PAS de PermitRootLogin : FreeBSD
+# applique le défaut 'no' et c'est ce qu'on veut. admin (wheel) passera
+# par sudo (installé en phase ultérieure).
 printf '%s' "$AUTHORIZED_KEYS_B64" | b64decode -r > /tmp/keys
 mkdir -p /home/admin/.ssh
 cp /tmp/keys /home/admin/.ssh/authorized_keys
 chown -R admin:www /home/admin/.ssh
 chmod 700 /home/admin/.ssh
 chmod 600 /home/admin/.ssh/authorized_keys
-mkdir -p /root/.ssh
-cp /tmp/keys /root/.ssh/authorized_keys
-chmod 700 /root/.ssh
-chmod 600 /root/.ssh/authorized_keys
 rm -f /tmp/keys
-
-echo "==> [beryl] sshd : autorise root via pubkey (FreeBSD patche 'no' par défaut)"
-# Filet de sauvetage : si jamais admin n'a pas sudo (pkg échoue en
-# chroot), on doit pouvoir ssh root@ pour réparer. Clé pubkey uniquement,
-# pas de password (c'est la valeur 'prohibit-password' d'OpenSSH upstream).
-if grep -q '^PermitRootLogin' /etc/ssh/sshd_config; then
-  sed -i '' -E 's/^PermitRootLogin .*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
-else
-  echo 'PermitRootLogin prohibit-password' >> /etc/ssh/sshd_config
-fi
 
 echo "==> [beryl] poweroff : QEMU va quitter grâce à -no-reboot, le rescue reprend la main"
 sync
