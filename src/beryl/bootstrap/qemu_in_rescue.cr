@@ -553,7 +553,10 @@ module Beryl::Bootstrap
       # common.subr, UNAME_* à chaque réinitialisation de dialog, peu
       # utile. On garde les lignes métier (installation step, pool,
       # Fetching, Extracting, erreurs, etc.).
-      STDERR.puts %(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@#{rescue_host} 'sshpass -p #{MFSBSD_ROOT_PASSWORD} ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=keyboard-interactive -o PubkeyAuthentication=no -p #{VM_SSH_PORT} root@#{VM_SSH_HOST} "tail -f #{VM_BSDINSTALL_LG} | grep --line-buffered -vE \\"DEBUG: (dialog\\\\.|common\\\\.|struct\\\\.|variable\\\\.|device\\\\.|geom\\\\.|strings\\\\.|password/|f_dialog|f_debug|f_include|f_variable|f_getvar)|DEBUG_SELF_INITIALIZE|UNAME_S=|ARGV=\\""')
+      # `while [ ! -f ... ]` attend que bsdinstall crée le log (après le
+      # pré-fetch des txz qui peut durer 1-2 min). grep -vE nettoie le
+      # bruit DEBUG pour garder les étapes métier.
+      STDERR.puts %(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@#{rescue_host} 'sshpass -p #{MFSBSD_ROOT_PASSWORD} ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=keyboard-interactive -o PubkeyAuthentication=no -p #{VM_SSH_PORT} root@#{VM_SSH_HOST} "while [ ! -f #{VM_BSDINSTALL_LG} ]; do sleep 2; done; tail -f #{VM_BSDINSTALL_LG} | grep --line-buffered -vE \\"DEBUG: (dialog\\\\.|common\\\\.|struct\\\\.|variable\\\\.|device\\\\.|geom\\\\.|strings\\\\.|password/|f_dialog|f_debug|f_include|f_variable|f_getvar)|DEBUG_SELF_INITIALIZE|UNAME_S=|ARGV=\\""')
       STDERR.puts border
     end
 
