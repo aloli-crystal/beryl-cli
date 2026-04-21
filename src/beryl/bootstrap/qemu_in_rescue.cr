@@ -139,6 +139,7 @@ module Beryl::Bootstrap
     # par défaut — `PermitRootLogin no` est appliqué par FreeBSD 15).
     def run : SSH::Connection
       log_step("1/7 — vérifie que le rescue tourne bien sous Linux") { verify_linux_rescue }
+      log_step("1b — NOGO si BSD déjà en place sur #{@target_disk}") { check_target_disk_no_bsd }
       log_step("2/7 — installe qemu-system-x86, sshpass et curl côté rescue") { install_packages }
       log_step("3/7 — télécharge l'image mfsBSD SE #{@mfsbsd_version} si nécessaire") { download_mfsbsd_if_needed }
       log_step("4/7 — écrit l'installerconfig côté rescue") do
@@ -214,6 +215,51 @@ module Beryl::Bootstrap
     private def verify_linux_rescue : Nil
       uname = @rescue_conn.exec("uname -s").stdout.strip
       raise "le rescue ne tourne pas sous Linux (uname -s = #{uname.inspect})" unless uname == "Linux"
+    end
+
+    # NOGO si le disque cible porte déjà une install BSD (pool ZFS
+    # importable ou partitions `freebsd-*` dans le GPT). Wiper
+    # automatiquement serait un piège à perte de données en batch :
+    # l'opérateur doit réinstaller un rescue neuf (OVH panel → Install
+    # Debian) pour wiper, AVANT de relancer beryl bootstrap.
+    private def check_target_disk_no_bsd : Nil
+      disk_noslash = @target_disk.sub(/^\/dev\//, "")
+      # 1) `zpool import -d /dev/sda` : si un pool FreeBSD est importable
+      #    depuis ce disque seul, c'est qu'il porte du ZFS résiduel.
+      zpool_out = @rescue_conn.exec(
+        "zpool import -d #{Process.quote(@target_disk)} 2>&1 || true",
+        raise_on_error: false,
+      ).stdout
+      if zpool_out =~ /pool:\s+(\S+)/
+        raise TargetDiskNotEmpty.new(
+          "NOGO : #{@target_disk} porte déjà un pool ZFS importable (#{$1}). " \
+          "Réinstallez un rescue propre via le panel de l'hébergeur (OVH → Install → Debian) " \
+          "puis relancez `beryl rescue` + `beryl bootstrap`. beryl ne wipe JAMAIS un disque existant."
+        )
+      end
+
+      # 2) `lsblk -no PARTTYPENAME` : FreeBSD pose des GUID GPT connus
+      #    pour freebsd-boot (83bd6b9d...), freebsd-zfs (516e7cba...),
+      #    freebsd-swap, freebsd-ufs. On grep le nom lisible exposé par
+      #    lsblk récent (ou `blkid -o full`).
+      parts_out = @rescue_conn.exec(
+        "lsblk -no PARTTYPENAME #{Process.quote(@target_disk)} 2>/dev/null | sort -u",
+        raise_on_error: false,
+      ).stdout
+      if parts_out =~ /freebsd/i
+        found = parts_out.lines.map(&.strip).reject(&.empty?).join(", ")
+        raise TargetDiskNotEmpty.new(
+          "NOGO : #{@target_disk} contient des partitions BSD (#{found}). " \
+          "Réinstallez un rescue propre via le panel de l'hébergeur (OVH → Install → Debian) " \
+          "puis relancez `beryl rescue` + `beryl bootstrap`. beryl ne wipe JAMAIS un disque existant."
+        )
+      end
+    end
+
+    # Levée quand le disque cible porte déjà une install BSD.
+    # beryl refuse de le toucher ; l'opérateur doit wiper manuellement
+    # (reinstall rescue neuf hébergeur) avant de relancer.
+    class TargetDiskNotEmpty < Exception
     end
 
     private def install_packages : Nil

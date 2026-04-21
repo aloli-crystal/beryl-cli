@@ -15,16 +15,12 @@
 #
 # Placeholders __XXX__ remplacés par beryl avant scp dans la VM.
 
-# Wipe des labels ZFS et GPT résiduels sur le disque cible. Sans ça, si
-# /dev/vtbd1 a déjà été utilisé (ancienne install), `zpool import` dans
-# bsdinstall voit un pool `zroot` existant, tente un dialogue de
-# renommage qui renvoie vide en non-interactif → boucle silencieuse sur
-# « Pool name cannot be empty » (observé sur loulou le 21 avril 2026).
-for part in vtbd1 vtbd1p1 vtbd1p2 vtbd1p3 vtbd1p4; do
-  zpool labelclear -f /dev/$part 2>/dev/null || true
-done
-gpart destroy -F vtbd1 2>/dev/null || true
-dd if=/dev/zero of=/dev/vtbd1 bs=1M count=10 conv=notrunc 2>/dev/null || true
+# NOTE : volontairement PAS de wipe automatique du disque ici. Si le
+# disque porte déjà une install BSD, le pré-check côté rescue (avant
+# même le lancement QEMU) aura refusé de démarrer le bootstrap et
+# affiché un message demandant à l'opérateur de réinstaller un rescue
+# neuf. Wiper silencieusement serait un piège à perte de données en
+# batch. Voir le garde-fou dans Beryl::Bootstrap::QemuInRescue#check_target_disk_is_empty.
 
 # ZFS auto-partitioning via bsdinstall/auto. Du point de vue de la VM
 # QEMU, le disque réel passthrough apparaît comme vtbd1 (virtio-blk #1,
