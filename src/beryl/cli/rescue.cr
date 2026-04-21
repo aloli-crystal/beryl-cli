@@ -321,13 +321,9 @@ module Beryl::CLI::Rescue
   # rafraîchi en place (`\r`), qui fige à sa valeur finale avec un `\n`
   # quand le bloc sort. Ligne horodatée : « DD-MM-YYYY HHhMMmSS
   # [beryl rescue] <label>  [NNs] ».
-  # Même largeur cible que `QemuInRescue::STEP_LINE_WIDTH` pour que rescue
-  # et bootstrap s'alignent sur la même colonne quand on enchaîne.
-  STEP_LINE_WIDTH = 100
-
   private def self.log_step(label : String, & : -> T) : T forall T
     line = "[#{timestamp}] [beryl rescue] #{label}"
-    pad = Beryl::Bootstrap::QemuInRescue.pad_to(line, STEP_LINE_WIDTH)
+    pad = Beryl.pad_to(line)
     STDERR.print "#{line}#{pad}  [   0s]"
     STDERR.flush
     start = Time.instant

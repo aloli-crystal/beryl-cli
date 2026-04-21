@@ -67,11 +67,8 @@ module Beryl::Bootstrap
 
     TEMPLATE_INSTALLERCONFIG = {{ read_file("#{__DIR__}/templates/installerconfig.sh") }}
 
-    # Largeur cible pour l'alignement du compteur `[   Ns]` en fin de
-    # ligne (en *caractères*, pas en octets — on utilise `String#size`
-    # pour pader, sinon les tirets cadratins UTF-8 faussent le calcul
-    # de `printf %-Ns`).
-    STEP_LINE_WIDTH = 117
+    # Largeur cible pour l'alignement du compteur en fin de ligne :
+    # partagée par toutes les sous-commandes via `Beryl::STEP_LINE_WIDTH`.
 
     getter rescue_conn : SSH::Connection
     getter target_disk : String
@@ -360,7 +357,7 @@ module Beryl::Bootstrap
     #   20-04-2026 21h35m26 [beryl bootstrap mfsbsd] 3/7 — …              [  …]
     private def log_step(label : String, & : -> T) : T forall T
       line = "[#{self.class.timestamp}] [beryl bootstrap mfsbsd] #{label}"
-      pad = self.class.pad_to(line, STEP_LINE_WIDTH)
+      pad = Beryl.pad_to(line)
       STDERR.print "#{line}#{pad}  [   0s]"
       STDERR.flush
       start = Time.instant
@@ -385,14 +382,6 @@ module Beryl::Bootstrap
       ensure
         done.send(nil)
       end
-    end
-
-    # Retourne les espaces nécessaires pour pader `line` jusqu'à `width`
-    # caractères (pas octets : `%-Ns` de printf compte en octets et
-    # fausse l'alignement avec les tirets cadratins UTF-8).
-    def self.pad_to(line : String, width : Int32) : String
-      needed = width - line.size
-      needed > 0 ? " " * needed : ""
     end
 
     # Affiche un pense-bête en « commentaire » (préfixe `#`) juste avant

@@ -5,6 +5,12 @@ require "./beryl/inventory"
 require "./beryl/bootstrap"
 
 module Beryl
+  # Largeur cible en caractères pour aligner le compteur `[NNNs]` en fin
+  # de ligne sur toutes les sous-commandes (rescue, bootstrap, …). Le
+  # padding se fait par `String#size` pour éviter que `printf %-Ns`
+  # (octets UTF-8) fausse l'alignement des tirets cadratins.
+  STEP_LINE_WIDTH = 117
+
   # Horodatage sensible à la locale, utilisé par les logs de toutes les
   # sous-commandes. On détecte uniquement le français (LANG/LC_TIME qui
   # commence par `fr`) et on retombe sur l'ISO 8601 sinon : deux formats
@@ -28,7 +34,13 @@ module Beryl
     end
     false
   end
-end
 
-module Beryl
+  # Pade une ligne de log jusqu'à `width` caractères (par défaut
+  # `STEP_LINE_WIDTH`) pour aligner le compteur `[NNNs]` à droite.
+  # Utilise `String#size` (caractères) et non `String#bytesize`, sinon
+  # les tirets cadratins UTF-8 faussent l'alignement.
+  def self.pad_to(line : String, width : Int32 = STEP_LINE_WIDTH) : String
+    needed = width - line.size
+    needed > 0 ? " " * needed : ""
+  end
 end
