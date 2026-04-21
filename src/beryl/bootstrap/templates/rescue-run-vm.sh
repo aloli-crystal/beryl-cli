@@ -7,6 +7,7 @@
 #
 # Placeholders __XXX__ substitués par beryl avant upload. Le script fait :
 #
+# 0. Lance QEMU en arrière-plan (setsid, détaché du shell ssh).
 # 1. Poll jusqu'à ce que mfsBSD SE réponde en ssh (timeout __VM_BOOT_SEC__).
 # 2. SCP le fichier installerconfig vers la VM (/tmp/installerconfig).
 # 3. Lance bsdinstall script en nohup dans la VM (log /tmp/bsdinstall.log).
@@ -23,6 +24,18 @@ INSTALLERCFG_PATH="__INSTALLERCFG_PATH__"
 VM_BOOT_SEC="__VM_BOOT_SEC__"
 QEMU_MAX_SEC="__QEMU_MAX_SEC__"
 QEMU_PATTERN="__QEMU_PATTERN__"
+QEMU_SERIAL="__QEMU_SERIAL__"
+
+# --- Étape 0 : lance QEMU (mfsBSD en UEFI, disque passthrough) ----------
+# Si déjà lancé par un run précédent resté en vie, on réutilise.
+if pgrep -f "$QEMU_PATTERN" >/dev/null; then
+  echo "[rescue-run-vm] QEMU déjà actif, réutilise"
+else
+  : > "$QEMU_SERIAL"
+  setsid timeout "$QEMU_MAX_SEC" __QEMU_COMMAND__ </dev/null >/dev/null 2>&1 &
+  disown
+  echo "[rescue-run-vm] QEMU lancé (PID $!)"
+fi
 
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
           -o PreferredAuthentications=keyboard-interactive \

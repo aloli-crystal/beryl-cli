@@ -208,6 +208,8 @@ module Beryl::Bootstrap
         .gsub("__VM_BOOT_SEC__", VM_BOOT_TIMEOUT.total_seconds.to_i.to_s)
         .gsub("__QEMU_MAX_SEC__", QEMU_MAX_RUNTIME.total_seconds.to_i.to_s)
         .gsub("__QEMU_PATTERN__", QEMU_PATTERN)
+        .gsub("__QEMU_SERIAL__", QEMU_SERIAL)
+        .gsub("__QEMU_COMMAND__", qemu_command)
     end
 
     # Renvoie la ligne de commande QEMU finale (exposée pour les tests).
