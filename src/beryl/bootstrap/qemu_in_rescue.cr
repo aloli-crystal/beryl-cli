@@ -338,16 +338,14 @@ module Beryl::Bootstrap
     # de `wait_for_vm_ssh` : mieux vaut un exit code non-zéro ressenti
     # et retenté que 180 secondes d'attente muette.
     private def mfsbsd_ssh_cmd(remote : String) : String
-      # `timeout 10` coupe sshpass si le boot mfsBSD n'est pas encore
-      # prêt ou que l'auth traîne. Les options ssh sont choisies pour
-      # n'essayer QUE le keyboard-interactive (pas de tentative pubkey
-      # qui échouerait à coup sûr et ralentirait chaque poll).
+      # `timeout 10` (coreutils du rescue) coupe sshpass si un appel
+      # traîne : évite qu'un ssh bloqué fige la boucle de poll plus
+      # longtemps que le tick. C'est la SEULE différence avec le code
+      # d'origine qui marchait à 1-3 s lors du tout premier test.
       "timeout 10 sshpass -p #{Process.quote(MFSBSD_ROOT_PASSWORD)} " \
       "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null " \
       "-o PreferredAuthentications=keyboard-interactive " \
       "-o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 " \
-      "-o GSSAPIAuthentication=no -o IdentitiesOnly=yes " \
-      "-o ConnectTimeout=5 -o ServerAliveInterval=3 -o ServerAliveCountMax=2 " \
       "-p #{VM_SSH_PORT} root@#{VM_SSH_HOST} #{Process.quote(remote)}"
     end
 
