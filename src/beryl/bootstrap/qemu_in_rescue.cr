@@ -1,4 +1,5 @@
 require "base64"
+require "ovh-api/ovh_api"
 require "../ssh"
 
 module Beryl::Bootstrap
@@ -89,6 +90,8 @@ module Beryl::Bootstrap
     getter qemu_cpus : Int32
     getter installed_user : String
     getter installed_port : Int32
+    getter ovh_client : OvhApi::Client?
+    getter ovh_service_name : String?
 
     def initialize(
       @rescue_conn : SSH::Connection,
@@ -106,6 +109,8 @@ module Beryl::Bootstrap
       @qemu_cpus : Int32 = 4,
       @installed_user : String = "admin",
       @installed_port : Int32 = 22,
+      @ovh_client : OvhApi::Client? = nil,
+      @ovh_service_name : String? = nil,
     )
       raise ArgumentError.new("authorized_keys ne peut pas être vide (sinon admin/deploy/root seraient injoignables)") if @authorized_keys.empty?
       raise ArgumentError.new("hostname requis") if @hostname.empty?
@@ -364,7 +369,22 @@ module Beryl::Bootstrap
     end
 
     private def reboot_bare_metal : Nil
-      # Rescue Linux : `reboot -f` court-circuite systemd. `sync` d'abord.
+      # Si on dispose d'un client OVH + service_name : on bascule le
+      # netboot sur `harddisk` via API, puis on déclenche un reboot API.
+      # Le serveur redémarre et démarre la FreeBSD fraîchement posée (au
+      # lieu de retomber en rescue, puisque le netboot rescue serait
+      # encore armé si on se contentait d'un `reboot -f` sur le rescue).
+      if client = @ovh_client
+        if svc = @ovh_service_name
+          client.dedicated_servers.boot_from_disk(svc)
+          sleep REBOOT_GRACE_PERIOD
+          return
+        end
+      end
+
+      # Fallback : `reboot -f` sur le rescue Linux. Le netboot courant
+      # décidera de la suite (si rescue encore armé, on retombera en
+      # rescue — appelant à charge de switcher côté hébergeur).
       @rescue_conn.exec(
         "sync && (reboot -f 2>/dev/null || echo b > /proc/sysrq-trigger)",
         raise_on_error: false,

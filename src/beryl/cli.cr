@@ -261,6 +261,15 @@ module Beryl::CLI
       },
     )
 
+    # Si l'hôte a un bloc `ovh:` dans l'inventaire, on lui passe un
+    # client OVH pour la bascule harddisk API post-install (évite de
+    # retomber en rescue via un simple `reboot -f`).
+    ovh_client_for_bootstrap = nil
+    ovh_service = host.ovh_service_name
+    if host.provider == "ovh" && ovh_service
+      ovh_client_for_bootstrap = Beryl::CLI::Credentials.ovh_client
+    end
+
     bootstrap = Beryl::Bootstrap::QemuInRescue.new(
       rescue_conn: rescue_conn,
       target_disk: disk,
@@ -273,6 +282,8 @@ module Beryl::CLI
       swap_gb: swap_gb,
       installed_user: installed_user,
       installed_port: host.port,
+      ovh_client: ovh_client_for_bootstrap,
+      ovh_service_name: ovh_service,
     )
     bootstrap.run
 
