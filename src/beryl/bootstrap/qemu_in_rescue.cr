@@ -210,6 +210,8 @@ module Beryl::Bootstrap
         .gsub("__QEMU_PATTERN__", QEMU_PATTERN)
         .gsub("__QEMU_SERIAL__", QEMU_SERIAL)
         .gsub("__QEMU_COMMAND__", qemu_command)
+        .gsub("__DISTSITE__", "http://ftp.freebsd.org/pub/FreeBSD/releases/amd64/#{@freebsd_version}-RELEASE")
+        .gsub("__FREEBSD_VERSION__", @freebsd_version)
     end
 
     # Renvoie la ligne de commande QEMU finale (exposée pour les tests).
@@ -547,7 +549,11 @@ module Beryl::Bootstrap
       border = "#" * 90
       STDERR.puts border
       STDERR.puts "# Pour suivre bsdinstall en direct depuis un autre terminal, copiez-collez :"
-      STDERR.puts %(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@#{rescue_host} 'sshpass -p #{MFSBSD_ROOT_PASSWORD} ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=keyboard-interactive -o PubkeyAuthentication=no -p #{VM_SSH_PORT} root@#{VM_SSH_HOST} "tail -f #{VM_BSDINSTALL_LG}"')
+      # Filtre grep -vE : bsdinstall crache beaucoup de DEBUG: dialog.subr,
+      # common.subr, UNAME_* à chaque réinitialisation de dialog, peu
+      # utile. On garde les lignes métier (installation step, pool,
+      # Fetching, Extracting, erreurs, etc.).
+      STDERR.puts %(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@#{rescue_host} 'sshpass -p #{MFSBSD_ROOT_PASSWORD} ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=keyboard-interactive -o PubkeyAuthentication=no -p #{VM_SSH_PORT} root@#{VM_SSH_HOST} "tail -f #{VM_BSDINSTALL_LG} | grep --line-buffered -vE \\"DEBUG: (dialog\\\\.|common\\\\.|struct\\\\.|variable\\\\.|device\\\\.|geom\\\\.|strings\\\\.|password/|f_dialog|f_debug|f_include|f_variable|f_getvar)|DEBUG_SELF_INITIALIZE|UNAME_S=|ARGV=\\""')
       STDERR.puts border
     end
 

@@ -25,6 +25,8 @@ VM_BOOT_SEC="__VM_BOOT_SEC__"
 QEMU_MAX_SEC="__QEMU_MAX_SEC__"
 QEMU_PATTERN="__QEMU_PATTERN__"
 QEMU_SERIAL="__QEMU_SERIAL__"
+DISTSITE="__DISTSITE__"
+FREEBSD_VERSION="__FREEBSD_VERSION__"
 
 # --- Étape 0 : lance QEMU (mfsBSD en UEFI, disque passthrough) ----------
 # Si déjà lancé par un run précédent resté en vie, on réutilise.
@@ -69,8 +71,15 @@ done
 echo "[rescue-run-vm] upload installerconfig ($INSTALLERCFG_PATH → VM /tmp/installerconfig)"
 scp_to_vm "$INSTALLERCFG_PATH" "/tmp/installerconfig"
 
+echo "[rescue-run-vm] pré-fetch MANIFEST + distributions dans la VM (évite dialog Mirror Selection)"
+ssh_vm "mkdir -p /usr/freebsd-dist && \
+  fetch -q -o /usr/freebsd-dist/MANIFEST $DISTSITE/MANIFEST && \
+  fetch -q -o /usr/freebsd-dist/base.txz $DISTSITE/base.txz && \
+  fetch -q -o /usr/freebsd-dist/kernel.txz $DISTSITE/kernel.txz && \
+  ls -la /usr/freebsd-dist/"
+
 echo "[rescue-run-vm] lance bsdinstall dans la VM (log /tmp/bsdinstall.log)"
-ssh_vm 'nohup bsdinstall script /tmp/installerconfig >/tmp/bsdinstall.log 2>&1 & disown ; sleep 1 ; echo started'
+ssh_vm "BSDINSTALL_DISTSITE=$DISTSITE nohup bsdinstall script /tmp/installerconfig >/tmp/bsdinstall.log 2>&1 & disown ; sleep 1 ; echo started"
 
 echo "[rescue-run-vm] attente poweroff de la VM (timeout ${QEMU_MAX_SEC}s)"
 start=$(date +%s)
