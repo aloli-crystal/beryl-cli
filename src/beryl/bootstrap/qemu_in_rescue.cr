@@ -546,7 +546,7 @@ module Beryl::Bootstrap
       # commande imprimée SANS préfixe `#` pour rester copiable d'un
       # coup. Aucune clé ajoutée à ~/.ssh/known_hosts du user (le rescue
       # OVH est éphémère).
-      border = "#" * 90
+      border = "# " + "=" * 77
       STDERR.puts border
       STDERR.puts "# Pour suivre bsdinstall en direct depuis un autre terminal, copiez-collez :"
       # Filtre grep -vE : bsdinstall crache beaucoup de DEBUG: dialog.subr,
