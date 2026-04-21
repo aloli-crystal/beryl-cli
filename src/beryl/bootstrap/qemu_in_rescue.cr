@@ -233,18 +233,31 @@ module Beryl::Bootstrap
       # Boucle sshpass de polling ; succès dès que `uname -s` répond.
       deadline = Time.instant + VM_BOOT_TIMEOUT
       last_error = nil
+      last_status = nil
+      last_stdout = ""
+      last_stderr = ""
+      attempt = 0
       while Time.instant < deadline
+        attempt += 1
         begin
           check = mfsbsd_ssh_cmd("uname -s")
           result = @rescue_conn.exec(check, raise_on_error: false)
+          last_status = result.exit_code
+          last_stdout = result.stdout
+          last_stderr = result.stderr
           return if result.success? && result.stdout.strip == "FreeBSD"
         rescue ex
           last_error = ex
         end
         sleep VM_POLL_INTERVAL
       end
-      raise "timeout : mfsBSD n'a pas répondu en SSH au bout de #{VM_BOOT_TIMEOUT.total_minutes.to_i} min" \
-            " (dernière erreur : #{last_error.try(&.message)})"
+      STDERR.print "\n"
+      STDERR.puts "[beryl bootstrap mfsbsd] DIAG wait_for_vm_ssh timeout après #{attempt} tentatives"
+      STDERR.puts "  last exit_code : #{last_status.inspect}"
+      STDERR.puts "  last stdout    : #{last_stdout.inspect}"
+      STDERR.puts "  last stderr    : #{last_stderr.inspect}"
+      STDERR.puts "  last error     : #{last_error.try(&.message).inspect}"
+      raise "timeout : mfsBSD n'a pas répondu en SSH au bout de #{VM_BOOT_TIMEOUT.total_minutes.to_i} min"
     end
 
     private def scp_installerconfig_to_vm : Nil
