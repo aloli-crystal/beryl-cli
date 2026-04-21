@@ -87,15 +87,20 @@ module Beryl::CLI::BootHd
     # HAS CHANGED » côté utilisateur.
     Beryl.clean_known_hosts(host.name, host.port)
 
-    log "OVH : boot_from_disk pour #{service_name}"
     client = ovh_client_factory.call
-    task = client.dedicated_servers.boot_from_disk(service_name)
+    task = log_step("OVH : boot_from_disk pour #{service_name}") do
+      client.dedicated_servers.boot_from_disk(service_name)
+    end
     log "OVH : tâche ##{task.id} (#{task.function}) en #{task.status}"
 
     if wait
-      wait_ovh_task_done(client, service_name, task, task_poll_interval)
-      log "attente du retour SSH sur #{host.name} (port #{host.port}, user #{user}, timeout #{timeout.total_minutes.to_i} min)"
-      if wait_for_ssh.call(host.name, host.port, user, timeout, Beryl::CLI::Rescue::SSH_POLL_INTERVAL)
+      log_step("OVH : attente fin de tâche hardReboot") do
+        wait_ovh_task_done(client, service_name, task, task_poll_interval)
+      end
+      ssh_ok = log_step("attente SSH sur #{host.name} (port #{host.port}, user #{user}, timeout #{timeout.total_minutes.to_i} min)") do
+        wait_for_ssh.call(host.name, host.port, user, timeout, Beryl::CLI::Rescue::SSH_POLL_INTERVAL)
+      end
+      if ssh_ok
         log "ready : SSH répond sur #{host.name} en #{user}"
         EXIT_OK
       else
@@ -162,5 +167,43 @@ module Beryl::CLI::BootHd
 
   private def self.log(message : String) : Nil
     STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl boot-hd] #{message}"
+  end
+
+  # Même pattern que Rescue.log_step : affiche la ligne, spawn un fiber
+  # qui tick le compteur [NNNs] toutes les secondes, et fige le compteur
+  # sur un retour chariot quand le bloc termine.
+  private def self.log_step(label : String, & : -> T) : T forall T
+    line = "[#{Beryl.format_timestamp(Time.local)}] [beryl boot-hd] #{label}"
+    pad = Beryl.pad_to(line)
+    STDERR.print "#{line}#{pad}  [   0s]"
+    STDERR.flush
+    start = Time.instant
+    done = Channel(Nil).new
+    spawn do
+      loop do
+        select
+        when done.receive?
+          break
+        when timeout(1.second)
+          elapsed = (Time.instant - start).total_seconds.to_i
+          STDERR.printf("\r%s%s  [%4ds]", line, pad, elapsed)
+          STDERR.flush
+        end
+      end
+    end
+    success = false
+    begin
+      result = yield
+      success = true
+      elapsed = (Time.instant - start).total_seconds.to_i
+      STDERR.printf("\r%s%s  [%4ds]\n", line, pad, elapsed)
+      result
+    ensure
+      done.send(nil)
+      unless success
+        elapsed = (Time.instant - start).total_seconds.to_i
+        STDERR.printf("\r%s%s  [%4ds] ✗\n", line, pad, elapsed)
+      end
+    end
   end
 end
