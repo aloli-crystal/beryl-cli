@@ -1,20 +1,27 @@
 #!/bin/bash
-# Script de pilotage mfsBSD-in-QEMU, généré par beryl et déposé côté rescue.
+# Driver shell mfsBSD-in-QEMU exécuté côté rescue Linux. UN SEUL ssh
+# depuis le laptop vers le rescue pour lancer ce script ; plus aucun
+# nested ssh côté Crystal Process.run → plus de hang macOS.
 #
-# Appelé par UN SEUL exec ssh depuis beryl (laptop). Évite que Crystal
-# Process.run (macOS) ait à gérer du nested ssh, qui déclenche des hangs
-# silencieux sur Apple's ssh.
+# Le script pilote intégralement la VM mfsBSD via `ssh_vm`/`scp_to_vm`
+# (sshpass + keyboard-interactive côté mfsBSD-SE). Tout le POST-INSTALL
+# se fait HORS CHROOT, en ciblant `/mnt/…` depuis mfsBSD : on contourne
+# ainsi le bug Capsicum signal 12 qui tuait `pkg install` dans le chroot
+# bsdinstall (voir ADR-013 et validation manuelle loulou 21 avril 2026).
 #
-# Placeholders __XXX__ substitués par beryl avant upload. Le script fait :
+# Chaque ligne en MAJUSCULES entourée de tirets (voir ci-dessous) est
+# une variable substituée par beryl avant upload via scp.
 #
-# 0. Lance QEMU en arrière-plan (setsid, détaché du shell ssh).
-# 1. Poll jusqu'à ce que mfsBSD SE réponde en ssh (timeout __VM_BOOT_SEC__).
-# 2. SCP le fichier installerconfig vers la VM (/tmp/installerconfig).
-# 3. Lance bsdinstall script en nohup dans la VM (log /tmp/bsdinstall.log).
-# 4. Poll jusqu'à ce que QEMU sorte (poweroff de la VM au bout du script
-#    installerconfig, QEMU termine via -no-reboot).
+# Étapes :
+#   0. Lance QEMU en systemd-run --unit=qemu-vm (survit à la fermeture ssh)
+#   1. Attend SSH mfsBSD
+#   2. Pré-fetch MANIFEST + base.txz + kernel.txz dans la VM
+#   3. scp installerconfig + lance bsdinstall (préambule seul : partition + extract)
+#   4. Re-monte ZFS sur /mnt (bsdinstall termine par umount)
+#   5. Post-install piloté : users, rc.conf, fstab, localtime, pkg -r /mnt, sudoers
+#   6. Unmount ZFS + poweroff (QEMU exit via -no-reboot)
 #
-# Sortie 0 = OK, 1 = timeout boot mfsBSD, 2 = timeout attente QEMU.
+# Sortie 0 = OK, non-nul = étape nommée échouée.
 set -eu
 
 VM_HOST="__VM_HOST__"
@@ -27,36 +34,35 @@ QEMU_PATTERN="__QEMU_PATTERN__"
 QEMU_SERIAL="__QEMU_SERIAL__"
 DISTSITE="__DISTSITE__"
 FREEBSD_VERSION="__FREEBSD_VERSION__"
+ABI="__ABI__"
+HOSTNAME="__HOSTNAME__"
+TIMEZONE="__TIMEZONE__"
 
-# --- Étape 0 : lance QEMU (mfsBSD en UEFI, disque passthrough) ----------
-# Si déjà lancé par un run précédent resté en vie, on réutilise.
-if pgrep -f "$QEMU_PATTERN" >/dev/null; then
-  echo "[rescue-run-vm] QEMU déjà actif, réutilise"
-else
-  : > "$QEMU_SERIAL"
-  setsid timeout "$QEMU_MAX_SEC" __QEMU_COMMAND__ </dev/null >/dev/null 2>&1 &
-  disown
-  echo "[rescue-run-vm] QEMU lancé (PID $!)"
-fi
+# Post-install config passé en clair (sans base64, on reste shell-natif).
+# `USERS_SPEC` est un JSON-like compact : un user par ligne, champs
+# séparés par `|` dans l'ordre name|uid|gid|primary_group|secondary_groups|shell|home|keys_b64
+# C'est moche mais indemne à traduction Crystal-shell ; le format sera
+# remplacé par du vrai YAML quand le loader sera prêt.
+USERS_TSV='__USERS_TSV__'
+PACKAGES='__PACKAGES__'
+SUDOERS_CONTENT='__SUDOERS_CONTENT_B64__'
 
+# ----------------------------------------------------------------------
+# Helpers ssh (wrappers sshpass avec timeouts différenciés)
+# ----------------------------------------------------------------------
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
           -o PreferredAuthentications=keyboard-interactive \
           -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 \
           -o ConnectTimeout=5"
 
-# `ssh_vm` court : 10 s max. Pour les commandes distantes rapides
-# (uname, test, launch bsdinstall en nohup &). NE PAS utiliser pour un
-# fetch/download qui peut durer minutes.
 ssh_vm() {
   # shellcheck disable=SC2086
-  timeout 10 sshpass -p "$VM_PASSWORD" ssh $SSH_OPTS -p "$VM_PORT" "root@$VM_HOST" "$@"
+  timeout 20 sshpass -p "$VM_PASSWORD" ssh $SSH_OPTS -p "$VM_PORT" "root@$VM_HOST" "$@"
 }
 
-# `ssh_vm_long` : pour les opérations longues (fetch txz ~200 Mo,
-# install chroot). 15 min max, large de marge.
 ssh_vm_long() {
   # shellcheck disable=SC2086
-  timeout 900 sshpass -p "$VM_PASSWORD" ssh $SSH_OPTS -p "$VM_PORT" "root@$VM_HOST" "$@"
+  timeout 1800 sshpass -p "$VM_PASSWORD" ssh $SSH_OPTS -p "$VM_PORT" "root@$VM_HOST" "$@"
 }
 
 scp_to_vm() {
@@ -64,11 +70,36 @@ scp_to_vm() {
   timeout 60 sshpass -p "$VM_PASSWORD" scp $SSH_OPTS -P "$VM_PORT" "$1" "root@$VM_HOST:$2"
 }
 
+# ----------------------------------------------------------------------
+# Étape 0 — lance QEMU via systemd-run (détaché de la session ssh)
+# ----------------------------------------------------------------------
+
+if systemctl is-active --quiet qemu-vm.service; then
+  echo "[rescue-run-vm] QEMU déjà actif (systemd service qemu-vm), réutilise"
+else
+  : > "$QEMU_SERIAL"
+  systemd-run --unit=qemu-vm --description='beryl bootstrap QEMU' \
+    /usr/bin/qemu-system-x86_64 -enable-kvm -machine q35 -cpu host \
+    -smp __QEMU_CPUS__ -m __QEMU_RAM_MB__M \
+    -drive if=pflash,format=raw,readonly=on,file=__OVMF_CODE_SOURCE__ \
+    -drive if=pflash,format=raw,file=__OVMF_VARS_PATH__ \
+    -drive file=__MFSBSD_PATH__,format=raw,if=virtio \
+    __QEMU_TARGET_DISKS__ \
+    -netdev user,id=net0,hostfwd=tcp::__VM_PORT__-:22 \
+    -device virtio-net-pci,netdev=net0 \
+    -nographic -serial file:"$QEMU_SERIAL" -no-reboot
+  echo "[rescue-run-vm] QEMU lancé dans systemd unit qemu-vm.service"
+fi
+
+# ----------------------------------------------------------------------
+# Étape 1 — attend SSH mfsBSD
+# ----------------------------------------------------------------------
+
 echo "[rescue-run-vm] attente SSH mfsBSD (timeout ${VM_BOOT_SEC}s)..."
 start=$(date +%s)
 while true; do
   if ssh_vm 'uname -s' 2>/dev/null | grep -q '^FreeBSD$'; then
-    echo "[rescue-run-vm] VM répond (après $(($(date +%s) - start))s)"
+    echo "[rescue-run-vm] VM mfsBSD répond (après $(($(date +%s) - start))s)"
     break
   fi
   if [ $(($(date +%s) - start)) -ge "$VM_BOOT_SEC" ]; then
@@ -78,28 +109,119 @@ while true; do
   sleep 5
 done
 
-echo "[rescue-run-vm] upload installerconfig ($INSTALLERCFG_PATH → VM /tmp/installerconfig)"
+# ----------------------------------------------------------------------
+# Étape 2 — pré-fetch MANIFEST + base.txz + kernel.txz dans la VM
+# ----------------------------------------------------------------------
+# Évite le dialog « Mirror Selection » de bsdinstall et garantit les
+# bons checksums.
+
+echo "[rescue-run-vm] pré-fetch MANIFEST + txz dans la VM"
+ssh_vm_long "mkdir -p /usr/freebsd-dist && cd /usr/freebsd-dist && \
+  test -s MANIFEST   || fetch -q -o MANIFEST   $DISTSITE/MANIFEST && \
+  test -s base.txz   || fetch -q -o base.txz   $DISTSITE/base.txz && \
+  test -s kernel.txz || fetch -q -o kernel.txz $DISTSITE/kernel.txz && \
+  ls -la"
+
+# ----------------------------------------------------------------------
+# Étape 3 — scp installerconfig + bsdinstall (préambule seul)
+# ----------------------------------------------------------------------
+
+echo "[rescue-run-vm] upload installerconfig vers /tmp/installerconfig"
 scp_to_vm "$INSTALLERCFG_PATH" "/tmp/installerconfig"
 
-echo "[rescue-run-vm] pré-fetch MANIFEST + distributions dans la VM (~200 Mo, évite dialog Mirror Selection)"
-ssh_vm_long "mkdir -p /usr/freebsd-dist && \
-  fetch -q -o /usr/freebsd-dist/MANIFEST $DISTSITE/MANIFEST && \
-  fetch -q -o /usr/freebsd-dist/base.txz $DISTSITE/base.txz && \
-  fetch -q -o /usr/freebsd-dist/kernel.txz $DISTSITE/kernel.txz && \
-  ls -la /usr/freebsd-dist/"
+echo "[rescue-run-vm] lance bsdinstall script (partition + extract, ~3 min)"
+ssh_vm_long "BSDINSTALL_DISTSITE=$DISTSITE bsdinstall script /tmp/installerconfig"
 
-echo "[rescue-run-vm] lance bsdinstall dans la VM (log /tmp/bsdinstall.log)"
-ssh_vm "BSDINSTALL_DISTSITE=$DISTSITE nohup bsdinstall script /tmp/installerconfig >/tmp/bsdinstall.log 2>&1 & disown ; sleep 1 ; echo started"
+# ----------------------------------------------------------------------
+# Étape 4 — re-monte ZFS sur /mnt
+# ----------------------------------------------------------------------
+# bsdinstall termine par `umount`. Pour écrire dans le rootfs on remonte.
 
-echo "[rescue-run-vm] attente poweroff de la VM (timeout ${QEMU_MAX_SEC}s)"
-start=$(date +%s)
-while pgrep -f "$QEMU_PATTERN" >/dev/null; do
-  if [ $(($(date +%s) - start)) -ge "$QEMU_MAX_SEC" ]; then
-    echo "[rescue-run-vm] TIMEOUT QEMU" >&2
-    exit 2
+echo "[rescue-run-vm] remonte ZFS zroot sur /mnt"
+ssh_vm "zpool import -f -N -R /mnt zroot && zfs mount zroot/ROOT/default && zfs mount -a"
+
+# ----------------------------------------------------------------------
+# Étape 5 — post-install HORS CHROOT, ciblant /mnt
+# ----------------------------------------------------------------------
+
+echo "[rescue-run-vm] rc.conf + fstab + timezone"
+ssh_vm "cat > /mnt/etc/rc.conf <<RC
+hostname=\"$HOSTNAME\"
+ifconfig_DEFAULT=\"DHCP\"
+ifconfig_DEFAULT_ipv6=\"inet6 accept_rtadv\"
+sshd_enable=\"YES\"
+moused_nondefault_enable=\"NO\"
+dumpdev=\"AUTO\"
+zfs_enable=\"YES\"
+RC
+cat > /mnt/etc/fstab <<FSTAB
+/dev/gpt/efiboot0   /boot/efi  msdosfs  rw,late   2  2
+/dev/gpt/swap0      none       swap     sw        0  0
+FSTAB
+cp /mnt/usr/share/zoneinfo/$TIMEZONE /mnt/etc/localtime"
+
+echo "[rescue-run-vm] users"
+# USERS_TSV format: name|primary_group|secondary_groups|shell|key1,key2,key3
+# (un user par ligne, groups séparés par des virgules)
+echo "$USERS_TSV" | while IFS='|' read -r UNAME PGROUP SGROUPS USHELL UKEYS; do
+  [ -z "$UNAME" ] && continue
+  echo "[rescue-run-vm]   user $UNAME (g=$PGROUP, G=$SGROUPS, shell=$USHELL)"
+  # Groupe primaire : créer si absent
+  ssh_vm "pw -R /mnt groupshow $PGROUP 2>/dev/null || pw -R /mnt groupadd $PGROUP"
+  # Groupes secondaires : même
+  if [ -n "$SGROUPS" ]; then
+    echo "$SGROUPS" | tr ',' '\n' | while read -r SG; do
+      [ -z "$SG" ] && continue
+      ssh_vm "pw -R /mnt groupshow $SG 2>/dev/null || pw -R /mnt groupadd $SG"
+    done
   fi
-  sleep 10
+  # User
+  GFLAG=""; [ -n "$SGROUPS" ] && GFLAG="-G $SGROUPS"
+  ssh_vm "pw -R /mnt useradd -n $UNAME -d /home/$UNAME -g $PGROUP $GFLAG -m -s $USHELL"
+  # Clés SSH
+  if [ -n "$UKEYS" ]; then
+    ssh_vm "mkdir -p /mnt/home/$UNAME/.ssh"
+    echo "$UKEYS" | tr ',' '\n' | while read -r K; do
+      [ -z "$K" ] && continue
+      ssh_vm "echo '$K' >> /mnt/home/$UNAME/.ssh/authorized_keys"
+    done
+    UID_NEW=$(ssh_vm "pw -R /mnt usershow $UNAME" | cut -d: -f3)
+    GID_PG=$(ssh_vm "pw -R /mnt groupshow $PGROUP" | cut -d: -f3)
+    ssh_vm "chown -R $UID_NEW:$GID_PG /mnt/home/$UNAME/.ssh && \
+            chmod 700 /mnt/home/$UNAME/.ssh && \
+            chmod 600 /mnt/home/$UNAME/.ssh/authorized_keys"
+  fi
 done
 
-echo "[rescue-run-vm] QEMU terminé proprement, install FreeBSD écrite sur le disque"
+if [ -n "$PACKAGES" ]; then
+  echo "[rescue-run-vm] pkg -r /mnt install (hors chroot → pas de Capsicum)"
+  ssh_vm_long "env ABI=$ABI IGNORE_OSVERSION=yes pkg -r /mnt install -y $PACKAGES"
+fi
+
+if [ -n "$SUDOERS_CONTENT" ]; then
+  echo "[rescue-run-vm] sudoers.d/beryl"
+  ssh_vm "mkdir -p /mnt/usr/local/etc/sudoers.d && \
+    echo '$SUDOERS_CONTENT' | base64 -d > /mnt/usr/local/etc/sudoers.d/beryl && \
+    chmod 440 /mnt/usr/local/etc/sudoers.d/beryl"
+fi
+
+# ----------------------------------------------------------------------
+# Étape 6 — unmount ZFS + poweroff
+# ----------------------------------------------------------------------
+
+echo "[rescue-run-vm] unmount ZFS + poweroff VM"
+ssh_vm "cd / && zfs unmount -a 2>/dev/null ; zpool export zroot ; sync ; poweroff" || true
+
+echo "[rescue-run-vm] attente fin QEMU (timeout ${QEMU_MAX_SEC}s)"
+start=$(date +%s)
+while systemctl is-active --quiet qemu-vm.service; do
+  if [ $(($(date +%s) - start)) -ge "$QEMU_MAX_SEC" ]; then
+    echo "[rescue-run-vm] TIMEOUT QEMU, kill service" >&2
+    systemctl stop qemu-vm.service 2>/dev/null || true
+    exit 2
+  fi
+  sleep 5
+done
+
+echo "[rescue-run-vm] QEMU terminé proprement, install FreeBSD écrite sur le disque."
 exit 0

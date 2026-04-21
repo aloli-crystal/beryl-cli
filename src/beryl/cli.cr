@@ -177,29 +177,31 @@ module Beryl::CLI
   # ---------- bootstrap ----------
 
   private def self.cmd_bootstrap(inventory_path : String, args : Array(String)) : Int32
-    target_disk = nil
+    target_disks = [] of String
     iso_url_override : String? = nil
-    authorized_keys_file = File.expand_path("~/.ssh/authorized_keys", home: true)
+    authorized_keys_file : String? = nil
     hostname_override = nil
     pool_name = "zroot"
     swap_gb = 4
     timezone = "Europe/Paris"
     freebsd_version = "15.0"
     installed_user = "admin"
+    raid = "stripe"
 
     positional = [] of String
 
     parser = OptionParser.new do |p|
-      p.banner = "USAGE : beryl bootstrap <host> --disk PATH [options]"
-      p.on("--disk=PATH", "Disque cible sur l'hôte (REQUIS, ex. /dev/sda, /dev/nvme0n1)") { |v| target_disk = v }
-      p.on("--iso-url=URL", "URL de l'ISO FreeBSD disc1 (priorité : --iso-url > défaut paramétré par --freebsd-version)") { |v| iso_url_override = v }
+      p.banner = "USAGE : beryl bootstrap <host> --disk PATH [--disk PATH2 …] --authorized-keys FILE [options]"
+      p.on("--disk=PATH", "Disque cible (REQUIS, répétable pour RAID multi-disques)") { |v| target_disks << v }
+      p.on("--raid=MODE", "Mode ZFS pool : stripe (RAID0, défaut), mirror, raidz, raidz2, raidz3") { |v| raid = v }
+      p.on("--iso-url=URL", "URL mfsBSD (override)") { |v| iso_url_override = v }
       p.on("--freebsd-version=VER", "Version FreeBSD à installer (défaut : 15.0)") { |v| freebsd_version = v }
-      p.on("--authorized-keys=FILE", "Fichier local contenant les clés SSH (défaut : ~/.ssh/authorized_keys)") { |v| authorized_keys_file = File.expand_path(v, home: true) }
+      p.on("--authorized-keys=FILE", "Fichier local des clés SSH publiques à injecter (REQUIS si aucune clé inline dans l'inventaire)") { |v| authorized_keys_file = File.expand_path(v, home: true) }
       p.on("--hostname=NAME", "Hostname à configurer (défaut : nom dans l'inventaire)") { |v| hostname_override = v }
       p.on("--pool=NAME", "Nom du pool ZFS (défaut : zroot)") { |v| pool_name = v }
       p.on("--swap=GB", "Taille du swap en Go (défaut : 4)") { |v| swap_gb = v.to_i }
       p.on("--timezone=TZ", "Fuseau horaire (défaut : Europe/Paris)") { |v| timezone = v }
-      p.on("--installed-user=USER", "User pour le SSH post-install (défaut : admin ; root refusé par sshd FreeBSD 15)") { |v| installed_user = v }
+      p.on("--installed-user=USER", "User pour le SSH post-install (défaut : admin)") { |v| installed_user = v }
       p.on("-h", "--help", "Aide") do
         puts p
         exit(0)
@@ -212,22 +214,30 @@ module Beryl::CLI
 
     host_name = positional.first?
     unless host_name
-      STDERR.puts "beryl : hôte non précisé. beryl bootstrap <host> --disk PATH"
+      STDERR.puts "beryl : hôte non précisé. USAGE : beryl bootstrap <host> --disk PATH --authorized-keys FILE"
       return 1
     end
-    disk = target_disk
-    unless disk
-      STDERR.puts "beryl : --disk est requis (ex. --disk=/dev/sda)"
+    if target_disks.empty?
+      STDERR.puts "beryl : au moins un --disk est requis (ex. --disk=/dev/sda)."
+      STDERR.puts "       Pour RAID multi-disques : --disk=/dev/sda --disk=/dev/sdb --raid=mirror"
       return 1
     end
 
-    unless File.exists?(authorized_keys_file)
-      STDERR.puts "beryl : fichier de clés SSH introuvable : #{authorized_keys_file}"
+    # RÈGLE ALOLI : aucune clé SSH par défaut. Si ni --authorized-keys ni
+    # source YAML n'est donnée → exit explicite (feedback_no_silent_defaults).
+    keys_file = authorized_keys_file
+    unless keys_file
+      STDERR.puts "beryl : --authorized-keys=FILE est requis (aucun défaut silencieux)."
+      STDERR.puts "       Exemple : --authorized-keys=~/.ssh/philippe.aloli.fr.pub"
       return 1
     end
-    keys = File.read_lines(authorized_keys_file).map(&.strip).reject(&.empty?)
+    unless File.exists?(keys_file)
+      STDERR.puts "beryl : fichier de clés SSH introuvable : #{keys_file}"
+      return 1
+    end
+    keys = File.read_lines(keys_file).map(&.strip).reject(&.empty?)
     if keys.empty?
-      STDERR.puts "beryl : aucune clé SSH trouvée dans #{authorized_keys_file}"
+      STDERR.puts "beryl : aucune clé SSH trouvée dans #{keys_file}"
       return 1
     end
 
@@ -237,20 +247,31 @@ module Beryl::CLI
     override_snapshot = hostname_override
     hostname = override_snapshot.nil? ? host.name : override_snapshot
 
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl] #{Beryl::I18n.t(:bootstrap_header, host: host_name, hostname: hostname, disk: disk)}"
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl] #{Beryl::I18n.t(:bootstrap_path, version: freebsd_version)}"
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl] #{Beryl::I18n.t(:bootstrap_keys_loaded, count: keys.size, path: authorized_keys_file)}"
+    # Users par défaut pour le MVP : un admin (wheel, csh) avec les clés
+    # lues depuis --authorized-keys. La hiérarchie YAML groupes/hôtes
+    # prendra le relais dans l'itération suivante.
+    users = [
+      Beryl::Bootstrap::UserSpec.new(
+        name: installed_user,
+        primary_group: "www",
+        secondary_groups: ["wheel"],
+        shell: "/bin/csh",
+        ssh_keys: keys,
+      ),
+    ]
 
-    # Nettoie ~/.ssh/known_hosts : la clé d'hôte va changer plusieurs
-    # fois pendant le bootstrap. Voir Beryl.clean_known_hosts.
+    # Packages par défaut pour que admin ait sudo fonctionnel + zsh dispo.
+    # Le détail sera lu depuis le YAML freebsd.packages dans l'itération
+    # suivante. Tant qu'il n'y a pas de source YAML, au moins sudo.
+    packages = ["sudo"]
+    sudoers = ["%wheel ALL=(ALL) NOPASSWD:ALL"]
+
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl] #{Beryl::I18n.t(:bootstrap_header, host: host_name, hostname: hostname, disk: target_disks.join(", "))}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl] #{Beryl::I18n.t(:bootstrap_path, version: freebsd_version)}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl] #{Beryl::I18n.t(:bootstrap_keys_loaded, count: keys.size, path: keys_file)}"
+
     Beryl.clean_known_hosts(host.name, host.port)
 
-    # Connexion SSH au rescue : la clé d'hôte va changer plusieurs fois
-    # pendant le bootstrap (rescue Linux → mfsBSD dans QEMU → FreeBSD
-    # installé). On neutralise complètement la vérification + le stockage
-    # des clés d'hôtes : zéro prompt, zéro entrée polluée dans
-    # ~/.ssh/known_hosts du user (qui récupèrera la clé FreeBSD finale
-    # au premier ssh manuel post-bootstrap).
     rescue_conn = Beryl::SSH::Connection.new(
       host: host.name,
       user: host.user,
@@ -263,9 +284,6 @@ module Beryl::CLI
       },
     )
 
-    # Si l'hôte a un bloc `ovh:` dans l'inventaire, on lui passe un
-    # client OVH pour la bascule harddisk API post-install (évite de
-    # retomber en rescue via un simple `reboot -f`).
     ovh_client_for_bootstrap = nil
     ovh_service = host.ovh_service_name
     if host.provider == "ovh" && ovh_service
@@ -274,9 +292,12 @@ module Beryl::CLI
 
     bootstrap = Beryl::Bootstrap::QemuInRescue.new(
       rescue_conn: rescue_conn,
-      target_disk: disk,
+      disks: target_disks,
+      raid: raid,
       hostname: hostname,
-      authorized_keys: keys,
+      users: users,
+      packages: packages,
+      sudoers: sudoers,
       freebsd_version: freebsd_version,
       timezone: timezone,
       iso_url: iso_url_override,
