@@ -340,13 +340,19 @@ module Beryl::CLI::Rescue
         end
       end
     end
+    success = false
     begin
       result = yield
+      success = true
       elapsed = (Time.instant - start).total_seconds.to_i
       STDERR.printf("\r%s%s  [%4ds]\n", line, pad, elapsed)
       result
     ensure
       done.send(nil)
+      unless success
+        elapsed = (Time.instant - start).total_seconds.to_i
+        STDERR.printf("\r%s%s  [%4ds] ✗\n", line, pad, elapsed)
+      end
     end
   end
 end

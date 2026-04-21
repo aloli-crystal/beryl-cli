@@ -495,13 +495,21 @@ module Beryl::Bootstrap
           end
         end
       end
+      success = false
       begin
         result = yield
+        success = true
         elapsed = (Time.instant - start).total_seconds.to_i
         STDERR.printf("\r%s%s  [%4ds]\n", line, pad, elapsed)
         result
       ensure
         done.send(nil)
+        # Si le bloc a levé, on termine quand même la ligne pour que le
+        # message d'erreur qui suit ne se colle pas au compteur.
+        unless success
+          elapsed = (Time.instant - start).total_seconds.to_i
+          STDERR.printf("\r%s%s  [%4ds] ✗\n", line, pad, elapsed)
+        end
       end
     end
 
