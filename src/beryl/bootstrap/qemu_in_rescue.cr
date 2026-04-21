@@ -43,6 +43,16 @@ module Beryl::Bootstrap
     INSTALLERCFG = "#{WORK_DIR}/installerconfig"
     QEMU_SERIAL  = "#{WORK_DIR}/qemu-serial.log"
 
+    # OVMF UEFI firmware (fourni par le paquet Debian `ovmf`). mfsBSD SE
+    # est hybride BIOS/UEFI : si QEMU boote en BIOS (sans pflash), l'install
+    # bsdinstall produit un disque BIOS-only (partitions gptboot + swap +
+    # zfs) qui NE BOOTE PAS sur un serveur OVH UEFI-only. Il faut donc
+    # forcer QEMU en UEFI via OVMF pour que bsdinstall pose une
+    # partition ESP (efi) + bootx64.efi dans le GPT.
+    OVMF_CODE_SOURCE = "/usr/share/OVMF/OVMF_CODE_4M.fd"
+    OVMF_VARS_SOURCE = "/usr/share/OVMF/OVMF_VARS_4M.fd"
+    OVMF_VARS_PATH   = "#{WORK_DIR}/vars.fd"
+
     # Chemins côté VM mfsBSD (FS tmpfs en RAM, pas de /root/beryl-test).
     # Bsdinstall log dans /tmp, accessible en lecture via SSH dans la VM.
     VM_INSTALLERCFG  = "/tmp/installerconfig"
@@ -151,6 +161,7 @@ module Beryl::Bootstrap
         @rescue_conn.write_file(INSTALLERCFG, render_installerconfig, mode: "0644")
       end
       log_step("5/7 — lance QEMU + dépose le driver shell sur le rescue") do
+        prepare_ovmf_vars
         launch_qemu_background
         @rescue_conn.write_file(RESCUE_RUN_VM_PATH, render_rescue_run_vm, mode: "0755")
       end
@@ -198,6 +209,12 @@ module Beryl::Bootstrap
     end
 
     # Renvoie la ligne de commande QEMU finale (exposée pour les tests).
+    #
+    # UEFI via OVMF : mfsBSD SE est hybride BIOS/UEFI, en BIOS l'install
+    # résulte en un disque non-bootable sur OVH (UEFI-only). Les deux
+    # drives pflash portent OVMF_CODE (firmware readonly) et OVMF_VARS
+    # (nvram par run, recopiée à chaque fois pour éviter que d'anciens
+    # bootentries persistent).
     def qemu_command : String
       args = [
         "qemu-system-x86_64",
@@ -206,6 +223,8 @@ module Beryl::Bootstrap
         "-cpu", "host",
         "-smp", @qemu_cpus.to_s,
         "-m", "#{@qemu_ram_mb}M",
+        "-drive", "if=pflash,format=raw,readonly=on,file=#{OVMF_CODE_SOURCE}",
+        "-drive", "if=pflash,format=raw,file=#{OVMF_VARS_PATH}",
         "-drive", "file=#{MFSBSD_PATH},format=raw,if=virtio",
         "-drive", "file=#{@target_disk},format=raw,if=virtio,cache=none",
         "-netdev", "user,id=net0,hostfwd=tcp::#{VM_SSH_PORT}-:22",
@@ -271,7 +290,16 @@ module Beryl::Bootstrap
       @rescue_conn.exec(
         "mkdir -p #{Process.quote(WORK_DIR)} && " \
         "DEBIAN_FRONTEND=noninteractive apt-get update -qq && " \
-        "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq qemu-system-x86 sshpass curl"
+        "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq qemu-system-x86 ovmf sshpass curl"
+      )
+    end
+
+    private def prepare_ovmf_vars : Nil
+      # Copie une nvram OVMF neuve à chaque run : évite que de vieux
+      # bootentries (ex. d'une précédente install BIOS) ne prennent le
+      # pas sur le boot CD mfsBSD.
+      @rescue_conn.exec(
+        "cp -f #{Process.quote(OVMF_VARS_SOURCE)} #{Process.quote(OVMF_VARS_PATH)}"
       )
     end
 

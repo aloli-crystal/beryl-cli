@@ -172,11 +172,13 @@ describe Beryl::Bootstrap::QemuInRescue do
   end
 
   describe "#qemu_command" do
-    it "attache l'image mfsBSD comme premier disque virtio (plus d'OVMF — mfsBSD boote BIOS)" do
+    it "attache l'image mfsBSD + OVMF UEFI (obligatoire pour un install UEFI-bootable)" do
       cmd = make_bootstrap.qemu_command
       cmd.should contain("mfsbsd-se.img")
       cmd.should contain("if=virtio")
-      cmd.should_not contain("OVMF")
+      cmd.should contain("OVMF_CODE_4M.fd")
+      cmd.should contain("readonly=on")
+      cmd.should contain("vars.fd")
     end
 
     it "passe le disque cible en virtio passthrough" do
