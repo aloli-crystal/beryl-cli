@@ -72,6 +72,11 @@ module Beryl
             "StrictHostKeyChecking" => "no",
             "UserKnownHostsFile"    => "/dev/null",
             "LogLevel"              => "ERROR",
+            # BatchMode=yes : refuse toute invite interactive (password,
+            # keyboard-interactive). Indispensable pour un poll en boucle :
+            # sans ça, si la clé publique n'est pas acceptée, ssh bloque
+            # sur un prompt et la boucle de poll se fige pour toujours.
+            "BatchMode" => "yes",
           }
         )
       end
