@@ -154,9 +154,14 @@ describe Beryl::Bootstrap::QemuInRescue do
       cfg.strip.should end_with("poweroff")
     end
 
-    it "contient les deux shebangs pour le format bsdinstall (pre + post-install)" do
+    it "contient un seul shebang (séparateur pre/post-install, pas en tête de fichier)" do
+      # bsdinstall utilise la PREMIÈRE ligne `#!` comme séparateur. Un
+      # shebang en tête ferait interpréter tout le préambule comme
+      # post-install → ZFSBOOT_POOL_NAME vide → boucle « Pool name cannot
+      # be empty » observée sur loulou le 21 avril 2026.
       cfg = make_bootstrap.render_installerconfig
-      cfg.scan(/^#!\/bin\/sh$/m).size.should eq(2)
+      cfg.scan(/^#!\/bin\/sh$/m).size.should eq(1)
+      cfg.lines.first.should_not start_with("#!")
     end
   end
 
