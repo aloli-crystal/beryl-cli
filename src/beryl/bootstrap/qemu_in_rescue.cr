@@ -66,6 +66,10 @@ module Beryl::Bootstrap
     QEMU_MAX_RUNTIME    = 45.minutes
 
     TEMPLATE_INSTALLERCONFIG = {{ read_file("#{__DIR__}/templates/installerconfig.sh") }}
+    TEMPLATE_RESCUE_RUN_VM   = {{ read_file("#{__DIR__}/templates/rescue-run-vm.sh") }}
+
+    RESCUE_RUN_VM_PATH = "#{WORK_DIR}/rescue-run-vm.sh"
+    QEMU_PATTERN       = "qemu-system-x86_64.*mfsbsd-se.img"
 
     # Largeur cible pour l'alignement du compteur en fin de ligne :
     # partagée par toutes les sous-commandes via `Beryl::STEP_LINE_WIDTH`.
@@ -140,14 +144,16 @@ module Beryl::Bootstrap
       log_step("4/7 — écrit l'installerconfig côté rescue") do
         @rescue_conn.write_file(INSTALLERCFG, render_installerconfig, mode: "0644")
       end
-      log_step("5/7 — lance QEMU avec mfsBSD + disque #{@target_disk} passthrough") do
+      log_step("5/7 — lance QEMU + dépose le driver shell sur le rescue") do
         launch_qemu_background
-        wait_for_vm_ssh
+        @rescue_conn.write_file(RESCUE_RUN_VM_PATH, render_rescue_run_vm, mode: "0755")
       end
       hint_follow_bsdinstall
-      log_step("6/7 — upload installerconfig + bsdinstall (10-25 min)") do
-        scp_installerconfig_to_vm
-        run_bsdinstall_in_vm
+      log_step("6/7 — bootstrap VM via driver shell (wait + install + wait QEMU, 10-25 min)") do
+        # UN seul exec outer : le driver shell côté rescue fait toute la
+        # danse avec la VM (nested sshpass). Plus de nested ssh côté
+        # Crystal Process.run, donc plus de piège macOS.
+        @rescue_conn.exec("bash #{Process.quote(RESCUE_RUN_VM_PATH)}")
       end
       result = log_step("7/7 — reboot bare metal sur la FreeBSD posée, attente SSH") do
         reboot_bare_metal
@@ -171,6 +177,18 @@ module Beryl::Bootstrap
     def authorized_keys_base64 : String
       plain = @authorized_keys.join('\n') + "\n"
       Base64.strict_encode(plain)
+    end
+
+    # Rend le driver shell rescue-run-vm.sh qui pilote la VM sur le rescue.
+    def render_rescue_run_vm : String
+      TEMPLATE_RESCUE_RUN_VM
+        .gsub("__VM_HOST__", VM_SSH_HOST)
+        .gsub("__VM_PORT__", VM_SSH_PORT.to_s)
+        .gsub("__VM_PASSWORD__", MFSBSD_ROOT_PASSWORD)
+        .gsub("__INSTALLERCFG_PATH__", INSTALLERCFG)
+        .gsub("__VM_BOOT_SEC__", VM_BOOT_TIMEOUT.total_seconds.to_i.to_s)
+        .gsub("__QEMU_MAX_SEC__", QEMU_MAX_RUNTIME.total_seconds.to_i.to_s)
+        .gsub("__QEMU_PATTERN__", QEMU_PATTERN)
     end
 
     # Renvoie la ligne de commande QEMU finale (exposée pour les tests).
