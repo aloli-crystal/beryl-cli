@@ -4,6 +4,7 @@ require "../beryl"
 require "./cli/prep_rescue"
 require "./cli/bake_seed"
 require "./cli/rescue"
+require "./cli/boot_hd"
 
 # Point d'entrée CLI de beryl.
 #
@@ -72,6 +73,7 @@ module Beryl::CLI
     when "show"        then cmd_show(inventory_path, sub_args)
     when "bootstrap"   then cmd_bootstrap(inventory_path, sub_args)
     when "rescue"      then Beryl::CLI::Rescue.run(inventory_path, sub_args)
+    when "boot-hd"     then Beryl::CLI::BootHd.run(inventory_path, sub_args)
     when "prep-rescue" then Beryl::CLI::PrepRescue.run(sub_args)
     when "bake-seed"   then Beryl::CLI::BakeSeed.run(sub_args)
     when "version"     then puts "beryl #{Beryl::VERSION}"; 0
@@ -94,6 +96,9 @@ module Beryl::CLI
       rescue <host>         Bascule un hôte en rescue via l'API
                             de l'hébergeur (OVH, Scaleway) puis
                             attend le retour SSH
+      boot-hd <host>        Bascule un hôte OVH sur le boot disque
+                            via l'API (inverse de rescue) puis
+                            attend le retour SSH de l'OS installé
       bootstrap <host>      Installe FreeBSD 15 (voie QEMU-in-rescue, ADR-011)
       prep-rescue           Serveur HTTP local (clé SSH + script) pour
                             préparer un rescue Debian/Ubuntu sans
