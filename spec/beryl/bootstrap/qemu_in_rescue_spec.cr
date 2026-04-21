@@ -136,10 +136,11 @@ describe Beryl::Bootstrap::QemuInRescue do
       cfg.should contain("-s /bin/csh")
     end
 
-    it "pose la clé SSH pour admin et root" do
+    it "pose la clé SSH uniquement pour admin (pas root, règle Aloli)" do
       cfg = make_bootstrap.render_installerconfig
       cfg.should contain("/home/admin/.ssh")
-      cfg.should contain("/root/.ssh")
+      cfg.should_not contain("/root/.ssh")
+      cfg.should_not contain("PermitRootLogin")
     end
 
     it "termine par poweroff pour que QEMU sorte via -no-reboot" do
