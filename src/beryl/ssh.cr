@@ -86,10 +86,18 @@ module Beryl
         stdout_io = IO::Memory.new
         stderr_io = IO::Memory.new
 
+        # Quand pas de stdin (cas général), on ajoute `-n` au ssh pour
+        # fermer son stdin à la source : indispensable sur macOS où
+        # Process.run laisse le canal ssh ouvert si le remote produit
+        # du stderr (cas du nested sshpass qui log « Permanently added »).
+        # Quand on pipe du stdin (write_file), on NE met PAS `-n` sinon
+        # le contenu ne passe pas.
+        args = stdin ? ssh_args(command) : ["-n"] + ssh_args(command)
+
         status = if stdin
                    Process.run(
                      command: "ssh",
-                     args: ssh_args(command),
+                     args: args,
                      input: IO::Memory.new(stdin),
                      output: stdout_io,
                      error: stderr_io,
@@ -97,7 +105,7 @@ module Beryl
                  else
                    Process.run(
                      command: "ssh",
-                     args: ssh_args(command),
+                     args: args,
                      output: stdout_io,
                      error: stderr_io,
                    )
