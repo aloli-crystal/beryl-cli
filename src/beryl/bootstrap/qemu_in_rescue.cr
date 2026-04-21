@@ -160,16 +160,18 @@ module Beryl::Bootstrap
       log_step("4/7 — écrit l'installerconfig côté rescue") do
         @rescue_conn.write_file(INSTALLERCFG, render_installerconfig, mode: "0644")
       end
-      log_step("5/7 — lance QEMU + dépose le driver shell sur le rescue") do
+      log_step("5/7 — dépose driver shell (OVMF vars + script) sur le rescue") do
         prepare_ovmf_vars
-        launch_qemu_background
-        @rescue_conn.write_file(RESCUE_RUN_VM_PATH, render_rescue_run_vm, mode: "0755")
+        # Upload via scp plutôt que write_file+stdin : évite le pattern
+        # Process.run-pipe-stdin-vers-ssh qui fige sur macOS quand le
+        # remote a un process en background tenant le canal ouvert.
+        upload_driver_script
       end
       hint_follow_bsdinstall
-      log_step("6/7 — bootstrap VM via driver shell (wait + install + wait QEMU, 10-25 min)") do
-        # UN seul exec outer : le driver shell côté rescue fait toute la
-        # danse avec la VM (nested sshpass). Plus de nested ssh côté
-        # Crystal Process.run, donc plus de piège macOS.
+      log_step("6/7 — QEMU + wait + install + wait QEMU (10-25 min)") do
+        # UN seul exec outer : le driver shell lance QEMU, attend la VM,
+        # scp + bsdinstall, attend la fin. Plus de nested ssh côté
+        # Crystal Process.run sur macOS.
         @rescue_conn.exec("bash #{Process.quote(RESCUE_RUN_VM_PATH)}")
       end
       result = log_step("7/7 — reboot bare metal sur la FreeBSD posée, attente SSH") do
@@ -294,6 +296,18 @@ module Beryl::Bootstrap
       )
     end
 
+    # Rend le driver shell + upload via scp + chmod 755. scp côté macOS
+    # n'a pas le même souci de stdin-pipe que `exec(stdin:)` utilisé par
+    # `write_file`.
+    private def upload_driver_script : Nil
+      File.tempfile(prefix: "beryl-rescue-run-", suffix: ".sh") do |tmp|
+        tmp.print(render_rescue_run_vm)
+        tmp.close
+        @rescue_conn.upload(tmp.path, RESCUE_RUN_VM_PATH)
+      end
+      @rescue_conn.exec("chmod 755 #{Process.quote(RESCUE_RUN_VM_PATH)}")
+    end
+
     private def prepare_ovmf_vars : Nil
       # Copie une nvram OVMF neuve à chaque run : évite que de vieux
       # bootentries (ex. d'une précédente install BIOS) ne prennent le
@@ -312,13 +326,17 @@ module Beryl::Bootstrap
     end
 
     private def launch_qemu_background : Nil
-      # Lance QEMU en nohup + detaché, stdout/stderr noyés. Le process
-      # survit à notre session SSH : on ne l'attend pas ici, la fin de
-      # l'install se détecte via le poweroff de la VM (QEMU quitte seul).
+      # Lance QEMU complètement détaché du shell. Points clés :
+      # * `setsid` → nouveau session ID, break le lien au controlling tty
+      # * `</dev/null` → stdin explicitement fermé (sinon QEMU hérite du
+      #   fd de stdin du shell, qui est le canal ssh → ssh attend sa
+      #   fermeture indéfiniment, macOS Process.run reste figé)
+      # * `>/dev/null 2>&1` → stdout/stderr noyés
+      # * `&` + `disown` → backgroundé et retiré de la job list
       cmd = "cd #{Process.quote(WORK_DIR)} && " \
             ": > #{Process.quote(QEMU_SERIAL)} && " \
-            "nohup timeout #{QEMU_MAX_RUNTIME.total_seconds.to_i} #{qemu_command} " \
-            ">/dev/null 2>&1 & disown"
+            "setsid timeout #{QEMU_MAX_RUNTIME.total_seconds.to_i} #{qemu_command} " \
+            "</dev/null >/dev/null 2>&1 & disown"
       @rescue_conn.exec(cmd)
     end
 
