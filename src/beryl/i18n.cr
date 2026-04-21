@@ -120,13 +120,13 @@ module Beryl
     end
 
     private def self.interpolate(template : String, params) : String
+      # Crystal n'a pas String#to_sym : on matérialise les params en Hash
+      # (clés string) avant le gsub.
+      params_hash = {} of String => String
+      params.each { |k, v| params_hash[k.to_s] = v.to_s }
       template.gsub(/%\{(\w+)\}/) do |_|
-        name = $1.to_sym
-        if params.has_key?(name)
-          params[name].to_s
-        else
-          "%{#{$1}}"
-        end
+        name = $1
+        params_hash[name]? || "%{#{name}}"
       end
     end
   end
