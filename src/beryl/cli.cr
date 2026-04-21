@@ -194,7 +194,7 @@ module Beryl::CLI
       p.on("--disk=PATH", "Disque cible sur l'hôte (REQUIS, ex. /dev/sda, /dev/nvme0n1)") { |v| target_disk = v }
       p.on("--iso-url=URL", "URL de l'ISO FreeBSD disc1 (priorité : --iso-url > défaut paramétré par --freebsd-version)") { |v| iso_url_override = v }
       p.on("--freebsd-version=VER", "Version FreeBSD à installer (défaut : 15.0)") { |v| freebsd_version = v }
-      p.on("--authorized-keys=FILE", "Fichier local contenant les clés SSH (défaut : ~/.ssh/authorized_keys)") { |v| authorized_keys_file = v }
+      p.on("--authorized-keys=FILE", "Fichier local contenant les clés SSH (défaut : ~/.ssh/authorized_keys)") { |v| authorized_keys_file = File.expand_path(v, home: true) }
       p.on("--hostname=NAME", "Hostname à configurer (défaut : nom dans l'inventaire)") { |v| hostname_override = v }
       p.on("--pool=NAME", "Nom du pool ZFS (défaut : zroot)") { |v| pool_name = v }
       p.on("--swap=GB", "Taille du swap en Go (défaut : 4)") { |v| swap_gb = v.to_i }
