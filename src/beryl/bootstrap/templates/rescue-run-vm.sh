@@ -44,14 +44,24 @@ SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
           -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 \
           -o ConnectTimeout=5"
 
+# `ssh_vm` court : 10 s max. Pour les commandes distantes rapides
+# (uname, test, launch bsdinstall en nohup &). NE PAS utiliser pour un
+# fetch/download qui peut durer minutes.
 ssh_vm() {
   # shellcheck disable=SC2086
   timeout 10 sshpass -p "$VM_PASSWORD" ssh $SSH_OPTS -p "$VM_PORT" "root@$VM_HOST" "$@"
 }
 
+# `ssh_vm_long` : pour les opérations longues (fetch txz ~200 Mo,
+# install chroot). 15 min max, large de marge.
+ssh_vm_long() {
+  # shellcheck disable=SC2086
+  timeout 900 sshpass -p "$VM_PASSWORD" ssh $SSH_OPTS -p "$VM_PORT" "root@$VM_HOST" "$@"
+}
+
 scp_to_vm() {
   # shellcheck disable=SC2086
-  timeout 30 sshpass -p "$VM_PASSWORD" scp $SSH_OPTS -P "$VM_PORT" "$1" "root@$VM_HOST:$2"
+  timeout 60 sshpass -p "$VM_PASSWORD" scp $SSH_OPTS -P "$VM_PORT" "$1" "root@$VM_HOST:$2"
 }
 
 echo "[rescue-run-vm] attente SSH mfsBSD (timeout ${VM_BOOT_SEC}s)..."
@@ -71,8 +81,8 @@ done
 echo "[rescue-run-vm] upload installerconfig ($INSTALLERCFG_PATH → VM /tmp/installerconfig)"
 scp_to_vm "$INSTALLERCFG_PATH" "/tmp/installerconfig"
 
-echo "[rescue-run-vm] pré-fetch MANIFEST + distributions dans la VM (évite dialog Mirror Selection)"
-ssh_vm "mkdir -p /usr/freebsd-dist && \
+echo "[rescue-run-vm] pré-fetch MANIFEST + distributions dans la VM (~200 Mo, évite dialog Mirror Selection)"
+ssh_vm_long "mkdir -p /usr/freebsd-dist && \
   fetch -q -o /usr/freebsd-dist/MANIFEST $DISTSITE/MANIFEST && \
   fetch -q -o /usr/freebsd-dist/base.txz $DISTSITE/base.txz && \
   fetch -q -o /usr/freebsd-dist/kernel.txz $DISTSITE/kernel.txz && \
