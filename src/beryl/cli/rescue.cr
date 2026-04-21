@@ -121,6 +121,11 @@ module Beryl::CLI::Rescue
       )
     end
 
+    # Purge ~/.ssh/known_hosts : on va changer la clé d'hôte (production
+    # → rescue Linux ou rescue → autre rescue). Évite un futur « REMOTE
+    # HOST IDENTIFICATION HAS CHANGED » côté utilisateur.
+    Beryl.clean_known_hosts(host.name, host.port)
+
     provider = host.provider
     case provider
     when "ovh"

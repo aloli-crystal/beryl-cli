@@ -43,4 +43,18 @@ module Beryl
     needed = width - line.size
     needed > 0 ? " " * needed : ""
   end
+
+  # Nettoie ~/.ssh/known_hosts de toute entrée pour `host` (et la
+  # variante `[host]:port` si port != 22). À appeler avant toute
+  # sous-commande qui change la clé d'hôte (rescue, bootstrap, boot-hd)
+  # pour éviter à l'utilisateur un futur `REMOTE HOST IDENTIFICATION HAS
+  # CHANGED`. Silencieux si l'entrée n'existe pas.
+  def self.clean_known_hosts(host : String, port : Int32 = 22) : Nil
+    Process.run("ssh-keygen", ["-R", host],
+      output: Process::Redirect::Close, error: Process::Redirect::Close)
+    if port != 22
+      Process.run("ssh-keygen", ["-R", "[#{host}]:#{port}"],
+        output: Process::Redirect::Close, error: Process::Redirect::Close)
+    end
+  end
 end

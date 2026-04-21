@@ -82,6 +82,11 @@ module Beryl::CLI::BootHd
       return EXIT_MISSING_CONFIG
     end
 
+    # Purge ~/.ssh/known_hosts : on change la clé d'hôte (rescue Linux
+    # → FreeBSD installée). Évite un futur « REMOTE HOST IDENTIFICATION
+    # HAS CHANGED » côté utilisateur.
+    Beryl.clean_known_hosts(host.name, host.port)
+
     log "OVH : boot_from_disk pour #{service_name}"
     client = ovh_client_factory.call
     task = client.dedicated_servers.boot_from_disk(service_name)

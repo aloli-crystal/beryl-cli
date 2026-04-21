@@ -237,16 +237,9 @@ module Beryl::CLI
     STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl] #{Beryl::I18n.t(:bootstrap_path, version: freebsd_version)}"
     STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl] #{Beryl::I18n.t(:bootstrap_keys_loaded, count: keys.size, path: authorized_keys_file)}"
 
-    # Nettoie l'éventuelle clé d'hôte stockée dans ~/.ssh/known_hosts
-    # au cas où l'utilisateur s'y serait connecté manuellement avant
-    # bootstrap (accept-new en mode interactif, ou session précédente).
-    # Les connexions internes de beryl contournent already known_hosts
-    # via UserKnownHostsFile=/dev/null, mais c'est une politesse vis-à-vis
-    # du user qui rouvrira la session SSH post-bootstrap.
-    Process.run("ssh-keygen", ["-R", host.name], output: Process::Redirect::Close, error: Process::Redirect::Close)
-    if host.port != 22
-      Process.run("ssh-keygen", ["-R", "[#{host.name}]:#{host.port}"], output: Process::Redirect::Close, error: Process::Redirect::Close)
-    end
+    # Nettoie ~/.ssh/known_hosts : la clé d'hôte va changer plusieurs
+    # fois pendant le bootstrap. Voir Beryl.clean_known_hosts.
+    Beryl.clean_known_hosts(host.name, host.port)
 
     # Connexion SSH au rescue : la clé d'hôte va changer plusieurs fois
     # pendant le bootstrap (rescue Linux → mfsBSD dans QEMU → FreeBSD
