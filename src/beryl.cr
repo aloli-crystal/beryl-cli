@@ -1,6 +1,7 @@
 require "./beryl/version"
 require "./beryl/i18n"
 require "./beryl/ssh"
+require "./beryl/freebsd_config"
 require "./beryl/inventory"
 require "./beryl/bootstrap"
 

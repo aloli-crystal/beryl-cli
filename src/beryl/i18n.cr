@@ -32,6 +32,10 @@ module Beryl
         fr: "%{count} clé(s) SSH chargée(s) depuis %{path}.",
         en: "Loaded %{count} SSH key(s) from %{path}.",
       },
+      bootstrap_users_loaded: {
+        fr: "%{count} utilisateur(s) à créer : %{names}.",
+        en: "%{count} user(s) to create: %{names}.",
+      },
       bootstrap_done: {
         fr: "Bootstrap terminé pour %{host}.",
         en: "Bootstrap completed for %{host}.",

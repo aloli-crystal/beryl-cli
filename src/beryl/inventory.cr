@@ -19,6 +19,13 @@ module Beryl
     # présent.
     getter provider_config : Hash(String, YAML::Any)
 
+    # Configuration FreeBSD spécifique (bloc `freebsd:` du YAML). `nil` si
+    # le bloc est absent. Sert de source d'informations pour `beryl
+    # bootstrap` : disques, RAID, users, packages, sudoers, etc. Les
+    # flags CLI priment quand ils sont présents (règle :
+    # « CLI > YAML > erreur explicite », pas de défaut silencieux).
+    getter freebsd_config : FreebsdConfig?
+
     def initialize(
       @name : String,
       @provider : String? = nil,
@@ -28,6 +35,7 @@ module Beryl
       @recipes : Array(String) = [] of String,
       @variables : Hash(String, YAML::Any) = {} of String => YAML::Any,
       @provider_config : Hash(String, YAML::Any) = {} of String => YAML::Any,
+      @freebsd_config : FreebsdConfig? = nil,
     )
     end
 
@@ -153,6 +161,7 @@ module Beryl
           recipes: extract_string_array(cfg["recipes"]?),
           variables: extract_string_keyed_hash(cfg["variables"]?),
           provider_config: provider_config,
+          freebsd_config: FreebsdConfig.from_yaml(cfg["freebsd"]?),
         )
       end
 
