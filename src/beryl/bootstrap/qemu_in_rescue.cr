@@ -540,13 +540,15 @@ module Beryl::Bootstrap
     # du flux d'étapes.
     private def hint_follow_bsdinstall : Nil
       rescue_host = @rescue_conn.host
-      # La commande est imprimée SANS préfixe `#` pour rester copiable
-      # d'un coup ; seul le commentaire d'intro en a. Aucune clé ajoutée
-      # à ~/.ssh/known_hosts du user (le rescue OVH est éphémère).
+      # Bordure visuelle pour démarquer le pense-bête du flux de log,
+      # commande imprimée SANS préfixe `#` pour rester copiable d'un
+      # coup. Aucune clé ajoutée à ~/.ssh/known_hosts du user (le rescue
+      # OVH est éphémère).
+      border = "#" * 90
+      STDERR.puts border
       STDERR.puts "# Pour suivre bsdinstall en direct depuis un autre terminal, copiez-collez :"
-      STDERR.puts
       STDERR.puts %(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@#{rescue_host} 'sshpass -p #{MFSBSD_ROOT_PASSWORD} ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=keyboard-interactive -o PubkeyAuthentication=no -p #{VM_SSH_PORT} root@#{VM_SSH_HOST} "tail -f #{VM_BSDINSTALL_LG}"')
-      STDERR.puts
+      STDERR.puts border
     end
 
     # Horodatage sensible à la locale :
