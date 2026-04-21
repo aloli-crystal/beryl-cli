@@ -23,8 +23,11 @@ module Beryl::CLI::BootHd
   EXIT_BAD_PROVIDER   = 5
   EXIT_MISSING_CONFIG = 6
   EXIT_API_ERROR      = 7
+  EXIT_TASK_FAILED    = 9
 
   DEFAULT_SSH_WAIT_TIMEOUT = 10.minutes
+  TASK_WAIT_TIMEOUT        = 5.minutes
+  TASK_POLL_INTERVAL       = 10.seconds
 
   alias OvhClientFactory = -> OvhApi::Client
 
@@ -33,6 +36,7 @@ module Beryl::CLI::BootHd
     args : Array(String),
     ovh_client_factory : OvhClientFactory = -> { Beryl::CLI::Credentials.ovh_client },
     wait_for_ssh : Proc(String, Int32, String, Time::Span, Time::Span, Bool) = ->Beryl::CLI::Rescue.default_wait_for_ssh(String, Int32, String, Time::Span, Time::Span),
+    task_poll_interval : Time::Span = TASK_POLL_INTERVAL,
   ) : Int32
     wait = true
     user = "admin"
@@ -84,6 +88,7 @@ module Beryl::CLI::BootHd
     log "OVH : tâche ##{task.id} (#{task.function}) en #{task.status}"
 
     if wait
+      wait_ovh_task_done(client, service_name, task, task_poll_interval)
       log "attente du retour SSH sur #{host.name} (port #{host.port}, user #{user}, timeout #{timeout.total_minutes.to_i} min)"
       if wait_for_ssh.call(host.name, host.port, user, timeout, Beryl::CLI::Rescue::SSH_POLL_INTERVAL)
         log "ready : SSH répond sur #{host.name} en #{user}"
@@ -99,6 +104,9 @@ module Beryl::CLI::BootHd
   rescue ex : Beryl::Inventory::NotFound
     STDERR.puts "beryl : #{ex.message}"
     EXIT_USAGE
+  rescue ex : TaskFailed
+    STDERR.puts "beryl : #{ex.message}"
+    EXIT_TASK_FAILED
   rescue ex : Beryl::CLI::Credentials::MissingCredentials
     STDERR.puts "beryl : #{ex.message}"
     EXIT_BAD_CREDS
@@ -111,6 +119,40 @@ module Beryl::CLI::BootHd
   rescue ex
     STDERR.puts "beryl : erreur inattendue — #{ex.class}: #{ex.message}"
     EXIT_UNEXPECTED
+  end
+
+  class TaskFailed < Exception
+  end
+
+  # Poll la task OVH jusqu'à `done` (ou terminale différente de done).
+  # Même logique que dans beryl rescue : évite de polle SSH avant que
+  # le reboot soit effectif (sinon on tombe sur l'ancien OS qui répond).
+  private def self.wait_ovh_task_done(
+    client : OvhApi::Client,
+    service_name : String,
+    task : OvhApi::Endpoints::Task,
+    poll_interval : Time::Span,
+  ) : Nil
+    deadline = Time.instant + TASK_WAIT_TIMEOUT
+    last_status = task.status
+    current = task
+    while Time.instant < deadline
+      return if current.success?
+      if current.failed? || current.status == "cancelled"
+        raise TaskFailed.new(
+          "tâche OVH ##{current.id} (#{current.function}) terminée en #{current.status} — #{current.comment}"
+        )
+      end
+      sleep poll_interval
+      current = client.dedicated_servers.task(service_name, task.id)
+      if current.status != last_status
+        log "OVH : tâche ##{current.id} → #{current.status}"
+        last_status = current.status
+      end
+    end
+    raise TaskFailed.new(
+      "tâche OVH ##{task.id} (#{task.function}) non aboutie après #{TASK_WAIT_TIMEOUT.total_minutes.to_i} min"
+    )
   end
 
   private def self.log(message : String) : Nil
