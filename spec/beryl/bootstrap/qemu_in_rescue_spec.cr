@@ -128,25 +128,17 @@ describe Beryl::Bootstrap::QemuInRescue do
       cfg.should contain("/dev/gpt/swap0")
     end
 
-    it "crée les users admin (wheel, csh) et deploy (www, zsh)" do
+    it "crée le user admin (wheel, csh) — base FreeBSD uniquement, deploy pour plus tard" do
       cfg = make_bootstrap.render_installerconfig
       cfg.should contain("pw useradd admin")
       cfg.should contain("-G wheel")
       cfg.should contain("-s /bin/csh")
-      cfg.should contain("pw useradd deploy")
-      cfg.should contain("-s /usr/local/bin/zsh")
     end
 
-    it "pose la clé SSH pour admin, deploy et root" do
+    it "pose la clé SSH pour admin et root" do
       cfg = make_bootstrap.render_installerconfig
-      # Boucle `for user in admin deploy; do ...` + bloc root explicite.
-      cfg.should contain("for user in admin deploy")
+      cfg.should contain("/home/admin/.ssh")
       cfg.should contain("/root/.ssh")
-    end
-
-    it "pose un sudoers wheel NOPASSWD" do
-      cfg = make_bootstrap.render_installerconfig
-      cfg.should contain("%wheel ALL=(ALL) NOPASSWD:ALL")
     end
 
     it "termine par poweroff pour que QEMU sorte via -no-reboot" do

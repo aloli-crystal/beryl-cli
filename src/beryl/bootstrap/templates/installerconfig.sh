@@ -42,18 +42,25 @@ DISTRIBUTIONS="kernel.txz base.txz"
 
 #!/bin/sh
 # Phase post-install : tourne *dans* le système FreeBSD fraîchement
-# installé (chroot géré par bsdinstall). Le réseau est déjà configuré
-# par l'installeur, donc `pkg install` fonctionne.
+# installé (chroot géré par bsdinstall). Volontairement minimaliste :
+# seules les tâches qui ne dépendent que de FreeBSD base (hostname, user
+# admin, ssh). Les packages (sudo, zsh, chruby…) et le user deploy sont
+# installés après reboot par `beryl apply`, car `pkg install` lancé ici
+# se heurte au sandbox Capsicum du chroot bsdinstall (signal 12 sur le
+# process de vérification de signature pkg — erreur observée sur loulou
+# le 21 avril 2026).
+#
+# `|| true` sur les commandes non critiques pour ne jamais empêcher le
+# `poweroff` final.
 
-set -eu
+set -u
 
 HOSTNAME="__HOSTNAME__"
 TIMEZONE="__TIMEZONE__"
 AUTHORIZED_KEYS_B64="__AUTHORIZED_KEYS_B64__"
-ABI="__ABI__"
 
 echo "==> [beryl] hostname $HOSTNAME"
-hostname "$HOSTNAME"
+hostname "$HOSTNAME" || true
 
 echo "==> [beryl] /etc/rc.conf (ifconfig_DEFAULT survit au changement VM → bare metal)"
 cat > /etc/rc.conf <<RC
@@ -73,50 +80,24 @@ cat > /etc/fstab <<FSTAB
 FSTAB
 
 echo "==> [beryl] fuseau horaire $TIMEZONE"
-cp "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime
+cp "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime || true
 
-echo "==> [beryl] installation sudo + zsh + chruby + ruby-install"
-env ABI="$ABI" ASSUME_ALWAYS_YES=yes pkg install -y sudo zsh chruby ruby-install
+echo "==> [beryl] création du user admin (wheel, csh — base FreeBSD uniquement)"
+pw useradd admin -g staff -G wheel -s /bin/csh -m -d /home/admin || true
 
-echo "==> [beryl] création des utilisateurs admin (wheel, csh) et deploy (www, zsh)"
-pw useradd admin -g staff -G wheel -s /bin/csh -m -d /home/admin
-pw groupadd www -g 80 2>/dev/null || true
-pw useradd deploy -g www -s /usr/local/bin/zsh -m -d /home/deploy
-
-echo "==> [beryl] injection de la clé SSH pour admin, deploy et root"
+echo "==> [beryl] injection de la clé SSH pour admin et root"
 printf '%s' "$AUTHORIZED_KEYS_B64" | b64decode -r > /tmp/keys
-for user in admin deploy; do
-  mkdir -p "/home/$user/.ssh"
-  cp /tmp/keys "/home/$user/.ssh/authorized_keys"
-  chown -R "$user" "/home/$user/.ssh"
-  chmod 700 "/home/$user/.ssh"
-  chmod 600 "/home/$user/.ssh/authorized_keys"
-done
-# root aussi (filet de diagnostic ; sshd garde PermitRootLogin no par
-# défaut sur FreeBSD 15 donc pas d'accès direct).
+mkdir -p /home/admin/.ssh
+cp /tmp/keys /home/admin/.ssh/authorized_keys
+chown -R admin /home/admin/.ssh
+chmod 700 /home/admin/.ssh
+chmod 600 /home/admin/.ssh/authorized_keys
 mkdir -p /root/.ssh
 cp /tmp/keys /root/.ssh/authorized_keys
 chmod 700 /root/.ssh
 chmod 600 /root/.ssh/authorized_keys
 rm -f /tmp/keys
 
-echo "==> [beryl] sudoers : wheel NOPASSWD"
-mkdir -p /usr/local/etc/sudoers.d
-cat > /usr/local/etc/sudoers.d/wheel-nopasswd <<SUDO
-%wheel ALL=(ALL) NOPASSWD:ALL
-SUDO
-chmod 440 /usr/local/etc/sudoers.d/wheel-nopasswd
-
-echo "==> [beryl] /home/deploy/.zshenv (chruby auto + locales fr)"
-cat > /home/deploy/.zshenv <<'ZSHENV'
-source /usr/local/share/chruby/chruby.sh
-source /usr/local/share/chruby/auto.sh
-[ -f ~/.ruby-version ] && chruby "$(cat ~/.ruby-version)"
-export LANG=fr_FR.UTF-8
-export LC_ALL=fr_FR.UTF-8
-umask 0002
-ZSHENV
-chown deploy:www /home/deploy/.zshenv
-
 echo "==> [beryl] poweroff : QEMU va quitter grâce à -no-reboot, le rescue reprend la main"
+sync
 poweroff
