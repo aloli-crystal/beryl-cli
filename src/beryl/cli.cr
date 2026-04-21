@@ -267,6 +267,14 @@ module Beryl::CLI
         "ServerAliveCountMax" => "3",
         "ControlMaster"       => "no",
         "ControlPath"         => "none",
+        # macOS ssh active GSSAPI/Keychain par défaut et essaie les clés
+        # de ssh-agent avant IdentityFile. Sur un laptop avec plusieurs
+        # clés, ça fait « Too many authentication failures » ou des
+        # longues attentes Kerberos avant de tomber sur la bonne clé.
+        # On force l'usage unique de l'identity_file configurée.
+        "IdentitiesOnly"           => "yes",
+        "GSSAPIAuthentication"     => "no",
+        "PreferredAuthentications" => "publickey",
       },
     )
 

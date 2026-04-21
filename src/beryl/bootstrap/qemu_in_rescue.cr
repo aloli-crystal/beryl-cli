@@ -338,15 +338,15 @@ module Beryl::Bootstrap
     # de `wait_for_vm_ssh` : mieux vaut un exit code non-zéro ressenti
     # et retenté que 180 secondes d'attente muette.
     private def mfsbsd_ssh_cmd(remote : String) : String
-      # `-F /dev/null` sur le ssh du rescue aussi : le rescue OVH pose
-      # parfois un ssh_config système (/etc/ssh/ssh_config) qui peut
-      # forcer des options non désirées. Et `timeout 10` coupe sshpass
-      # si le boot mfsBSD n'est pas encore prêt.
+      # `timeout 10` coupe sshpass si le boot mfsBSD n'est pas encore
+      # prêt ou que l'auth traîne. Les options ssh sont choisies pour
+      # n'essayer QUE le keyboard-interactive (pas de tentative pubkey
+      # qui échouerait à coup sûr et ralentirait chaque poll).
       "timeout 10 sshpass -p #{Process.quote(MFSBSD_ROOT_PASSWORD)} " \
-      "ssh -F /dev/null " \
-      "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null " \
+      "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null " \
       "-o PreferredAuthentications=keyboard-interactive " \
       "-o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 " \
+      "-o GSSAPIAuthentication=no -o IdentitiesOnly=yes " \
       "-o ConnectTimeout=5 -o ServerAliveInterval=3 -o ServerAliveCountMax=2 " \
       "-p #{VM_SSH_PORT} root@#{VM_SSH_HOST} #{Process.quote(remote)}"
     end

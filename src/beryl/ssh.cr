@@ -158,11 +158,6 @@ module Beryl
 
       private def base_args : Array(String)
         args = [] of String
-        # `-F /dev/null` ignore totalement le ~/.ssh/config de l'utilisateur :
-        # beryl a été pris au piège par des lignes polluées dans le config
-        # du laptop (bad configuration option → ssh refuse de tourner).
-        # Le bootstrap ne doit jamais dépendre d'un état externe du shell.
-        args << "-F" << "/dev/null"
         args << "-p" << @port.to_s
         if identity = @identity_file
           args << "-i" << identity
