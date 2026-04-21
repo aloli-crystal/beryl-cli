@@ -258,6 +258,15 @@ module Beryl::CLI
         "StrictHostKeyChecking" => "no",
         "UserKnownHostsFile"    => "/dev/null",
         "LogLevel"              => "ERROR",
+        # Garanties contre les hangs silencieux côté Process.run :
+        # connection en 10 s max, keep-alive actif, pas de réutilisation
+        # d'un ControlMaster éventuellement orphelin dans le ssh_config
+        # de l'utilisateur.
+        "ConnectTimeout"      => "10",
+        "ServerAliveInterval" => "15",
+        "ServerAliveCountMax" => "3",
+        "ControlMaster"       => "no",
+        "ControlPath"         => "none",
       },
     )
 
