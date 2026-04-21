@@ -70,9 +70,8 @@ module Beryl::Bootstrap
     # Largeur cible pour l'alignement du compteur `[   Ns]` en fin de
     # ligne (en *caractères*, pas en octets — on utilise `String#size`
     # pour pader, sinon les tirets cadratins UTF-8 faussent le calcul
-    # de `printf %-Ns`). Avec 112 + 2 espaces + `[NNNs]` (7 chars),
-    # le `]` final tombe en colonne 121.
-    STEP_LINE_WIDTH = 112
+    # de `printf %-Ns`).
+    STEP_LINE_WIDTH = 117
 
     getter rescue_conn : SSH::Connection
     getter target_disk : String
