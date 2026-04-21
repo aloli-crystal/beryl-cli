@@ -84,9 +84,9 @@ id admin
 test -d /home/admin || { echo "ERREUR : /home/admin n'existe pas après useradd -m" >&2; exit 1; }
 
 echo "==> [beryl] injection de la clé SSH pour admin uniquement"
-# Volontairement PAS de clé root + PAS de PermitRootLogin : FreeBSD
-# applique le défaut 'no' et c'est ce qu'on veut. admin (wheel) passera
-# par sudo (installé en phase ultérieure).
+# Volontairement PAS de clé pour root et PAS de modif sshd_config :
+# FreeBSD refuse les connexions SSH root par défaut et c'est ce qu'on
+# veut. admin (wheel) passera par sudo (installé en phase ultérieure).
 printf '%s' "$AUTHORIZED_KEYS_B64" | b64decode -r > /tmp/keys
 mkdir -p /home/admin/.ssh
 cp /tmp/keys /home/admin/.ssh/authorized_keys
