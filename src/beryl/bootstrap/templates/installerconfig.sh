@@ -1,15 +1,19 @@
-#!/bin/sh
 # installerconfig bsdinstall — généré par beryl pour __HOSTNAME__
+#
+# ATTENTION : pas de shebang `#!/bin/sh` en tête de fichier. bsdinstall
+# utilise la PREMIÈRE ligne commençant par `#!` comme séparateur entre
+# préambule et post-install chroot. Si on en met un au tout début, tout
+# le préambule (ZFSBOOT_*, DISTRIBUTIONS…) est ignoré, ZFSBOOT_POOL_NAME
+# reste vide et bsdinstall boucle sur « Pool name cannot be empty ».
 #
 # Format `bsdinstall script` :
 # https://man.freebsd.org/cgi/man.cgi?query=bsdinstall
 #
 # Première partie : variables d'environnement et DISTRIBUTIONS lues
-# par bsdinstall avant le pivot dans le système installé. Le second
-# `#!/bin/sh` plus bas déclenche la phase post-install chroot (le script
-# tourne dans la racine du FreeBSD fraîchement posé).
+# par bsdinstall. Le `#!/bin/sh` plus bas est le séparateur ; la phase
+# post-install chroot tourne dans la racine du FreeBSD fraîchement posé.
 #
-# Placeholders __XXX__ remplacés par beryl avant intégration à l'ISO.
+# Placeholders __XXX__ remplacés par beryl avant scp dans la VM.
 
 # ZFS auto-partitioning via bsdinstall/auto. Du point de vue de la VM
 # QEMU, le disque réel passthrough apparaît comme vtbd1 (virtio-blk #1,
