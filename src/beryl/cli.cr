@@ -295,6 +295,11 @@ module Beryl::CLI
   rescue ex : Beryl::SSH::CommandFailed
     STDERR.puts "beryl : #{ex.message}"
     2
+  rescue ex : Beryl::Bootstrap::QemuInRescue::TargetDiskNotEmpty
+    # Garde-fou NOGO : le disque porte déjà une install BSD. Message
+    # explicite pour l'opérateur, exit code dédié.
+    STDERR.puts "beryl : #{ex.message}"
+    10
   rescue ex
     STDERR.puts "beryl : erreur inattendue — #{ex.class}: #{ex.message}"
     3
