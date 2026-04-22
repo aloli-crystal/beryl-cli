@@ -1,0 +1,5 @@
+ovh:
+  ssh_key_name: philippe.aloli.fr
+
+ssh_keys:
+  - ssh-ed25519 AAAA philippe@aloli.fr

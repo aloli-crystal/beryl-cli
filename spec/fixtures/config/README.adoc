@@ -1,0 +1,36 @@
+= Fixtures Beryl::Config pour les tests
+
+Chaque sous-dossier représente une arborescence `~/.beryl/` complète,
+versionnée dans le dépôt pour rendre les tests reproductibles et
+lisibles (plutôt que des arborescences créées à la volée dans `/tmp`).
+
+Convention :
+
+  spec/fixtures/config/<cas>/
+    _default.yml          (optionnel)
+    .env.yml              (optionnel)
+    <domaine>.yml         (au moins un)
+    <domaine>/            (optionnel, contenu du domaine)
+      <host>.yml
+      <groupe>.yml
+      <groupe>/
+        <host>.yml
+
+Un spec charge un cas via :
+
+  Beryl::Config::Root.load("spec/fixtures/config/<cas>")
+
+== Cas disponibles
+
+- `minimal-domain/`         : un seul domaine vide (juste identité).
+- `with-defaults-and-env/`  : _default.yml + .env.yml + un domaine.
+- `direct-hosts/`           : un domaine avec un host direct.
+- `with-group/`             : un domaine avec un groupe + 2 hosts.
+- `group-dir-without-yml/`  : groupe-dossier sans fichier de
+                              définition (propriétés par défaut).
+- `multi-domains/`          : deux domaines indépendants.
+- `provider-name-search/`   : host dont le `ovh.service_name` est
+                              utilisé pour la recherche par
+                              provider-name.
+- `ambiguous-name/`         : nom de host identique dans 2 domaines,
+                              teste la détection d'ambiguïté.

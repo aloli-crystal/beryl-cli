@@ -1,0 +1,3 @@
+freebsd:
+  hostname: rails02
+  disks: [/dev/sdb]

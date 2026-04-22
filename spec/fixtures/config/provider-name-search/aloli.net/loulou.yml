@@ -1,0 +1,7 @@
+provider: ovh
+
+ovh:
+  service_name: ns3156789.ip-51-83-6.eu
+
+freebsd:
+  hostname: loulou

@@ -245,6 +245,9 @@ module Beryl::Config
 
   # Host résolu : résultat d'une recherche dans la `Root`. Porte le
   # contexte (domaine, groupe éventuel) + la config effective mergée.
+  # Expose des accesseurs pratiques pour les sous-commandes (ssh_host,
+  # ovh_service_name, …) qui évitent ainsi le parsing manuel du hash
+  # `merged`.
   class ResolvedHost
     getter short_name : String # "rails01"
     getter domain : Domain
@@ -267,6 +270,101 @@ module Beryl::Config
     # n'apparaît pas (règle figée : pas de `rails01.web.aloli.net`).
     def fqdn : String
       "#{@short_name}.#{@domain.name}"
+    end
+
+    def group_name : String?
+      @group.try(&.name)
+    end
+
+    def domain_name : String
+      @domain.name
+    end
+
+    # Provider déclaré dans le merged (ex: "ovh", "scaleway").
+    def provider : String?
+      @merged[YAML::Any.new("provider")]?.try(&.as_s?)
+    end
+
+    # Accès générique à un champ du bloc `<provider>:` (service_name,
+    # server_id, zone, etc.).
+    def provider_field(provider_name : String, field : String) : String?
+      block = @merged[YAML::Any.new(provider_name)]?.try(&.as_h?)
+      return nil unless block
+      block[YAML::Any.new(field)]?.try(&.as_s?)
+    end
+
+    def ovh_service_name : String?
+      provider_field("ovh", "service_name")
+    end
+
+    def ovh_ssh_key_name : String?
+      provider_field("ovh", "ssh_key_name")
+    end
+
+    def scaleway_server_id : String?
+      provider_field("scaleway", "server_id")
+    end
+
+    def scaleway_zone : String?
+      provider_field("scaleway", "zone")
+    end
+
+    def port : Int32
+      @merged[YAML::Any.new("port")]?.try(&.as_i?) || 22
+    end
+
+    def user : String
+      @merged[YAML::Any.new("user")]?.try(&.as_s?) || "root"
+    end
+
+    def identity_file : String?
+      @merged[YAML::Any.new("identity_file")]?.try(&.as_s?)
+    end
+
+    # Hostname effectif pour SSH. Pour OVH avec service_name déclaré,
+    # on privilégie le FQDN OVH (toujours résoluble). Sinon le FQDN
+    # logique. Permet de se connecter même sans DNS custom posé.
+    def ssh_host : String
+      if provider == "ovh" && (sn = ovh_service_name)
+        return sn
+      end
+      fqdn
+    end
+
+    # Vrai si ssh_host ≠ fqdn (on utilise le nom hébergeur, pas le
+    # nom custom). Utile pour afficher les deux dans les logs.
+    def ssh_host_is_provider_name? : Bool
+      ssh_host != fqdn
+    end
+
+    # Bloc `freebsd:` mergé (hash brut).
+    def freebsd_hash : Hash(YAML::Any, YAML::Any)
+      @merged[YAML::Any.new("freebsd")]?.try(&.as_h?) || {} of YAML::Any => YAML::Any
+    end
+
+    def freebsd_string(field : String) : String?
+      freebsd_hash[YAML::Any.new(field)]?.try(&.as_s?)
+    end
+
+    def freebsd_int(field : String) : Int32?
+      freebsd_hash[YAML::Any.new(field)]?.try(&.as_i?)
+    end
+
+    def freebsd_string_array(field : String) : Array(String)
+      val = freebsd_hash[YAML::Any.new(field)]?
+      return [] of String unless val
+      (val.as_a? || [] of YAML::Any).compact_map(&.as_s?)
+    end
+
+    # Construit une `SSH::Connection` prête à l'emploi vers cet host
+    # avec `ssh_host` comme cible.
+    def connection : SSH::Connection
+      SSH::Connection.new(
+        host: ssh_host,
+        user: user,
+        port: port,
+        identity_file: identity_file,
+      )
     end
 
     def group_name : String?

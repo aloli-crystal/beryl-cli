@@ -1,0 +1,4 @@
+freebsd:
+  timezone: Europe/Paris
+  raid: stripe
+  swap_gb: 4

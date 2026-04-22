@@ -14,6 +14,13 @@
 inventory.local.yml
 *.secret.yml
 .env
+.env.yml
+
+# Config beryl locale (ex: ./.beryl/ si l'utilisateur teste en local
+# au lieu de ~/.beryl/). Peut contenir des credentials (.env.yml),
+# des clés SSH et d'autres secrets — JAMAIS dans git.
+.beryl/
+/.beryl
 
 # macOS
 .DS_Store
