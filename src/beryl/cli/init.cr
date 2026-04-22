@@ -32,6 +32,7 @@ module Beryl::CLI::Init
     ssh_key_name_flag : String? = nil
     admin_key_file : String? = nil
     force = false
+    dry_run = false
     non_interactive = false
     positional = [] of String
 
@@ -41,6 +42,7 @@ module Beryl::CLI::Init
       p.on("-z NAME", "--zone=NAME", "Zone DNS (ex: aloli.net)") { |v| zone_flag = v }
       p.on("-s NAME", "--ssh-key-name=NAME", "Label de la clé SSH chez l'hébergeur (auto via API si absent)") { |v| ssh_key_name_flag = v }
       p.on("-k FILE", "--admin-key=FILE", "Fichier .pub local (auto via ~/.ssh/ sinon)") { |v| admin_key_file = File.expand_path(v, home: true) }
+      p.on("-n", "--dry-run", "Affiche les fichiers qui seraient créés sans rien écrire") { dry_run = true }
       p.on("-f", "--force", "Écrase les fichiers existants") { force = true }
       p.on("-N", "--non-interactive", "Aucune invite (tout via flags)") { non_interactive = true }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
@@ -50,9 +52,10 @@ module Beryl::CLI::Init
 
     provider_hint ||= positional.first?
 
-    Dir.mkdir_p(config_root)
+    Dir.mkdir_p(config_root) unless dry_run
     env_path = File.join(config_root, ".env.yml")
     env_file = Beryl::Config::EnvFile.load(env_path)
+    STDERR.puts "DRY-RUN : mode simulation, aucun fichier écrit" if dry_run
 
     # Étape 1 — Choix du provider (parmi ceux implémentés)
     provider = pick_provider(provider_hint, non_interactive)
@@ -73,7 +76,7 @@ module Beryl::CLI::Init
     # Étape 3 — Credentials du provider pour CE domaine. On garantit
     # qu'ils sont persistés dans `.env.yml[<zone>]`, peu importe leur
     # provenance actuelle (shell, fichier, à saisir).
-    unless ensure_credentials_for(provider, zone, env_file, env_path, non_interactive)
+    unless ensure_credentials_for(provider, zone, env_file, env_path, non_interactive, dry_run: dry_run)
       return EXIT_ABORTED
     end
 
@@ -83,15 +86,31 @@ module Beryl::CLI::Init
 
     # Étape 5 — Écriture du socle _default.yml s'il n'existe pas
     defaults_path = File.join(config_root, "_default.yml")
-    unless File.exists?(defaults_path)
-      File.write(defaults_path, default_yaml_content)
-      STDERR.puts "[beryl init] _default.yml créé"
+    if dry_run
+      if File.exists?(defaults_path)
+        STDERR.puts "DRY-RUN : #{defaults_path} existe déjà, pas écrasé"
+      else
+        STDERR.puts "DRY-RUN : #{defaults_path} serait créé (#{default_yaml_content.size} octets)"
+      end
+    else
+      unless File.exists?(defaults_path)
+        File.write(defaults_path, default_yaml_content)
+        STDERR.puts "[beryl init] _default.yml créé"
+      end
     end
 
     # Étape 6 — Écriture du fichier domaine
     admin_key_content = selection[:admin_key_content]
-    File.write(domain_yml, render_domain_yaml(provider, selection[:provider_key_id], admin_key_content))
-    STDERR.puts "[beryl init] #{domain_yml} créé"
+    domain_content = render_domain_yaml(provider, selection[:provider_key_id], admin_key_content)
+    if dry_run
+      STDERR.puts "DRY-RUN : #{domain_yml} serait créé avec :"
+      STDERR.puts "─" * 60
+      STDERR.puts domain_content
+      STDERR.puts "─" * 60
+    else
+      File.write(domain_yml, domain_content)
+      STDERR.puts "[beryl init] #{domain_yml} créé"
+    end
 
     STDERR.puts
     STDERR.puts "[beryl init] Domaine `#{zone}` initialisé dans #{config_root}"
@@ -163,6 +182,7 @@ module Beryl::CLI::Init
     env_file : Beryl::Config::EnvFile,
     env_path : String,
     non_interactive : Bool,
+    dry_run : Bool = false,
   ) : Bool
     required = provider.credentials_env_vars.reject(&.optional)
     current = env_file.for_domain(zone).dup
@@ -214,16 +234,27 @@ module Beryl::CLI::Init
 
     # Persiste systématiquement. Log clair sur la provenance.
     env_file.set_domain(zone, current)
-    env_file.save
-    if picked_up_from_shell.empty? && prompted.empty?
-      STDERR.puts "[beryl init] Credentials déjà présents dans #{env_path}[#{zone}]"
+    source_bits = [] of String
+    source_bits << "#{picked_up_from_shell.size} depuis le shell" unless picked_up_from_shell.empty?
+    source_bits << "#{prompted.size} saisies" unless prompted.empty?
+    if dry_run
+      if source_bits.empty?
+        STDERR.puts "DRY-RUN : credentials déjà présents dans #{env_path}[#{zone}]"
+      else
+        STDERR.puts "DRY-RUN : #{env_path}[#{zone}] recevrait #{current.size} variable(s) (#{source_bits.join(", ")})"
+      end
+      # On applique quand même dans ENV pour que la suite du dry-run
+      # (ex: select_ssh_key appelle l'API du provider) fonctionne.
+      env_file.apply_to_env(zone, overwrite: true)
     else
-      source_bits = [] of String
-      source_bits << "#{picked_up_from_shell.size} depuis le shell" unless picked_up_from_shell.empty?
-      source_bits << "#{prompted.size} saisies" unless prompted.empty?
-      STDERR.puts "[beryl init] Credentials écrits dans #{env_path}[#{zone}] (#{source_bits.join(", ")})"
+      env_file.save
+      if source_bits.empty?
+        STDERR.puts "[beryl init] Credentials déjà présents dans #{env_path}[#{zone}]"
+      else
+        STDERR.puts "[beryl init] Credentials écrits dans #{env_path}[#{zone}] (#{source_bits.join(", ")})"
+      end
+      env_file.apply_to_env(zone, overwrite: true)
     end
-    env_file.apply_to_env(zone, overwrite: true)
 
     unless provider.available?
       STDERR.puts "beryl : credentials posés mais #{provider.display_name} se déclare indisponible (vérifiez #{env_path})"

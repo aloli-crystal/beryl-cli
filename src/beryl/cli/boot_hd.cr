@@ -33,12 +33,14 @@ module Beryl::CLI::BootHd
     user = "admin"
     timeout = DEFAULT_SSH_WAIT_TIMEOUT
     domain_hint : String? = nil
+    dry_run = false
     positional = [] of String
 
     parser = OptionParser.new do |p|
       p.banner = "USAGE : beryl boot-hd <host> [options]"
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
-      p.on("-n", "--no-wait", "Ne pas attendre le retour SSH") { wait = false }
+      p.on("-n", "--dry-run", "Affiche l'appel API sans le déclencher") { dry_run = true }
+      p.on("--no-wait", "Ne pas attendre le retour SSH") { wait = false }
       p.on("-u USER", "--user=USER", "User pour le test SSH (défaut : admin)") { |v| user = v }
       p.on("-t MIN", "--timeout=MIN", "Timeout SSH en minutes (défaut : #{DEFAULT_SSH_WAIT_TIMEOUT.total_minutes.to_i})") { |v| timeout = v.to_i.minutes }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
@@ -65,6 +67,12 @@ module Beryl::CLI::BootHd
     unless service_name
       STDERR.puts "beryl : champ `ovh.service_name` manquant pour #{host.fqdn}"
       return EXIT_MISSING_CONFIG
+    end
+
+    if dry_run
+      log "DRY-RUN : OVHcloud → boot_from_disk(#{service_name})"
+      log "DRY-RUN : puis wait_for_ssh(#{host.ssh_host}:#{host.port} as #{user}, timeout #{timeout.total_minutes.to_i}m)" if wait
+      return EXIT_OK
     end
 
     Beryl.clean_known_hosts_for(host)

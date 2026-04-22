@@ -38,6 +38,7 @@ module Beryl::Config
 end
 
 require "./config/ssh_key_resolver"
+require "./config/zpool"
 require "./config/host_node"
 require "./config/group"
 require "./config/domain"

@@ -16,6 +16,7 @@ module Beryl::CLI::Wipe
   def self.run(config_root : String, args : Array(String), confirm_io : IO = STDIN) : Int32
     target_disk = nil
     force = false
+    dry_run = false
     domain_hint : String? = nil
     positional = [] of String
 
@@ -23,6 +24,7 @@ module Beryl::CLI::Wipe
       p.banner = "USAGE : beryl wipe <host> --disk PATH [options]"
       p.on("-k PATH", "--disk=PATH", "Disque à effacer (REQUIS, ex. /dev/sda)") { |v| target_disk = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
+      p.on("-n", "--dry-run", "Affiche les commandes sans les exécuter") { dry_run = true }
       p.on("-f", "--force", "Pas de confirmation (DANGER, scripts uniquement)") { force = true }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
       p.unknown_args { |rest, _| positional = rest }
@@ -83,6 +85,15 @@ module Beryl::CLI::Wipe
       puts "Pool(s) ZFS détecté(s) :"
       puts pool_out
       puts
+    end
+
+    if dry_run
+      puts
+      puts "DRY-RUN : aucune destruction. Script qui serait exécuté via SSH :"
+      puts "─" * 60
+      puts wipe_script(disk)
+      puts "─" * 60
+      return EXIT_OK
     end
 
     unless force

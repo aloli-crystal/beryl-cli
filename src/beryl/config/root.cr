@@ -361,6 +361,28 @@ module Beryl::Config
       (val.as_a? || [] of YAML::Any).compact_map(&.as_s?)
     end
 
+    # Hash `freebsd.zpool.*` ou vide si absent.
+    def freebsd_zpool_hash : Hash(YAML::Any, YAML::Any)
+      freebsd_hash[YAML::Any.new("zpool")]?.try(&.as_h?) || {} of YAML::Any => YAML::Any
+    end
+
+    # Niveau RAID numérique (0, 1, 5, 6, 7, 10). Défaut : 0 (stripe).
+    def zpool_raid : Int32
+      freebsd_zpool_hash[YAML::Any.new("raid")]?.try(&.as_i?) || 0
+    end
+
+    # Mode ZFS correspondant (`stripe`, `mirror`, `raidz`, `raidz2`,
+    # `raidz3`, `mirror_stripe`). Lève sur niveau inconnu.
+    def zpool_zfs_mode : String
+      Beryl::Config::Zpool.zfs_mode(zpool_raid)
+    end
+
+    # Valide la compatibilité raid/disks (nombre minimum, parité pour
+    # le RAID 10). Lève une exception explicite si incompatible.
+    def validate_zpool! : Nil
+      Beryl::Config::Zpool.validate!(zpool_raid, freebsd_string_array("disks").size)
+    end
+
     # Construit une `SSH::Connection` prête à l'emploi vers cet host
     # avec `ssh_host` comme cible.
     def connection : SSH::Connection

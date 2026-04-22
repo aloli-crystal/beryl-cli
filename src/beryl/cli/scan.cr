@@ -62,6 +62,7 @@ module Beryl::CLI::Scan
     hostname_flag : String? = nil
     zone_flag : String? = nil
     dns_setup = false
+    dry_run = false
     domain_hint : String? = nil
     non_interactive = false
     positional = [] of String
@@ -69,10 +70,11 @@ module Beryl::CLI::Scan
     parser = OptionParser.new do |p|
       p.banner = "USAGE : beryl scan <host> [options]"
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
+      p.on("-n", "--dry-run", "Affiche ce qui serait fait sans écrire ni appeler d'API") { dry_run = true }
       p.on("-w", "--write", "Écrit ~/.beryl/<domaine>/<nom>.yml") { write_auto = true }
       p.on("-W PATH", "--write-to=PATH", "Écrit dans le chemin explicite") { |v| write_path = File.expand_path(v, home: true) }
       p.on("-k LIST", "--disks=LIST", "Disques à inclure (ex: sda,sdb), non-interactif") { |v| disks_flag = v }
-      p.on("-r MODE", "--raid=MODE", "Mode ZFS (stripe|mirror|raidz|raidz2|raidz3)") { |v| raid_flag = v }
+      p.on("-r N", "--raid=N", "Niveau RAID (0|1|5|6|7|10)") { |v| raid_flag = v }
       p.on("-H NAME", "--hostname=NAME", "Nom court à poser (défaut : nom court du FQDN)") { |v| hostname_flag = v }
       p.on("-z ZONE", "--zone=ZONE", "Zone DNS pour --dns (défaut : le domaine)") { |v| zone_flag = v }
       p.on("-D", "--dns", "Pose records DNS + reverse + rename OVH") { dns_setup = true }
@@ -98,7 +100,7 @@ module Beryl::CLI::Scan
     # --dns : faire le rename DNS + reverse AVANT le scan disques
     dns_plan : Beryl::CLI::DnsSetup::Plan? = nil
     if dns_setup
-      dns_plan = run_dns_setup(host, hostname_flag, zone_flag, non_interactive)
+      dns_plan = run_dns_setup(host, hostname_flag, zone_flag, non_interactive, dry_run: dry_run)
     end
 
     disks = read_disks(conn)
@@ -127,6 +129,13 @@ module Beryl::CLI::Scan
     target = resolve_write_target(write_path, write_auto, config_root, host.domain_name, short)
 
     if target
+      if dry_run
+        STDERR.puts "DRY-RUN : YAML qui serait écrit dans #{target} :"
+        STDERR.puts "─" * 60
+        print yaml
+        STDERR.puts "─" * 60
+        return EXIT_OK
+      end
       if File.exists?(target)
         if non_interactive
           STDERR.puts "beryl : #{target} existe (refus en --non-interactive)"
@@ -252,29 +261,44 @@ module Beryl::CLI::Scan
     result
   end
 
-  private def self.pick_raid(count : Int32, flag : String?, non_interactive : Bool) : String
+  # Prompt du niveau RAID sous forme numérique (convention parlante
+  # voulue par Philippe : 0, 1, 5, 6, 7, 10 plutôt que
+  # stripe/mirror/raidz…).
+  private def self.pick_raid(count : Int32, flag : String?, non_interactive : Bool) : Int32
     default = raid_default_for(count)
-    return flag if flag
+    if flag
+      n = flag.to_i? || raise "raid invalide : #{flag} (attendu : un nombre)"
+      raise "niveau RAID #{n} non supporté" unless Beryl::Config::Zpool.known?(n)
+      return n
+    end
     return default if non_interactive
-    ans = ask("Mode RAID ZFS [stripe|mirror|raidz|raidz2|raidz3] (défaut: #{default}) : ", default: default)
-    raise "raid invalide : #{ans}" unless %w[stripe mirror raidz raidz2 raidz3].includes?(ans)
-    ans
+    ans = ask("Niveau RAID [0=stripe 1=mirror 5=raidz 6=raidz2 7=raidz3] (défaut: #{default}) : ", default: default.to_s)
+    n = ans.to_i? || raise "raid invalide : #{ans}"
+    raise "niveau RAID #{n} non supporté (valeurs : 0, 1, 5, 6, 7, 10)" unless Beryl::Config::Zpool.known?(n)
+    n
   end
 
-  def self.raid_default_for(count : Int32) : String
+  # Défaut raisonnable selon le nombre de disques :
+  #   1 disque  → 0 (stripe, pas le choix)
+  #   2 disques → 1 (mirror, sécurité sans perte d'espace surprise)
+  #   3+ disques → 0 (stripe, convention Aloli :
+  #                backups bétonnés > redondance disque)
+  def self.raid_default_for(count : Int32) : Int32
     case count
-    when 1 then "stripe"
-    when 2 then "mirror"
-    else        "stripe"
+    when 1 then 0
+    when 2 then 1
+    else        0
     end
   end
 
-  # Rend le YAML d'un host pour la nouvelle arborescence.
+  # Rend le YAML d'un host. Le fichier ne contient QUE ce qui est
+  # spécifique (provider/service_name/hostname/disques/raid). Le
+  # reste vient du merge (_default.yml, <domaine>.yml).
   #
-  # Le fichier host ne contient QUE ce qui est spécifique :
-  #   provider / ovh.service_name / hostname / disks / raid
-  # Le reste vient du merge (_default.yml, <domaine>.yml).
-  def self.render_yaml(host : Beryl::Config::ResolvedHost, short : String, disks : Array(Disk), raid : String) : String
+  # Niveau RAID en notation numérique (0=stripe, 1=mirror, 5=raidz,
+  # 6=raidz2, 7=raidz3, 10=mirror_stripe) — traduit en mode ZFS par
+  # `Beryl::Config::Zpool.zfs_mode` au moment du bootstrap.
+  def self.render_yaml(host : Beryl::Config::ResolvedHost, short : String, disks : Array(Disk), raid : Int32) : String
     String.build do |io|
       io << "# Généré par `beryl scan` le " << Beryl.format_timestamp(Time.local) << '\n'
       io << "# Mergé avec _default.yml + " << host.domain.source_path << '\n'
@@ -287,9 +311,11 @@ module Beryl::CLI::Scan
       end
       io << "\nfreebsd:\n"
       io << "  hostname: " << short << '\n'
-      io << "  disks:\n"
-      disks.each { |d| io << "    - " << d.dev_path << "  # " << d.human_size << " " << d.kind << " " << d.model << '\n' }
-      io << "  raid: " << raid << '\n'
+      io << "  zpool:\n"
+      io << "    raid: " << raid
+      io << "  # 0=stripe 1=mirror 5=raidz 6=raidz2 7=raidz3 10=mirror_stripe\n"
+      io << "    disks:\n"
+      disks.each { |d| io << "      - " << d.dev_path << "  # " << d.human_size << " " << d.kind << " " << d.model << '\n' }
     end
   end
 
@@ -309,6 +335,7 @@ module Beryl::CLI::Scan
     hostname_flag : String?,
     zone_flag : String?,
     non_interactive : Bool,
+    dry_run : Bool = false,
   ) : Beryl::CLI::DnsSetup::Plan
     service_name = host.ovh_service_name || raise "--dns nécessite un host OVH avec service_name (got provider=#{host.provider.inspect})"
     short = hostname_flag || (non_interactive ? raise("--dns + --non-interactive requiert --hostname=NAME") : ask("Nom court du serveur (ex: loulou) : ", default: ""))
@@ -319,6 +346,10 @@ module Beryl::CLI::Scan
     STDERR.puts
     STDERR.puts plan.describe
     STDERR.puts
+    if dry_run
+      log "DRY-RUN : plan DNS affiché, aucun appel API effectué"
+      return plan
+    end
     unless non_interactive
       ans = ask("Exécuter ces actions ? [o/N] : ", default: "N")
       raise Aborted.new unless ans.downcase.starts_with?("o") || ans.downcase.starts_with?("y")

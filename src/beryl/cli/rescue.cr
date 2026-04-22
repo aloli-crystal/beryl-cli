@@ -48,12 +48,14 @@ module Beryl::CLI::Rescue
     wait = true
     timeout = DEFAULT_SSH_WAIT_TIMEOUT
     domain_hint : String? = nil
+    dry_run = false
     positional = [] of String
 
     parser = OptionParser.new do |p|
       p.banner = "USAGE : beryl rescue <host> [options]"
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine (sinon déduit du FQDN)") { |v| domain_hint = v }
-      p.on("-n", "--no-wait", "Ne pas attendre le retour SSH") { wait = false }
+      p.on("-n", "--dry-run", "Affiche l'appel API sans le déclencher") { dry_run = true }
+      p.on("--no-wait", "Ne pas attendre le retour SSH après l'appel API") { wait = false }
       p.on("-t MIN", "--timeout=MIN", "Timeout SSH en minutes (défaut : #{DEFAULT_SSH_WAIT_TIMEOUT.total_minutes.to_i})") { |v| timeout = v.to_i.minutes }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
       p.unknown_args { |rest, _| positional = rest }
@@ -75,13 +77,30 @@ module Beryl::CLI::Rescue
       return EXIT_DNS
     end
 
-    Beryl.clean_known_hosts_for(host)
-
     provider = host.provider
     case provider
     when "ovh"
+      # Validation précoce avant le cleanup known_hosts
+      service_name = host.ovh_service_name || raise MissingProviderConfig.new(
+        "champ `ovh.service_name` manquant pour #{host.fqdn}"
+      )
+      if dry_run
+        log "DRY-RUN : OVHcloud → prepare_rescue(#{service_name}, ssh_key=#{host.ovh_ssh_key_name || "<auto>"})"
+        log "DRY-RUN : puis wait_for_ssh(#{host.ssh_host}:#{host.port} as root, timeout #{timeout.total_minutes.to_i}m)" if wait
+        return EXIT_OK
+      end
+      Beryl.clean_known_hosts_for(host)
       trigger_ovh(host, ovh_client_factory)
     when "scaleway"
+      server_id = host.scaleway_server_id || raise MissingProviderConfig.new(
+        "champ `scaleway.server_id` manquant pour #{host.fqdn}"
+      )
+      if dry_run
+        log "DRY-RUN : Scaleway → reboot(#{server_id}, boot_type=Rescue)"
+        log "DRY-RUN : puis wait_for_ssh(#{host.ssh_host}:#{host.port} as root, timeout #{timeout.total_minutes.to_i}m)" if wait
+        return EXIT_OK
+      end
+      Beryl.clean_known_hosts_for(host)
       trigger_scaleway(host, scaleway_client_factory)
     when nil
       STDERR.puts "beryl : provider non précisé pour #{host.fqdn} (déclarez `provider: ovh` dans #{host.domain.source_path})"

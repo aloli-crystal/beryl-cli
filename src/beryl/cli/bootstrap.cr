@@ -21,11 +21,13 @@ module Beryl::CLI::Bootstrap
     domain_hint : String? = nil
     iso_url_override : String? = nil
     freebsd_version = "15.0"
+    dry_run = false
     positional = [] of String
 
     parser = OptionParser.new do |p|
       p.banner = "USAGE : beryl bootstrap <host> [options]"
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
+      p.on("-n", "--dry-run", "Affiche le plan d'install sans lancer QEMU/bsdinstall") { dry_run = true }
       p.on("-i URL", "--iso-url=URL", "URL mfsBSD (override)") { |v| iso_url_override = v }
       p.on("-v VER", "--freebsd-version=VER", "Version FreeBSD (défaut : 15.0)") { |v| freebsd_version = v }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
@@ -51,7 +53,25 @@ module Beryl::CLI::Bootstrap
       return EXIT_USAGE
     end
 
-    raid = host.freebsd_string("raid") || "stripe"
+    # Valide raid/disks et traduit le niveau numérique en mode ZFS
+    # (0 → stripe, 1 → mirror, 5 → raidz, etc.).
+    begin
+      host.validate_zpool!
+    rescue ex : Beryl::Config::Zpool::InvalidDiskCount
+      STDERR.puts "beryl : #{ex.message}"
+      return EXIT_USAGE
+    rescue ex : Beryl::Config::Zpool::UnknownRaidLevel
+      STDERR.puts "beryl : #{ex.message}"
+      return EXIT_USAGE
+    end
+
+    raid_level = host.zpool_raid
+    raid = host.zpool_zfs_mode
+    if raid == "mirror_stripe"
+      STDERR.puts "beryl : RAID 10 (stripe de mirrors) pas encore câblé côté bootstrap."
+      STDERR.puts "        Utilisez RAID 0, 1, 5, 6 ou 7 en attendant."
+      return EXIT_USAGE
+    end
     timezone = host.freebsd_string("timezone") || "Europe/Paris"
     pool_name = host.freebsd_string("pool_name") || "zroot"
     swap_gb = host.freebsd_int("swap_gb") || 4
@@ -71,6 +91,30 @@ module Beryl::CLI::Bootstrap
 
     STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] cible : #{Beryl.format_ssh_target(host)} disques : #{disks.join(", ")}"
     STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] FreeBSD #{freebsd_version} — users : #{users.map(&.name).join(", ")}"
+
+    if dry_run
+      STDERR.puts
+      STDERR.puts "DRY-RUN : plan d'install FreeBSD"
+      STDERR.puts "─" * 60
+      STDERR.puts "  hôte        : #{Beryl.format_ssh_target(host)}"
+      STDERR.puts "  FreeBSD     : #{freebsd_version}"
+      STDERR.puts "  timezone    : #{timezone}"
+      STDERR.puts "  pool ZFS    : #{pool_name} en #{raid} (RAID #{raid_level})"
+      STDERR.puts "  swap        : #{swap_gb} Go"
+      STDERR.puts "  disques     : #{disks.join(", ")}"
+      STDERR.puts "  install     : #{install_type}"
+      STDERR.puts "  users       :"
+      users.each do |u|
+        STDERR.puts "    - #{u.name} (#{u.primary_group}#{u.secondary_groups.empty? ? "" : " + " + u.secondary_groups.join(",")}) " \
+                    "#{u.shell}, #{u.ssh_keys.size} clé(s) SSH"
+      end
+      STDERR.puts "  packages    : #{packages.join(", ")}"
+      STDERR.puts "  sudoers     :"
+      sudoers.each { |s| STDERR.puts "    - #{s}" }
+      STDERR.puts "─" * 60
+      STDERR.puts "DRY-RUN : aucune action exécutée. Retirez --dry-run pour installer."
+      return EXIT_OK
+    end
 
     Beryl.clean_known_hosts_for(host)
 
