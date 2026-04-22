@@ -6,6 +6,7 @@ require "./cli/bake_seed"
 require "./cli/rescue"
 require "./cli/boot_hd"
 require "./cli/wipe"
+require "./cli/apply"
 
 # Point d'entrée CLI de beryl.
 #
@@ -73,6 +74,7 @@ module Beryl::CLI
     when "list-hosts"  then cmd_list_hosts(inventory_path)
     when "show"        then cmd_show(inventory_path, sub_args)
     when "bootstrap"   then cmd_bootstrap(inventory_path, sub_args)
+    when "apply"       then Beryl::CLI::Apply.run(inventory_path, sub_args)
     when "rescue"      then Beryl::CLI::Rescue.run(inventory_path, sub_args)
     when "boot-hd"     then Beryl::CLI::BootHd.run(inventory_path, sub_args)
     when "wipe"        then Beryl::CLI::Wipe.run(inventory_path, sub_args)
@@ -104,6 +106,8 @@ module Beryl::CLI
       wipe <host> --disk    Efface un disque sur un hôte en rescue
                             Linux (confirmation OUI/YES requise)
       bootstrap <host>      Installe FreeBSD 15 (voie QEMU-in-rescue, ADR-011)
+      apply <host>          Synchronise packages, users, sudoers du
+                            bloc `freebsd:` vers un hôte bootstrappé
       prep-rescue           Serveur HTTP local (clé SSH + script) pour
                             préparer un rescue Debian/Ubuntu sans
                             copier-coller
