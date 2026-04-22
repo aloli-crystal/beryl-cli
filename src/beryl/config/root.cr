@@ -273,7 +273,15 @@ module Beryl::Config
 
     # FQDN reconstitué : `<short_name>.<domaine>`. Le groupe
     # n'apparaît pas (règle figée : pas de `rails01.web.aloli.net`).
+    #
+    # Exception : si `short_name` contient déjà un point, c'est que
+    # l'utilisateur a passé un FQDN externe (nom hébergeur type
+    # `ns3156789.ip-51-83-6.eu` ou un alias DNS qui ne relève pas du
+    # domaine aloli). Dans ce cas on le garde tel quel — sans quoi on
+    # fabriquerait un `ns3156789.ip-51-83-6.eu.aloli.net` qui ne
+    # résout nulle part.
     def fqdn : String
+      return @short_name if @short_name.includes?('.')
       "#{@short_name}.#{@domain.name}"
     end
 

@@ -96,13 +96,26 @@ describe Beryl::Config::Root do
       rh.domain.name.should eq("aloli.net")
     end
 
-    it "--domain=X sans fichier crée un host virtuel" do
+    it "--domain=X sans fichier crée un host virtuel (nom court)" do
+      rh = Beryl::Config::Root.load(fixture("minimal-domain")).resolve(
+        "rails99",
+        domain_hint: "aloli.net",
+      )
+      rh.virtual.should be_true
+      rh.fqdn.should eq("rails99.aloli.net")
+    end
+
+    it "--domain=X + FQDN externe (nom hébergeur) : fqdn reste tel quel" do
+      # Cas `beryl rescue ns3156789.ip-51-83-6.eu --domain=aloli.net` :
+      # le nom passé est le FQDN hébergeur, on ne doit PAS fabriquer
+      # un `ns3156789.ip-51-83-6.eu.aloli.net` (qui ne résout pas).
       rh = Beryl::Config::Root.load(fixture("minimal-domain")).resolve(
         "ns3156789.ip-51-83-6.eu",
         domain_hint: "aloli.net",
       )
       rh.virtual.should be_true
-      rh.fqdn.should eq("ns3156789.ip-51-83-6.eu.aloli.net")
+      rh.fqdn.should eq("ns3156789.ip-51-83-6.eu")
+      rh.ssh_host.should eq("ns3156789.ip-51-83-6.eu")
     end
 
     it "lève HostNotFound si rien ne matche" do
