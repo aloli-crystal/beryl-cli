@@ -1,71 +1,38 @@
 require "option_parser"
-require "../inventory"
+require "../config"
 require "../ssh"
 
-# Sous-commande `beryl apply <host>` : synchronise la configuration
-# FreeBSD (packages, users, sudoers) d'un serveur déjà bootstrappé, en
-# lisant le bloc `freebsd:` de l'inventaire.
+# Sous-commande `beryl apply <host>` : synchronise la config effective
+# du host (résultat du merge _default + domaine + groupe + host) avec
+# ce qui tourne réellement sur le serveur FreeBSD déjà bootstrappé.
 #
-# C'est l'étape qui vient APRÈS `beryl bootstrap`. Le bootstrap pose la
-# base minimale (admin, sudo, zsh, sudoers wheel NOPASSWD) pour que
-# `apply` puisse se connecter en admin + sudo et continuer le travail :
-# installer ruby, crystal, mariadb, postgresql, etc., créer des users
-# applicatifs (deploy), poser des règles sudoers spécifiques.
+# Sémantique DÉCLARATIVE : le YAML est la source de vérité.
+# - Packages manquants → `pkg install -y`
+# - Clés SSH manquantes dans authorized_keys → ajoutées
+# - Clés SSH en trop dans authorized_keys → supprimées
+# - Sudoers → fichier `/usr/local/etc/sudoers.d/beryl` réécrit
 #
-# Idempotent : `pkg install` n'installe que ce qui manque, `pw useradd`
-# skippe un user existant, les règles sudoers sont écrites en
-# remplacement. Relancer `apply` après un reboot ou une modif YAML
-# n'abîme rien.
-#
-# Scope initial (itération 1, 22 avril 2026) :
-#   - packages    : pkg install -y <liste> (hors chroot, on est en OS nominal)
-#   - users       : pw useradd si absent, injection ssh_keys (override
-#                   complet si présent dans YAML)
-#   - sudoers     : réécriture de /usr/local/etc/sudoers.d/beryl à chaque fois
-#
-# Hors scope à ce stade (futures itérations) :
-#   - pkg upgrade (beryl apply --upgrade) pour bump ruby/passenger, etc.
-#   - services enable/start (sshd_enable, mariadb_enable, …)
-#   - fichiers de conf applicatifs (/usr/local/etc/...)
-#   - gestion fine de l'ordre de création (groupes primaires, dépendances).
+# Pas de suppression de packages ni de users pour cette version
+# (risque de casser un service qui tourne). La création de nouveaux
+# users n'est pas faite non plus : cycle bootstrap-only pour l'instant.
 module Beryl::CLI::Apply
-  EXIT_OK            =  0
-  EXIT_USAGE         =  1
-  EXIT_SSH_FAILED    =  2
-  EXIT_UNEXPECTED    =  3
-  EXIT_MISSING_YAML  =  8
-  EXIT_SUDO_REFUSED  = 11
-  EXIT_PKG_FAILED    = 12
-  EXIT_USER_FAILED   = 13
-  EXIT_NOTHING_TO_DO = 14
+  EXIT_OK         =  0
+  EXIT_USAGE      =  1
+  EXIT_UNEXPECTED =  3
+  EXIT_SSH_FAILED =  4
+  EXIT_NO_FREEBSD = 10
 
-  # Chemin du fichier sudoers.d écrit par beryl sur la cible. Nom fixe
-  # (pas `sudoers` générique) pour qu'un admin puisse coexister avec des
-  # règles manuelles sans collision.
-  SUDOERS_FILE_ON_TARGET = "/usr/local/etc/sudoers.d/beryl"
-
-  def self.run(inventory_path : String, args : Array(String)) : Int32
-    positional = [] of String
-    do_packages = true
-    do_users = true
-    do_sudoers = true
+  def self.run(config_root : String, args : Array(String)) : Int32
     dry_run = false
+    domain_hint : String? = nil
+    positional = [] of String
 
     parser = OptionParser.new do |p|
-      p.banner = "USAGE : beryl apply <host> [options]\n\n" \
-                 "Synchronise packages, users, sudoers du bloc `freebsd:` vers la cible.\n" \
-                 "Idempotent : peut être relancé autant de fois que nécessaire."
-      p.on("--skip-packages", "Ne pas installer les packages freebsd.packages") { do_packages = false }
-      p.on("--skip-users", "Ne pas synchroniser les users freebsd.users") { do_users = false }
-      p.on("--skip-sudoers", "Ne pas réécrire /usr/local/etc/sudoers.d/beryl") { do_sudoers = false }
-      p.on("--dry-run", "Affiche les actions sans les exécuter") { dry_run = true }
-      p.on("-h", "--help", "Aide") do
-        puts p
-        exit 0
-      end
-      p.unknown_args do |rest, _|
-        positional = rest
-      end
+      p.banner = "USAGE : beryl apply <host> [options]"
+      p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
+      p.on("-n", "--dry-run", "Affiche ce qui changerait sans l'appliquer") { dry_run = true }
+      p.on("-h", "--help", "Aide") { puts p; exit 0 }
+      p.unknown_args { |rest, _| positional = rest }
     end
     parser.parse(args)
 
@@ -75,250 +42,125 @@ module Beryl::CLI::Apply
       return EXIT_USAGE
     end
 
-    inventory = Beryl::Inventory.load(inventory_path)
-    host = inventory.find(host_name)
-
-    fcfg = host.freebsd_config
-    unless fcfg
-      STDERR.puts "beryl : pas de bloc `freebsd:` pour #{host.name} dans l'inventaire."
-      STDERR.puts "       Ajoutez au moins `freebsd: { packages: [...], users: [...] }`."
-      return EXIT_MISSING_YAML
-    end
+    root = Beryl::Config::Root.load(config_root)
+    host = root.resolve(host_name, domain_hint: domain_hint)
+    root.env_file.apply_to_env(host.domain_name)
 
     conn = host.connection
     log "cible : #{Beryl.format_ssh_target(host)} (user SSH : #{conn.user})"
 
-    ran_something = false
-    exit_code = EXIT_OK
-
-    if do_packages && !fcfg.packages.empty?
-      ran_something = true
-      log_step("pkg install #{fcfg.packages.join(" ")}") do
-        apply_packages(conn, fcfg.packages, dry_run: dry_run)
-      end
-    elsif do_packages
-      log "packages : rien à installer (freebsd.packages vide)"
+    uname = conn.exec("uname -s", raise_on_error: false).stdout.strip
+    unless uname == "FreeBSD"
+      STDERR.puts "beryl : #{host.fqdn} n'est pas sur FreeBSD (uname -s = #{uname.inspect})"
+      return EXIT_NO_FREEBSD
     end
 
-    if do_users && !fcfg.users.empty?
-      ran_something = true
-      log_step("sync users (#{fcfg.users.map(&.name).join(", ")})") do
-        apply_users(conn, fcfg.users, dry_run: dry_run)
-      end
-    elsif do_users
-      log "users : rien à synchroniser (freebsd.users vide)"
-    end
+    # Lire les valeurs à appliquer
+    packages = host.freebsd_string_array("packages")
+    sudoers = host.freebsd_string_array("sudoers")
+    users = parse_users(host)
 
-    if do_sudoers && !fcfg.sudoers.empty?
-      ran_something = true
-      log_step("écriture #{SUDOERS_FILE_ON_TARGET} (#{fcfg.sudoers.size} règle(s))") do
-        apply_sudoers(conn, fcfg.sudoers, dry_run: dry_run)
-      end
-    elsif do_sudoers
-      log "sudoers : rien à écrire (freebsd.sudoers vide)"
-    end
+    apply_packages(conn, packages, dry_run) unless packages.empty?
+    apply_sudoers(conn, sudoers, dry_run) unless sudoers.empty?
+    apply_user_keys(conn, users, dry_run)
 
-    unless ran_something
-      log "rien à faire : packages, users et sudoers sont tous vides ou skippés."
-      return EXIT_NOTHING_TO_DO
-    end
-
-    log "apply terminé pour #{host.name}#{dry_run ? " (dry-run)" : ""}"
-    exit_code
-  rescue ex : Beryl::Inventory::NotFound
+    log "apply terminé pour #{host.fqdn}#{dry_run ? " (dry-run)" : ""}"
+    EXIT_OK
+  rescue ex : Beryl::Config::Root::HostNotFound
     STDERR.puts "beryl : #{ex.message}"
     EXIT_USAGE
-  rescue ex : SudoRefused
+  rescue ex : Beryl::Config::Root::AmbiguousHost
     STDERR.puts "beryl : #{ex.message}"
-    EXIT_SUDO_REFUSED
-  rescue ex : PkgInstallFailed
+    EXIT_USAGE
+  rescue ex : Beryl::Config::Root::UnknownDomain
     STDERR.puts "beryl : #{ex.message}"
-    EXIT_PKG_FAILED
-  rescue ex : UserSyncFailed
-    STDERR.puts "beryl : #{ex.message}"
-    EXIT_USER_FAILED
+    EXIT_USAGE
   rescue ex : Beryl::SSH::CommandFailed
     STDERR.puts "beryl : #{ex.message}"
     EXIT_SSH_FAILED
-  rescue ex : File::NotFoundError
-    STDERR.puts "beryl : inventaire introuvable : #{inventory_path}"
-    EXIT_USAGE
   rescue ex
     STDERR.puts "beryl : erreur inattendue — #{ex.class}: #{ex.message}"
     EXIT_UNEXPECTED
   end
 
-  class SudoRefused < Exception
+  # Extrait les users du merge effectif avec leur liste de clés
+  # finale (déjà injectée avec la clé domaine par Merger).
+  private def self.parse_users(host : Beryl::Config::ResolvedHost) : Array(NamedTuple(name: String, keys: Array(String)))
+    users_any = host.freebsd_hash[YAML::Any.new("users")]?
+    return [] of NamedTuple(name: String, keys: Array(String)) unless users_any
+    list = users_any.as_a? || [] of YAML::Any
+    list.compact_map do |u|
+      h = u.as_h?
+      next nil unless h
+      name = h[YAML::Any.new("name")]?.try(&.as_s?)
+      next nil unless name
+      keys_any = h[YAML::Any.new("ssh_keys")]?
+      keys = keys_any.try(&.as_a?).try(&.compact_map(&.as_s?)) || [] of String
+      {name: name, keys: keys}
+    end
   end
 
-  class PkgInstallFailed < Exception
-  end
-
-  class UserSyncFailed < Exception
-  end
-
-  # `pkg install -y <pkgs>` sur la cible. Passe par `sudo -n` pour que la
-  # tentative d'interaction de sudo plante tôt si NOPASSWD n'est pas en
-  # place (plutôt que de hanger silencieusement sur une invite).
-  private def self.apply_packages(
-    conn : Beryl::SSH::Connection,
-    packages : Array(String),
-    dry_run : Bool,
-  ) : Nil
-    cmd = "sudo -n env ASSUME_ALWAYS_YES=yes pkg install -y #{packages.map { |p| Process.quote(p) }.join(" ")}"
-    if dry_run
-      log "  [dry-run] $ #{cmd}"
+  private def self.apply_packages(conn : Beryl::SSH::Connection, packages : Array(String), dry_run : Bool) : Nil
+    installed = conn.exec("pkg info -q 2>/dev/null | awk '{print $1}' | sed 's/-[0-9].*$//' | sort -u", raise_on_error: false).stdout.lines.map(&.strip).reject(&.empty?).to_set
+    missing = packages.reject { |p| installed.includes?(p) }
+    if missing.empty?
+      log "packages : déjà tous installés"
       return
     end
-    ensure_sudo_nopasswd(conn)
-    result = conn.exec(cmd, raise_on_error: false)
-    unless result.success?
-      raise PkgInstallFailed.new("pkg install échoué (exit #{result.exit_code}) : #{result.stderr.strip}")
-    end
+    log "packages manquants : #{missing.join(", ")}"
+    return if dry_run
+    conn.exec("pkg install -y #{missing.map { |p| Process.quote(p) }.join(" ")}")
   end
 
-  # Synchronise chaque user YAML :
-  # - Crée le user s'il n'existe pas (pw useradd), sinon le laisse
-  # - Écrit ~user/.ssh/authorized_keys avec les clés déclarées (override
-  #   complet, pas d'append : l'opérateur voit clairement ce qui est posé)
-  #
-  # Permissions : pw + mkdir + chown tournent via `sudo -n`.
-  private def self.apply_users(
+  private def self.apply_sudoers(conn : Beryl::SSH::Connection, rules : Array(String), dry_run : Bool) : Nil
+    content = rules.join("\n") + "\n"
+    target = "/usr/local/etc/sudoers.d/beryl"
+    current = conn.exec("cat #{target} 2>/dev/null", raise_on_error: false).stdout
+    if current == content
+      log "sudoers : à jour"
+      return
+    end
+    log "sudoers : mise à jour de #{target} (#{rules.size} règle(s))"
+    return if dry_run
+    # write_file ne sait pas sudo — on utilise sudo tee pour écrire
+    # en écrasant, puis chmod 0440 (requis par sudo visudo).
+    quoted_content = Process.quote(content)
+    conn.exec("echo #{quoted_content} | sudo tee #{target} > /dev/null && sudo chmod 0440 #{target}")
+  end
+
+  # Synchronisation déclarative des authorized_keys.
+  # État désiré = exactement les clés listées dans freebsd.users[].ssh_keys
+  # (la clé domaine a déjà été injectée par Merger).
+  private def self.apply_user_keys(
     conn : Beryl::SSH::Connection,
-    users : Array(Beryl::UserSpecYaml),
+    users : Array(NamedTuple(name: String, keys: Array(String))),
     dry_run : Bool,
   ) : Nil
-    ensure_sudo_nopasswd(conn) unless dry_run
     users.each do |u|
-      if u.ssh_keys.empty?
-        raise UserSyncFailed.new("user #{u.name} : ssh_keys vide (Aloli interdit les défauts silencieux)")
+      home = conn.exec("getent passwd #{Process.quote(u[:name])} | cut -d: -f6", raise_on_error: false).stdout.strip
+      if home.empty?
+        log "user `#{u[:name]}` absent sur le serveur (skip — utilisez bootstrap pour créer les users)"
+        next
       end
-      apply_one_user(conn, u, dry_run: dry_run)
+      current_raw = conn.exec("cat #{home}/.ssh/authorized_keys 2>/dev/null", raise_on_error: false).stdout
+      current = current_raw.lines.map(&.strip).reject { |l| l.empty? || l.starts_with?('#') }
+      desired = u[:keys]
+      to_add = desired - current
+      to_remove = current - desired
+      if to_add.empty? && to_remove.empty?
+        log "#{u[:name]} : #{desired.size} clé(s), déjà sync"
+        next
+      end
+      log "#{u[:name]} : +#{to_add.size} / -#{to_remove.size} clé(s)"
+      return if dry_run
+      content = desired.join("\n") + "\n"
+      conn.exec("mkdir -p #{home}/.ssh && chmod 700 #{home}/.ssh && chown #{Process.quote(u[:name])} #{home}/.ssh")
+      conn.write_file("#{home}/.ssh/authorized_keys", content, mode: "0600")
+      conn.exec("chown #{Process.quote(u[:name])} #{home}/.ssh/authorized_keys")
     end
-  end
-
-  private def self.apply_one_user(
-    conn : Beryl::SSH::Connection,
-    u : Beryl::UserSpecYaml,
-    dry_run : Bool,
-  ) : Nil
-    primary = u.primary_group || "www"
-    shell = u.shell || "/bin/csh"
-    secondary = u.secondary_groups
-
-    pw_cmd = String.build do |io|
-      io << "sudo -n pw useradd -n " << Process.quote(u.name)
-      io << " -m -d " << Process.quote("/home/#{u.name}")
-      io << " -g " << Process.quote(primary)
-      io << " -G " << Process.quote(secondary.join(",")) unless secondary.empty?
-      io << " -s " << Process.quote(shell)
-    end
-    # pw useradd renvoie 65 (EX_DATAERR) si le user existe déjà : on ignore.
-    create_cmd = "id -u #{Process.quote(u.name)} >/dev/null 2>&1 || (#{pw_cmd})"
-
-    # authorized_keys : écriture atomique via tee, avec permissions strictes
-    # attendues par sshd (0700 sur ~/.ssh, 0600 sur authorized_keys).
-    keys_content = u.ssh_keys.join("\n") + "\n"
-    home = "/home/#{u.name}"
-    ssh_dir = "#{home}/.ssh"
-    authorized = "#{ssh_dir}/authorized_keys"
-
-    setup_ssh = [
-      "sudo -n install -d -m 700 -o #{Process.quote(u.name)} -g #{Process.quote(primary)} #{Process.quote(ssh_dir)}",
-      "printf %s #{Process.quote(keys_content)} | sudo -n tee #{Process.quote(authorized)} >/dev/null",
-      "sudo -n chown #{Process.quote(u.name)}:#{Process.quote(primary)} #{Process.quote(authorized)}",
-      "sudo -n chmod 600 #{Process.quote(authorized)}",
-    ].join(" && ")
-
-    full_cmd = "#{create_cmd} && #{setup_ssh}"
-
-    if dry_run
-      log "  [dry-run] $ #{full_cmd}"
-      return
-    end
-
-    result = conn.exec(full_cmd, raise_on_error: false)
-    unless result.success?
-      raise UserSyncFailed.new("sync user #{u.name} échoué (exit #{result.exit_code}) : #{result.stderr.strip}")
-    end
-  end
-
-  # Écrit (en remplacement) `/usr/local/etc/sudoers.d/beryl` avec les
-  # règles déclarées, mode 0440 comme attendu par sudo. Vérifie la
-  # syntaxe avec `visudo -cf` avant d'écraser le fichier final, pour
-  # éviter de se couper l'accès sudo sur une typo.
-  private def self.apply_sudoers(
-    conn : Beryl::SSH::Connection,
-    sudoers : Array(String),
-    dry_run : Bool,
-  ) : Nil
-    content = sudoers.join("\n") + "\n"
-    tmp = "/tmp/beryl-sudoers.$$"
-    quoted_final = Process.quote(SUDOERS_FILE_ON_TARGET)
-
-    write_tmp = "printf %s #{Process.quote(content)} > #{Process.quote(tmp)}"
-    validate = "sudo -n visudo -cf #{Process.quote(tmp)}"
-    install = "sudo -n install -m 0440 -o root -g wheel #{Process.quote(tmp)} #{quoted_final} && rm -f #{Process.quote(tmp)}"
-
-    full_cmd = [write_tmp, validate, install].join(" && ")
-    if dry_run
-      log "  [dry-run] $ #{full_cmd}"
-      return
-    end
-    ensure_sudo_nopasswd(conn)
-    conn.exec(full_cmd)
-  end
-
-  # Vérifie qu'on a bien sudo sans mot de passe. Plante tôt avec un
-  # message clair sinon : la plupart des commandes qui suivent
-  # trainerait un invite bloquant.
-  private def self.ensure_sudo_nopasswd(conn : Beryl::SSH::Connection) : Nil
-    result = conn.exec("sudo -n true", raise_on_error: false)
-    return if result.success?
-    raise SudoRefused.new(
-      "sudo sans mot de passe refusé sur #{conn.host} (user #{conn.user}). " \
-      "Vérifiez que %wheel NOPASSWD est bien posé dans /usr/local/etc/sudoers.d/"
-    )
   end
 
   private def self.log(message : String) : Nil
     STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl apply] #{message}"
-  end
-
-  # Même pattern que Rescue.log_step / BootHd.log_step : tick [NNNs]
-  # pendant l'exécution, fige le compteur quand le bloc termine.
-  private def self.log_step(label : String, & : -> T) : T forall T
-    line = "[#{Beryl.format_timestamp(Time.local)}] [beryl apply] #{label}"
-    pad = Beryl.pad_to(line)
-    STDERR.print "#{line}#{pad}  [   0s]"
-    STDERR.flush
-    start = Time.instant
-    done = Channel(Nil).new
-    spawn do
-      loop do
-        select
-        when done.receive?
-          break
-        when timeout(1.second)
-          elapsed = (Time.instant - start).total_seconds.to_i
-          STDERR.printf("\r%s%s  [%4ds]", line, pad, elapsed)
-          STDERR.flush
-        end
-      end
-    end
-    success = false
-    begin
-      result = yield
-      success = true
-      elapsed = (Time.instant - start).total_seconds.to_i
-      STDERR.printf("\r%s%s  [%4ds]\n", line, pad, elapsed)
-      result
-    ensure
-      done.send(nil)
-      unless success
-        elapsed = (Time.instant - start).total_seconds.to_i
-        STDERR.printf("\r%s%s  [%4ds] ✗\n", line, pad, elapsed)
-      end
-    end
   end
 end

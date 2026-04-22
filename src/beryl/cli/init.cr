@@ -1,766 +1,327 @@
 require "option_parser"
 require "file_utils"
+require "../config"
+require "../providers"
 require "./credentials"
 
-# Sous-commande `beryl init` : crée l'arborescence standard d'un
-# inventaire beryl dans `~/.beryl/`, avec des squelettes de groupes
-# qui reflètent les règles Aloli (zone DNS partagée, user admin
-# standard, pas de défaut silencieux).
+# Sous-commande `beryl init [provider]` : amorce l'arborescence
+# `~/.beryl/` avec un domaine et ses credentials.
 #
-# Usage :
+# Première invocation :
+#   - crée `_default.yml` (socle FreeBSD : timezone, raid, users,
+#     packages de base), sans clés SSH
+#   - prompt interactif pour les credentials du provider choisi,
+#     sauvegarde dans `.env.yml`
+#   - prompt pour la zone DNS → crée `<zone>.yml` avec ssh_key_name
+#     OVH auto-détectée et une clé SSH admin importée de ~/.ssh/*.pub
 #
-#   beryl init                   # auto-détecte le provider via env vars
-#   beryl init ovh               # force le provider OVH (argument positionnel)
-#   beryl init scaleway          # force le provider Scaleway
-#   beryl init ovh --zone=aloli.net --ssh-key-name=philippe.aloli.fr
-#   beryl init --force           # écrase un ~/.beryl/ existant
-#   beryl init --dir=./.beryl    # local au projet au lieu de global
-#
-# Après `beryl init`, toutes les sous-commandes résolvent leur inventaire
-# automatiquement depuis `~/.beryl/`. `beryl -i AUTRE` reste possible
-# pour pointer ailleurs.
+# Invocations suivantes :
+#   - ajoute un nouveau domaine dans l'existant (sans toucher aux
+#     autres). `.env.yml` gagne juste une section.
 module Beryl::CLI::Init
-  EXIT_OK         = 0
-  EXIT_USAGE      = 1
-  EXIT_ABORTED    = 2
-  EXIT_ALREADY    = 3
-  EXIT_UNEXPECTED = 4
-
-  # Dossier cible : ~/.beryl/ directement, pas de sous-dossier
-  # `inventory/` (convention .gitconfig : le nom de l'outil = le nom
-  # du dossier de conf, avec un point devant).
-  DEFAULT_DIR = File.expand_path("~/.beryl", home: true)
-
-  def self.run(args : Array(String)) : Int32
-    zone : String? = nil
-    ssh_key_name : String? = nil
-    admin_key_file : String? = nil
-    provider_flag : String? = nil
-    dir : String = DEFAULT_DIR
-    force = false
-    non_interactive = false
-
-    positional = [] of String
-    parser = OptionParser.new do |p|
-      p.banner = "USAGE : beryl init [provider] [options]\n\n" \
-                 "Crée l'arborescence d'un inventaire beryl dans #{DEFAULT_DIR}\n" \
-                 "avec des squelettes de groupes (zone DNS, admin standard).\n\n" \
-                 "`provider` est un argument positionnel optionnel (ex: `beryl init ovh`).\n" \
-                 "Sinon auto-détecté via les variables d'env configurées."
-      p.on("--provider=NAME", "Alias de l'argument positionnel") { |v| provider_flag = v }
-      p.on("--zone=NAME", "Zone DNS (ex: aloli.net). Sera un groupe `<zone>` (points → tirets).") { |v| zone = v }
-      p.on("--ssh-key-name=NAME", "Nom de la clé SSH chez l'hébergeur (sinon auto-détecté via API)") { |v| ssh_key_name = v }
-      p.on("--admin-key=FILE", "Fichier .pub local (sinon auto-détecté dans ~/.ssh/)") { |v| admin_key_file = File.expand_path(v, home: true) }
-      p.on("--dir=DIR", "Répertoire de l'inventaire (défaut : #{DEFAULT_DIR})") { |v| dir = File.expand_path(v, home: true) }
-      p.on("--force", "Écrase un inventaire existant") { force = true }
-      p.on("--non-interactive", "Aucune invite. Tous les paramètres doivent être en flags.") { non_interactive = true }
-      p.on("-h", "--help", "Aide") do
-        puts p
-        exit 0
-      end
-      p.unknown_args do |rest, _|
-        positional = rest
-      end
-    end
-    parser.parse(args)
-
-    # Argument positionnel = provider (si fourni). Le flag --provider
-    # garde sa priorité (si les deux sont donnés → flag gagne, au cas où
-    # un alias serait scripté).
-    provider_flag ||= positional.first?
-
-    # Si le dossier existe déjà avec des YAML dedans, on refuse sauf --force.
-    if File.directory?(dir) && !force
-      existing = Dir.glob(File.join(dir, "**", "*.yml"))
-      unless existing.empty?
-        STDERR.puts "beryl : #{dir} contient déjà #{existing.size} fichier(s) YAML."
-        STDERR.puts "        Utilisez --force pour écraser, ou --dir pour un autre chemin."
-        return EXIT_ALREADY
-      end
-    end
-
-    STDERR.puts "[beryl init] Amorçage de votre inventaire." if !non_interactive
-
-    # Question 1 : hébergeur. On parcourt le registre et garde ceux
-    # dont les credentials sont dispos. 1 → auto, 2+ → prompt, 0 → erreur.
-    provider = resolve_provider(provider_flag, non_interactive)
-    return EXIT_USAGE unless provider
-
-    # Question 2 : zone DNS. Pas dans l'API (plusieurs zones possibles
-    # par compte). On demande.
-    z_in = zone
-    zv : String = z_in ? z_in : (non_interactive ? raise("--zone requis en --non-interactive") : ask(
-      "Zone DNS que vous gérez (ex: aloli.net) : ", "",
-    ))
-    raise Aborted.new if zv.empty?
-
-    # Question 3 : clé SSH du provider + fichier .pub local. Ces deux
-    # infos sont liées : on liste les clés côté provider, leurs
-    # contenus publics, et on cherche la correspondance dans
-    # ~/.ssh/*.pub. Si 1 match ET 1 seule clé → tout est auto. Sinon
-    # on retombe sur des prompts ciblés.
-    key_selection = select_ssh_key(provider, ssh_key_name, admin_key_file, non_interactive)
-    return EXIT_ABORTED unless key_selection
-    provider_key_id = key_selection[:provider_key_id]
-    akf_path = key_selection[:local_pub_path]
-
-    # Lecture du contenu de la clé publique locale. Déjà résolue plus
-    # haut par select_ssh_key → akf_path pointe sur un fichier existant.
-    admin_key_content = if akf_path && !akf_path.empty?
-                          lines = File.read_lines(akf_path).map(&.strip).reject { |l| l.empty? || l.starts_with?('#') }
-                          lines.first? || ""
-                        else
-                          ""
-                        end
-
-    zone_group_name = zv.gsub('.', '-')
-
-    # Création de la structure.
-    FileUtils.mkdir_p(File.join(dir, "groups"))
-    FileUtils.mkdir_p(File.join(dir, "hosts"))
-
-    write_file(File.join(dir, "groups", "#{zone_group_name}.yml"),
-      render_zone_group(zv, provider, provider_key_id))
-    write_file(File.join(dir, "groups", "aloli-admin.yml"),
-      render_admin_group(admin_key_content))
-    write_file(File.join(dir, "groups", "aloli-freebsd.yml"),
-      render_freebsd_base_group)
-    write_file(File.join(dir, "groups", "rails-servers.yml"),
-      render_rails_group)
-    write_file(File.join(dir, "groups", "backup-servers.yml"),
-      render_backup_group)
-    write_file(File.join(dir, "hosts", "README.adoc"),
-      render_hosts_readme(dir))
-
-    STDERR.puts
-    STDERR.puts "[beryl init] Inventaire créé dans #{dir}"
-    STDERR.puts "            Hébergeur :  #{provider.display_name}"
-    STDERR.puts "            Zone :       #{zv} (groupe : #{zone_group_name})"
-    STDERR.puts "            Clé #{provider.name} : #{provider_key_id}"
-    STDERR.puts "            Clé admin :  #{admin_key_content.empty? ? "(à remplir manuellement)" : "chargée depuis #{akf_path}"}"
-    STDERR.puts
-    STDERR.puts "Prochaines étapes :"
-    STDERR.puts "  1. Relisez groups/*.yml, ajustez packages, users, sudoers."
-    STDERR.puts "  2. Pour ajouter un serveur :"
-    STDERR.puts "       beryl rescue <service_name>"
-    STDERR.puts "       beryl scan   <service_name> --dns --write"
-    STDERR.puts "  3. beryl (toute commande) trouvera l'inventaire automatiquement."
-    EXIT_OK
-  rescue ex : Aborted
-    STDERR.puts "beryl : abandon."
-    EXIT_ABORTED
-  rescue ex
-    STDERR.puts "beryl : erreur inattendue — #{ex.class}: #{ex.message}"
-    EXIT_UNEXPECTED
-  end
+  EXIT_OK      = 0
+  EXIT_USAGE   = 1
+  EXIT_ABORTED = 2
 
   class Aborted < Exception
   end
 
-  # Résout un chemin de fichier .pub saisi par l'utilisateur :
-  #
-  # - nil / "" → nil (pas de clé admin)
-  # - chemin absolu, relatif, ou avec ~ → essayé tel quel
-  # - nom simple sans '/' → essayé aussi dans ~/.ssh/<nom>
-  #
-  # Retourne le chemin résolu qui existe, ou nil si aucun ne marche.
-  # Signature publique (defs privés non-self pas pratiques à tester).
-  def self.resolve_admin_key_path(input : String?) : String?
-    return nil if input.nil? || input.empty?
-    expanded = File.expand_path(input, home: true)
-    return expanded if File.exists?(expanded)
-    unless input.includes?('/')
-      in_ssh_dir = File.expand_path("~/.ssh/#{input}", home: true)
-      return in_ssh_dir if File.exists?(in_ssh_dir)
+  def self.run(config_root : String, args : Array(String)) : Int32
+    provider_hint : String? = nil
+    zone_flag : String? = nil
+    ssh_key_name_flag : String? = nil
+    admin_key_file : String? = nil
+    force = false
+    non_interactive = false
+    positional = [] of String
+
+    parser = OptionParser.new do |p|
+      p.banner = "USAGE : beryl init [provider] [options]\n\n" \
+                 "Ajoute un domaine dans ~/.beryl/ (ou crée l'arborescence la première fois)."
+      p.on("-z NAME", "--zone=NAME", "Zone DNS (ex: aloli.net)") { |v| zone_flag = v }
+      p.on("-s NAME", "--ssh-key-name=NAME", "Label de la clé SSH chez l'hébergeur (auto via API si absent)") { |v| ssh_key_name_flag = v }
+      p.on("-k FILE", "--admin-key=FILE", "Fichier .pub local (auto via ~/.ssh/ sinon)") { |v| admin_key_file = File.expand_path(v, home: true) }
+      p.on("-f", "--force", "Écrase les fichiers existants") { force = true }
+      p.on("-N", "--non-interactive", "Aucune invite (tout via flags)") { non_interactive = true }
+      p.on("-h", "--help", "Aide") { puts p; exit 0 }
+      p.unknown_args { |rest, _| positional = rest }
     end
-    nil
+    parser.parse(args)
+
+    provider_hint ||= positional.first?
+
+    Dir.mkdir_p(config_root)
+
+    # Choix du provider
+    provider = choose_provider(config_root, provider_hint, non_interactive)
+    return EXIT_USAGE unless provider
+
+    # Zone DNS (= nom du domaine)
+    zone_in = zone_flag
+    zone : String = zone_in ? zone_in : (non_interactive ? raise("--zone requis en --non-interactive") : ask("Zone DNS du domaine (ex: aloli.net) : ", ""))
+    return EXIT_USAGE if zone.empty?
+
+    domain_yml = File.join(config_root, "#{zone}.yml")
+    if File.exists?(domain_yml) && !force
+      STDERR.puts "beryl : #{domain_yml} existe déjà (utilisez --force pour écraser)"
+      return EXIT_USAGE
+    end
+
+    # Détection clé SSH provider + fichier .pub local par matching
+    selection = select_ssh_key(provider, ssh_key_name_flag, admin_key_file, non_interactive)
+    return EXIT_ABORTED unless selection
+
+    # Écriture du socle _default.yml s'il n'existe pas
+    defaults_path = File.join(config_root, "_default.yml")
+    unless File.exists?(defaults_path)
+      File.write(defaults_path, default_yaml_content)
+      STDERR.puts "[beryl init] _default.yml créé"
+    end
+
+    # Écriture du fichier domaine
+    admin_key_content = selection[:admin_key_content]
+    File.write(domain_yml, render_domain_yaml(provider, selection[:provider_key_id], admin_key_content))
+    STDERR.puts "[beryl init] #{domain_yml} créé"
+
+    STDERR.puts
+    STDERR.puts "[beryl init] Domaine `#{zone}` initialisé dans #{config_root}"
+    STDERR.puts "Prochaines étapes :"
+    STDERR.puts "  1. Relisez #{domain_yml} (ssh_keys, ovh.ssh_key_name)"
+    STDERR.puts "  2. Pour ajouter un serveur :"
+    STDERR.puts "       beryl rescue <service_name_ou_FQDN> --domain=#{zone}"
+    STDERR.puts "       beryl scan   <service_name> --domain=#{zone} --dns --write"
+    EXIT_OK
+  rescue ex : Aborted
+    STDERR.puts "beryl : abandon"
+    EXIT_ABORTED
   end
 
-  # Sélectionne l'hébergeur à utiliser. Règles :
-  #
-  # - `flag` (argument positionnel ou --provider=) → utilise ce
-  #   provider. Si ses credentials ne sont pas dans l'env, propose la
-  #   configuration interactive.
-  # - Sans flag : affiche la liste des providers IMPLÉMENTÉS dans
-  #   beryl avec marqueur « [configuré] » ou « [à configurer] ».
-  #   1 provider → auto (configure si besoin). 2+ → prompt.
-  #
-  # Feedback Philippe 22 avril 2026 : « beryl init tout court peut
-  # aussi proposer une liste de providers déjà implémentés dans beryl »
-  # → on liste systématiquement, pas seulement quand rien n'est
-  # configuré.
-  def self.resolve_provider(flag : String?, non_interactive : Bool) : Beryl::Provider?
+  # Choisit un provider (avec détection credentials + prompt si
+  # plusieurs + config interactive si absent).
+  private def self.choose_provider(config_root : String, flag : String?, non_interactive : Bool) : Beryl::Provider?
+    env_path = File.join(config_root, ".env.yml")
+    env_file = Beryl::Config::EnvFile.load(env_path)
+
+    # Les providers.available? regardent ENV ; on applique les vars du
+    # .env.yml le temps de la détection.
+    available_names = env_file.domains.flat_map { |d| env_file.for_domain(d).keys }.to_set
+    env_file.domains.each { |d| env_file.apply_to_env(d) }
+
+    implemented = Beryl::Providers.all
+
     if flag
       p = Beryl::Providers.find(flag)
       unless p
-        STDERR.puts "beryl : provider inconnu : #{flag}. Disponibles : #{Beryl::Providers.all.map(&.name).join(", ")}"
+        STDERR.puts "beryl : provider inconnu : #{flag}. Disponibles : #{implemented.map(&.name).join(", ")}"
         return nil
       end
-      STDERR.puts "[beryl init] Hébergeur choisi : #{p.display_name} (#{p.name})"
-      return ensure_provider_configured(p, non_interactive)
+      STDERR.puts "[beryl init] Provider : #{p.display_name}"
+      return configure_provider_if_needed(p, env_file, env_path, non_interactive)
     end
 
-    implemented = Beryl::Providers.all
-    case implemented.size
+    available = implemented.select(&.available?)
+    case available.size
     when 0
-      STDERR.puts "beryl : aucun provider n'est enregistré dans ce build."
-      nil
+      if non_interactive
+        STDERR.puts "beryl : aucun provider configuré (ajoutez --provider ou exportez les credentials)"
+        return nil
+      end
+      STDERR.puts "[beryl init] Aucun provider configuré."
+      STDERR.puts "Hébergeurs supportés :"
+      implemented.each_with_index { |p, i| STDERR.puts "  #{i + 1}. #{p.display_name} (#{p.name})" }
+      ans = ask("Lequel configurer ? [1] : ", "1")
+      idx = (ans.to_i? || 1).clamp(1, implemented.size) - 1
+      return configure_provider_if_needed(implemented[idx], env_file, env_path, non_interactive)
     when 1
-      # Un seul provider implémenté : on l'utilise. Config interactive
-      # si ses credentials manquent.
-      p = implemented.first
-      STDERR.puts "[beryl init] Hébergeur (seul implémenté) : #{p.display_name}"
-      ensure_provider_configured(p, non_interactive)
+      p = available.first
+      STDERR.puts "[beryl init] Provider détecté : #{p.display_name}"
+      p
     else
-      # Plusieurs providers implémentés : on liste TOUJOURS pour que
-      # Philippe voie ce que beryl sait faire. Le marqueur indique
-      # ce qui est prêt à l'emploi vs ce qui nécessiterait une config.
-      if non_interactive
-        avail = implemented.select(&.available?)
-        raise "--non-interactive : passez --provider=NAME (options : #{implemented.map(&.name).join(", ")})" if avail.size != 1
-        return avail.first
-      end
-
-      STDERR.puts "[beryl init] Hébergeurs supportés par beryl :"
-      file_env = parse_env_file_safe(ENV_FILE)
-      implemented.each_with_index do |p, i|
-        status = provider_status(p, file_env)
-        STDERR.puts "  #{i + 1}. #{p.display_name.ljust(30)} (#{p.name.ljust(10)}) #{status}"
-      end
-      STDERR.puts "    (credentials lus depuis #{ENV_FILE} + variables d'env du shell)"
-
-      # Défaut : le premier « [configuré] », sinon 1.
-      default_idx = (implemented.index(&.available?) || 0) + 1
-      answer = ask("Lequel utiliser ? [#{default_idx}] : ", default_idx.to_s)
-      idx = answer.to_i? || default_idx
-      idx = default_idx if idx < 1 || idx > implemented.size
-      chosen = implemented[idx - 1]
-      ensure_provider_configured(chosen, non_interactive)
+      STDERR.puts "[beryl init] Providers disponibles :"
+      available.each_with_index { |p, i| STDERR.puts "  #{i + 1}. #{p.display_name} (#{p.name})" }
+      ans = ask("Lequel utiliser ? [1] : ", "1")
+      idx = (ans.to_i? || 1).clamp(1, available.size) - 1
+      available[idx]
     end
   end
 
-  # Si les credentials du provider sont dans le shell mais pas (encore)
-  # dans ~/.beryl/.env, propose à l'opérateur de les sauvegarder. Sans
-  # ça, un `unset` ou un redémarrage de shell les perd, alors que
-  # l'utilisateur croit avoir une config persistante.
-  #
-  # Convention : on ne sauve QUE les valeurs absentes du fichier. Les
-  # variables déjà présentes dans le fichier ne sont jamais écrasées
-  # par cette fonction (le shell peut avoir une valeur temporaire /
-  # différente qu'on ne veut pas rendre permanente silencieusement).
-  private def self.offer_to_persist_shell_credentials(
-    provider : Beryl::Provider,
-    non_interactive : Bool,
-  ) : Nil
-    return if non_interactive
-    file_env = parse_env_file_safe(ENV_FILE)
-    shell_only = provider.credentials_env_vars.select do |var|
-      env_val = ENV[var.name]?
-      env_val && !env_val.empty? && !file_env.has_key?(var.name)
-    end
-    return if shell_only.empty?
-
-    STDERR.puts
-    STDERR.puts "[beryl init] Les credentials #{provider.display_name} viennent du shell, pas du fichier."
-    STDERR.puts "            Variables qui seraient perdues au prochain shell :"
-    shell_only.each { |v| STDERR.puts "              #{v.name}" }
-    answer = ask("Les sauvegarder dans #{ENV_FILE} ? [O/n] : ", "O")
-    return unless answer.downcase.starts_with?("o") || answer.downcase.starts_with?("y")
-
-    values = {} of String => String
-    shell_only.each do |var|
-      if val = ENV[var.name]?
-        values[var.name] = val unless val.empty?
-      end
-    end
-    write_env_file(values)
-    STDERR.puts "[beryl init] Credentials #{provider.display_name} sauvegardés dans #{ENV_FILE}."
-  end
-
-  # Statut d'un provider pour affichage dans la liste. Précise la
-  # source des credentials quand ils sont dispos, pour que Philippe
-  # puisse diagnostiquer un « je croyais avoir tout effacé et pourtant
-  # c'est encore configuré ».
-  #
-  # Trois cas pour « configuré » :
-  # - credentials dans ~/.beryl/.env ET ausi exportés dans le shell
-  #   → [configuré : ~/.beryl/.env + shell]
-  # - uniquement dans ~/.beryl/.env → [configuré : ~/.beryl/.env]
-  # - uniquement dans l'environnement du shell → [configuré : shell]
-  private def self.provider_status(provider : Beryl::Provider, file_env : Hash(String, String)) : String
-    return "[à configurer]" unless provider.available?
-
-    required = provider.credentials_env_vars.reject(&.optional).map(&.name)
-    in_file = required.any? { |v| file_env.has_key?(v) }
-    in_shell = required.any? { |v| ENV.has_key?(v) && !file_env.has_key?(v) }
-
-    if in_file && in_shell
-      "[configuré : ~/.beryl/.env + shell]"
-    elsif in_file
-      "[configuré : ~/.beryl/.env]"
-    else
-      "[configuré : shell]"
-    end
-  end
-
-  # Parse ~/.beryl/.env sans planter si le fichier est absent ou mal
-  # formé. Utilisé uniquement pour l'affichage du statut.
-  private def self.parse_env_file_safe(path : String) : Hash(String, String)
-    return {} of String => String unless File.exists?(path)
-    LoadEnv.parse(File.read(path))
-  rescue
-    {} of String => String
-  end
-
-  # S'assure que les credentials du provider sont dispos. Si non et
-  # mode interactif, propose de les configurer. Retourne le provider
-  # si tout est bon, nil si l'utilisateur annule.
-  #
-  # Bonus : si les credentials sont dispos mais uniquement dans le
-  # shell (pas dans ~/.beryl/.env), propose de les persister. Sinon
-  # ils disparaîtraient au prochain redémarrage du shell ou après un
-  # `unset`, et l'opérateur serait piégé.
-  private def self.ensure_provider_configured(
-    provider : Beryl::Provider,
-    non_interactive : Bool,
-  ) : Beryl::Provider?
-    if provider.available?
-      offer_to_persist_shell_credentials(provider, non_interactive)
-      return provider
-    end
-
-    if non_interactive
-      STDERR.puts "beryl : provider #{provider.name} demandé mais credentials absents."
-      STDERR.puts "        Exportez : #{provider.credentials_env_vars.reject(&.optional).map(&.name).join(", ")}"
-      return nil
-    end
-
-    STDERR.puts "[beryl init] #{provider.display_name} : credentials non configurés."
-    answer = ask("Les configurer maintenant ? [O/n] : ", "O")
-    unless answer.downcase.starts_with?("o") || answer.downcase.starts_with?("y")
-      return nil
-    end
-
-    configure_provider_credentials(provider)
-    LoadEnv.load(ENV_FILE, overwrite: true)
-
-    unless provider.available?
-      STDERR.puts "beryl : credentials posés mais #{provider.display_name} se déclare toujours"
-      STDERR.puts "        indisponible. Vérifiez #{ENV_FILE}."
-      return nil
-    end
-    STDERR.puts "[beryl init] Provider #{provider.display_name} configuré."
-    provider
-  end
-
-  # Trouve la correspondance (clé provider ↔ fichier .pub local) sans
-  # demander à l'utilisateur quand c'est possible. Règle de matching :
-  # la clé distante et la clé locale ont le même couple « type + base64 »
-  # (le commentaire final peut différer).
-  #
-  # Cas :
-  # - Flags explicites fournis → on les utilise et on vérifie la
-  #   cohérence (warning si pas de match, pas d'erreur).
-  # - 1 clé provider + 1 fichier local correspondant → tout auto.
-  # - Plusieurs clés provider avec un unique match local → auto sur le
-  #   match, les autres sont ignorées.
-  # - Pas de match → prompts ciblés.
-  # - Aucune clé côté provider → erreur explicite.
-  def self.select_ssh_key(
-    provider : Beryl::Provider,
-    ssh_key_name_flag : String?,
-    admin_key_flag : String?,
-    non_interactive : Bool,
-  ) : NamedTuple(provider_key_id: String, local_pub_path: String?)?
-    remote_keys = provider.list_ssh_keys
-    local_pubs = list_local_pub_files
-
-    if remote_keys.empty?
-      STDERR.puts "beryl : aucune clé SSH côté #{provider.display_name}."
-      STDERR.puts "        Créez-en une dans le panel de l'hébergeur puis relancez."
-      return nil
-    end
-
-    # Match automatique : pour chaque clé distante, cherche le fichier
-    # local qui a la même empreinte (type + base64).
-    matches = [] of NamedTuple(remote: Beryl::SshKeyInfo, local: String?)
-    remote_keys.each do |rk|
-      local = local_pubs.find do |f|
-        begin
-          content = File.read_lines(f).first? || ""
-          Beryl::SshKeyInfo.new("", "", content).crypto_fingerprint == rk.crypto_fingerprint
-        rescue
-          false
-        end
-      end
-      matches << {remote: rk, local: local}
-    end
-
-    # Flag explicite → on prend la clé nommée, même sans match local.
-    if ssh_key_name_flag
-      match = matches.find { |m| m[:remote].id == ssh_key_name_flag || m[:remote].name == ssh_key_name_flag }
-      raise "clé #{ssh_key_name_flag} introuvable côté #{provider.display_name}" unless match
-      local_path = admin_key_flag ? resolve_admin_key_path(admin_key_flag) : match[:local]
-      return {provider_key_id: match[:remote].id, local_pub_path: local_path}
-    end
-
-    auto = matches.select { |m| !m[:local].nil? }
-    case auto.size
-    when 1
-      m = auto.first
-      STDERR.puts "[beryl init] Clé #{provider.name} détectée : #{m[:remote].name}"
-      STDERR.puts "             correspond à #{m[:local]}"
-      {provider_key_id: m[:remote].id, local_pub_path: m[:local]}
-    when 0
-      STDERR.puts "[beryl init] Aucun fichier ~/.ssh/*.pub ne correspond aux clés #{provider.display_name}."
-      STDERR.puts "            Clés côté #{provider.display_name} :"
-      remote_keys.each { |k| STDERR.puts "              - #{k.name} (#{k.id})" }
-      STDERR.puts "            Fichiers .pub locaux : #{local_pubs.empty? ? "(aucun)" : local_pubs.map { |f| File.basename(f) }.join(", ")}"
-      if non_interactive
-        raise "aucun match auto : passez --ssh-key-name=NAME et --admin-key=FILE"
-      end
-      pick_manually(provider, remote_keys, local_pubs)
-    else
-      if non_interactive
-        raise "plusieurs matches possibles (#{auto.map { |m| m[:remote].name }.join(", ")}), passez --ssh-key-name=NAME"
-      end
-      STDERR.puts "[beryl init] Plusieurs clés #{provider.display_name} ont une correspondance locale :"
-      auto.each_with_index { |m, i| STDERR.puts "  #{i + 1}. #{m[:remote].name} ↔ #{File.basename(m[:local].not_nil!)}" }
-      answer = ask("Laquelle utiliser ? [1] : ", "1")
-      idx = answer.to_i? || 1
-      idx = 1 if idx < 1 || idx > auto.size
-      chosen = auto[idx - 1]
-      {provider_key_id: chosen[:remote].id, local_pub_path: chosen[:local]}
-    end
-  end
-
-  # Chemin fixe du fichier .env où on stocke les credentials providers.
-  ENV_FILE = File.expand_path("~/.beryl/.env", home: true)
-
-  # Prompt chaque variable du provider, écrit dans ~/.beryl/.env en
-  # préservant les lignes existantes (merge + dedup par nom de var).
-  def self.configure_provider_credentials(provider : Beryl::Provider) : Nil
-    STDERR.puts
-    STDERR.puts "Configuration #{provider.display_name} :"
-    STDERR.puts "  URL d'aide : #{provider.credentials_help_url}"
-    STDERR.puts
-
+  private def self.configure_provider_if_needed(provider : Beryl::Provider, env_file : Beryl::Config::EnvFile, env_path : String, non_interactive : Bool) : Beryl::Provider?
+    return provider if provider.available?
+    return nil if non_interactive
+    STDERR.puts "[beryl init] Configuration #{provider.display_name}"
+    STDERR.puts "  Aide : #{provider.credentials_help_url}"
     values = {} of String => String
     provider.credentials_env_vars.each do |var|
       prompt = "  #{var.name}"
       prompt += " [#{var.default}]" if var.default
       prompt += " (optionnel)" if var.optional
-      prompt += "  # #{var.description}"
-      prompt += "\n    : "
-
+      prompt += " : "
       input = ask_optional(prompt)
-      # Défaut si vide et default fourni.
       input = var.default.not_nil! if input.empty? && var.default
-      # Requis non fourni → on skip, l'utilisateur verra l'erreur
-      # au prochain appel API (plutôt que de bloquer init).
       next if input.empty?
-
       values[var.name] = input
     end
 
-    write_env_file(values)
-    STDERR.puts
-    STDERR.puts "[beryl init] Credentials écrits dans #{ENV_FILE}"
-    STDERR.puts "            (chargé automatiquement par beryl à chaque invocation)"
+    # Section temporaire "__init_pending__" → le domaine sera renommé
+    # après saisie de la zone. Pour simplifier : on demande la zone
+    # tout de suite pour poser les credentials dans la bonne section.
+    zone = ask("Zone DNS de ce domaine (ex: aloli.net) : ", "")
+    raise Aborted.new if zone.empty?
+    env_file.set_domain(zone, values)
+    env_file.save
+    STDERR.puts "[beryl init] Credentials écrits dans #{env_path}"
+    # Ré-applique pour que provider.available? devienne vrai.
+    env_file.apply_to_env(zone, overwrite: true)
+    provider.available? ? provider : nil
   end
 
-  # Merge les valeurs dans ~/.beryl/.env. Conserve les autres vars
-  # déjà présentes (ex: credentials d'un autre provider), remplace les
-  # valeurs des clés qu'on pose ici.
-  def self.write_env_file(values : Hash(String, String)) : Nil
-    FileUtils.mkdir_p(File.dirname(ENV_FILE))
-    existing = {} of String => String
-    if File.exists?(ENV_FILE)
-      existing = LoadEnv.parse(File.read(ENV_FILE))
+  # Sélection automatique de la clé SSH chez le provider + matching
+  # avec ~/.ssh/*.pub local via empreinte crypto.
+  private def self.select_ssh_key(
+    provider : Beryl::Provider,
+    ssh_key_name_flag : String?,
+    admin_key_flag : String?,
+    non_interactive : Bool,
+  ) : NamedTuple(provider_key_id: String, admin_key_content: String)?
+    begin
+      remote_keys = provider.list_ssh_keys
+    rescue ex
+      STDERR.puts "beryl : impossible de lister les clés SSH chez #{provider.display_name} : #{ex.message}"
+      return nil
     end
-    merged = existing.merge(values)
 
-    # Tri alphabétique pour un fichier stable (diff git propre).
-    content = String.build do |io|
-      io << "# Credentials beryl — écrit par `beryl init`\n"
-      io << "# Ajouté/modifié à la main : libre cours, juste garder la\n"
-      io << "# forme `KEY=value` par ligne.\n\n"
-      merged.keys.sort.each do |k|
-        v = merged[k]
-        # Quote la valeur si elle contient des espaces ou caractères
-        # spéciaux — simple heuristique, load-env gère les deux.
-        if v =~ /\s|["'\\]/
-          io << k << '=' << '"' << v.gsub('"', "\\\"") << '"' << '\n'
-        else
-          io << k << '=' << v << '\n'
+    local_pubs = list_local_pub_files
+
+    matches = remote_keys.map do |rk|
+      local = local_pubs.find do |f|
+        begin
+          c = File.read_lines(f).first? || ""
+          Beryl::SshKeyInfo.new("", "", c).crypto_fingerprint == rk.crypto_fingerprint
+        rescue
+          false
         end
       end
+      {remote: rk, local: local}
     end
-    File.write(ENV_FILE, content)
-    File.chmod(ENV_FILE, 0o600) # contient des secrets
+
+    chosen = if ssh_key_name_flag
+               matches.find { |m| m[:remote].id == ssh_key_name_flag || m[:remote].name == ssh_key_name_flag } ||
+                 raise "clé #{ssh_key_name_flag} introuvable côté #{provider.display_name}"
+             else
+               auto = matches.select { |m| !m[:local].nil? }
+               case auto.size
+               when 1
+                 STDERR.puts "[beryl init] Clé #{provider.name} : #{auto.first[:remote].name} ↔ #{auto.first[:local]}"
+                 auto.first
+               when 0
+                 raise Aborted.new if non_interactive
+                 STDERR.puts "[beryl init] Aucun ~/.ssh/*.pub ne correspond. Clés #{provider.display_name} :"
+                 remote_keys.each_with_index { |k, i| STDERR.puts "  #{i + 1}. #{k.name}" }
+                 ans = ask("Laquelle utiliser ? [1] : ", "1")
+                 idx = (ans.to_i? || 1).clamp(1, remote_keys.size) - 1
+                 {remote: remote_keys[idx], local: nil.as(String?)}
+               else
+                 raise Aborted.new if non_interactive
+                 STDERR.puts "[beryl init] Plusieurs correspondances :"
+                 auto.each_with_index { |m, i| STDERR.puts "  #{i + 1}. #{m[:remote].name} ↔ #{File.basename(m[:local].not_nil!)}" }
+                 ans = ask("Laquelle utiliser ? [1] : ", "1")
+                 idx = (ans.to_i? || 1).clamp(1, auto.size) - 1
+                 auto[idx]
+               end
+             end
+
+    admin_key_content = if admin_key_flag
+                          File.read_lines(admin_key_flag).map(&.strip).reject(&.empty?).first? || ""
+                        elsif local = chosen[:local]
+                          File.read_lines(local).map(&.strip).reject(&.empty?).first? || ""
+                        else
+                          chosen[:remote].public_key
+                        end
+
+    {provider_key_id: chosen[:remote].id, admin_key_content: admin_key_content}
   end
 
-  # Liste les fichiers ~/.ssh/*.pub (chemins absolus).
-  def self.list_local_pub_files : Array(String)
+  private def self.list_local_pub_files : Array(String)
     ssh_dir = File.expand_path("~/.ssh", home: true)
     return [] of String unless File.directory?(ssh_dir)
-    Dir.children(ssh_dir)
-      .select(&.ends_with?(".pub"))
-      .sort
-      .map { |f| File.join(ssh_dir, f) }
+    Dir.children(ssh_dir).select(&.ends_with?(".pub")).sort.map { |f| File.join(ssh_dir, f) }
   end
 
-  # Dernier recours si le matching automatique échoue : on demande à
-  # l'utilisateur de choisir (clé + fichier) à la main.
-  private def self.pick_manually(
-    provider : Beryl::Provider,
-    remote_keys : Array(Beryl::SshKeyInfo),
-    local_pubs : Array(String),
-  ) : NamedTuple(provider_key_id: String, local_pub_path: String?)?
-    STDERR.puts "Clés #{provider.display_name} disponibles :"
-    remote_keys.each_with_index { |k, i| STDERR.puts "  #{i + 1}. #{k.name}" }
-    answer = ask("Laquelle utiliser pour le rescue ? [1] : ", "1")
-    idx_r = answer.to_i? || 1
-    idx_r = 1 if idx_r < 1 || idx_r > remote_keys.size
-    chosen_remote = remote_keys[idx_r - 1]
-
-    local_path : String? = nil
-    unless local_pubs.empty?
-      STDERR.puts "Fichiers .pub dans ~/.ssh/ :"
-      local_pubs.each_with_index { |f, i| STDERR.puts "  #{i + 1}. #{File.basename(f)}" }
-      STDERR.puts "  0. (aucun — clé admin à compléter manuellement plus tard)"
-      la = ask("Lequel poser dans authorized_keys de admin ? [1] : ", "1")
-      idx_l = la.to_i? || 1
-      local_path = idx_l == 0 ? nil : local_pubs[idx_l - 1]
-    end
-    {provider_key_id: chosen_remote.id, local_pub_path: local_path}
-  end
-
-  private def self.write_file(path : String, content : String) : Nil
-    FileUtils.mkdir_p(File.dirname(path))
-    File.write(path, content)
-  end
-
-  # Prompt obligatoire : valeur par défaut acceptée si non vide.
-  private def self.ask(prompt : String, default : String) : String
-    STDERR.print prompt
-    STDERR.flush
-    line = STDIN.gets || raise Aborted.new
-    a = line.chomp.strip
-    a.empty? ? default : a
-  end
-
-  # Prompt optionnel : peut être laissé vide.
-  private def self.ask_optional(prompt : String) : String
-    STDERR.print prompt
-    STDERR.flush
-    line = STDIN.gets || return ""
-    line.chomp.strip
-  end
-
-  private def self.render_zone_group(zone : String, provider : Beryl::Provider, key_id : String) : String
-    fragment = provider.ssh_key_yaml_fragment(key_id)
+  # Socle FreeBSD standard (admin + deploy avec shells appropriés,
+  # sans clés SSH : elles viennent du domaine via ssh_keys: + Merger).
+  private def self.default_yaml_content : String
     <<-YAML
-    # Zone #{zone} — clé SSH #{provider.display_name} partagée par
-    # tous les serveurs de la zone.
-    #
-    # À inclure dans le champ `groups:` de chaque host de cette zone.
-    # Règle Aloli : la clé SSH de rescue est déclarée ICI, pas recopiée
-    # dans chaque fichier host. Un serveur qui utilise une clé spécifique
-    # redéclare le champ dans son propre fichier (deep merge YAML →
-    # l'override host prime).
-
-    #{provider.name}:
-    #{render_yaml_fragment(fragment, indent: "  ")}
-    YAML
-  end
-
-  # Sérialise un hash plat {String => String | Array(String)} en YAML
-  # indenté. Limité à 1 niveau (suffisant pour les fragments provider).
-  private def self.render_yaml_fragment(fragment : Hash(String, String | Array(String)), indent : String) : String
-    String.build do |io|
-      fragment.each_with_index do |(k, v), i|
-        io << '\n' if i > 0
-        case v
-        when String
-          io << indent << k << ": " << v
-        when Array(String)
-          io << indent << k << ":\n"
-          v.each_with_index { |item, j| io << indent << "  - " << item; io << '\n' if j < v.size - 1 }
-        end
-      end
-    end
-  end
-
-  private def self.render_admin_group(admin_key : String) : String
-    placeholder_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIRemplacezMoi votre@email"
-    key_line = admin_key.empty? ? placeholder_key : admin_key
-    comment = admin_key.empty? ? "# TODO : remplacez par votre vraie clé SSH publique" : "# Clé importée depuis le fichier .pub fourni à `beryl init`"
-    <<-YAML
-    # Group aloli-admin — user admin standard pour tous les serveurs.
-    #
-    # Règles Aloli :
-    # - pas de clé SSH sur root (feedback_beryl_no_root_ssh)
-    # - admin est dans wheel (sudo NOPASSWD via sudoers ci-dessous)
-    # - shell /bin/csh (défaut FreeBSD, change si préférence contraire)
-
-    freebsd:
-      users:
-        - name: admin
-          primary_group: www
-          secondary_groups: [wheel]
-          shell: /bin/csh
-          ssh_keys:
-            #{comment}
-            - #{key_line}
-
-      sudoers:
-        - '%wheel ALL=(ALL) NOPASSWD:ALL'
-    YAML
-  end
-
-  # Groupe d'install FreeBSD standard : timezone, pool_name, swap_gb,
-  # install_type, raid, quelques packages de base (sudo, zsh, git,
-  # curl). À inclure dans chaque host pour ne pas redéclarer les
-  # valeurs communes. L'host surcharge à la demande (disks, raid,
-  # hostname = toujours spécifiques).
-  #
-  # Feedback Philippe 22 avril 2026 : « L'init doit proposer un schéma
-  # standard pour l'install FreeBSD de façon à ne pas devoir tout
-  # écrire ».
-  private def self.render_freebsd_base_group : String
-    <<-YAML
-    # Group aloli-freebsd — valeurs standard pour l'install FreeBSD.
-    #
-    # À inclure dans `groups:` de chaque host. Les champs ci-dessous
-    # couvrent ~80% des cas courants :
-    #
-    #   timezone       : Europe/Paris (à ajuster pour autre fuseau)
-    #   pool_name      : zroot (nom par défaut FreeBSD bsdinstall)
-    #   swap_gb        : 4 (taille de swap en Go)
-    #   install_type   : distribution_sets (base.txz + kernel.txz)
-    #                    mettre "packages" pour pkgbase (opt-in, ADR-013)
-    #   raid           : stripe (RAID 0, Aloli privilégie backups
-    #                    bétonnés à la redondance disque — voir memory
-    #                    feedback_raid_strategy_rails). 2 disques →
-    #                    override host avec `raid: mirror`.
-    #
-    # Un host redéclare uniquement ce qui change :
-    #
-    #   freebsd:
-    #     hostname: loulou
-    #     disks: [/dev/sda, /dev/sdb]
-    #     raid: mirror   # override : ce host a 2 disques en mirror
-    #
-    # Les packages de base (sudo, zsh, curl, git) sont dans ce groupe.
-    # rails-servers / backup-servers appendent leurs propres packages.
+    # Socle technique FreeBSD — commun à TOUS les domaines.
+    # Les clés SSH ne sont PAS ici : elles sont déclarées dans chaque
+    # <domaine>.yml (ssh_keys:) et injectées automatiquement dans chaque
+    # user par le merge.
 
     freebsd:
       timezone: Europe/Paris
       pool_name: zroot
       swap_gb: 4
-      install_type: distribution_sets
       raid: stripe
-
+      install_type: distribution_sets
       packages:
         - sudo
         - zsh
         - curl
         - git
+      sudoers:
+        - '%wheel ALL=(ALL) NOPASSWD:ALL'
+      users:
+        - name: admin
+          primary_group: www
+          secondary_groups: [wheel]
+          shell: /usr/local/bin/zsh
+        - name: deploy
+          primary_group: www
+          secondary_groups: []
+          shell: /bin/csh
     YAML
   end
 
-  private def self.render_rails_group : String
-    <<-YAML
-    # Group rails-servers — stack Ruby on Rails (exemple, à personnaliser).
-    #
-    # À inclure dans `groups:` d'un host qui héberge une app Rails :
-    #   groups: [<zone>, aloli-admin, aloli-freebsd, rails-servers]
-    #
-    # Les packages listés sont APPENDÉS à ceux déclarés dans d'autres
-    # groupes (aloli-freebsd fournit déjà sudo/zsh/curl/git).
-
-    freebsd:
-      packages:
-        - ruby
-        - rubygem-bundler
-        - postgresql16-server
-        - postgresql16-client
-        - node
-        - nginx
-    YAML
+  # Contenu d'un `<domaine>.yml`. Porte l'identité : clé du domaine
+  # (ssh_keys:) et clé SSH chez le provider (<provider>.ssh_key_name).
+  private def self.render_domain_yaml(provider : Beryl::Provider, key_id : String, admin_key : String) : String
+    String.build do |io|
+      io << "# Identité du domaine — clé SSH côté " << provider.display_name
+      io << "\n# (injectée au rescue par l'API) + clé(s) SSH des users (posées\n"
+      io << "# dans ~<user>/.ssh/authorized_keys par beryl bootstrap + apply).\n\n"
+      io << provider.name << ":\n"
+      fragment = provider.ssh_key_yaml_fragment(key_id)
+      fragment.each do |k, v|
+        case v
+        when String
+          io << "  " << k << ": " << v << '\n'
+        when Array(String)
+          io << "  " << k << ":\n"
+          v.each { |it| io << "    - " << it << '\n' }
+        end
+      end
+      io << "\nssh_keys:\n"
+      if admin_key.empty?
+        io << "  # TODO : ajoutez au moins une clé SSH publique ici\n"
+        io << "  # - ssh-ed25519 AAAA... votre@email\n"
+      else
+        io << "  - " << admin_key << '\n'
+      end
+    end
   end
 
-  private def self.render_backup_group : String
-    <<-YAML
-    # Group backup-servers — serveurs de sauvegarde (exemple).
-    #
-    # Typiquement : SSD système + HDD data, rsync/restic/borg pour les
-    # backups applicatifs. À inclure dans `groups:` d'un host :
-    #   groups: [<zone>, aloli-admin, aloli-freebsd, backup-servers]
-
-    freebsd:
-      packages:
-        - rsync
-        - restic
-        - borgbackup
-    YAML
+  private def self.ask(prompt : String, default : String) : String
+    STDERR.print prompt
+    STDERR.flush
+    line = STDIN.gets
+    raise Aborted.new if line.nil?
+    a = line.chomp.strip
+    a.empty? ? default : a
   end
 
-  private def self.render_hosts_readme(dir : String) : String
-    <<-ADOC
-    = Dossier hosts/ — un fichier par serveur
-
-    Ce dossier contient un fichier YAML par serveur. Le nom du fichier
-    donne le nom logique de l'hôte (ex: `loulou.aloli.net.yml` →
-    `loulou.aloli.net`).
-
-    == Ajouter un nouveau serveur
-
-    Quand vous recevez un serveur OVH, vous ne connaissez que son
-    `service_name` (ex. `ns3156789.ip-51-83-6.eu`). beryl prend le
-    relais :
-
-    [source,sh]
-    ----
-    # 1. Mise en rescue (via API OVH, utilise la clé SSH de la zone)
-    beryl rescue ns3156789.ip-51-83-6.eu
-
-    # 2. Scan + nommage DNS + écriture du fichier host
-    beryl scan ns3156789.ip-51-83-6.eu --dns --write
-    ----
-
-    `beryl scan --dns` demande :
-
-    - le nom court du serveur (ex. `loulou`)
-    - la zone DNS (ex. `aloli.net`)
-
-    Puis pose un CNAME dans la zone (`loulou.aloli.net → ns3156789.ip-...`),
-    un reverse DNS sur l'IPv4 et l'IPv6 du serveur, et renomme
-    l'affichage côté panel OVH. Écrit ensuite `hosts/loulou.aloli.net.yml`.
-
-    == Structure type d'un fichier host
-
-    [source,yaml]
-    ----
-    provider: ovh
-    ovh:
-      service_name: ns3156789.ip-51-83-6.eu
-      # ssh_key_name : hérité du groupe zone
-
-    groups:
-      - aloli-net       # zone DNS + ssh_key_name (provider)
-      - aloli-admin     # user admin standard + sudoers
-      - aloli-freebsd   # install FreeBSD standard (timezone, zroot, swap, raid)
-      - rails-servers   # stack fonctionnelle
-
-    freebsd:
-      hostname: loulou
-      disks: [/dev/sda, /dev/sdb]
-      raid: mirror   # override : ce serveur a 2 disques en mirror
-      # Les autres champs (timezone, pool_name, swap_gb, install_type,
-      # users, packages, sudoers) viennent des groupes.
-    ----
-    ADOC
+  private def self.ask_optional(prompt : String) : String
+    STDERR.print prompt
+    STDERR.flush
+    line = STDIN.gets || return ""
+    line.chomp.strip
   end
 end

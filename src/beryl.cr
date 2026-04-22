@@ -1,12 +1,8 @@
 require "./beryl/version"
 require "./beryl/i18n"
 require "./beryl/ssh"
-require "./beryl/freebsd_config"
-require "./beryl/inventory"
+require "./beryl/config"
 require "./beryl/bootstrap"
-# NB : providers.cr require elle-même cli/credentials.cr qui require
-# les shards ovh-api/scaleway-api. Chargé en dernier pour être sûr que
-# Beryl::Host/Inventory existent avant que les providers s'enregistrent.
 require "./beryl/providers"
 
 module Beryl
@@ -50,10 +46,8 @@ module Beryl
   end
 
   # Nettoie ~/.ssh/known_hosts de toute entrée pour `host` (et la
-  # variante `[host]:port` si port != 22). À appeler avant toute
-  # sous-commande qui change la clé d'hôte (rescue, bootstrap, boot-hd)
-  # pour éviter à l'utilisateur un futur `REMOTE HOST IDENTIFICATION HAS
-  # CHANGED`. Silencieux si l'entrée n'existe pas.
+  # variante `[host]:port` si port != 22). Silencieux si l'entrée
+  # n'existe pas.
   def self.clean_known_hosts(host : String, port : Int32 = 22) : Nil
     Process.run("ssh-keygen", ["-R", host],
       output: Process::Redirect::Close, error: Process::Redirect::Close)
@@ -63,26 +57,23 @@ module Beryl
     end
   end
 
-  # Nettoie ~/.ssh/known_hosts pour les DEUX noms potentiels d'un host :
-  # son nom logique (ex. `rails01.aloli.fr`) et son nom côté hébergeur
-  # (`ovh.service_name` pour OVH). Au fil de rescue/bootstrap/apply,
-  # chaque nom peut collecter une clé d'hôte qui ne correspond plus à
-  # l'OS en place. Appelé par toutes les sous-commandes qui changent
-  # potentiellement la clé d'hôte.
-  def self.clean_known_hosts_for(host : Beryl::Host) : Nil
-    clean_known_hosts(host.name, host.port)
+  # Nettoie ~/.ssh/known_hosts pour les DEUX noms d'un host résolu :
+  # son FQDN logique et son nom côté hébergeur (quand ils diffèrent).
+  # Évite un futur « REMOTE HOST IDENTIFICATION HAS CHANGED » quel que
+  # soit le nom que l'opérateur utilise ensuite.
+  def self.clean_known_hosts_for(host : Beryl::Config::ResolvedHost) : Nil
+    clean_known_hosts(host.fqdn, host.port)
     clean_known_hosts(host.ssh_host, host.port) if host.ssh_host_is_provider_name?
   end
 
-  # Formate une cible SSH pour les logs, de façon uniforme entre les
-  # sous-commandes : « rails01.aloli.fr » seul si le nom logique == le
-  # nom SSH, sinon « rails01.aloli.fr (= ns1234.ip-... côté ovh) » pour
-  # garder la traçabilité de la correspondance nom custom / nom hébergeur.
-  def self.format_ssh_target(host : Beryl::Host) : String
+  # Formate une cible SSH pour les logs de façon uniforme :
+  # `rails01.aloli.net` seul quand le nom SSH == FQDN,
+  # `rails01.aloli.net (= ns1234.ip-... côté ovh)` sinon.
+  def self.format_ssh_target(host : Beryl::Config::ResolvedHost) : String
     if host.ssh_host_is_provider_name?
-      "#{host.name} (= #{host.ssh_host} côté #{host.provider})"
+      "#{host.fqdn} (= #{host.ssh_host} côté #{host.provider})"
     else
-      host.name
+      host.fqdn
     end
   end
 end
