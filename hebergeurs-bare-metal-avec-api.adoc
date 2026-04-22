@@ -1,0 +1,282 @@
+= Hébergeurs de serveurs dédiés (bare metal) avec API
+:toc: left
+:toclevels: 3
+:sectnums:
+:icons: font
+:source-highlighter: rouge
+:experimental:
+
+[.lead]
+Liste des hébergeurs proposant à la location des serveurs *physiques complets* (bare metal / dédiés), et non des machines virtuelles, avec une *API publique de gestion*.
+
+IMPORTANT: Les prix et caractéristiques sont susceptibles d'évoluer. Référez-vous toujours au site officiel de chaque prestataire pour les informations à jour. Les informations ci-dessous sont valables en avril 2026.
+
+== Critères retenus
+
+* Location de serveurs *bare metal* (matériel physique entièrement dédié au locataire, sans hyperviseur imposé).
+* *API publique documentée* permettant au minimum le provisioning, le reboot, la réinstallation OS, la gestion réseau.
+* Sont exclus les VPS, instances virtualisées et offres uniquement via ticket/courriel.
+
+== Hébergeurs français
+
+[cols="2,1,2,3,2,3", options="header"]
+|===
+| Hébergeur | Pays | Siège | API | Datacenters | Particularités
+
+| *OVHcloud*
+| 🇫🇷 France
+| Roubaix
+| REST (API v1/v2), CLI, Terraform provider officiel
+| 13 régions, 46 DC dans le monde
+| Leader européen. Gamme très large (Rise, Advance, Scale, High Grade, HGR-AI). Offre Bare Metal Pod qualifiée SecNumCloud administrable via API OpenStack.
+
+| *Scaleway* (ex-Online.net / Dedibox)
+| 🇫🇷 France
+| Paris
+| REST, CLI, Terraform, SDK Go/Python/JS
+| France (Paris), Pays-Bas (Amsterdam)
+| Trois gammes : *Dedibox* (dédiés classiques), *Elastic Metal* (bare metal à la demande, facturation horaire, provisioning en minutes), *Apple Silicon* (Mac mini M1/M2/M4).
+
+| *Ikoula* (groupe Sewan)
+| 🇫🇷 France
+| Reims / Eppes
+| API REST (extranet), plus limitée que les leaders
+| France, Allemagne, Pays-Bas
+| Acteur historique (1998). Livraison en 1h, gammes Power, GPU, Proxmox, Synology. API moins riche que OVH/Scaleway.
+
+| *Outscale* (Dassault Systèmes)
+| 🇫🇷 France
+| Saint-Cloud
+| API compatible AWS EC2 + OpenStack
+| France, USA, Chine, Inde
+| Qualifié SecNumCloud. Offre orientée cloud souverain, bare metal disponible via « Dedicated Cloud ».
+
+| *Phoenix* / *PulseHeberg* / *Hopus* (petits acteurs)
+| 🇫🇷 France
+| France
+| API variable selon le prestataire
+| France
+| À étudier au cas par cas, offres nichées (gaming, etc.). Vérifiez toujours la présence effective d'une API.
+|===
+
+== Hébergeurs européens (hors France)
+
+[cols="2,1,2,3,2,3", options="header"]
+|===
+| Hébergeur | Pays | Siège | API | Datacenters | Particularités
+
+| *Hetzner*
+| 🇩🇪 Allemagne
+| Gunzenhausen
+| Deux API distinctes : *Robot Webservice* (dédiés traditionnels) et *Cloud API* (Cloud). Terraform provider, SDK Python/Ruby/Go communautaires.
+| Allemagne, Finlande, USA, Singapour
+| Excellent rapport qualité/prix. Datacenters alimentés à 100 % en énergie renouvelable. *Server Auction* pour serveurs d'occasion à prix cassés.
+
+| *IONOS*
+| 🇩🇪 Allemagne
+| Montabaur
+| REST Cloud API
+| Europe, USA
+| Offres dédiées entreprise, tarifs transparents, trafic illimité 1 Gbit/s.
+
+| *Leaseweb*
+| 🇳🇱 Pays-Bas
+| Amsterdam
+| REST API, Terraform provider
+| Europe, USA, Asie, Australie
+| Réseau Tier-1 de haut niveau, IPMI/iDRAC/iLO inclus par défaut, gammes managées ou non.
+
+| *Worldstream*
+| 🇳🇱 Pays-Bas
+| Naaldwijk
+| API client (plus limitée)
+| Pays-Bas, USA
+| Réseau performant, options unmetered, bon rapport qualité/prix.
+
+| *Cherry Servers*
+| 🇱🇹 Lituanie
+| Vilnius
+| REST API complète, Terraform, Pulumi, CLI
+| Lituanie, Pays-Bas, USA
+| Provisioning API-first, facturation horaire/mensuelle, GPU disponibles. Alternative sérieuse à Equinix Metal.
+
+| *Clouvider*
+| 🇬🇧 Royaume-Uni
+| Londres
+| REST API
+| UK, Europe, USA, Asie
+| Réseau mondial de qualité, présent sur les IXP majeurs.
+
+| *Snel.com*
+| 🇳🇱 Pays-Bas
+| Rotterdam
+| API client
+| Pays-Bas, USA
+| Livraison rapide, tarifs abordables.
+|===
+
+== Hébergeurs mondiaux / internationaux
+
+[cols="2,1,2,3,2,3", options="header"]
+|===
+| Hébergeur | Pays | Siège | API | Datacenters | Particularités
+
+| *Latitude.sh* (ex-Maxihost)
+| 🇧🇷 Brésil / 🇺🇸 USA
+| São Paulo / USA
+| REST API mature, Terraform provider, CLI
+| Brésil, USA, Europe, Asie
+| Provisioning en quelques secondes, très orienté développeurs. Se positionne comme le remplaçant naturel d'Equinix Metal.
+
+| *Vultr*
+| 🇺🇸 USA
+| West Palm Beach, FL
+| REST API v2 complète, SDK Python/Go/JS
+| 30+ régions mondiales
+| Bare metal à côté des VPS, facturation horaire, provisioning rapide.
+
+| *PhoenixNAP* (Bare Metal Cloud)
+| 🇺🇸 USA
+| Phoenix, AZ
+| REST API, Terraform, Ansible, Pulumi
+| USA, Europe, Asie, Australie
+| *API-first*, facturation horaire véritable, très utilisé en CI/CD et IaC.
+
+| *Servers.com*
+| 🇺🇸 USA
+| USA
+| REST API, Terraform
+| USA, Europe, Asie
+| Réseau privé entre serveurs, bonnes options GPU.
+
+| *Hivelocity*
+| 🇺🇸 USA
+| Tampa, FL
+| REST API, Terraform
+| USA, Europe, Asie
+| Nombreuses localisations, provisioning rapide.
+
+| *Liquid Web*
+| 🇺🇸 USA
+| Lansing, MI
+| REST API (Storm API)
+| USA, Europe
+| Gamme managée de référence, support 24/7 inclus.
+
+| *InterServer*
+| 🇺🇸 USA
+| Secaucus, NJ
+| API client
+| USA
+| Tarifs agressifs, accès root complet.
+
+| *GTHost*
+| 🇨🇦 Canada
+| Canada
+| API disponible
+| Multiples villes
+| Serveurs dédiés instantanés, facturation horaire ou mensuelle.
+
+| *OneProvider*
+| 🇫🇷 France (international, revendeur)
+| Paris
+| API
+| ~150 villes via partenaires
+| Agrégateur donnant accès à des dédiés dans de nombreuses villes peu couvertes ailleurs.
+
+| *AWS* (EC2 bare metal : `*.metal` instances)
+| 🇺🇸 USA
+| Seattle, WA
+| API AWS complète, SDK tous langages
+| Mondial
+| Instances `i3.metal`, `m5.metal`, etc. — véritables serveurs physiques, mais facturés comme des instances EC2.
+
+| *Google Cloud* (Bare Metal Solution)
+| 🇺🇸 USA
+| Mountain View, CA
+| API GCP
+| Amérique du Nord, Europe, Asie
+| Orienté charges SAP HANA, bases de données critiques.
+
+| *IBM Cloud Bare Metal*
+| 🇺🇸 USA
+| Armonk, NY
+| REST API, Terraform
+| Mondial
+| Historiquement SoftLayer, très personnalisable, orienté entreprise.
+
+| *Oracle Cloud* (OCI Bare Metal)
+| 🇺🇸 USA
+| Austin, TX
+| REST API OCI, Terraform
+| Mondial
+| Tarifs agressifs, mais bare metal exclu du Free Tier.
+
+| *Azure Bare Metal*
+| 🇺🇸 USA
+| Redmond, WA
+| API Azure, ARM templates, Terraform
+| Mondial
+| Intégration native avec l'écosystème Azure, orienté hybride.
+|===
+
+== Cas particuliers et points d'attention
+
+=== Equinix Metal : fin de service
+
+[WARNING]
+====
+*Equinix Metal* était historiquement la référence du bare metal API-first (plateforme Packet rachetée par Equinix). Equinix a annoncé la *fin commerciale* du service : plus de nouvelles ventes, et *sunset complet au 30 juin 2026*. Ne pas démarrer de nouveau projet sur cette plateforme.
+
+Les alternatives les plus souvent citées pour une migration sont *Latitude.sh*, *Cherry Servers*, *PhoenixNAP*, *Vultr Bare Metal* et *Hetzner*.
+====
+
+=== Frontière bare metal / cloud
+
+La distinction est parfois floue :
+
+* *Bare metal classique* (OVH Rise, Hetzner dédiés, Dedibox) : livraison en minutes à heures, facturation mensuelle, très compétitif en prix.
+* *Bare metal cloud* (Scaleway Elastic Metal, PhoenixNAP BMC, Latitude.sh, AWS `*.metal`, Vultr Bare Metal) : provisioning API en secondes/minutes, facturation horaire, intégration cloud-native.
+
+Les deux modèles sont du bare metal au sens strict — un seul locataire sur le matériel physique — mais le second est plus agile et mieux adapté aux workflows IaC modernes.
+
+== Synthèse : quel hébergeur pour quel usage ?
+
+[cols="3,5", options="header"]
+|===
+| Besoin principal | Recommandation
+
+| Souveraineté française, large catalogue
+| OVHcloud, Scaleway
+
+| SecNumCloud (données sensibles, OIV/OSE)
+| OVHcloud Bare Metal Pod, Outscale
+
+| Rapport prix/performance imbattable en Europe
+| Hetzner (surtout Server Auction)
+
+| API-first, Terraform, facturation horaire
+| PhoenixNAP, Latitude.sh, Cherry Servers, Scaleway Elastic Metal
+
+| Écosystème cloud intégré mondial
+| AWS `*.metal`, Azure, GCP, OCI, IBM
+
+| Alternative directe à Equinix Metal
+| Latitude.sh, Cherry Servers, PhoenixNAP
+
+| Proximité géographique (France, faible latence)
+| OVHcloud, Scaleway, Ikoula
+|===
+
+== Sources et vérification
+
+Pour vérifier la présence effective d'une API chez un prestataire, cherchez sur son site :
+
+* Une section `/developers`, `/api`, `/docs/api`.
+* Un provider Terraform officiel sur le registry HashiCorp.
+* Un SDK officiel sur GitHub (organisation du prestataire).
+
+[TIP]
+====
+Pour votre usage avec Crystal, la plupart de ces API étant des REST JSON standard, vous pouvez les consommer directement avec la stdlib `HTTP::Client` + `JSON.parse`, ou via des shards génériques. À ma connaissance, aucun SDK Crystal officiel n'est fourni par ces prestataires — il faut soit consommer l'API en direct, soit wrapper un SDK existant.
+====

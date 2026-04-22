@@ -123,6 +123,8 @@ module Beryl::CLI::Init
       render_zone_group(zv, provider, provider_key_id))
     write_file(File.join(dir, "groups", "aloli-admin.yml"),
       render_admin_group(admin_key_content))
+    write_file(File.join(dir, "groups", "aloli-freebsd.yml"),
+      render_freebsd_base_group)
     write_file(File.join(dir, "groups", "rails-servers.yml"),
       render_rails_group)
     write_file(File.join(dir, "groups", "backup-servers.yml"),
@@ -617,23 +619,69 @@ module Beryl::CLI::Init
     YAML
   end
 
-  private def self.render_rails_group : String
+  # Groupe d'install FreeBSD standard : timezone, pool_name, swap_gb,
+  # install_type, raid, quelques packages de base (sudo, zsh, git,
+  # curl). À inclure dans chaque host pour ne pas redéclarer les
+  # valeurs communes. L'host surcharge à la demande (disks, raid,
+  # hostname = toujours spécifiques).
+  #
+  # Feedback Philippe 22 avril 2026 : « L'init doit proposer un schéma
+  # standard pour l'install FreeBSD de façon à ne pas devoir tout
+  # écrire ».
+  private def self.render_freebsd_base_group : String
     <<-YAML
-    # Group rails-servers — stack Ruby on Rails (exemple, à personnaliser).
+    # Group aloli-freebsd — valeurs standard pour l'install FreeBSD.
     #
-    # À inclure dans `groups:` d'un host qui héberge une app Rails :
-    #   groups: [<zone>, aloli-admin, rails-servers]
+    # À inclure dans `groups:` de chaque host. Les champs ci-dessous
+    # couvrent ~80% des cas courants :
     #
-    # Les packages listés sont APPENDÉS à ceux déclarés dans d'autres
-    # groupes listés par le host (voir règle merge append-by-key dans
-    # examples/inventory-tree/README.adoc).
+    #   timezone       : Europe/Paris (à ajuster pour autre fuseau)
+    #   pool_name      : zroot (nom par défaut FreeBSD bsdinstall)
+    #   swap_gb        : 4 (taille de swap en Go)
+    #   install_type   : distribution_sets (base.txz + kernel.txz)
+    #                    mettre "packages" pour pkgbase (opt-in, ADR-013)
+    #   raid           : stripe (RAID 0, Aloli privilégie backups
+    #                    bétonnés à la redondance disque — voir memory
+    #                    feedback_raid_strategy_rails). 2 disques →
+    #                    override host avec `raid: mirror`.
+    #
+    # Un host redéclare uniquement ce qui change :
+    #
+    #   freebsd:
+    #     hostname: loulou
+    #     disks: [/dev/sda, /dev/sdb]
+    #     raid: mirror   # override : ce host a 2 disques en mirror
+    #
+    # Les packages de base (sudo, zsh, curl, git) sont dans ce groupe.
+    # rails-servers / backup-servers appendent leurs propres packages.
 
     freebsd:
+      timezone: Europe/Paris
+      pool_name: zroot
+      swap_gb: 4
+      install_type: distribution_sets
+      raid: stripe
+
       packages:
         - sudo
         - zsh
         - curl
         - git
+    YAML
+  end
+
+  private def self.render_rails_group : String
+    <<-YAML
+    # Group rails-servers — stack Ruby on Rails (exemple, à personnaliser).
+    #
+    # À inclure dans `groups:` d'un host qui héberge une app Rails :
+    #   groups: [<zone>, aloli-admin, aloli-freebsd, rails-servers]
+    #
+    # Les packages listés sont APPENDÉS à ceux déclarés dans d'autres
+    # groupes (aloli-freebsd fournit déjà sudo/zsh/curl/git).
+
+    freebsd:
+      packages:
         - ruby
         - rubygem-bundler
         - postgresql16-server
@@ -648,14 +696,11 @@ module Beryl::CLI::Init
     # Group backup-servers — serveurs de sauvegarde (exemple).
     #
     # Typiquement : SSD système + HDD data, rsync/restic/borg pour les
-    # backups applicatifs.
+    # backups applicatifs. À inclure dans `groups:` d'un host :
+    #   groups: [<zone>, aloli-admin, aloli-freebsd, backup-servers]
 
     freebsd:
       packages:
-        - sudo
-        - zsh
-        - curl
-        - git
         - rsync
         - restic
         - borgbackup
@@ -704,16 +749,17 @@ module Beryl::CLI::Init
       # ssh_key_name : hérité du groupe zone
 
     groups:
-      - aloli-net       # zone DNS + ssh_key_name
-      - aloli-admin     # user admin standard
+      - aloli-net       # zone DNS + ssh_key_name (provider)
+      - aloli-admin     # user admin standard + sudoers
+      - aloli-freebsd   # install FreeBSD standard (timezone, zroot, swap, raid)
       - rails-servers   # stack fonctionnelle
 
     freebsd:
       hostname: loulou
       disks: [/dev/sda, /dev/sdb]
-      raid: mirror
-      # Tout le reste (timezone, packages, users, sudoers) vient des
-      # groupes listés ci-dessus.
+      raid: mirror   # override : ce serveur a 2 disques en mirror
+      # Les autres champs (timezone, pool_name, swap_gb, install_type,
+      # users, packages, sudoers) viennent des groupes.
     ----
     ADOC
   end

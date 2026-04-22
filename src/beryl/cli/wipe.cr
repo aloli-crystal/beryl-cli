@@ -1,6 +1,7 @@
 require "option_parser"
 require "../inventory"
 require "../ssh"
+require "./host_resolver"
 
 # Sous-commande `beryl wipe <host> --disk=PATH` : efface proprement le
 # disque sur un hôte actuellement en rescue Linux.
@@ -28,14 +29,17 @@ module Beryl::CLI::Wipe
   ) : Int32
     target_disk = nil
     force = false
+    provider_hint : String? = nil
     positional = [] of String
 
     parser = OptionParser.new do |p|
       p.banner = "USAGE : beryl wipe <host> --disk PATH [--force]\n\n" \
                  "Efface un disque sur un hôte en rescue Linux.\n" \
+                 "Accepte un nom d'inventaire OU un service_name/ID hébergeur nu.\n" \
                  "Demande confirmation (taper OUI ou YES) sauf si --force."
-      p.on("--disk=PATH", "Disque à effacer (REQUIS, ex. /dev/sda)") { |v| target_disk = v }
-      p.on("--force", "N'affiche pas la confirmation interactive (DANGEREUX : à utiliser en script uniquement)") { force = true }
+      p.on("-d PATH", "--disk=PATH", "Disque à effacer (REQUIS, ex. /dev/sda)") { |v| target_disk = v }
+      p.on("-p NAME", "--provider=NAME", "Provider (ovh|scaleway) pour un host hors inventaire") { |v| provider_hint = v }
+      p.on("-f", "--force", "N'affiche pas la confirmation interactive (DANGEREUX : à utiliser en script uniquement)") { force = true }
       p.on("-h", "--help", "Aide") do
         puts p
         exit 0
@@ -57,8 +61,7 @@ module Beryl::CLI::Wipe
       return EXIT_USAGE
     end
 
-    inventory = Beryl::Inventory.load(inventory_path)
-    host = inventory.find(host_name)
+    host = Beryl::CLI::HostResolver.resolve(inventory_path, host_name, provider_hint)
 
     rescue_conn = Beryl::SSH::Connection.new(
       host: host.ssh_host,
