@@ -4,15 +4,26 @@ require "ovh-api/ovh_api"
 # reçu pour qu'on puisse ensuite l'appeler par son nom custom et oublier
 # son service_name OVH :
 #
-#   1. UN record CNAME dans la zone DNS custom (ex. aloli.net) pointant
-#      vers le FQDN OVH (ns3156789.ip-51-83-6.eu.). Avantage : OVH fait
-#      déjà la résolution v4 et v6 pour ce FQDN via sa propre zone, pas
-#      besoin de dupliquer les IPs. Feedback Philippe 22 avril 2026 :
-#      « dans l'interface d'OVH, il n'y a qu'un seul champ pour poser
-#      un reverse DNS, et il faut y mettre un CNAME ».
-#   2. Refresh de la zone (OVH l'exige pour propager)
-#   3. Reverse DNS sur IPv4 + IPv6 → FQDN custom (loulou.aloli.net.)
-#   4. Renommage du « display name » du serveur côté panel OVH
+#   1. Record A dans la zone DNS custom (ex. aloli.net) pointant
+#      directement vers l'IPv4 du serveur.
+#   2. Record AAAA dans la même zone pointant vers l'IPv6 (si IPv6
+#      détectée, sinon étape ignorée).
+#   3. Refresh de la zone (OVH l'exige pour propager).
+#   4. Reverse DNS sur IPv4 + IPv6 → FQDN custom (loulou.aloli.net.).
+#      Les deux reverses pointent vers le MÊME FQDN, pas des variantes
+#      type loulou-v4/loulou-v6.
+#   5. Renommage du « display name » du serveur côté panel OVH.
+#
+# Philippe 22 avril 2026 (terrain) :
+#   « Dans la zone aloli.net : deux CNAME ipv4 et ipv6 [A + AAAA en
+#    fait]. Chez OVH le reverse est un champs le FQDN. Donc deux CNAME
+#    dans la zone et un seul (FQDN) chez OVH. »
+#
+# Route choisie vs CNAME-vers-service_name : poser A + AAAA en direct
+# signifie que le FQDN custom reste valide même si OVH change le
+# service_name ou si la résolution de leur zone a un hoquet. En
+# contrepartie il faut mettre à jour aloli.net si l'IP du serveur
+# change — ce qui ne se produit pas sans intervention manuelle.
 #
 # Implémentation : 100% via le shard ovh-api 0.3.0 qui expose
 # `client.domains` (records, refresh, ensure_record idempotent),
@@ -42,18 +53,23 @@ module Beryl::CLI::DnsSetup
     def describe : String
       String.build do |io|
         io << "Actions DNS + OVH prévues pour #{@service_name} :\n"
-        io << "  1. Créer (ou vérifier) CNAME  #{@short_name}.#{@zone}  →  #{@service_name}.\n"
-        io << "  2. Rafraîchir la zone #{@zone}\n"
-        io << "  3. Reverse DNS IPv4 : #{@ipv4} → #{@fqdn}.\n"
+        io << "  1. Créer (ou vérifier) A     #{@short_name}.#{@zone}  →  #{@ipv4}\n"
         if v6 = @ipv6
-          io << "  4. Reverse DNS IPv6 : #{v6} → #{@fqdn}.\n"
+          io << "  2. Créer (ou vérifier) AAAA  #{@short_name}.#{@zone}  →  #{v6}\n"
         else
-          io << "  4. Reverse IPv6 : aucune IPv6 détectée, ignoré\n"
+          io << "  2. AAAA : aucune IPv6 détectée, ignoré\n"
+        end
+        io << "  3. Rafraîchir la zone #{@zone}\n"
+        io << "  4. Reverse DNS IPv4 : #{@ipv4} → #{@fqdn}.\n"
+        if v6 = @ipv6
+          io << "  5. Reverse DNS IPv6 : #{v6} → #{@fqdn}.\n"
+        else
+          io << "  5. Reverse IPv6 : aucune IPv6 détectée, ignoré\n"
         end
         if @current_display_name == @fqdn
-          io << "  5. displayName OVH déjà à #{@fqdn}, rien à faire\n"
+          io << "  6. displayName OVH déjà à #{@fqdn}, rien à faire\n"
         else
-          io << "  5. Renommer OVH : "
+          io << "  6. Renommer OVH : "
           io << (@current_display_name.try(&.empty?) != false ? "(aucun)" : @current_display_name.not_nil!)
           io << "  →  #{@fqdn}\n"
         end
@@ -103,16 +119,16 @@ module Beryl::CLI::DnsSetup
 
   # Exécute le plan. Chaque étape est idempotente.
   #
-  # L'ordre est important : on pose le CNAME et on refresh la zone
+  # L'ordre est important : on pose A + AAAA et on refresh la zone
   # AVANT le reverse. Si OVH valide le reverse en vérifiant que le
   # forward pointe bien vers la bonne IP, la zone doit être déjà à
   # jour. Même logique pour le displayName : on le change en dernier,
   # une fois que le FQDN custom est complètement fonctionnel.
   def self.apply!(client : OvhApi::Client, plan : Plan, logger : Proc(String, Nil)) : Nil
-    # Cible du CNAME : le FQDN OVH du serveur avec un point final
-    # (convention DNS « FQDN absolu »).
-    cname_target = "#{plan.service_name}."
-    ensure_record(client, plan.zone, "CNAME", plan.short_name, cname_target, logger)
+    ensure_record(client, plan.zone, "A", plan.short_name, plan.ipv4, logger)
+    if v6 = plan.ipv6
+      ensure_record(client, plan.zone, "AAAA", plan.short_name, v6, logger)
+    end
     refresh_zone(client, plan.zone, logger)
     set_reverse_if_needed(client, plan.ipv4, plan.fqdn, logger)
     if v6 = plan.ipv6
