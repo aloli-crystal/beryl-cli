@@ -2,19 +2,19 @@ require "option_parser"
 require "file_utils"
 
 # Sous-commande `beryl init` : crée l'arborescence standard d'un
-# inventaire beryl dans `~/.beryl/inventory/`, avec des squelettes de
-# groupes qui reflètent les règles Aloli (zone DNS partagée, user
-# admin standard, pas de défaut silencieux).
+# inventaire beryl dans `~/.beryl/`, avec des squelettes de groupes
+# qui reflètent les règles Aloli (zone DNS partagée, user admin
+# standard, pas de défaut silencieux).
 #
 # Usage :
 #
 #   beryl init
 #   beryl init --zone=aloli.net --ssh-key-name=philippe.aloli.fr --admin-key=~/.ssh/philippe.pub
-#   beryl init --force           # écrase un ~/.beryl/inventory existant
+#   beryl init --force           # écrase un ~/.beryl/ existant
 #   beryl init --dir=/autre/chemin
 #
 # Après `beryl init`, toutes les sous-commandes résolvent leur inventaire
-# automatiquement depuis ce dossier. `beryl -i AUTRE` reste possible
+# automatiquement depuis `~/.beryl/`. `beryl -i AUTRE` reste possible
 # pour pointer ailleurs.
 module Beryl::CLI::Init
   EXIT_OK         = 0
@@ -23,7 +23,10 @@ module Beryl::CLI::Init
   EXIT_ALREADY    = 3
   EXIT_UNEXPECTED = 4
 
-  DEFAULT_DIR = File.expand_path("~/.beryl/inventory", home: true)
+  # Dossier cible : ~/.beryl/ directement, pas de sous-dossier
+  # `inventory/` (convention .gitconfig : le nom de l'outil = le nom
+  # du dossier de conf, avec un point devant).
+  DEFAULT_DIR = File.expand_path("~/.beryl", home: true)
 
   def self.run(args : Array(String)) : Int32
     zone : String? = nil

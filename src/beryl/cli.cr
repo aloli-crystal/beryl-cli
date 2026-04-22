@@ -24,31 +24,41 @@ require "./cli/init"
 #                          HTTP local pour préparer un rescue Debian/Ubuntu.
 #   version                Affiche la version.
 module Beryl::CLI
-  # Chemin par défaut d'inventaire. Résolu automatiquement par
-  # `resolve_default_inventory_path` au démarrage dans l'ordre :
-  #   1. Variable d'env `BERYL_INVENTORY` si définie
-  #   2. `./inventory.yml` si présent dans le cwd
-  #   3. `./inventory/` (mode arborescent) si présent dans le cwd
-  #   4. `~/.beryl/inventory/` (mode arborescent) si présent
-  #   5. `~/.beryl/inventory.yml` (fichier unique) si présent
-  #   6. Fallback : `inventory.yml` (pour garder le message d'erreur
-  #      cohérent si rien n'existe)
-  # Le flag `-i/--inventory` court-circuite tout.
-  DEFAULT_INVENTORY   = "inventory.yml"
-  HOME_INVENTORY_DIR  = File.expand_path("~/.beryl/inventory", home: true)
-  HOME_INVENTORY_FILE = File.expand_path("~/.beryl/inventory.yml", home: true)
+  # Convention Aloli (pattern .gitignore/.gitconfig) :
+  #   nom du binaire      = beryl
+  #   fichiers de conf    = .beryl
+  #
+  # Deux formes seulement :
+  #   - `~/.beryl/`       dossier arborescent chez l'utilisateur
+  #                       (groups/ + hosts/), créé par `beryl init`.
+  #   - `./beryl.yml`     fichier local au projet (cas ponctuel).
+  #
+  # Le flag `-i/--inventory` court-circuite tout pour pointer ailleurs.
+  #
+  # Résolution (ordre de priorité descendant) :
+  #   1. Variable d'env `BERYL_INVENTORY`
+  #   2. `./beryl.yml`  (fichier local au projet, à commiter)
+  #   3. `~/.beryl/`    (config globale, mode arborescent)
+  #   4. Fallback : `beryl.yml` (message d'erreur cohérent si rien
+  #      n'existe — pour pousser l'utilisateur vers `beryl init`).
+  CONFIG_FILE     = "beryl.yml"
+  HOME_CONFIG_DIR = File.expand_path("~/.beryl", home: true)
 
-  # Résout le chemin d'inventaire à utiliser quand aucun `-i` n'est
-  # passé. Priorité documentée plus haut.
+  # Alias rétrocompat pour le code existant qui référait DEFAULT_INVENTORY.
+  DEFAULT_INVENTORY = CONFIG_FILE
+
   def self.resolve_default_inventory_path : String
     if env = ENV["BERYL_INVENTORY"]?
       return env unless env.empty?
     end
-    return DEFAULT_INVENTORY if File.exists?(DEFAULT_INVENTORY)
-    return "inventory" if File.directory?("inventory")
-    return HOME_INVENTORY_DIR if File.directory?(HOME_INVENTORY_DIR)
-    return HOME_INVENTORY_FILE if File.exists?(HOME_INVENTORY_FILE)
-    DEFAULT_INVENTORY
+    return CONFIG_FILE if File.exists?(CONFIG_FILE)
+    # ~/.beryl/ : considéré valide s'il contient un `hosts/` (le
+    # dossier de config peut aussi abriter d'autres fichiers comme
+    # un .env chargé au démarrage).
+    if File.directory?(HOME_CONFIG_DIR) && File.directory?(File.join(HOME_CONFIG_DIR, "hosts"))
+      return HOME_CONFIG_DIR
+    end
+    CONFIG_FILE
   end
 
   # Options globales qui consomment l'argument suivant (forme « -i VALEUR »).
@@ -81,7 +91,7 @@ module Beryl::CLI
 
     global_parser = OptionParser.new do |p|
       p.banner = usage_banner
-      p.on("-i PATH", "--inventory=PATH", "Fichier d'inventaire (défaut : #{DEFAULT_INVENTORY})") { |v| inventory_path = v }
+      p.on("-i PATH", "--inventory=PATH", "Chemin d'inventaire (défaut : ./beryl.yml ou ~/.beryl/)") { |v| inventory_path = v }
       p.on("-h", "--help", "Affiche cette aide") do
         puts p
         exit(0)
