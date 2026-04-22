@@ -11,6 +11,7 @@ require "file_utils"
 #   beryl init
 #   beryl init --zone=aloli.net --ssh-key-name=philippe.aloli.fr --admin-key=~/.ssh/philippe.pub
 #   beryl init --force           # écrase un ~/.beryl/ existant
+#   beryl init --dir=./.beryl    # local au projet au lieu de global
 #   beryl init --dir=/autre/chemin
 #
 # Après `beryl init`, toutes les sous-commandes résolvent leur inventaire

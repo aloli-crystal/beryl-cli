@@ -24,25 +24,25 @@ require "./cli/init"
 #                          HTTP local pour préparer un rescue Debian/Ubuntu.
 #   version                Affiche la version.
 module Beryl::CLI
-  # Convention Aloli (pattern .gitignore/.gitconfig) :
-  #   nom du binaire      = beryl
-  #   fichiers de conf    = .beryl
+  # Convention Aloli : tous les chemins de conf commencent par `.`,
+  # pattern `.git` / `.gitignore` / `.gitconfig`.
   #
-  # Deux formes seulement :
-  #   - `~/.beryl/`       dossier arborescent chez l'utilisateur
-  #                       (groups/ + hosts/), créé par `beryl init`.
-  #   - `./beryl.yml`     fichier local au projet (cas ponctuel).
+  #   ./.beryl.yml     fichier local caché au projet (cas simple)
+  #   ./.beryl/        dossier local caché au projet (groups/ + hosts/)
+  #   ~/.beryl/        dossier global caché chez l'utilisateur
   #
   # Le flag `-i/--inventory` court-circuite tout pour pointer ailleurs.
   #
   # Résolution (ordre de priorité descendant) :
   #   1. Variable d'env `BERYL_INVENTORY`
-  #   2. `./beryl.yml`  (fichier local au projet, à commiter)
-  #   3. `~/.beryl/`    (config globale, mode arborescent)
-  #   4. Fallback : `beryl.yml` (message d'erreur cohérent si rien
+  #   2. `./.beryl.yml`  (fichier local caché)
+  #   3. `./.beryl/`     (dossier local caché, mode arborescent si `hosts/`)
+  #   4. `~/.beryl/`     (dossier global, mode arborescent si `hosts/`)
+  #   5. Fallback : `./.beryl.yml` (message d'erreur cohérent si rien
   #      n'existe — pour pousser l'utilisateur vers `beryl init`).
-  CONFIG_FILE     = "beryl.yml"
-  HOME_CONFIG_DIR = File.expand_path("~/.beryl", home: true)
+  CONFIG_FILE      = ".beryl.yml"
+  CONFIG_LOCAL_DIR = ".beryl"
+  HOME_CONFIG_DIR  = File.expand_path("~/.beryl", home: true)
 
   # Alias rétrocompat pour le code existant qui référait DEFAULT_INVENTORY.
   DEFAULT_INVENTORY = CONFIG_FILE
@@ -52,9 +52,12 @@ module Beryl::CLI
       return env unless env.empty?
     end
     return CONFIG_FILE if File.exists?(CONFIG_FILE)
-    # ~/.beryl/ : considéré valide s'il contient un `hosts/` (le
-    # dossier de config peut aussi abriter d'autres fichiers comme
-    # un .env chargé au démarrage).
+    # ./.beryl/ et ~/.beryl/ : considérés valides s'ils contiennent
+    # un `hosts/` (évite de piéger un ~/.beryl/ qui n'abriterait que
+    # des credentials ou un .env).
+    if File.directory?(CONFIG_LOCAL_DIR) && File.directory?(File.join(CONFIG_LOCAL_DIR, "hosts"))
+      return CONFIG_LOCAL_DIR
+    end
     if File.directory?(HOME_CONFIG_DIR) && File.directory?(File.join(HOME_CONFIG_DIR, "hosts"))
       return HOME_CONFIG_DIR
     end
@@ -91,7 +94,7 @@ module Beryl::CLI
 
     global_parser = OptionParser.new do |p|
       p.banner = usage_banner
-      p.on("-i PATH", "--inventory=PATH", "Chemin d'inventaire (défaut : ./beryl.yml ou ~/.beryl/)") { |v| inventory_path = v }
+      p.on("-i PATH", "--inventory=PATH", "Chemin d'inventaire (défaut : ./.beryl.yml | ./.beryl/ | ~/.beryl/)") { |v| inventory_path = v }
       p.on("-h", "--help", "Affiche cette aide") do
         puts p
         exit(0)
@@ -135,7 +138,7 @@ module Beryl::CLI
 
     Sous-commandes :
       init                  Crée l'arborescence d'inventaire de départ
-                            dans ~/.beryl/inventory/ (groupes + hosts/)
+                            dans ~/.beryl/ (groups/ + hosts/)
       list-hosts            Liste les hôtes de l'inventaire
       show <host>           Affiche les détails d'un hôte
       rescue <host>         Bascule un hôte en rescue via l'API
