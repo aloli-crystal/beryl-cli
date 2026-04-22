@@ -85,6 +85,23 @@ describe Beryl::Bootstrap::QemuInRescue do
       end
     end
 
+    it "refuse un install_type invalide" do
+      expect_raises(ArgumentError, /install_type invalide/) do
+        make_bootstrap(install_type: "tar_manual")
+      end
+    end
+
+    it "accepte install_type: distribution_sets (défaut)" do
+      make_bootstrap.install_type.should eq("distribution_sets")
+      make_bootstrap(install_type: "distribution_sets").install_type.should eq("distribution_sets")
+    end
+
+    it "lève PkgbaseNotYetImplemented pour install_type: packages" do
+      expect_raises(Beryl::Bootstrap::QemuInRescue::PkgbaseNotYetImplemented, /pkgbase.*pas encore/) do
+        make_bootstrap(install_type: "packages")
+      end
+    end
+
     it "a des défauts raisonnables" do
       bs = make_bootstrap
       bs.freebsd_version.should eq("15.0")

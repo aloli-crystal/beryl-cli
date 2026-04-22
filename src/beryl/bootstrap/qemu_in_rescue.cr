@@ -101,6 +101,7 @@ module Beryl::Bootstrap
     getter users : Array(UserSpec)
     getter packages : Array(String)
     getter sudoers : Array(String)
+    getter install_type : String
 
     def initialize(
       @rescue_conn : SSH::Connection,
@@ -123,6 +124,7 @@ module Beryl::Bootstrap
       @ovh_service_name : String? = nil,
       @packages : Array(String) = [] of String,
       @sudoers : Array(String) = [] of String,
+      @install_type : String = "distribution_sets",
     )
       raise ArgumentError.new("disks ne peut pas être vide") if @disks.empty?
       raise ArgumentError.new("hostname requis") if @hostname.empty?
@@ -132,12 +134,32 @@ module Beryl::Bootstrap
       raise ArgumentError.new("qemu_cpus doit être >= 1") if @qemu_cpus < 1
       raise ArgumentError.new("users ne peut pas être vide (sinon aucun accès SSH après bootstrap)") if @users.empty?
       raise ArgumentError.new("raid invalide : #{@raid} (attendu : stripe, mirror, raidz, raidz2, raidz3)") unless VALID_RAID.includes?(@raid)
+      unless VALID_INSTALL_TYPES.includes?(@install_type)
+        raise ArgumentError.new("install_type invalide : #{@install_type.inspect} (attendu : #{VALID_INSTALL_TYPES.join(", ")})")
+      end
+      # pkgbase n'est pas encore câblé côté runtime (driver shell). Le
+      # champ est accepté dans le YAML et validé ici pour figer
+      # l'interface, mais la route d'install est encore le tarball
+      # classique (base.txz + kernel.txz). Voir ADR-013 § « Pkgbase en
+      # opt-in » pour le chemin d'implémentation prévu.
+      if @install_type == "packages"
+        raise PkgbaseNotYetImplemented.new(
+          "install_type: packages (pkgbase) n'est pas encore câblé côté runtime. " \
+          "Pour l'instant, utilisez install_type: distribution_sets (défaut). " \
+          "Voir docs/adr/ADR-013-no-chroot-post-install.adoc § Pkgbase opt-in " \
+          "pour le plan d'implémentation."
+        )
+      end
       @users.each(&.validate!)
 
       @mfsbsd_url = iso_url || self.class.default_mfsbsd_url(@mfsbsd_version)
     end
 
-    VALID_RAID = %w[stripe mirror raidz raidz2 raidz3]
+    class PkgbaseNotYetImplemented < Exception
+    end
+
+    VALID_RAID          = %w[stripe mirror raidz raidz2 raidz3]
+    VALID_INSTALL_TYPES = %w[distribution_sets packages]
 
     def self.default_mfsbsd_url(mfsbsd_version : String) : String
       major = mfsbsd_version.split('.').first

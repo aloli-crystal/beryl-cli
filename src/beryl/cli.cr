@@ -266,6 +266,7 @@ module Beryl::CLI
     swap_gb = swap_gb_override || fcfg.try(&.swap_gb) || 4
     timezone = timezone_override || fcfg.try(&.timezone) || "Europe/Paris"
     raid = raid_override || fcfg.try(&.raid) || "stripe"
+    install_type = fcfg.try(&.install_type) || "distribution_sets"
     iu_override = installed_user_override
     installed_user = iu_override ? iu_override : users.first.name
 
@@ -316,6 +317,7 @@ module Beryl::CLI
       installed_port: host.port,
       ovh_client: ovh_client_for_bootstrap,
       ovh_service_name: ovh_service,
+      install_type: install_type,
     )
     bootstrap.run
 
@@ -332,6 +334,12 @@ module Beryl::CLI
     # explicite pour l'opérateur, exit code dédié.
     STDERR.puts "beryl : #{ex.message}"
     10
+  rescue ex : Beryl::Bootstrap::QemuInRescue::PkgbaseNotYetImplemented
+    # Opt-in pkgbase demandé dans le YAML mais pas encore implémenté
+    # côté runtime. Message clair, exit code dédié pour qu'un script
+    # puisse le distinguer d'un bug.
+    STDERR.puts "beryl : #{ex.message}"
+    11
   rescue ex
     STDERR.puts "beryl : erreur inattendue — #{ex.class}: #{ex.message}"
     3
