@@ -50,6 +50,10 @@ module Beryl::CLI::DnsSetup
     end
 
     # Rend le plan en lignes numérotées pour l'affichage console.
+    # Ordre : DNS forward → rename OVH (instantané) → reverses (peuvent
+    # attendre la propagation). Philippe 23 avril 2026 (terrain) :
+    # « Dans l'ordre, entre le DNS pour ALOLI et le reverse je mettrai
+    #  le changement de nom ».
     def describe : String
       String.build do |io|
         io << "Actions DNS + OVH prévues pour #{@service_name} :\n"
@@ -60,18 +64,18 @@ module Beryl::CLI::DnsSetup
           io << "  2. AAAA : aucune IPv6 détectée, ignoré\n"
         end
         io << "  3. Rafraîchir la zone #{@zone}\n"
-        io << "  4. Reverse DNS IPv4 : #{@ipv4} → #{@fqdn}.\n"
-        if v6 = @ipv6
-          io << "  5. Reverse DNS IPv6 : #{v6} → #{@fqdn}.\n"
-        else
-          io << "  5. Reverse IPv6 : aucune IPv6 détectée, ignoré\n"
-        end
         if @current_display_name == @fqdn
-          io << "  6. displayName OVH déjà à #{@fqdn}, rien à faire\n"
+          io << "  4. displayName OVH déjà à #{@fqdn}, rien à faire\n"
         else
-          io << "  6. Renommer OVH : "
+          io << "  4. Renommer OVH : "
           io << (@current_display_name.try(&.empty?) != false ? "(aucun)" : @current_display_name.not_nil!)
           io << "  →  #{@fqdn}\n"
+        end
+        io << "  5. Reverse DNS IPv4 : #{@ipv4} → #{@fqdn}.\n"
+        if v6 = @ipv6
+          io << "  6. Reverse DNS IPv6 : #{v6} → #{@fqdn}.\n"
+        else
+          io << "  6. Reverse IPv6 : aucune IPv6 détectée, ignoré\n"
         end
       end
     end
@@ -119,22 +123,26 @@ module Beryl::CLI::DnsSetup
 
   # Exécute le plan. Chaque étape est idempotente.
   #
-  # L'ordre est important : on pose A + AAAA et on refresh la zone
-  # AVANT le reverse. Si OVH valide le reverse en vérifiant que le
-  # forward pointe bien vers la bonne IP, la zone doit être déjà à
-  # jour. Même logique pour le displayName : on le change en dernier,
-  # une fois que le FQDN custom est complètement fonctionnel.
+  # Ordre :
+  #   1-2. A + AAAA dans la zone custom
+  #   3.   refresh zone (OVH exige cet appel pour propager)
+  #   4.   rename OVH displayName : instantané côté panel, pas besoin
+  #        que quoi que ce soit d'autre soit prêt. Fait avant le reverse
+  #        pour que l'opérateur voie immédiatement le nouveau nom dans
+  #        le panel, même si la propagation DNS coince.
+  #   5-6. reverses v4/v6 : le shard retry en interne si la zone n'est
+  #        pas encore propagée côté résolveurs OVH.
   def self.apply!(client : OvhApi::Client, plan : Plan, logger : Proc(String, Nil)) : Nil
     ensure_record(client, plan.zone, "A", plan.short_name, plan.ipv4, logger)
     if v6 = plan.ipv6
       ensure_record(client, plan.zone, "AAAA", plan.short_name, v6, logger)
     end
     refresh_zone(client, plan.zone, logger)
+    update_display_name(client, plan.service_name, plan.fqdn, logger) unless plan.current_display_name == plan.fqdn
     set_reverse_if_needed(client, plan.ipv4, plan.fqdn, logger)
     if v6 = plan.ipv6
       set_reverse_if_needed(client, v6, plan.fqdn, logger)
     end
-    update_display_name(client, plan.service_name, plan.fqdn, logger) unless plan.current_display_name == plan.fqdn
   end
 
   # Crée / met à jour / laisse en place un record DNS de façon
