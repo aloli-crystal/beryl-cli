@@ -16,12 +16,16 @@ module Beryl::Config
     getter defaults : Hash(YAML::Any, YAML::Any)
     getter domains : Hash(String, Domain)
     getter env_file : EnvFile
+    getter ssh_dir : String
 
-    def initialize(@path, @defaults, @domains, @env_file)
+    def initialize(@path, @defaults, @domains, @env_file, @ssh_dir = DEFAULT_SSH_DIR)
     end
 
-    # Charge une arborescence complète depuis le disque.
-    def self.load(path : String = DEFAULT_PATH) : Root
+    # Charge une arborescence complète depuis le disque. `ssh_dir`
+    # est le dossier où chercher les clés SSH référencées par nom
+    # (ex. `philippe.aloli.fr.pub` → `<ssh_dir>/philippe.aloli.fr.pub`).
+    # Paramétrable pour les tests qui utilisent des fixtures.
+    def self.load(path : String = DEFAULT_PATH, ssh_dir : String = DEFAULT_SSH_DIR) : Root
       expanded = File.expand_path(path, home: true)
       result = Loader.load(expanded)
       Root.new(
@@ -29,6 +33,7 @@ module Beryl::Config
         defaults: result[:defaults],
         domains: result[:domains],
         env_file: result[:env_file],
+        ssh_dir: ssh_dir,
       )
     end
 
@@ -196,7 +201,7 @@ module Beryl::Config
     end
 
     private def build_resolved(domain : Domain, group : Group?, node : HostNode) : ResolvedHost
-      merged = Merger.merge(@defaults, domain, group, node)
+      merged = Merger.merge(@defaults, domain, group, node, ssh_dir: @ssh_dir)
       ResolvedHost.new(
         short_name: node.name,
         domain: domain,
@@ -215,7 +220,7 @@ module Beryl::Config
         raw: {} of YAML::Any => YAML::Any,
         source_path: "<virtual>",
       )
-      merged = Merger.merge(@defaults, domain, nil, virtual_node)
+      merged = Merger.merge(@defaults, domain, nil, virtual_node, ssh_dir: @ssh_dir)
       ResolvedHost.new(
         short_name: short_name,
         domain: domain,

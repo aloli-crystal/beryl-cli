@@ -28,7 +28,7 @@ describe Beryl::Config::Merger do
         raid: stripe
       YAML
       d = domain(<<-YAML)
-      ssh_keys: [k]
+      ssh_keys: ['ssh-ed25519 AAAA k']
       freebsd:
         swap_gb: 4
       YAML
@@ -51,7 +51,7 @@ describe Beryl::Config::Merger do
       freebsd:
         packages: [sudo, zsh, curl, git]
       YAML
-      d = domain("ssh_keys: [k]\n")
+      d = domain("ssh_keys: ['ssh-ed25519 AAAA k']\n")
       g = group(<<-YAML)
       freebsd:
         packages: [nginx, postgresql16-server]
@@ -72,7 +72,7 @@ describe Beryl::Config::Merger do
       freebsd:
         disks: [/dev/sda]
       YAML
-      d = domain("ssh_keys: [k]\n")
+      d = domain("ssh_keys: ['ssh-ed25519 AAAA k']\n")
       h = host_node(<<-YAML)
       freebsd:
         disks: [/dev/sdc, /dev/sdd]

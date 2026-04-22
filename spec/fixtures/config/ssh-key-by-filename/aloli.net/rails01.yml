@@ -1,0 +1,8 @@
+freebsd:
+  hostname: rails01
+  disks: [/dev/sda]
+  # Ajoute une clé supplémentaire pour deploy via nom de fichier.
+  users:
+    - name: deploy
+      ssh_keys:
+        - dev2.pub

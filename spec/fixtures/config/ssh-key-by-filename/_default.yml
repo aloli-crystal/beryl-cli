@@ -1,0 +1,10 @@
+freebsd:
+  users:
+    - name: admin
+      primary_group: www
+      secondary_groups: [wheel]
+      shell: /usr/local/bin/zsh
+    - name: deploy
+      primary_group: www
+      secondary_groups: []
+      shell: /bin/csh

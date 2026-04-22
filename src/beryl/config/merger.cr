@@ -27,12 +27,16 @@ module Beryl::Config
   module Merger
     # Produit le Hash YAML effectif d'un host, en partant de defaults
     # et en appliquant les niveaux un à un. La clé domaine est
-    # injectée dans chaque user après le merge.
+    # injectée dans chaque user après le merge, et toutes les clés
+    # SSH (domaine + user) sont résolues via `Config.resolve_ssh_key`
+    # (nom de fichier dans `ssh_dir` → contenu, ou inline si la chaîne
+    # commence par `ssh-`).
     def self.merge(
       defaults : Hash(YAML::Any, YAML::Any),
       domain : Domain,
       group : Group?,
       host : HostNode,
+      ssh_dir : String = DEFAULT_SSH_DIR,
     ) : Hash(YAML::Any, YAML::Any)
       result = {} of YAML::Any => YAML::Any
       result = deep_merge(result, defaults, path: "")
@@ -41,12 +45,9 @@ module Beryl::Config
       result = deep_merge(result, host.raw, path: "")
 
       # Injection de la ou des clés SSH du domaine dans chaque user.
-      # Obligatoire : présente même si le host ne mentionne pas
-      # `ssh_keys` pour un user.
-      domain_keys = domain.ssh_keys
-      unless domain_keys.empty?
-        result = inject_domain_keys_into_users(result, domain_keys)
-      end
+      # Résolution des noms de fichiers `xxx.pub` en contenu effectif.
+      domain_keys_resolved = Beryl::Config.resolve_ssh_keys(domain.ssh_keys, ssh_dir)
+      result = inject_domain_keys_into_users(result, domain_keys_resolved, ssh_dir)
 
       result
     end
@@ -141,12 +142,15 @@ module Beryl::Config
     end
 
     # Injecte la ou les clés SSH du domaine en tête de `ssh_keys` de
-    # chaque user. Si un user n'a pas de `ssh_keys`, la clé domaine
-    # devient sa seule clé. La clé domaine ne peut pas être supprimée
-    # par un niveau inférieur : elle est *toujours* présente.
+    # chaque user. Les clés que chaque user déclare sont aussi
+    # résolues (nom de fichier → contenu), puis filtrées pour éviter
+    # les doublons avec la clé domaine. La clé domaine ne peut pas
+    # être supprimée par un niveau inférieur : elle est *toujours*
+    # présente en tête.
     def self.inject_domain_keys_into_users(
       config : Hash(YAML::Any, YAML::Any),
-      domain_keys : Array(String),
+      domain_keys_resolved : Array(String),
+      ssh_dir : String = DEFAULT_SSH_DIR,
     ) : Hash(YAML::Any, YAML::Any)
       freebsd_any = config[YAML::Any.new("freebsd")]?
       return config unless freebsd_any
@@ -155,18 +159,18 @@ module Beryl::Config
       return config unless users_any
       users_array = users_any.as_a? || return config
 
-      domain_keys_as_any = domain_keys.map { |k| YAML::Any.new(k) }
+      domain_keys_as_any = domain_keys_resolved.map { |k| YAML::Any.new(k) }
 
       new_users = users_array.map do |user_any|
         user_hash = user_any.as_h
         existing_keys_any = user_hash[YAML::Any.new("ssh_keys")]?
-        existing_keys = existing_keys_any.try(&.as_a?) || [] of YAML::Any
-        # Dédup : si la clé domaine est déjà dans la liste, on ne la
-        # double pas. En tête des clés spécifiques sinon.
-        final_keys = domain_keys_as_any + existing_keys.reject do |k|
-          s = k.as_s?
-          s && domain_keys.includes?(s)
-        end
+        existing_raw = (existing_keys_any.try(&.as_a?) || [] of YAML::Any).compact_map(&.as_s?)
+        # Résolution de chaque entrée (nom de fichier → contenu, ou
+        # inline tel quel). Les clés déjà présentes dans le domaine
+        # sont filtrées pour dédup.
+        existing_resolved = existing_raw.map { |k| Beryl::Config.resolve_ssh_key(k, ssh_dir) }
+        final_keys = domain_keys_as_any + existing_resolved.reject { |k| domain_keys_resolved.includes?(k) }.map { |k| YAML::Any.new(k) }
+
         new_user_hash = user_hash.dup
         new_user_hash[YAML::Any.new("ssh_keys")] = YAML::Any.new(final_keys)
         YAML::Any.new(new_user_hash)

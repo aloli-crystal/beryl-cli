@@ -1,1 +1,1 @@
-ssh_keys: [kq]
+ssh_keys: ['ssh-ed25519 AAAA kq']

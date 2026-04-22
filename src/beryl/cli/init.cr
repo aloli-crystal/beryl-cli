@@ -230,15 +230,27 @@ module Beryl::CLI::Init
                end
              end
 
-    admin_key_content = if admin_key_flag
-                          File.read_lines(admin_key_flag).map(&.strip).reject(&.empty?).first? || ""
-                        elsif local = chosen[:local]
-                          File.read_lines(local).map(&.strip).reject(&.empty?).first? || ""
-                        else
-                          chosen[:remote].public_key
-                        end
+    # On écrit le NOM DE FICHIER dans le YAML (ex: philippe.aloli.fr.pub)
+    # plutôt que le contenu. beryl résout à la lecture depuis ~/.ssh/.
+    # Unique source de vérité = le fichier .pub local ; rotation facile.
+    # Si la clé n'est pas dans ~/.ssh, on retombe sur le contenu inline
+    # (cas edge : clé venue d'un flag --admin-key pointant ailleurs).
+    admin_key_ref = if admin_key_flag
+                      # Flag explicite : on prend le basename si c'est
+                      # dans ~/.ssh, sinon on inline le contenu.
+                      ssh_dir = File.expand_path("~/.ssh", home: true)
+                      if admin_key_flag.starts_with?(ssh_dir + "/") || admin_key_flag.starts_with?(ssh_dir + File::SEPARATOR)
+                        File.basename(admin_key_flag)
+                      else
+                        File.read_lines(admin_key_flag).map(&.strip).reject(&.empty?).first? || ""
+                      end
+                    elsif local = chosen[:local]
+                      File.basename(local) # nom de fichier, pas le contenu
+                    else
+                      chosen[:remote].public_key # inline (pas de .pub local matché)
+                    end
 
-    {provider_key_id: chosen[:remote].id, admin_key_content: admin_key_content}
+    {provider_key_id: chosen[:remote].id, admin_key_content: admin_key_ref}
   end
 
   private def self.list_local_pub_files : Array(String)
