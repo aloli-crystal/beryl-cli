@@ -76,8 +76,7 @@ module Beryl::CLI::Bootstrap
       end
     end
 
-    # Infos dérivées du pool boot (single-pool pour le bootstrap ;
-    # les pools data sont créés en post-install — voir TODO plus bas).
+    # Infos dérivées du pool boot (installé par bsdinstall).
     boot_pool = host.boot_zpool
     disks = boot_pool.disks
     raid_level = boot_pool.raid
@@ -88,6 +87,23 @@ module Beryl::CLI::Bootstrap
       return EXIT_USAGE
     end
     pool_name = boot_pool.name
+
+    # Pools data : créés post-install via `zpool create` dans la VM
+    # mfsBSD qui tourne encore. Chaque pool data se voit attribué un
+    # segment contigu de vtbd* QEMU après les disques du pool boot.
+    data_pools = host.data_zpools.map do |pool|
+      mp = pool.mountpoint
+      if mp.nil? || mp.empty?
+        STDERR.puts "beryl : pool data `#{pool.name}` sans mountpoint (ajoutez `mountpoint: /xxx`)."
+        return EXIT_USAGE
+      end
+      Beryl::Bootstrap::DataPoolSpec.new(
+        name: pool.name,
+        raid: pool.raid,
+        disks: pool.disks,
+        mountpoint: mp,
+      )
+    end
     timezone = host.freebsd_string("timezone") || "Europe/Paris"
     swap_gb = host.freebsd_int("swap_gb") || 4
     install_type = host.freebsd_string("install_type") || "distribution_sets"
@@ -104,8 +120,9 @@ module Beryl::CLI::Bootstrap
     end
     installed_user = users.first.name
 
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] cible : #{Beryl.format_ssh_target(host)} disques : #{disks.join(", ")}"
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] FreeBSD #{freebsd_version} — users : #{users.map(&.name).join(", ")}"
+    all_disks = disks + data_pools.flat_map(&.disks)
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] cible : #{Beryl.format_ssh_target(host)} disques : #{all_disks.join(", ")}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] FreeBSD #{freebsd_version} — users : #{users.map(&.name).join(", ")} — pools data : #{data_pools.size}"
 
     if dry_run
       STDERR.puts
@@ -114,9 +131,17 @@ module Beryl::CLI::Bootstrap
       STDERR.puts "  hôte        : #{Beryl.format_ssh_target(host)}"
       STDERR.puts "  FreeBSD     : #{freebsd_version}"
       STDERR.puts "  timezone    : #{timezone}"
-      STDERR.puts "  pool ZFS    : #{pool_name} en #{raid} (RAID #{raid_level})"
+      STDERR.puts "  pool boot   : #{pool_name} en #{raid} (RAID #{raid_level}) sur #{disks.join(", ")}"
+      if data_pools.empty?
+        STDERR.puts "  pools data  : (aucun)"
+      else
+        STDERR.puts "  pools data  :"
+        data_pools.each do |dp|
+          mode = Beryl::Config::Zpool.zfs_mode(dp.raid)
+          STDERR.puts "    - #{dp.name} (RAID #{dp.raid}/#{mode}) → #{dp.mountpoint} sur #{dp.disks.join(", ")}"
+        end
+      end
       STDERR.puts "  swap        : #{swap_gb} Go"
-      STDERR.puts "  disques     : #{disks.join(", ")}"
       STDERR.puts "  install     : #{install_type}"
       STDERR.puts "  users       :"
       users.each do |u|
@@ -156,6 +181,7 @@ module Beryl::CLI::Bootstrap
       ovh_client: ovh_client,
       ovh_service_name: host.ovh_service_name,
       install_type: install_type,
+      data_pools: data_pools,
     )
     bootstrap.run
 

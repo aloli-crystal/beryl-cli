@@ -46,6 +46,11 @@ TIMEZONE="__TIMEZONE__"
 USERS_TSV='__USERS_TSV__'
 PACKAGES='__PACKAGES__'
 SUDOERS_CONTENT='__SUDOERS_CONTENT_B64__'
+# Script shell base64 (vide = pas de pool data à créer). Contient
+# une série de `zpool create -R /mnt -m <mp> <nom> <vdev> vtbdN vtbdM...`
+# Les vtbd* sont mappés par beryl dans l'ordre des disques passés à QEMU
+# (vtbd0 = mfsBSD ; vtbd1..vtbdB = pool boot ; vtbd(B+1)..vtbdN = pools data).
+DATA_POOLS_SCRIPT='__DATA_POOLS_SCRIPT_B64__'
 
 # ----------------------------------------------------------------------
 # Helpers ssh (wrappers sshpass avec timeouts différenciés)
@@ -206,11 +211,25 @@ if [ -n "$SUDOERS_CONTENT" ]; then
 fi
 
 # ----------------------------------------------------------------------
+# Étape 5b — création des pools ZFS data (mappés vtbd* dans la VM,
+# retrouvés automatiquement par ZFS au reboot via zpool.cache).
+# ----------------------------------------------------------------------
+# Le script ci-dessous est généré par beryl à partir des pools
+# `freebsd.zfs.<nom>` où `boot: true` est absent. Chaque `zpool create`
+# utilise `-R /mnt` (altroot) et `-m <mountpoint>` pour que la config
+# soit correcte au reboot bare-metal (ZFS écrit /mnt/boot/zfs/zpool.cache).
+
+if [ -n "$DATA_POOLS_SCRIPT" ]; then
+  echo "[rescue-run-vm] création des pools ZFS data"
+  ssh_vm_long "$(echo "$DATA_POOLS_SCRIPT" | base64 -d)"
+fi
+
+# ----------------------------------------------------------------------
 # Étape 6 — unmount ZFS + poweroff
 # ----------------------------------------------------------------------
 
 echo "[rescue-run-vm] unmount ZFS + poweroff VM"
-ssh_vm "cd / && zfs unmount -a 2>/dev/null ; zpool export zroot ; sync ; poweroff" || true
+ssh_vm "cd / && zfs unmount -a 2>/dev/null ; zpool export -a 2>/dev/null ; sync ; poweroff" || true
 
 echo "[rescue-run-vm] attente fin QEMU (timeout ${QEMU_MAX_SEC}s)"
 start=$(date +%s)

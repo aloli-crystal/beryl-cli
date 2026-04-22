@@ -1,6 +1,7 @@
 require "base64"
 require "ovh-api/ovh_api"
 require "../ssh"
+require "../config/zpool"
 
 module Beryl::Bootstrap
   # Spécification d'un utilisateur à créer sur le FreeBSD installé.
@@ -28,6 +29,67 @@ module Beryl::Bootstrap
       raise ArgumentError.new("#{name} : primary_group vide") if primary_group.empty?
       raise ArgumentError.new("#{name} : shell vide") if shell.empty?
       raise ArgumentError.new("#{name} : ssh_keys vide (Aloli interdit les défauts silencieux)") if ssh_keys.empty?
+    end
+  end
+
+  # Spécification d'un pool ZFS data à créer après bsdinstall (hors
+  # chroot, depuis mfsBSD qui a déjà remonté zroot sur /mnt).
+  #
+  # `disks` contient les chemins host (`/dev/sda`, `/dev/sdb`…) tels
+  # que déclarés par l'utilisateur dans `freebsd.zfs.<nom>.disks`. Le
+  # mapping vers les vtbd* QEMU est calculé par `QemuInRescue` à partir
+  # de l'ordre global des disques (boot en premier, data ensuite).
+  #
+  # `raid` est la valeur numérique (0, 1, 5, 6, 7, 10) comme partout
+  # ailleurs dans beryl. Contrairement au pool boot (où 10 n'est pas
+  # câblé côté bsdinstall), tous les niveaux RAID sont supportés ici
+  # via un `zpool create` natif.
+  record DataPoolSpec,
+    name : String,
+    raid : Int32,
+    disks : Array(String),
+    mountpoint : String do
+    def validate! : Nil
+      raise ArgumentError.new("pool data : name vide") if name.empty?
+      raise ArgumentError.new("pool data #{name} : disks vide") if disks.empty?
+      raise ArgumentError.new("pool data #{name} : mountpoint vide") if mountpoint.empty?
+      # Contraintes RAID (min disques, parité RAID 10…)
+      Beryl::Config::Zpool.validate!(raid, disks.size)
+    end
+
+    # Rend le fragment `vdev` d'un `zpool create` à partir de la liste
+    # de devices (ex: ["vtbd2", "vtbd3"]).
+    #   0  → "vtbd2 vtbd3"              (stripe implicite)
+    #   1  → "mirror vtbd2 vtbd3"
+    #   5  → "raidz vtbd2 vtbd3 vtbd4"
+    #   6  → "raidz2 vtbd2 vtbd3 vtbd4 vtbd5"
+    #   7  → "raidz3 vtbd2 vtbd3 vtbd4 vtbd5 vtbd6"
+    #   10 → "mirror vtbd2 vtbd3 mirror vtbd4 vtbd5" (paires)
+    def vdev_spec(devices : Array(String)) : String
+      raise ArgumentError.new("vdev_spec : #{devices.size} devices pour #{disks.size} disques") if devices.size != disks.size
+      case raid
+      when 0
+        devices.join(" ")
+      when 1
+        "mirror #{devices.join(" ")}"
+      when 5
+        "raidz #{devices.join(" ")}"
+      when 6
+        "raidz2 #{devices.join(" ")}"
+      when 7
+        "raidz3 #{devices.join(" ")}"
+      when 10
+        # Paires consécutives en mirror.
+        pairs = [] of String
+        i = 0
+        while i < devices.size
+          pairs << "mirror #{devices[i]} #{devices[i + 1]}"
+          i += 2
+        end
+        pairs.join(" ")
+      else
+        raise ArgumentError.new("raid #{raid} non supporté pour un pool data")
+      end
     end
   end
 
@@ -102,6 +164,7 @@ module Beryl::Bootstrap
     getter packages : Array(String)
     getter sudoers : Array(String)
     getter install_type : String
+    getter data_pools : Array(DataPoolSpec)
 
     def initialize(
       @rescue_conn : SSH::Connection,
@@ -125,6 +188,7 @@ module Beryl::Bootstrap
       @packages : Array(String) = [] of String,
       @sudoers : Array(String) = [] of String,
       @install_type : String = "distribution_sets",
+      @data_pools : Array(DataPoolSpec) = [] of DataPoolSpec,
     )
       raise ArgumentError.new("disks ne peut pas être vide") if @disks.empty?
       raise ArgumentError.new("hostname requis") if @hostname.empty?
@@ -136,6 +200,19 @@ module Beryl::Bootstrap
       raise ArgumentError.new("raid invalide : #{@raid} (attendu : stripe, mirror, raidz, raidz2, raidz3)") unless VALID_RAID.includes?(@raid)
       unless VALID_INSTALL_TYPES.includes?(@install_type)
         raise ArgumentError.new("install_type invalide : #{@install_type.inspect} (attendu : #{VALID_INSTALL_TYPES.join(", ")})")
+      end
+
+      @data_pools.each(&.validate!)
+      # Pas de disque partagé entre pool boot et pools data (ni entre
+      # pools data — validate! côté Config::ResolvedHost l'impose mais
+      # on re-checke ici au cas où QemuInRescue serait appelé hors
+      # bootstrap CLI).
+      seen_disks = Set(String).new(@disks)
+      @data_pools.each do |pool|
+        pool.disks.each do |d|
+          raise ArgumentError.new("disque #{d} déclaré plusieurs fois (boot + data)") if seen_disks.includes?(d)
+          seen_disks << d
+        end
       end
       # pkgbase n'est pas encore câblé côté runtime (driver shell). Le
       # champ est accepté dans le YAML et validé ici pour figer
@@ -179,7 +256,7 @@ module Beryl::Bootstrap
 
     def run : SSH::Connection
       log_step("1/6 — vérifie que le rescue tourne bien sous Linux") { verify_linux_rescue }
-      log_step("1b — NOGO si BSD déjà en place sur #{@disks.join(", ")}") { check_target_disks_no_bsd }
+      log_step("1b — NOGO si BSD déjà en place sur #{all_qemu_disks.join(", ")}") { check_target_disks_no_bsd }
       log_step("2/6 — installe qemu-system-x86, ovmf, sshpass et curl côté rescue") { install_packages }
       log_step("3/6 — télécharge l'image mfsBSD SE #{@mfsbsd_version} si nécessaire") { download_mfsbsd_if_needed }
       log_step("4/6 — dépose installerconfig + driver shell sur le rescue") do
@@ -238,14 +315,54 @@ module Beryl::Bootstrap
         .gsub("__USERS_TSV__", @users.map(&.to_tsv).join("\n"))
         .gsub("__PACKAGES__", @packages.join(" "))
         .gsub("__SUDOERS_CONTENT_B64__", sudoers_base64)
+        .gsub("__DATA_POOLS_SCRIPT_B64__", data_pools_script_b64)
+    end
+
+    # Ordre global des disques passés à QEMU : boot d'abord, puis pools
+    # data dans l'ordre de déclaration. Les index QEMU correspondent :
+    # vtbd0 = mfsBSD, vtbd1..vtbd(N) = boot, vtbd(N+1).. = data.
+    def all_qemu_disks : Array(String)
+      @disks + @data_pools.flat_map(&.disks)
     end
 
     # Args `-drive` pour chaque disque cible passthrough dans QEMU.
+    # Inclut boot ET pools data : on veut que la VM voie tout pour
+    # créer les pools data post-install dans le même `qemu-system-x86_64`.
     # Chaque disque devient un vtbd* dans la VM (vtbd0=mfsBSD, vtbd1+=cibles).
     def qemu_target_disks_args : String
-      @disks.map do |disk|
+      all_qemu_disks.map do |disk|
         "-drive file=#{disk},format=raw,if=virtio,cache=none"
       end.join(" ")
+    end
+
+    # Script shell (non base64) qui crée les pools data sous /mnt via
+    # `zpool create`. Vide si aucun pool data. Pour chaque pool :
+    #
+    #   zpool create -f -R /mnt -m <mountpoint> <nom> <vdev...>
+    #
+    # `-R /mnt` = altroot : les cache files ZFS écrivent sous /mnt
+    # (bon emplacement au reboot bare metal). `-f` car les disques
+    # sont neufs, mais `zpool create` chipote parfois sur résidus.
+    def data_pools_script : String
+      return "" if @data_pools.empty?
+      lines = [] of String
+      boot_count = @disks.size
+      vtbd_index = boot_count + 1 # vtbd(boot_count+1) = premier disque data
+      @data_pools.each do |pool|
+        devices = (vtbd_index...vtbd_index + pool.disks.size).map { |i| "vtbd#{i}" }
+        vdev = pool.vdev_spec(devices)
+        lines << "zpool create -f -R /mnt -m #{pool.mountpoint} #{pool.name} #{vdev}"
+        vtbd_index += pool.disks.size
+      end
+      lines.join("\n") + "\n"
+    end
+
+    # Version base64 du script pour injection dans le template shell
+    # (évite les problèmes de quoting). Vide si aucun pool data.
+    def data_pools_script_b64 : String
+      script = data_pools_script
+      return "" if script.empty?
+      Base64.strict_encode(script)
     end
 
     # Contenu base64 du fichier sudoers (chaque ligne == une règle).
@@ -262,7 +379,7 @@ module Beryl::Bootstrap
     end
 
     private def check_target_disks_no_bsd : Nil
-      @disks.each { |disk| check_disk_no_bsd(disk) }
+      all_qemu_disks.each { |disk| check_disk_no_bsd(disk) }
     end
 
     private def check_disk_no_bsd(disk : String) : Nil

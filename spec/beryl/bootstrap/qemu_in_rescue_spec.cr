@@ -38,6 +38,72 @@ describe Beryl::Bootstrap::UserSpec do
   end
 end
 
+describe Beryl::Bootstrap::DataPoolSpec do
+  describe "#validate!" do
+    it "refuse un name vide" do
+      dp = Beryl::Bootstrap::DataPoolSpec.new(name: "", raid: 0, disks: ["/dev/sdb"], mountpoint: "/data")
+      expect_raises(ArgumentError, /name vide/) { dp.validate! }
+    end
+
+    it "refuse disks vide" do
+      dp = Beryl::Bootstrap::DataPoolSpec.new(name: "zdata", raid: 0, disks: [] of String, mountpoint: "/data")
+      expect_raises(ArgumentError, /disks vide/) { dp.validate! }
+    end
+
+    it "refuse un mountpoint vide" do
+      dp = Beryl::Bootstrap::DataPoolSpec.new(name: "zdata", raid: 0, disks: ["/dev/sdb"], mountpoint: "")
+      expect_raises(ArgumentError, /mountpoint vide/) { dp.validate! }
+    end
+
+    it "délègue la validation RAID à Zpool (parité RAID 10 impaire)" do
+      dp = Beryl::Bootstrap::DataPoolSpec.new(
+        name: "zdata", raid: 10,
+        disks: ["/dev/sdb", "/dev/sdc", "/dev/sdd", "/dev/sde", "/dev/sdf"],
+        mountpoint: "/data",
+      )
+      expect_raises(Beryl::Config::Zpool::InvalidDiskCount, /PAIR/) { dp.validate! }
+    end
+
+    it "délègue la validation RAID à Zpool (min disques insuffisants)" do
+      dp = Beryl::Bootstrap::DataPoolSpec.new(
+        name: "zdata", raid: 5, disks: ["/dev/sdb", "/dev/sdc"], mountpoint: "/data",
+      )
+      expect_raises(Beryl::Config::Zpool::InvalidDiskCount, /minimum 3/) { dp.validate! }
+    end
+  end
+
+  describe "#vdev_spec" do
+    it "raid 0 = devices en stripe implicite" do
+      dp = Beryl::Bootstrap::DataPoolSpec.new(name: "z", raid: 0, disks: ["/dev/sdb", "/dev/sdc"], mountpoint: "/d")
+      dp.vdev_spec(["vtbd2", "vtbd3"]).should eq("vtbd2 vtbd3")
+    end
+
+    it "raid 1 = mirror" do
+      dp = Beryl::Bootstrap::DataPoolSpec.new(name: "z", raid: 1, disks: ["/dev/sdb", "/dev/sdc"], mountpoint: "/d")
+      dp.vdev_spec(["vtbd2", "vtbd3"]).should eq("mirror vtbd2 vtbd3")
+    end
+
+    it "raid 5 = raidz" do
+      dp = Beryl::Bootstrap::DataPoolSpec.new(name: "z", raid: 5, disks: ["/dev/sdb", "/dev/sdc", "/dev/sdd"], mountpoint: "/d")
+      dp.vdev_spec(["vtbd2", "vtbd3", "vtbd4"]).should eq("raidz vtbd2 vtbd3 vtbd4")
+    end
+
+    it "raid 10 = paires mirror consécutives" do
+      dp = Beryl::Bootstrap::DataPoolSpec.new(
+        name: "z", raid: 10,
+        disks: ["/dev/sdb", "/dev/sdc", "/dev/sdd", "/dev/sde"],
+        mountpoint: "/d",
+      )
+      dp.vdev_spec(["vtbd2", "vtbd3", "vtbd4", "vtbd5"]).should eq("mirror vtbd2 vtbd3 mirror vtbd4 vtbd5")
+    end
+
+    it "lève si le nombre de devices ne correspond pas au nombre de disques" do
+      dp = Beryl::Bootstrap::DataPoolSpec.new(name: "z", raid: 1, disks: ["/dev/sdb", "/dev/sdc"], mountpoint: "/d")
+      expect_raises(ArgumentError, /devices/) { dp.vdev_spec(["vtbd2"]) }
+    end
+  end
+end
+
 describe Beryl::Bootstrap::QemuInRescue do
   describe "#initialize" do
     it "refuse disks vide" do
@@ -207,6 +273,115 @@ describe Beryl::Bootstrap::QemuInRescue do
       sh.should contain("/dev/sda")
       sh.should contain("/dev/sdb")
       sh.should contain("/dev/sdc")
+    end
+
+    it "DATA_POOLS_SCRIPT vide si aucun pool data" do
+      sh = make_bootstrap.render_rescue_run_vm
+      sh.should contain("DATA_POOLS_SCRIPT=''")
+    end
+
+    it "DATA_POOLS_SCRIPT base64 encodé si pool data présent" do
+      dp = Beryl::Bootstrap::DataPoolSpec.new(
+        name: "zdata", raid: 10,
+        disks: ["/dev/sdb", "/dev/sdc", "/dev/sdd", "/dev/sde"],
+        mountpoint: "/data",
+      )
+      sh = make_bootstrap(data_pools: [dp]).render_rescue_run_vm
+      sh.should match(/DATA_POOLS_SCRIPT='[A-Za-z0-9+\/=]+'/)
+    end
+
+    it "inclut les disques data dans les -drive QEMU" do
+      dp = Beryl::Bootstrap::DataPoolSpec.new(
+        name: "zdata", raid: 1,
+        disks: ["/dev/sdb", "/dev/sdc"],
+        mountpoint: "/data",
+      )
+      sh = make_bootstrap(disks: ["/dev/sda"], data_pools: [dp]).render_rescue_run_vm
+      sh.should contain("/dev/sda")
+      sh.should contain("/dev/sdb")
+      sh.should contain("/dev/sdc")
+    end
+  end
+
+  describe "#data_pools_script" do
+    it "vide si aucun pool data" do
+      make_bootstrap.data_pools_script.should eq("")
+    end
+
+    it "mappe les vtbd après les disques du pool boot" do
+      # boot = 1 disque → vtbd1, data = 2 disques → vtbd2 + vtbd3
+      dp = Beryl::Bootstrap::DataPoolSpec.new(
+        name: "zdata", raid: 1,
+        disks: ["/dev/sdb", "/dev/sdc"],
+        mountpoint: "/data",
+      )
+      script = make_bootstrap(disks: ["/dev/sda"], data_pools: [dp]).data_pools_script
+      script.should contain("zpool create -f -R /mnt -m /data zdata mirror vtbd2 vtbd3")
+    end
+
+    it "enchaîne plusieurs pools data avec des vtbd contigus" do
+      dp1 = Beryl::Bootstrap::DataPoolSpec.new(
+        name: "zdata", raid: 1,
+        disks: ["/dev/sdc", "/dev/sdd"],
+        mountpoint: "/data",
+      )
+      dp2 = Beryl::Bootstrap::DataPoolSpec.new(
+        name: "zbackup", raid: 0,
+        disks: ["/dev/sde"],
+        mountpoint: "/backup",
+      )
+      # boot = sda+sdb → vtbd1+vtbd2, dp1 → vtbd3+vtbd4, dp2 → vtbd5
+      script = make_bootstrap(
+        disks: ["/dev/sda", "/dev/sdb"],
+        raid: "mirror",
+        data_pools: [dp1, dp2],
+      ).data_pools_script
+      script.should contain("zpool create -f -R /mnt -m /data zdata mirror vtbd3 vtbd4")
+      script.should contain("zpool create -f -R /mnt -m /backup zbackup vtbd5")
+    end
+
+    it "gère RAID 10 avec paires mirror contiguës" do
+      dp = Beryl::Bootstrap::DataPoolSpec.new(
+        name: "zdata", raid: 10,
+        disks: ["/dev/sdb", "/dev/sdc", "/dev/sdd", "/dev/sde"],
+        mountpoint: "/data",
+      )
+      script = make_bootstrap(disks: ["/dev/sda"], data_pools: [dp]).data_pools_script
+      script.should contain("zpool create -f -R /mnt -m /data zdata mirror vtbd2 vtbd3 mirror vtbd4 vtbd5")
+    end
+  end
+
+  describe "#initialize avec data_pools" do
+    it "refuse un disque déclaré à la fois en boot et en data" do
+      dp = Beryl::Bootstrap::DataPoolSpec.new(
+        name: "zdata", raid: 0, disks: ["/dev/sda"], mountpoint: "/data",
+      )
+      expect_raises(ArgumentError, /plusieurs fois/) do
+        make_bootstrap(disks: ["/dev/sda"], data_pools: [dp])
+      end
+    end
+
+    it "refuse le même disque dans deux pools data" do
+      dp1 = Beryl::Bootstrap::DataPoolSpec.new(
+        name: "z1", raid: 0, disks: ["/dev/sdb"], mountpoint: "/d1",
+      )
+      dp2 = Beryl::Bootstrap::DataPoolSpec.new(
+        name: "z2", raid: 0, disks: ["/dev/sdb"], mountpoint: "/d2",
+      )
+      expect_raises(ArgumentError, /plusieurs fois/) do
+        make_bootstrap(disks: ["/dev/sda"], data_pools: [dp1, dp2])
+      end
+    end
+
+    it "accepte des pools data disjoints" do
+      dp = Beryl::Bootstrap::DataPoolSpec.new(
+        name: "zdata", raid: 10,
+        disks: ["/dev/sdb", "/dev/sdc", "/dev/sdd", "/dev/sde"],
+        mountpoint: "/data",
+      )
+      bs = make_bootstrap(disks: ["/dev/sda"], data_pools: [dp])
+      bs.data_pools.size.should eq(1)
+      bs.all_qemu_disks.should eq(["/dev/sda", "/dev/sdb", "/dev/sdc", "/dev/sdd", "/dev/sde"])
     end
   end
 end
