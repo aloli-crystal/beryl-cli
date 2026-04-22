@@ -7,9 +7,10 @@
 provider: ovh
 ovh:
   service_name: ns4242424.ip-91-134-0.eu
-  ssh_key_name: philippe-aloli-fr
+  # ssh_key_name : hérité de `groups/aloli-net.yml` (même zone partagée).
 
 groups:
+  - aloli-net       # zone DNS + ssh_key_name
   - aloli-admin
   - backup-servers
 

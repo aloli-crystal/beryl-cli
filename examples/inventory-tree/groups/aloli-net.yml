@@ -1,0 +1,15 @@
+# Zone aloli.net — clé SSH OVH partagée par tous les serveurs de la zone.
+#
+# Conceptuellement : une « zone » au sens DNS correspond à un groupe
+# YAML qui fixe les paramètres liés au nommage OVH et à la clé SSH de
+# rescue utilisée pour ces serveurs. Un host Aloli typique hérite à la
+# fois d'un groupe zone (aloli-net) et d'un groupe fonctionnel
+# (rails-servers, backup-servers, html-servers…).
+#
+# Règle de merge (cf examples/inventory-tree/README.adoc) : si un
+# serveur a besoin d'une clé SSH différente de la zone, il la redéclare
+# dans son propre fichier — le deep merge YAML override champ par champ,
+# donc `ovh.ssh_key_name` du host prime sur celui du groupe.
+
+ovh:
+  ssh_key_name: philippe.aloli.fr

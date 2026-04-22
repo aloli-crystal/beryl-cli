@@ -1,5 +1,6 @@
 require "../../spec_helper"
 require "../../../src/beryl/cli/scan"
+require "../../../src/beryl/cli/dns_setup"
 
 # Specs unitaires sur les pièces pures de `beryl scan` : parser lsblk,
 # sélection de disques, défauts RAID, rendu YAML. La connexion SSH
@@ -151,7 +152,11 @@ describe Beryl::CLI::Scan do
 
       yaml.should contain("provider: ovh")
       yaml.should contain("service_name: ns42.example")
-      yaml.should contain("ssh_key_name: philippe-aloli-fr")
+      # ssh_key_name par défaut n'est PAS écrit dans le host : il vient
+      # d'un groupe zone partagé (feedback Philippe 22 avril 2026 :
+      # « la clé SSH ne doit pas être dupliquée sur chaque serveur »).
+      yaml.should_not contain("ssh_key_name: philippe-aloli-fr")
+      yaml.should contain("ssh_key_name : vient d'un groupe")
       yaml.should contain("- aloli-admin")
       yaml.should contain("- rails-servers")
       yaml.should contain("hostname: rails01")
@@ -173,6 +178,42 @@ describe Beryl::CLI::Scan do
       yaml.should_not contain("provider:")
       yaml.should_not contain("ovh:")
       yaml.should_not contain("groups:")
+    end
+
+    it "écrit ssh_key_name explicite quand --ssh-key-name est passé (override host)" do
+      host = Beryl::Host.new(
+        name: "rails01.aloli.fr",
+        provider: "ovh",
+        provider_config: {"service_name" => YAML::Any.new("ns42.example")},
+      )
+      disks = [Beryl::CLI::Scan::Disk.new("sda", 1_000_000_000_000_i64, "x", false, "sata")]
+      yaml = Beryl::CLI::Scan.render_yaml(host, "rails01", disks, "stripe", [] of String, ssh_key_name: "cle-specifique-rails01")
+      yaml.should contain("ssh_key_name: cle-specifique-rails01")
+      yaml.should contain("override explicite")
+    end
+  end
+
+  describe ".looks_like_ovh_service_name?" do
+    it "reconnaît un service_name OVH standard" do
+      Beryl::CLI::Scan.looks_like_ovh_service_name?("ns3156789.ip-51-83-6.eu").should be_true
+      Beryl::CLI::Scan.looks_like_ovh_service_name?("ns123.ip-1-2-3.com").should be_true
+    end
+
+    it "rejette un FQDN custom" do
+      Beryl::CLI::Scan.looks_like_ovh_service_name?("loulou.aloli.net").should be_false
+      Beryl::CLI::Scan.looks_like_ovh_service_name?("rails01.example.fr").should be_false
+    end
+  end
+end
+
+describe Beryl::CLI::DnsSetup do
+  describe ".derive_ipv6_address" do
+    it "ajoute ::1 pour un bloc /64 qui se termine par ::" do
+      Beryl::CLI::DnsSetup.derive_ipv6_address("2001:41d0:2:6e01::", "2001:41d0:2:6e01::/64").should eq("2001:41d0:2:6e01::1")
+    end
+
+    it "retourne la base pour un format inattendu" do
+      Beryl::CLI::DnsSetup.derive_ipv6_address("2001:41d0:2:6e01:1::", "2001:41d0:2:6e01:1::/96").should eq("2001:41d0:2:6e01:1::")
     end
   end
 

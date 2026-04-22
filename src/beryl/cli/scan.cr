@@ -1,6 +1,8 @@
 require "option_parser"
 require "../inventory"
 require "../ssh"
+require "./credentials"
+require "./dns_setup"
 
 # Sous-commande `beryl scan <host>` : se connecte à un serveur en rescue
 # Linux, détecte les disques physiques, propose interactivement leur
@@ -69,14 +71,21 @@ module Beryl::CLI::Scan
     raid_flag : String? = nil
     groups_flag : String? = nil
     hostname_flag : String? = nil
+    zone_flag : String? = nil
+    dns_setup = false
     non_interactive = false
+    ssh_key_name_flag : String? = nil
 
     parser = OptionParser.new do |p|
-      p.banner = "USAGE : beryl scan <host> [options]\n\n" \
+      p.banner = "USAGE : beryl scan <host-ou-service_name> [options]\n\n" \
                  "Se connecte au rescue, liste les disques, propose un YAML d'inventaire.\n" \
+                 "Accepte un nom logique (dans l'inventaire) ou un service_name OVH nu.\n\n" \
                  "Sans --write : affiche le YAML sur stdout.\n" \
                  "Avec --write seul : écrit dans hosts/<nom>.yml (mode arborescent).\n" \
-                 "Avec --write=FILE : écrit dans le chemin demandé."
+                 "Avec --write=FILE : écrit dans le chemin demandé.\n\n" \
+                 "Avec --dns : pose les records DNS (A/AAAA), reverse DNS et\n" \
+                 "            renomme le serveur côté panel OVH. Demande un\n" \
+                 "            nom court + une zone DNS si non précisés."
       # `--write` sans argument = auto-mode hosts/<name>.yml.
       # `--write=FILE` = chemin explicite.
       p.on("--write", "Écrit automatiquement dans hosts/<nom>.yml") { write_auto = true }
@@ -84,7 +93,10 @@ module Beryl::CLI::Scan
       p.on("--disks=LIST", "Disques à inclure (liste séparée par virgules, ex: sda,sdb). Non-interactif.") { |v| disks_flag = v }
       p.on("--raid=MODE", "Mode ZFS (stripe|mirror|raidz|raidz2|raidz3). Non-interactif.") { |v| raid_flag = v }
       p.on("--groups=LIST", "Liste de groupes à déclarer (ex: aloli-admin,rails-servers)") { |v| groups_flag = v }
-      p.on("--hostname=NAME", "Hostname cible (défaut : nom court de l'hôte)") { |v| hostname_flag = v }
+      p.on("--hostname=NAME", "Nom court à poser (défaut : nom court du FQDN)") { |v| hostname_flag = v }
+      p.on("--zone=ZONE", "Zone DNS à modifier avec --dns (ex: aloli.net)") { |v| zone_flag = v }
+      p.on("--dns", "Pose les records A/AAAA, reverse DNS et renomme côté OVH") { dns_setup = true }
+      p.on("--ssh-key-name=NAME", "Nom de la clé SSH OVH à enregistrer dans le YAML") { |v| ssh_key_name_flag = v }
       p.on("--non-interactive", "Refuse toute invite. Les flags --disks et --raid doivent être fournis.") { non_interactive = true }
       p.on("-h", "--help", "Aide") do
         puts p
@@ -102,9 +114,22 @@ module Beryl::CLI::Scan
       return EXIT_USAGE
     end
 
-    inventory = Beryl::Inventory.load(inventory_path)
-    host = inventory.find(host_name)
+    # Trois cas de résolution du host :
+    # 1. `host_name` est dans l'inventaire → on l'utilise tel quel
+    # 2. `host_name` ressemble à un service_name OVH (ns3...ip-x-y-z.eu) →
+    #    on crée un Host virtuel (provider: ovh) pour pouvoir continuer
+    # 3. sinon → erreur classique « hôte inconnu »
+    host = resolve_host_or_virtual(inventory_path, host_name)
     conn = host.connection
+
+    # Si --dns : d'abord pose le nommage custom (records DNS, reverse,
+    # displayName), ce qui détermine le FQDN custom qu'on écrira dans
+    # le YAML. Ensuite seulement, on scan les disques (le serveur ne
+    # bouge pas pendant le setup DNS).
+    dns_result : DnsSetup::Plan? = nil
+    if dns_setup
+      dns_result = run_dns_setup(host, hostname_flag, zone_flag, non_interactive)
+    end
 
     log "connexion SSH à #{Beryl.format_ssh_target(host)} (user=#{conn.user}, port=#{conn.port})..."
     disks = read_disks(conn)
@@ -120,15 +145,39 @@ module Beryl::CLI::Scan
 
     chosen_disks = pick_disks(disks, disks_flag, non_interactive)
     raid = pick_raid(chosen_disks.size, raid_flag, non_interactive)
+
+    # Si --dns a été fait, le nom custom est le FQDN choisi. Sinon
+    # fallback sur le flag --hostname ou le nom court du host.
     hnf = hostname_flag
-    hostname = hnf ? hnf : default_hostname(host.name)
+    hostname = if dns_result
+                 dns_result.short_name
+               elsif hnf
+                 hnf
+               else
+                 default_hostname(host.name)
+               end
+
+    # Nom sous lequel on écrit le fichier YAML : si --dns, le FQDN custom
+    # (loulou.aloli.net) ; sinon, le nom du host tel qu'on l'a connu.
+    custom_fqdn = dns_result.try(&.fqdn) || host.name
+
+    # Après --dns, on suggère un groupe nommé d'après la zone DNS
+    # (aloli.net → "aloli-net"). C'est typiquement là où vit la
+    # ssh_key_name OVH partagée par tous les hosts de la zone.
+    zone_group_suggestion = dns_result.try { |p| p.zone.gsub('.', '-') }
+    default_groups = zone_group_suggestion ? "#{zone_group_suggestion}" : ""
+    prompt = if zone_group_suggestion
+               "Groupes à hériter (séparés par virgules) [#{default_groups}] : "
+             else
+               "Groupes à hériter (séparés par virgules, vide = aucun) : "
+             end
     gf = groups_flag
-    groups_str = gf ? gf : (non_interactive ? "" : ask("Groupes à hériter (séparés par virgules, vide = aucun) [aloli-admin,rails-servers] : ", default: ""))
+    groups_str = gf ? gf : (non_interactive ? default_groups : ask(prompt, default: default_groups))
     groups = groups_str.split(",").map(&.strip).reject(&.empty?)
 
-    yaml = render_yaml(host, hostname, chosen_disks, raid, groups)
+    yaml = render_yaml(host, hostname, chosen_disks, raid, groups, custom_fqdn: custom_fqdn, ssh_key_name: ssh_key_name_flag)
 
-    target = resolve_write_target(write_path, write_auto, inventory_path, host.name)
+    target = resolve_write_target(write_path, write_auto, inventory_path, custom_fqdn)
     if target
       # Garde-fou : si le fichier existe déjà, on demande confirmation
       # (ou on refuse si --non-interactive). Évite d'écraser un host
@@ -340,13 +389,21 @@ module Beryl::CLI::Scan
     end
   end
 
-  # Génère le YAML à poser dans hosts/<host>.yml.
+  # Génère le YAML à poser dans hosts/<custom_fqdn>.yml.
+  #
+  # `host` est la source d'infos (provider, service_name, etc.), mais
+  # le YAML généré peut référencer un FQDN custom différent du nom
+  # actuel du host — typiquement après un `--dns` qui a posé
+  # loulou.aloli.net comme nouveau FQDN alors qu'on est parti du
+  # service_name OVH nu ns3156789.ip-51-83-6.eu.
   def self.render_yaml(
     host : Beryl::Host,
     hostname : String,
     disks : Array(Disk),
     raid : String,
     groups : Array(String),
+    custom_fqdn : String? = nil,
+    ssh_key_name : String? = nil,
   ) : String
     String.build do |io|
       io << "# Généré par `beryl scan " << host.name << "` le "
@@ -356,14 +413,25 @@ module Beryl::CLI::Scan
       io << "# automatiquement (règle Aloli : pas de défaut silencieux).\n\n"
       if host.provider
         io << "provider: " << host.provider << '\n'
-        # Restitue le bloc provider déjà connu dans l'inventaire pour
-        # préserver service_name/ssh_key_name — c'est ce qui permet à
-        # `beryl rescue` et `beryl bootstrap` de piloter l'API.
+        # Service_name = nom système OVH du serveur. Utilisé UNE fois
+        # pour le bootstrap (DNS custom pas encore posé/propagé), puis
+        # oublié : une fois le reverse + les records faits, beryl
+        # peut indifféremment parler au serveur via son nom custom.
         if host.provider == "ovh" && host.ovh_service_name
           io << "ovh:\n"
           io << "  service_name: " << host.ovh_service_name << '\n'
-          if key = host.ovh_ssh_key_name
-            io << "  ssh_key_name: " << key << '\n'
+          # ssh_key_name : par défaut hérité d'un groupe zone (ex.
+          # `groups/aloli-net.yml` avec `ovh.ssh_key_name:
+          # philippe.aloli.fr`). Ne pas dupliquer ici, sinon chaque
+          # fichier host recopie la même valeur. Le flag explicite
+          # --ssh-key-name l'écrit quand même, pour le cas où un
+          # serveur utilise une clé spécifique (override du groupe).
+          if ssh_key_name
+            io << "  ssh_key_name: " << ssh_key_name << "  # override explicite (clé spécifique à ce serveur)\n"
+          else
+            io << "  # ssh_key_name : vient d'un groupe zone (ex. groups/aloli-net.yml)\n"
+            io << "  # Pour une clé différente sur ce serveur précis, ajoutez :\n"
+            io << "  #   ssh_key_name: <nom-clé-OVH>\n"
           end
         elsif host.provider == "scaleway" && host.scaleway_server_id
           io << "scaleway:\n"
@@ -385,6 +453,83 @@ module Beryl::CLI::Scan
       io << "  # timezone, pool_name, swap_gb, users, packages, sudoers\n"
       io << "  # arrivent idéalement depuis un groupe (groups/*.yml).\n"
     end
+  end
+
+  # Résout le host depuis l'inventaire. S'il n'est pas connu et que le
+  # nom ressemble à un service_name OVH, on construit un Host virtuel
+  # en mémoire (provider: ovh, ovh.service_name: le nom). Permet de
+  # lancer `beryl scan ns3156789.ip-51-83-6.eu` sur un serveur qui
+  # n'a pas encore de DNS custom ni d'entrée dans l'inventaire.
+  def self.resolve_host_or_virtual(inventory_path : String, host_name : String) : Beryl::Host
+    # On essaie d'abord l'inventaire (peut être un dossier ou un fichier).
+    inv = begin
+      Beryl::Inventory.load(inventory_path)
+    rescue File::NotFoundError
+      nil
+    end
+    if inv
+      if existing = inv.find?(host_name)
+        return existing
+      end
+    end
+
+    # Non trouvé. Si ça ressemble à un service_name OVH (`nsXXXXXX.ip-Y-Y-Y.eu|com|net`)
+    # on crée un host virtuel pour permettre la suite du flow.
+    if looks_like_ovh_service_name?(host_name)
+      Beryl::Host.new(
+        name: host_name,
+        provider: "ovh",
+        provider_config: {
+          "service_name" => YAML::Any.new(host_name),
+        },
+      )
+    else
+      raise Beryl::Inventory::NotFound.new(
+        "hôte inconnu : #{host_name}. " \
+        "Si c'est un nouveau serveur OVH, passez son service_name complet " \
+        "(ex. ns3156789.ip-51-83-6.eu) pour que beryl le détecte."
+      )
+    end
+  end
+
+  # Heuristique : un service_name OVH ressemble à `nsXXXXX.ip-A-B-C.tld`.
+  def self.looks_like_ovh_service_name?(name : String) : Bool
+    !!(name =~ /^ns\d+\.ip-\d+-\d+-\d+\.[a-z]{2,}$/i)
+  end
+
+  # Pilote complet du flux --dns : récupère les infos OVH, prompt nom
+  # court et zone, affiche le plan, confirme, exécute.
+  def self.run_dns_setup(
+    host : Beryl::Host,
+    hostname_flag : String?,
+    zone_flag : String?,
+    non_interactive : Bool,
+  ) : DnsSetup::Plan
+    service_name = host.ovh_service_name || raise "--dns nécessite un host OVH avec service_name (got provider=#{host.provider.inspect})"
+    short_name = hostname_flag || (non_interactive ? raise("--dns + --non-interactive requiert --hostname=NAME") : ask("Nom court du serveur (ex: loulou) : ", default: ""))
+    raise Aborted.new if short_name.empty?
+
+    zone = zone_flag || (non_interactive ? raise("--dns + --non-interactive requiert --zone=ZONE") : ask("Zone DNS à modifier (ex: aloli.net) : ", default: ""))
+    raise Aborted.new if zone.empty?
+
+    client = Beryl::CLI::Credentials.ovh_client
+    plan = DnsSetup.build_plan(client, service_name, short_name, zone)
+
+    STDERR.puts
+    STDERR.puts plan.describe
+    STDERR.puts
+
+    unless non_interactive
+      answer = ask("Exécuter ces actions ? [o/N] : ", default: "N")
+      unless answer.downcase.starts_with?("o") || answer.downcase.starts_with?("y")
+        raise Aborted.new
+      end
+    end
+
+    logger = Proc(String, Nil).new { |msg| log(msg); nil }
+    DnsSetup.apply!(client, plan, logger)
+    log "nommage DNS + OVH posé : #{plan.fqdn} ↔ #{service_name}"
+    plan
   end
 
   # Nom court d'un hôte (première partie avant le premier `.`).
