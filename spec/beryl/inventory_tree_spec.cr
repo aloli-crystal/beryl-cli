@@ -90,22 +90,61 @@ describe Beryl::Inventory do
       end
     end
 
-    it "remplace intégralement une liste au niveau host" do
+    it "append + dédup pour freebsd.packages (groupe fournit la base, host ajoute)" do
       with_tree do |dir|
         File.write(File.join(dir, "groups", "base.yml"), <<-YAML)
         freebsd:
-          packages: [sudo, zsh]
+          packages: [sudo, zsh, ruby]
         YAML
         File.write(File.join(dir, "hosts", "x.aloli.fr.yml"), <<-YAML)
         groups: [base]
         freebsd:
           hostname: x
           disks: [/dev/sda]
-          packages: [sudo, postgresql16-server]
+          packages: [postgresql16-server, ruby]  # ruby en doublon : dédupliqué
         YAML
 
         fcfg = Beryl::Inventory.load(dir).find("x.aloli.fr").freebsd_config.not_nil!
-        fcfg.packages.should eq(["sudo", "postgresql16-server"]) # remplacement total
+        fcfg.packages.should eq(["sudo", "zsh", "ruby", "postgresql16-server"])
+      end
+    end
+
+    it "append pour freebsd.sudoers" do
+      with_tree do |dir|
+        File.write(File.join(dir, "groups", "base.yml"), <<-YAML)
+        freebsd:
+          sudoers: ['%wheel ALL=(ALL) NOPASSWD:ALL']
+        YAML
+        File.write(File.join(dir, "hosts", "x.aloli.fr.yml"), <<-YAML)
+        groups: [base]
+        freebsd:
+          hostname: x
+          disks: [/dev/sda]
+          sudoers: ['deploy ALL=(www) NOPASSWD:/usr/local/bin/restart-app']
+        YAML
+
+        fcfg = Beryl::Inventory.load(dir).find("x.aloli.fr").freebsd_config.not_nil!
+        fcfg.sudoers.size.should eq(2)
+        fcfg.sudoers[0].should contain("wheel")
+        fcfg.sudoers[1].should contain("deploy")
+      end
+    end
+
+    it "remplace `disks` au niveau host (pas d'append pour les disques)" do
+      with_tree do |dir|
+        File.write(File.join(dir, "groups", "base.yml"), <<-YAML)
+        freebsd:
+          disks: [/dev/sda]   # ne devrait jamais être vraiment défini en groupe
+        YAML
+        File.write(File.join(dir, "hosts", "x.aloli.fr.yml"), <<-YAML)
+        groups: [base]
+        freebsd:
+          hostname: x
+          disks: [/dev/sdc, /dev/sdd]
+        YAML
+
+        fcfg = Beryl::Inventory.load(dir).find("x.aloli.fr").freebsd_config.not_nil!
+        fcfg.disks.should eq(["/dev/sdc", "/dev/sdd"]) # override strict
       end
     end
 
@@ -147,10 +186,7 @@ describe Beryl::Inventory do
       end
     end
 
-    it "merge les users côté host remplace la liste du groupe" do
-      # Pour l'instant : pas de merge par nom. Si le host définit
-      # `users:`, il remplace intégralement la liste groupe. Document
-      # explicite pour que l'opérateur sache où il en est.
+    it "freebsd.users : merge-by-name (host ajoute deploy sans dupliquer admin)" do
       with_tree do |dir|
         File.write(File.join(dir, "groups", "core.yml"), <<-YAML)
         freebsd:
@@ -175,7 +211,42 @@ describe Beryl::Inventory do
         YAML
 
         users = Beryl::Inventory.load(dir).find("srv.aloli.fr").freebsd_config.not_nil!.users
-        users.map(&.name).should eq(["deploy"])
+        # admin vient du groupe, deploy vient du host → les deux présents.
+        users.map(&.name).sort.should eq(["admin", "deploy"])
+      end
+    end
+
+    it "freebsd.users : host peut redéfinir un user par nom (override admin ssh_keys)" do
+      with_tree do |dir|
+        File.write(File.join(dir, "groups", "core.yml"), <<-YAML)
+        freebsd:
+          users:
+            - name: admin
+              primary_group: www
+              secondary_groups: [wheel]
+              shell: /bin/csh
+              ssh_keys: [ssh-ed25519 AAAA groupe]
+        YAML
+        File.write(File.join(dir, "hosts", "srv.aloli.fr.yml"), <<-YAML)
+        groups: [core]
+        freebsd:
+          hostname: srv
+          disks: [/dev/sda]
+          users:
+            - name: admin
+              primary_group: wheel
+              secondary_groups: []
+              shell: /bin/sh
+              ssh_keys: [ssh-ed25519 AAAA override]
+        YAML
+
+        users = Beryl::Inventory.load(dir).find("srv.aloli.fr").freebsd_config.not_nil!.users
+        users.size.should eq(1) # pas de doublon admin
+        admin = users.first
+        admin.name.should eq("admin")
+        admin.primary_group.should eq("wheel") # override host
+        admin.shell.should eq("/bin/sh")       # override host
+        admin.ssh_keys.should eq(["ssh-ed25519 AAAA override"])
       end
     end
   end

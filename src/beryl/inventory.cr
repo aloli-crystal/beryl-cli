@@ -184,27 +184,90 @@ module Beryl
       new(hosts, bootstrap_defaults)
     end
 
-    # Deep merge de deux Hash(YAML::Any, YAML::Any).
-    # Règle : override gagne. Si les deux côtés sont des hashes, on
-    # recurse. Sinon (scalar, array, type différent), override remplace
-    # purement et simplement. Array = remplacement intégral (pas
-    # d'append), c'est prévisible et c'est ce que la phrase « redéfinie
-    # par le fichier du serveur au besoin » suggère. L'append par clé
-    # pour `packages`/`users` sera une option explicite si besoin.
+    # Deep merge de deux Hash(YAML::Any, YAML::Any) avec règles
+    # Aloli-spécifiques pour le bloc `freebsd:`.
+    #
+    # Règles générales (override gagne) :
+    # - Hash imbriqué → récurse
+    # - Scalaire → override remplace
+    # - Array → override remplace (sauf règles freebsd: ci-dessous)
+    #
+    # Règles spécifiques au bloc `freebsd:` (feedback Philippe, 22 avril
+    # 2026 : « installation standard des utilisateurs et programmes »
+    # en groupe, « personnalisée des serveurs » par host) :
+    #
+    # - `freebsd.packages` → append + dédup (groupe = base, host ajoute)
+    # - `freebsd.sudoers`  → append + dédup (même logique)
+    # - `freebsd.users`    → merge par `name:` (host user avec même nom
+    #                        override groupe user)
+    # - `freebsd.disks`    → override (spécifique au host, par nature)
+    # - tout le reste      → override
+    #
+    # `path` suit la position courante dans l'arbre YAML (« freebsd »,
+    # « freebsd.packages », etc.) pour que les règles soient localisées.
     private def self.deep_merge_yaml(
       base : Hash(YAML::Any, YAML::Any),
       override : Hash(YAML::Any, YAML::Any),
+      path : String = "",
     ) : Hash(YAML::Any, YAML::Any)
       result = base.dup
       override.each do |k, v|
+        key_name = k.as_s? || k.to_s
+        sub_path = path.empty? ? key_name : "#{path}.#{key_name}"
         existing = result[k]?
         if existing && (eh = existing.as_h?) && (vh = v.as_h?)
-          result[k] = YAML::Any.new(deep_merge_yaml(eh, vh))
+          result[k] = YAML::Any.new(deep_merge_yaml(eh, vh, path: sub_path))
+        elsif existing && (ea = existing.as_a?) && (va = v.as_a?) && append_array_path?(sub_path)
+          result[k] = YAML::Any.new(merge_yaml_arrays(ea, va, merge_by_name: sub_path == "freebsd.users"))
         else
           result[k] = v
         end
       end
       result
+    end
+
+    # Vrai quand le chemin YAML est une liste qui doit s'appender au
+    # lieu d'être remplacée. Liste volontairement courte et explicite
+    # (pas de règle générale « toutes les arrays s'appendent ») pour
+    # éviter les surprises sur `disks` par exemple.
+    private def self.append_array_path?(path : String) : Bool
+      {"freebsd.packages", "freebsd.sudoers", "freebsd.users"}.includes?(path)
+    end
+
+    # Fusionne deux arrays YAML :
+    # - `merge_by_name: true` → les entrées sont des hashes avec un
+    #   champ `name:`. Une entrée override avec le même name remplace
+    #   l'entrée base (utile pour `freebsd.users` : un host peut
+    #   redéfinir les clés SSH de `admin` sans dupliquer le user).
+    # - `merge_by_name: false` → append + dédup par contenu (scalaires
+    #   dupliqués entre groupe et host sont repliés).
+    private def self.merge_yaml_arrays(
+      base : Array(YAML::Any),
+      override : Array(YAML::Any),
+      merge_by_name : Bool,
+    ) : Array(YAML::Any)
+      if merge_by_name
+        override_names = Set(String).new
+        override.each do |entry|
+          if (h = entry.as_h?) && (n = h[YAML::Any.new("name")]?.try(&.as_s))
+            override_names.add(n)
+          end
+        end
+        kept = base.reject do |entry|
+          if (h = entry.as_h?) && (n = h[YAML::Any.new("name")]?.try(&.as_s))
+            override_names.includes?(n)
+          else
+            false
+          end
+        end
+        kept + override
+      else
+        seen = [] of YAML::Any
+        (base + override).each do |item|
+          seen << item unless seen.includes?(item)
+        end
+        seen
+      end
     end
 
     # Construit un Host à partir d'un hash YAML déjà mergé (groupes +
