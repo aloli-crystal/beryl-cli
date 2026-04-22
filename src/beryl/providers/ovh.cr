@@ -67,5 +67,12 @@ module Beryl::Providers
     def credentials_help_url : String
       "https://eu.api.ovh.com/createToken/ (créez une application si vous n'en avez pas : https://eu.api.ovh.com/createApp/)"
     end
+
+    def owns?(host_name : String) : Bool
+      return false unless available?
+      Beryl::CLI::Credentials.ovh_client.dedicated_servers.list.includes?(host_name)
+    rescue
+      false
+    end
   end
 end

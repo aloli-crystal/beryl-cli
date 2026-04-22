@@ -70,5 +70,16 @@ module Beryl::Providers
     def credentials_help_url : String
       "https://console.scaleway.com/iam/api-keys (créez une API key avec les permissions Bare Metal + Domains)"
     end
+
+    def owns?(host_name : String) : Bool
+      return false unless available?
+      # Scaleway baremetal.servers.list renvoie des Server avec `id`
+      # (UUID) et `name` (libre). On matche sur les deux pour accepter
+      # `beryl rescue <uuid>` comme `beryl rescue mon-serveur-custom`.
+      client = Beryl::CLI::Credentials.scaleway_client
+      client.baremetal.servers.list.any? { |s| s.id == host_name || s.name == host_name }
+    rescue
+      false
+    end
   end
 end

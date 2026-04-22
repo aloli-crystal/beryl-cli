@@ -62,6 +62,27 @@ module Beryl
     # prompt interactif pour que l'opérateur ouvre sa page dans un
     # autre onglet.
     abstract def credentials_help_url : String
+
+    # Vrai si ce provider héberge le serveur identifié par `host_name`.
+    # `host_name` peut être un service_name (OVH), un UUID (Scaleway),
+    # ou tout autre identifiant stable chez l'hébergeur.
+    #
+    # Utilisé par `Beryl::CLI::HostResolver` pour auto-détecter
+    # l'hébergeur d'un serveur nu (ex: `beryl rescue ns3156789.ip-51-83-6.eu`
+    # sans avoir à préciser `--provider=ovh` — beryl demande à chaque
+    # provider configuré « c'est chez toi ? » et prend le premier qui
+    # dit oui).
+    #
+    # Règles :
+    # - Retourne false sans lever si les credentials manquent ou si
+    #   l'appel API échoue (la détection continue avec le provider
+    #   suivant).
+    # - Implémentation par défaut : false. Les providers qui
+    #   surchargent doivent interroger leur API (typiquement la liste
+    #   des serveurs du compte).
+    def owns?(host_name : String) : Bool
+      false
+    end
   end
 
   # Spécification d'une variable d'environnement attendue par un
