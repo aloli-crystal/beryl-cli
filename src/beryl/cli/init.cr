@@ -64,24 +64,42 @@ module Beryl::CLI::Init
       end
     end
 
+    STDERR.puts "[beryl init] Trois informations pour amorcer votre inventaire :" if !non_interactive && (zone.nil? || ssh_key_name.nil?)
     z_in = zone
-    zv : String = z_in ? z_in : (non_interactive ? raise("--zone requis en --non-interactive") : ask("Zone DNS principale (ex: aloli.net) : ", ""))
+    zv : String = z_in ? z_in : (non_interactive ? raise("--zone requis en --non-interactive") : ask(
+      "  1. Zone DNS que vous gérez chez OVH (ex: aloli.net) : ", "",
+    ))
     raise Aborted.new if zv.empty?
     k_in = ssh_key_name
-    kv : String = k_in ? k_in : (non_interactive ? raise("--ssh-key-name requis en --non-interactive") : ask("Nom de la clé SSH OVH pour cette zone (ex: philippe.aloli.fr) : ", ""))
+    kv : String = k_in ? k_in : (non_interactive ? raise("--ssh-key-name requis en --non-interactive") : ask(
+      "  2. Label de votre clé SSH enregistrée dans le panel OVH\n" \
+      "     (Compte → Mes clés SSH, colonne « Nom ») : ", "",
+    ))
     raise Aborted.new if kv.empty?
     akf : String? = admin_key_file
-    akf = ask_optional("Fichier .pub de la clé admin (vide = à remplir manuellement plus tard) : ") if akf.nil? && !non_interactive
-    akf_path = akf || ""
+    if akf.nil? && !non_interactive
+      akf = ask_optional(
+        "  3. Fichier .pub de votre clé SSH perso (chemin, ou nom simple\n" \
+        "     si dans ~/.ssh/, vide = à remplir manuellement plus tard) : "
+      )
+    end
 
-    admin_key_content = if !akf_path.empty?
-                          unless File.exists?(akf_path)
-                            STDERR.puts "beryl : fichier introuvable : #{akf_path}"
-                            return EXIT_USAGE
-                          end
+    # Résolution flexible du chemin :
+    #   1. Tel quel (absolu ou relatif au cwd), avec `~` expansé
+    #   2. Si ça échoue et que l'entrée n'a pas de '/', on tente ~/.ssh/<nom>
+    #   3. Sinon erreur explicite qui liste les chemins essayés
+    akf_path = resolve_admin_key_path(akf)
+
+    admin_key_content = if akf_path && !akf_path.empty?
                           lines = File.read_lines(akf_path).map(&.strip).reject { |l| l.empty? || l.starts_with?('#') }
                           lines.first? || ""
                         else
+                          if akf && !akf.empty?
+                            STDERR.puts "beryl : fichier introuvable : #{akf}"
+                            STDERR.puts "        Essayé : ./#{akf}, ~/.ssh/#{akf}"
+                            STDERR.puts "        Passez un chemin absolu si la clé est ailleurs."
+                            return EXIT_USAGE
+                          end
                           ""
                         end
 
@@ -124,6 +142,25 @@ module Beryl::CLI::Init
   end
 
   class Aborted < Exception
+  end
+
+  # Résout un chemin de fichier .pub saisi par l'utilisateur :
+  #
+  # - nil / "" → nil (pas de clé admin)
+  # - chemin absolu, relatif, ou avec ~ → essayé tel quel
+  # - nom simple sans '/' → essayé aussi dans ~/.ssh/<nom>
+  #
+  # Retourne le chemin résolu qui existe, ou nil si aucun ne marche.
+  # Signature publique (defs privés non-self pas pratiques à tester).
+  def self.resolve_admin_key_path(input : String?) : String?
+    return nil if input.nil? || input.empty?
+    expanded = File.expand_path(input, home: true)
+    return expanded if File.exists?(expanded)
+    unless input.includes?('/')
+      in_ssh_dir = File.expand_path("~/.ssh/#{input}", home: true)
+      return in_ssh_dir if File.exists?(in_ssh_dir)
+    end
+    nil
   end
 
   private def self.write_file(path : String, content : String) : Nil
