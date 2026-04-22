@@ -211,7 +211,7 @@ describe Beryl::CLI::Scan do
 end
 
 describe Beryl::Host do
-  describe "#rescue_host / #rescue_connection" do
+  describe "#ssh_host / #connection" do
     it "utilise ovh.service_name pour un host OVH" do
       host = Beryl::Host.new(
         name: "rails01.aloli.fr",
@@ -221,23 +221,45 @@ describe Beryl::Host do
           "ssh_key_name" => YAML::Any.new("philippe"),
         },
       )
-      host.rescue_host.should eq("ns3156789.ip-51-83-6.eu")
-      host.rescue_connection.host.should eq("ns3156789.ip-51-83-6.eu")
+      host.ssh_host.should eq("ns3156789.ip-51-83-6.eu")
+      host.ssh_host_is_provider_name?.should be_true
+      host.connection.host.should eq("ns3156789.ip-51-83-6.eu")
     end
 
     it "fallback sur le nom logique si pas de service_name OVH" do
       host = Beryl::Host.new(name: "plain.aloli.fr", provider: "ovh")
-      host.rescue_host.should eq("plain.aloli.fr")
+      host.ssh_host.should eq("plain.aloli.fr")
+      host.ssh_host_is_provider_name?.should be_false
     end
 
     it "utilise le nom logique pour un provider non-OVH" do
       host = Beryl::Host.new(name: "srv.aloli.fr", provider: "scaleway")
-      host.rescue_host.should eq("srv.aloli.fr")
+      host.ssh_host.should eq("srv.aloli.fr")
     end
 
     it "utilise le nom logique si pas de provider" do
       host = Beryl::Host.new(name: "x.aloli.fr")
-      host.rescue_host.should eq("x.aloli.fr")
+      host.ssh_host.should eq("x.aloli.fr")
+    end
+  end
+end
+
+describe Beryl do
+  describe ".format_ssh_target" do
+    it "retourne le nom seul quand ssh_host == name" do
+      host = Beryl::Host.new(name: "plain.aloli.fr")
+      Beryl.format_ssh_target(host).should eq("plain.aloli.fr")
+    end
+
+    it "retourne « name (= ssh_host côté provider) » sinon" do
+      host = Beryl::Host.new(
+        name: "rails01.aloli.fr",
+        provider: "ovh",
+        provider_config: {
+          "service_name" => YAML::Any.new("ns1.ip-1-2-3.eu"),
+        },
+      )
+      Beryl.format_ssh_target(host).should eq("rails01.aloli.fr (= ns1.ip-1-2-3.eu côté ovh)")
     end
   end
 end

@@ -82,10 +82,11 @@ module Beryl::CLI::BootHd
       return EXIT_MISSING_CONFIG
     end
 
-    # Purge ~/.ssh/known_hosts : on change la clé d'hôte (rescue Linux
-    # → FreeBSD installée). Évite un futur « REMOTE HOST IDENTIFICATION
-    # HAS CHANGED » côté utilisateur.
-    Beryl.clean_known_hosts(host.name, host.port)
+    # Purge ~/.ssh/known_hosts pour les deux noms potentiels : on
+    # change la clé d'hôte (rescue Linux → FreeBSD installée). Évite
+    # un futur « REMOTE HOST IDENTIFICATION HAS CHANGED » que
+    # l'utilisateur se connecte par le nom logique ou par le FQDN OVH.
+    Beryl.clean_known_hosts_for(host)
 
     client = ovh_client_factory.call
     task = log_step("OVH : boot_from_disk pour #{service_name}") do
@@ -97,14 +98,15 @@ module Beryl::CLI::BootHd
       log_step("OVH : attente fin de tâche hardReboot") do
         wait_ovh_task_done(client, service_name, task, task_poll_interval)
       end
-      ssh_ok = log_step("attente SSH sur #{host.name} (port #{host.port}, user #{user}, timeout #{timeout.total_minutes.to_i} min)") do
-        wait_for_ssh.call(host.name, host.port, user, timeout, Beryl::CLI::Rescue::SSH_POLL_INTERVAL)
+      target_for_log = Beryl.format_ssh_target(host)
+      ssh_ok = log_step("attente SSH sur #{target_for_log} (port #{host.port}, user #{user}, timeout #{timeout.total_minutes.to_i} min)") do
+        wait_for_ssh.call(host.ssh_host, host.port, user, timeout, Beryl::CLI::Rescue::SSH_POLL_INTERVAL)
       end
       if ssh_ok
-        log "ready : SSH répond sur #{host.name} en #{user}"
+        log "ready : SSH répond sur #{target_for_log} en #{user}"
         EXIT_OK
       else
-        STDERR.puts "beryl : timeout — SSH n'a pas répondu sur #{host.name} au bout de #{timeout.total_minutes.to_i} min"
+        STDERR.puts "beryl : timeout — SSH n'a pas répondu sur #{target_for_log} au bout de #{timeout.total_minutes.to_i} min"
         EXIT_SSH_FAILED
       end
     else

@@ -86,7 +86,7 @@ module Beryl::CLI::Apply
     end
 
     conn = host.connection
-    log "cible : #{host.name} (user SSH : #{conn.user})"
+    log "cible : #{Beryl.format_ssh_target(host)} (user SSH : #{conn.user})"
 
     ran_something = false
     exit_code = EXIT_OK

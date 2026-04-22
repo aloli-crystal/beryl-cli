@@ -280,14 +280,14 @@ module Beryl::CLI
     sudoers_raw = fcfg.try(&.sudoers) || [] of String
     sudoers = sudoers_raw.empty? ? ["%wheel ALL=(ALL) NOPASSWD:ALL"] : sudoers_raw
 
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl] #{Beryl::I18n.t(:bootstrap_header, host: host_name, hostname: hostname, disk: target_disks.join(", "))}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl] #{Beryl::I18n.t(:bootstrap_header, host: Beryl.format_ssh_target(host), hostname: hostname, disk: target_disks.join(", "))}"
     STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl] #{Beryl::I18n.t(:bootstrap_path, version: freebsd_version)}"
     STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl] #{Beryl::I18n.t(:bootstrap_users_loaded, count: users.size, names: users.map(&.name).join(", "))}"
 
-    Beryl.clean_known_hosts(host.name, host.port)
+    Beryl.clean_known_hosts_for(host)
 
     rescue_conn = Beryl::SSH::Connection.new(
-      host: host.name,
+      host: host.ssh_host,
       user: host.user,
       port: host.port,
       identity_file: host.identity_file,

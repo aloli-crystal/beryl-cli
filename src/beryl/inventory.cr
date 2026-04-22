@@ -39,23 +39,23 @@ module Beryl
     )
     end
 
-    # Construit une connexion SSH prête à l'emploi vers cet hôte via
-    # son nom logique (typiquement un DNS custom, ex. `rails01.aloli.fr`).
-    # Utilisée après bootstrap quand le DNS pointe bien sur le serveur.
-    def connection : SSH::Connection
-      SSH::Connection.new(
-        host: @name,
-        user: @user,
-        port: @port,
-        identity_file: @identity_file,
-      )
-    end
-
-    # Hostname SSH à utiliser pendant la phase rescue (avant que le DNS
-    # custom ne soit posé/propagé). Pour un host OVH avec service_name
-    # déclaré, on utilise le FQDN OVH (ex. `ns3156789.ip-51-83-6.eu`)
-    # qui est toujours résoluble. Fallback sur le nom logique sinon.
-    def rescue_host : String
+    # Hostname à utiliser pour SSH vers cet hôte. Pour un host OVH
+    # avec `ovh.service_name` déclaré, on utilise le FQDN OVH (ex.
+    # `ns3156789.ip-51-83-6.eu`) qui est toujours résoluble —
+    # indépendamment de la présence d'un DNS custom sur le nom logique
+    # (`rails01.aloli.fr`) et de la phase (rescue ou installé, l'IP
+    # côté hébergeur ne change pas).
+    #
+    # Fallback sur `@name` pour :
+    # - les hosts sans provider (VM locale, autre hébergeur)
+    # - les hosts OVH sans `service_name` déclaré
+    # - les hosts Scaleway (pas de FQDN équivalent exposé par l'API)
+    #
+    # Règle Aloli « même comportement pour toutes les actions » : toutes
+    # les commandes (scan, bootstrap, apply, rescue, wipe, boot-hd)
+    # utilisent cette méthode pour leur connexion SSH, directement ou
+    # via `#connection`.
+    def ssh_host : String
       if @provider == "ovh"
         if sn = ovh_service_name
           return sn
@@ -64,13 +64,20 @@ module Beryl
       @name
     end
 
-    # Connexion SSH pour la phase rescue. Utilise `rescue_host` (nom
-    # OVH pour un host OVH, sinon le nom logique). Évite les « ne
-    # résout pas en DNS » quand on opère sur un serveur dont le DNS
-    # custom n'est pas encore pointé.
-    def rescue_connection : SSH::Connection
+    # Vrai si `ssh_host` diffère du nom logique. Utile côté UI pour
+    # afficher « rails01.aloli.fr (= ns3156789.ip-51-83-6.eu côté OVH) »
+    # dans les logs et garder la traçabilité.
+    def ssh_host_is_provider_name? : Bool
+      ssh_host != @name
+    end
+
+    # Construit une connexion SSH prête à l'emploi. Utilise `ssh_host`
+    # comme cible — donc le FQDN OVH pour les hosts OVH, le nom logique
+    # partout ailleurs. Unique pour toutes les phases (rescue comme
+    # installé).
+    def connection : SSH::Connection
       SSH::Connection.new(
-        host: rescue_host,
+        host: ssh_host,
         user: @user,
         port: @port,
         identity_file: @identity_file,

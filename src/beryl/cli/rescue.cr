@@ -113,18 +113,21 @@ module Beryl::CLI::Rescue
     inventory = Beryl::Inventory.load(inventory_path)
     host = inventory.find(host_name)
 
-    # Garde-fou DNS : inutile de déclencher un rescue si on ne pourra
-    # jamais parler SSH au serveur après. Échoue tôt, avant l'API.
-    unless dns_resolver.call(host.name)
+    # Garde-fou DNS : on teste le nom effectivement utilisé pour SSH
+    # (= ssh_host : FQDN OVH pour un host OVH avec service_name,
+    # sinon nom logique). Inutile de bloquer sur un DNS custom qui
+    # n'existe pas encore si on peut se rabattre sur le FQDN OVH.
+    unless dns_resolver.call(host.ssh_host)
       raise DnsResolutionFailed.new(
-        "#{host.name} ne résout pas en DNS. Vérifiez l'orthographe (typo .fr vs .net ?) et votre résolveur."
+        "#{Beryl.format_ssh_target(host)} ne résout pas en DNS. Vérifiez l'orthographe (typo .fr vs .net ?) et votre résolveur."
       )
     end
 
-    # Purge ~/.ssh/known_hosts : on va changer la clé d'hôte (production
-    # → rescue Linux ou rescue → autre rescue). Évite un futur « REMOTE
-    # HOST IDENTIFICATION HAS CHANGED » côté utilisateur.
-    Beryl.clean_known_hosts(host.name, host.port)
+    # Purge ~/.ssh/known_hosts pour les deux noms (logique + OVH) : on
+    # va changer la clé d'hôte (production → rescue Linux ou rescue →
+    # autre rescue). Évite un futur « REMOTE HOST IDENTIFICATION HAS
+    # CHANGED » côté utilisateur, quel que soit le nom qu'il utilise.
+    Beryl.clean_known_hosts_for(host)
 
     provider = host.provider
     case provider
@@ -142,13 +145,14 @@ module Beryl::CLI::Rescue
     end
 
     if wait
-      ssh_ok = log_step("attente SSH sur #{host.name} (port #{host.port}, user root, timeout #{timeout.total_minutes.to_i} min)") do
-        wait_for_ssh.call(host.name, host.port, "root", timeout, SSH_POLL_INTERVAL)
+      target_for_log = Beryl.format_ssh_target(host)
+      ssh_ok = log_step("attente SSH sur #{target_for_log} (port #{host.port}, user root, timeout #{timeout.total_minutes.to_i} min)") do
+        wait_for_ssh.call(host.ssh_host, host.port, "root", timeout, SSH_POLL_INTERVAL)
       end
       if ssh_ok
         EXIT_OK
       else
-        STDERR.puts "beryl : timeout — SSH n'a pas répondu sur #{host.name} au bout de #{timeout.total_minutes.to_i} min"
+        STDERR.puts "beryl : timeout — SSH n'a pas répondu sur #{target_for_log} au bout de #{timeout.total_minutes.to_i} min"
         EXIT_SSH_FAILED
       end
     else

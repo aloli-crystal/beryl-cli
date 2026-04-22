@@ -104,17 +104,9 @@ module Beryl::CLI::Scan
 
     inventory = Beryl::Inventory.load(inventory_path)
     host = inventory.find(host_name)
-    conn = host.rescue_connection
+    conn = host.connection
 
-    # Log explicite du nom effectif utilisé pour la connexion. Si le
-    # host est OVH, on passe par le FQDN OVH (qui résout toujours)
-    # plutôt que par le nom custom qui peut ne pas encore être dans
-    # le DNS — c'est la correspondance « nom personnalisé = nom système ».
-    if conn.host == host.name
-      log "connexion SSH à #{host.name} (user=#{conn.user}, port=#{conn.port})..."
-    else
-      log "connexion SSH à #{host.name} (= #{conn.host} côté OVH, user=#{conn.user}, port=#{conn.port})..."
-    end
+    log "connexion SSH à #{Beryl.format_ssh_target(host)} (user=#{conn.user}, port=#{conn.port})..."
     disks = read_disks(conn)
     if disks.empty?
       STDERR.puts "beryl : aucun disque physique détecté sur #{host.name}."

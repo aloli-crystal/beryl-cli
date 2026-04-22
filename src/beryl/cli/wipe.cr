@@ -61,7 +61,7 @@ module Beryl::CLI::Wipe
     host = inventory.find(host_name)
 
     rescue_conn = Beryl::SSH::Connection.new(
-      host: host.name,
+      host: host.ssh_host,
       user: host.user,
       port: host.port,
       identity_file: host.identity_file,
@@ -78,7 +78,7 @@ module Beryl::CLI::Wipe
     # on refuse.
     uname = rescue_conn.exec("uname -s", raise_on_error: false).stdout.strip
     unless uname == "Linux"
-      STDERR.puts "beryl : #{host.name} n'est pas sur un rescue Linux (uname -s = #{uname.inspect})."
+      STDERR.puts "beryl : #{Beryl.format_ssh_target(host)} n'est pas sur un rescue Linux (uname -s = #{uname.inspect})."
       STDERR.puts "        Lancez d'abord `beryl rescue #{host.name}` avant `beryl wipe`."
       return EXIT_NOT_IN_RESCUE
     end
@@ -88,7 +88,7 @@ module Beryl::CLI::Wipe
     puts
     puts "================================================================"
     puts "ATTENTION : beryl wipe va DÉTRUIRE toutes les données sur"
-    puts "  hôte  : #{host.name}"
+    puts "  hôte  : #{Beryl.format_ssh_target(host)}"
     puts "  disque : #{disk}"
     puts "================================================================"
     puts

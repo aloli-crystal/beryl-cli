@@ -121,7 +121,10 @@ describe Beryl::CLI::Rescue do
 
         exit_code.should eq(0)
         waiter.calls.size.should eq(1)
-        waiter.calls[0][0].should eq("loulou.aloli.fr")
+        # L'attente SSH utilise le FQDN OVH (service_name) pour un host
+        # OVH, pas le nom logique — garantit qu'on joint le serveur même
+        # si le DNS custom n'est pas posé.
+        waiter.calls[0][0].should eq("ns3156789.ip-51-83-6.eu")
         waiter.calls[0][2].should eq("root")
         # Vérifie que prepare_rescue a atteint le reboot (dernier appel POST
         # sur /reboot).

@@ -58,4 +58,27 @@ module Beryl
         output: Process::Redirect::Close, error: Process::Redirect::Close)
     end
   end
+
+  # Nettoie ~/.ssh/known_hosts pour les DEUX noms potentiels d'un host :
+  # son nom logique (ex. `rails01.aloli.fr`) et son nom côté hébergeur
+  # (`ovh.service_name` pour OVH). Au fil de rescue/bootstrap/apply,
+  # chaque nom peut collecter une clé d'hôte qui ne correspond plus à
+  # l'OS en place. Appelé par toutes les sous-commandes qui changent
+  # potentiellement la clé d'hôte.
+  def self.clean_known_hosts_for(host : Beryl::Host) : Nil
+    clean_known_hosts(host.name, host.port)
+    clean_known_hosts(host.ssh_host, host.port) if host.ssh_host_is_provider_name?
+  end
+
+  # Formate une cible SSH pour les logs, de façon uniforme entre les
+  # sous-commandes : « rails01.aloli.fr » seul si le nom logique == le
+  # nom SSH, sinon « rails01.aloli.fr (= ns1234.ip-... côté ovh) » pour
+  # garder la traçabilité de la correspondance nom custom / nom hébergeur.
+  def self.format_ssh_target(host : Beryl::Host) : String
+    if host.ssh_host_is_provider_name?
+      "#{host.name} (= #{host.ssh_host} côté #{host.provider})"
+    else
+      host.name
+    end
+  end
 end
