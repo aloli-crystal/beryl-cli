@@ -14,12 +14,12 @@ require "ovh-api/ovh_api"
 #   3. Reverse DNS sur IPv4 + IPv6 → FQDN custom (loulou.aloli.net.)
 #   4. Renommage du « display name » du serveur côté panel OVH
 #
-# Le shard `ovh-api` couvre (3). Les autres endpoints (zone records,
-# zone refresh, update du displayName) passent par `OvhApi::Client#call`
-# en bas niveau — ils seront remontés dans le shard dans une itération
-# suivante.
+# Implémentation : 100% via le shard ovh-api 0.3.0 qui expose
+# `client.domains` (records, refresh, ensure_record idempotent),
+# `client.dedicated_servers.update(display_name:)` et `client.ips.set_reverse`.
+# Plus aucun `client.call("GET", "/domain/...")` en bas niveau.
 #
-# Toutes les actions sont idempotentes côté beryl : avant de créer un
+# Toutes les actions sont idempotentes côté shard : avant de créer un
 # record, on vérifie qu'il n'existe pas déjà. Un relancement après
 # interruption ne crée pas de doublons.
 module Beryl::CLI::DnsSetup
@@ -62,38 +62,26 @@ module Beryl::CLI::DnsSetup
   end
 
   # Récupère les infos nécessaires (IPs, displayName actuel) pour
-  # construire un Plan cohérent.
-  #
-  # `/dedicated/server/{svc}` renvoie `{name, ip, reverse, datacenter, ...}`.
-  # `/dedicated/server/{svc}/ips` renvoie une liste d'IPs (v4 + v6).
-  # On pioche la v6 dans la liste ; s'il n'y en a pas, on continue sans.
+  # construire un Plan cohérent. Utilise `client.dedicated_servers.info`
+  # et `client.dedicated_servers.ips` du shard ovh-api 0.3.0.
   def self.build_plan(
     client : OvhApi::Client,
     service_name : String,
     short_name : String,
     zone : String,
   ) : Plan
-    server_info = client.call("GET", "/dedicated/server/#{service_name}")
-    raise "API OVH : /dedicated/server/#{service_name} a renvoyé vide" unless server_info
-
+    server_info = client.dedicated_servers.info(service_name)
     ipv4 = server_info["ip"]?.try(&.as_s) || raise "aucune IPv4 déclarée sur #{service_name}"
     display_name = server_info["name"]?.try(&.as_s)
 
     # Liste des IPs affectées au serveur. On cherche la première v6.
-    # Format des IPs dans l'API : "51.83.6.X/32" pour v4, "2001:...::/64"
-    # pour v6.
+    # Format des IPs : "51.83.6.X/32" pour v4, "2001:...::/64" pour v6.
     ipv6 = nil
-    ips_any = client.call("GET", "/dedicated/server/#{service_name}/ips")
-    if ips_any
-      ips_any.as_a.each do |ip_any|
-        s = ip_any.as_s
-        next unless s.includes?(':')
-        # Extrait la partie IP du bloc CIDR.
-        base = s.split('/').first
-        # Convention OVH : l'IP usable = base + "1" si bloc /64.
-        ipv6 = derive_ipv6_address(base, s)
-        break
-      end
+    client.dedicated_servers.ips(service_name).each do |cidr|
+      next unless cidr.includes?(':')
+      base = cidr.split('/').first
+      ipv6 = derive_ipv6_address(base, cidr)
+      break
     end
 
     fqdn = "#{short_name}.#{zone}"
@@ -133,8 +121,9 @@ module Beryl::CLI::DnsSetup
     update_display_name(client, plan.service_name, plan.fqdn, logger) unless plan.current_display_name == plan.fqdn
   end
 
-  # Crée un record (A ou AAAA) s'il n'existe pas déjà avec la même
-  # cible. S'il existe avec une cible différente, on le met à jour.
+  # Crée / met à jour / laisse en place un record DNS de façon
+  # idempotente. Logique portée dans le shard ovh-api 0.3.0 via
+  # `client.domains.ensure_record`.
   def self.ensure_record(
     client : OvhApi::Client,
     zone : String,
@@ -143,38 +132,13 @@ module Beryl::CLI::DnsSetup
     target : String,
     logger : Proc(String, Nil),
   ) : Nil
-    # Liste des record IDs pour ce subdomain + fieldType.
-    existing = client.call("GET", "/domain/zone/#{zone}/record",
-      query: {"fieldType" => field_type, "subDomain" => sub_domain})
-    ids = existing ? existing.as_a.map(&.as_i64) : [] of Int64
-
-    ids.each do |id|
-      rec = client.call("GET", "/domain/zone/#{zone}/record/#{id}")
-      next unless rec
-      current_target = rec["target"]?.try(&.as_s)
-      if current_target == target
-        logger.call("#{field_type} #{sub_domain}.#{zone} → #{target} déjà en place (id=#{id}), rien à faire")
-        return
-      else
-        logger.call("#{field_type} #{sub_domain}.#{zone} : mise à jour #{current_target} → #{target} (id=#{id})")
-        client.call("PUT", "/domain/zone/#{zone}/record/#{id}",
-          body: {"target" => target})
-        return
-      end
-    end
-
-    logger.call("création #{field_type} #{sub_domain}.#{zone} → #{target}")
-    client.call("POST", "/domain/zone/#{zone}/record",
-      body: {
-        "fieldType" => field_type,
-        "subDomain" => sub_domain,
-        "target"    => target,
-      })
+    logger.call("#{field_type} #{sub_domain}.#{zone} → #{target} (ensure idempotent)")
+    client.domains.ensure_record(zone, field_type, sub_domain, target)
   end
 
   def self.refresh_zone(client : OvhApi::Client, zone : String, logger : Proc(String, Nil)) : Nil
     logger.call("refresh zone #{zone}")
-    client.call("POST", "/domain/zone/#{zone}/refresh")
+    client.domains.refresh(zone)
   end
 
   # Pose le reverse DNS. L'API OVH exige l'IP en forme « ipBlock » dans
@@ -211,7 +175,6 @@ module Beryl::CLI::DnsSetup
     logger : Proc(String, Nil),
   ) : Nil
     logger.call("renomme displayName OVH : #{service_name} → #{new_name}")
-    client.call("PUT", "/dedicated/server/#{service_name}",
-      body: {"displayName" => new_name})
+    client.dedicated_servers.update(service_name, display_name: new_name)
   end
 end
