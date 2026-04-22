@@ -4,15 +4,20 @@ require "ovh-api/ovh_api"
 # reçu pour qu'on puisse ensuite l'appeler par son nom custom et oublier
 # son service_name OVH :
 #
-#   1. Enregistrements A + AAAA dans la zone DNS custom (ex. aloli.net)
+#   1. UN record CNAME dans la zone DNS custom (ex. aloli.net) pointant
+#      vers le FQDN OVH (ns3156789.ip-51-83-6.eu.). Avantage : OVH fait
+#      déjà la résolution v4 et v6 pour ce FQDN via sa propre zone, pas
+#      besoin de dupliquer les IPs. Feedback Philippe 22 avril 2026 :
+#      « dans l'interface d'OVH, il n'y a qu'un seul champ pour poser
+#      un reverse DNS, et il faut y mettre un CNAME ».
 #   2. Refresh de la zone (OVH l'exige pour propager)
-#   3. Reverse DNS sur IPv4 + IPv6 → FQDN custom
+#   3. Reverse DNS sur IPv4 + IPv6 → FQDN custom (loulou.aloli.net.)
 #   4. Renommage du « display name » du serveur côté panel OVH
 #
 # Le shard `ovh-api` couvre (3). Les autres endpoints (zone records,
 # zone refresh, update du displayName) passent par `OvhApi::Client#call`
-# en bas niveau — ça évite de publier une release du shard pour chaque
-# ajout de feature côté beryl.
+# en bas niveau — ils seront remontés dans le shard dans une itération
+# suivante.
 #
 # Toutes les actions sont idempotentes côté beryl : avant de créer un
 # record, on vérifie qu'il n'existe pas déjà. Un relancement après
@@ -37,21 +42,18 @@ module Beryl::CLI::DnsSetup
     def describe : String
       String.build do |io|
         io << "Actions DNS + OVH prévues pour #{@service_name} :\n"
-        io << "  1. Créer (ou vérifier) A     #{@short_name}.#{@zone}  →  #{@ipv4}\n"
-        if @ipv6
-          io << "  2. Créer (ou vérifier) AAAA  #{@short_name}.#{@zone}  →  #{@ipv6}\n"
+        io << "  1. Créer (ou vérifier) CNAME  #{@short_name}.#{@zone}  →  #{@service_name}.\n"
+        io << "  2. Rafraîchir la zone #{@zone}\n"
+        io << "  3. Reverse DNS IPv4 : #{@ipv4} → #{@fqdn}.\n"
+        if v6 = @ipv6
+          io << "  4. Reverse DNS IPv6 : #{v6} → #{@fqdn}.\n"
         else
-          io << "  2. AAAA : aucun IPv6 détecté sur le serveur, ignoré\n"
-        end
-        io << "  3. Rafraîchir la zone #{@zone}\n"
-        io << "  4. Reverse DNS IPv4 : #{@ipv4} → #{@fqdn}.\n"
-        if @ipv6
-          io << "  5. Reverse DNS IPv6 : #{@ipv6} → #{@fqdn}.\n"
+          io << "  4. Reverse IPv6 : aucune IPv6 détectée, ignoré\n"
         end
         if @current_display_name == @fqdn
-          io << "  6. displayName OVH déjà à #{@fqdn}, rien à faire\n"
+          io << "  5. displayName OVH déjà à #{@fqdn}, rien à faire\n"
         else
-          io << "  6. Renommer OVH : "
+          io << "  5. Renommer OVH : "
           io << (@current_display_name.try(&.empty?) != false ? "(aucun)" : @current_display_name.not_nil!)
           io << "  →  #{@fqdn}\n"
         end
@@ -112,11 +114,17 @@ module Beryl::CLI::DnsSetup
   end
 
   # Exécute le plan. Chaque étape est idempotente.
+  #
+  # L'ordre est important : on pose le CNAME et on refresh la zone
+  # AVANT le reverse. Si OVH valide le reverse en vérifiant que le
+  # forward pointe bien vers la bonne IP, la zone doit être déjà à
+  # jour. Même logique pour le displayName : on le change en dernier,
+  # une fois que le FQDN custom est complètement fonctionnel.
   def self.apply!(client : OvhApi::Client, plan : Plan, logger : Proc(String, Nil)) : Nil
-    ensure_record(client, plan.zone, "A", plan.short_name, plan.ipv4, logger)
-    if v6 = plan.ipv6
-      ensure_record(client, plan.zone, "AAAA", plan.short_name, v6, logger)
-    end
+    # Cible du CNAME : le FQDN OVH du serveur avec un point final
+    # (convention DNS « FQDN absolu »).
+    cname_target = "#{plan.service_name}."
+    ensure_record(client, plan.zone, "CNAME", plan.short_name, cname_target, logger)
     refresh_zone(client, plan.zone, logger)
     set_reverse_if_needed(client, plan.ipv4, plan.fqdn, logger)
     if v6 = plan.ipv6

@@ -8,6 +8,7 @@ require "./cli/boot_hd"
 require "./cli/wipe"
 require "./cli/apply"
 require "./cli/scan"
+require "./cli/init"
 
 # Point d'entrée CLI de beryl.
 #
@@ -23,7 +24,32 @@ require "./cli/scan"
 #                          HTTP local pour préparer un rescue Debian/Ubuntu.
 #   version                Affiche la version.
 module Beryl::CLI
-  DEFAULT_INVENTORY = "inventory.yml"
+  # Chemin par défaut d'inventaire. Résolu automatiquement par
+  # `resolve_default_inventory_path` au démarrage dans l'ordre :
+  #   1. Variable d'env `BERYL_INVENTORY` si définie
+  #   2. `./inventory.yml` si présent dans le cwd
+  #   3. `./inventory/` (mode arborescent) si présent dans le cwd
+  #   4. `~/.beryl/inventory/` (mode arborescent) si présent
+  #   5. `~/.beryl/inventory.yml` (fichier unique) si présent
+  #   6. Fallback : `inventory.yml` (pour garder le message d'erreur
+  #      cohérent si rien n'existe)
+  # Le flag `-i/--inventory` court-circuite tout.
+  DEFAULT_INVENTORY   = "inventory.yml"
+  HOME_INVENTORY_DIR  = File.expand_path("~/.beryl/inventory", home: true)
+  HOME_INVENTORY_FILE = File.expand_path("~/.beryl/inventory.yml", home: true)
+
+  # Résout le chemin d'inventaire à utiliser quand aucun `-i` n'est
+  # passé. Priorité documentée plus haut.
+  def self.resolve_default_inventory_path : String
+    if env = ENV["BERYL_INVENTORY"]?
+      return env unless env.empty?
+    end
+    return DEFAULT_INVENTORY if File.exists?(DEFAULT_INVENTORY)
+    return "inventory" if File.directory?("inventory")
+    return HOME_INVENTORY_DIR if File.directory?(HOME_INVENTORY_DIR)
+    return HOME_INVENTORY_FILE if File.exists?(HOME_INVENTORY_FILE)
+    DEFAULT_INVENTORY
+  end
 
   # Options globales qui consomment l'argument suivant (forme « -i VALEUR »).
   # Les formes « --flag=valeur » sont auto-suffisantes.
@@ -35,7 +61,7 @@ module Beryl::CLI
     # `set -a && source .env && set +a` avant chaque commande.
     LoadEnv.load
 
-    inventory_path = DEFAULT_INVENTORY
+    inventory_path = resolve_default_inventory_path
 
     # Sépare les options globales (avant la sous-commande) du reste.
     # On arrête à la première chaîne qui ne ressemble pas à une option,
@@ -77,6 +103,7 @@ module Beryl::CLI
     when "bootstrap"   then cmd_bootstrap(inventory_path, sub_args)
     when "apply"       then Beryl::CLI::Apply.run(inventory_path, sub_args)
     when "scan"        then Beryl::CLI::Scan.run(inventory_path, sub_args)
+    when "init"        then Beryl::CLI::Init.run(sub_args)
     when "rescue"      then Beryl::CLI::Rescue.run(inventory_path, sub_args)
     when "boot-hd"     then Beryl::CLI::BootHd.run(inventory_path, sub_args)
     when "wipe"        then Beryl::CLI::Wipe.run(inventory_path, sub_args)
@@ -97,6 +124,8 @@ module Beryl::CLI
     USAGE : beryl [options globales] <sous-commande> [arguments]
 
     Sous-commandes :
+      init                  Crée l'arborescence d'inventaire de départ
+                            dans ~/.beryl/inventory/ (groupes + hosts/)
       list-hosts            Liste les hôtes de l'inventaire
       show <host>           Affiche les détails d'un hôte
       rescue <host>         Bascule un hôte en rescue via l'API
@@ -111,7 +140,9 @@ module Beryl::CLI
       apply <host>          Synchronise packages, users, sudoers du
                             bloc `freebsd:` vers un hôte bootstrappé
       scan <host>           Détecte les disques en rescue Linux et
-                            propose un YAML prêt pour hosts/<host>.yml
+                            propose un YAML prêt pour hosts/<host>.yml.
+                            --dns : pose CNAME dans la zone + reverse
+                            DNS + renomme côté panel OVH
       prep-rescue           Serveur HTTP local (clé SSH + script) pour
                             préparer un rescue Debian/Ubuntu sans
                             copier-coller
