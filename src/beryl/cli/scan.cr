@@ -96,28 +96,35 @@ module Beryl::CLI::Scan
     host = root.resolve(host_name, domain_hint: domain_hint)
     root.env_file.apply_to_env(host.domain_name)
 
-    conn = host.connection
-    log "connexion SSH à #{Beryl.format_ssh_target(host)} (user=#{conn.user}, port=#{conn.port})..."
-
-    # --dns : faire le rename DNS + reverse AVANT le scan disques
+    # --dns : faire le rename DNS + reverse AVANT le scan disques.
+    # En dry-run, run_dns_setup respecte le flag et n'appelle aucune API.
     dns_plan : Beryl::CLI::DnsSetup::Plan? = nil
     if dns_setup
       dns_plan = run_dns_setup(host, hostname_flag, zone_flag, non_interactive, dry_run: dry_run)
     end
 
-    disks = read_disks(conn)
-    if disks.empty?
-      STDERR.puts "beryl : aucun disque physique détecté sur #{host.fqdn}"
-      return EXIT_NO_DISKS
+    # Scan disques : UNIQUEMENT hors dry-run. Le dry-run doit rester
+    # purement informatif, aucune connexion SSH (donc pas de prompt
+    # fingerprint, pas de host_key_verification qui plante si l'OS
+    # n'est pas celui attendu, etc.). Philippe 22 avril 2026 terrain :
+    # « Et cela plante, à quoi sert le dry-run ? »
+    disks = [] of Disk
+    unless dry_run
+      conn = host.connection
+      log "connexion SSH à #{Beryl.format_ssh_target(host)} (user=#{conn.user}, port=#{conn.port})..."
+      disks = read_disks(conn)
+      if disks.empty?
+        STDERR.puts "beryl : aucun disque physique détecté sur #{host.fqdn}"
+        return EXIT_NO_DISKS
+      end
+      STDERR.puts
+      STDERR.puts "Disques détectés sur #{host.fqdn} :"
+      STDERR.puts disks_table(disks)
+      STDERR.puts
     end
 
-    STDERR.puts
-    STDERR.puts "Disques détectés sur #{host.fqdn} :"
-    STDERR.puts disks_table(disks)
-    STDERR.puts
-
-    chosen = pick_disks(disks, disks_flag, non_interactive)
-    raid = pick_raid(chosen.size, raid_flag, non_interactive)
+    chosen = dry_run ? [] of Disk : pick_disks(disks, disks_flag, non_interactive)
+    raid = dry_run ? (raid_flag.try(&.to_i) || 0) : pick_raid(chosen.size, raid_flag, non_interactive)
 
     short = if dns_plan
               dns_plan.short_name
@@ -136,6 +143,9 @@ module Beryl::CLI::Scan
         STDERR.puts "─" * 60
         print yaml
         STDERR.puts "─" * 60
+        STDERR.puts "NOTE : en dry-run, les disques ne sont PAS scannés côté rescue"
+        STDERR.puts "       (aucune connexion SSH ouverte). Relancez sans --dry-run"
+        STDERR.puts "       pour que le YAML contienne la liste réelle des disques."
         return EXIT_OK
       end
       if File.exists?(target)
@@ -330,7 +340,15 @@ module Beryl::CLI::Scan
       io << "      boot: true        # c'est le pool système (exactement un)\n"
       io << "      raid: " << raid << "             # 0=stripe 1=mirror 5=raidz 6=raidz2 7=raidz3 10=mirror_stripe\n"
       io << "      disks:\n"
-      disks.each { |d| io << "        - " << d.dev_path << "  # " << d.human_size << " " << d.kind << " " << d.model << '\n' }
+      if disks.empty?
+        # Cas dry-run : on n'a pas ouvert de SSH, donc pas de liste
+        # réelle. Placeholder pour que le YAML reste valide à l'œil
+        # et que l'utilisateur voie clairement ce qui manque.
+        io << "        # (dry-run) liste réelle des disques non scannée\n"
+        io << "        # Relancez sans --dry-run pour remplir cette section.\n"
+      else
+        disks.each { |d| io << "        - " << d.dev_path << "  # " << d.human_size << " " << d.kind << " " << d.model << '\n' }
+      end
     end
   end
 
