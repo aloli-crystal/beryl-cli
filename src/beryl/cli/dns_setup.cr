@@ -223,16 +223,5 @@ module Beryl::CLI::DnsSetup
   ) : Nil
     logger.call("renomme displayName OVH : #{service_name} → #{new_name}")
     client.dedicated_servers.update(service_name, display_name: new_name)
-  rescue ex : OvhApi::AuthenticationError
-    # Le PUT /services/{serviceId} requiert le droit PUT /services/*
-    # côté consumer key. Les anciennes clés ne l'avaient pas. Plutôt
-    # que de faire planter tout le flux (les reverses sont encore à
-    # faire et ne dépendent pas du rename), on WARN et on continue.
-    logger.call("WARNING : rename OVH ignoré — #{ex.message}")
-    logger.call("  Votre consumer key OVH n'a pas le droit PUT /services/*.")
-    logger.call("  Régénérez-la à https://eu.api.ovh.com/createToken/ avec,")
-    logger.call("  en plus des routes habituelles, PUT /services/*.")
-    logger.call("  (Le displayName côté panel OVH reste inchangé ; les A/AAAA")
-    logger.call("   et les reverses sont faits quand même.)")
   end
 end

@@ -1,5 +1,7 @@
 require "option_parser"
+require "ovh-api/ovh_api"
 require "../config"
+require "../providers"
 require "../ssh"
 require "./credentials"
 require "./dns_setup"
@@ -15,12 +17,15 @@ require "./dns_setup"
 # Avec `--write` : écrit ~/.beryl/<domaine>/<nom>.yml (nom court
 # demandé interactivement ou via --hostname).
 module Beryl::CLI::Scan
-  EXIT_OK         =  0
-  EXIT_USAGE      =  1
-  EXIT_SSH_FAILED =  2
-  EXIT_UNEXPECTED =  3
-  EXIT_NO_DISKS   = 15
-  EXIT_ABORTED    = 16
+  EXIT_OK           =  0
+  EXIT_USAGE        =  1
+  EXIT_SSH_FAILED   =  2
+  EXIT_UNEXPECTED   =  3
+  EXIT_BAD_CREDS    =  4
+  EXIT_API_ERROR    =  7
+  EXIT_NO_DISKS     = 15
+  EXIT_ABORTED      = 16
+  EXIT_INSUFFICIENT = 17
 
   # Un disque physique détecté sur la cible (lsblk -b -d).
   struct Disk
@@ -203,6 +208,24 @@ module Beryl::CLI::Scan
   rescue ex : Aborted
     STDERR.puts "beryl : abandon"
     EXIT_ABORTED
+  rescue ex : OvhApi::AuthenticationError
+    # 403 "This call has not been granted" : la consumer key n'a pas
+    # le bon access rule pour cette route. On liste les droits requis
+    # par beryl pour que l'utilisateur régénère sa clé avec le bon
+    # scope. Pas de workaround, pas de WARN silencieux.
+    STDERR.puts "beryl : OVH refuse l'appel API — #{ex.message}"
+    STDERR.puts
+    STDERR.puts "Votre consumer key OVH n'a pas les droits nécessaires."
+    STDERR.puts "Régénérez-la à https://eu.api.ovh.com/createToken/ en cochant :"
+    Beryl::Providers::Ovh.new.required_access_rules.each do |rule|
+      STDERR.printf("  %-6s %s\n", rule[:verb], rule[:path])
+    end
+    STDERR.puts
+    STDERR.puts "Puis mettez à jour `~/.beryl/.env.yml` ou relancez `beryl init`."
+    EXIT_BAD_CREDS
+  rescue ex : OvhApi::Error
+    STDERR.puts "beryl : erreur API OVH — #{ex.message}"
+    EXIT_API_ERROR
   rescue ex
     STDERR.puts "beryl : erreur inattendue — #{ex.class}: #{ex.message}"
     EXIT_UNEXPECTED
