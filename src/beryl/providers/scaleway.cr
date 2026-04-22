@@ -45,5 +45,30 @@ module Beryl::Providers
       raise "clé SSH Scaleway introuvable : #{key_id}. Disponibles : #{keys.map(&.name).join(", ")}" unless match
       match.id
     end
+
+    def credentials_env_vars : Array(Beryl::EnvVarSpec)
+      [
+        Beryl::EnvVarSpec.new(
+          name: "SCW_SECRET_KEY",
+          description: "Secret key (UUID généré dans Console → IAM → API keys)",
+          secret: true,
+        ),
+        Beryl::EnvVarSpec.new(
+          name: "SCW_DEFAULT_ZONE",
+          description: "Zone par défaut (fr-par-1, fr-par-2, nl-ams-1, pl-waw-1…)",
+          optional: true,
+          default: "fr-par-2",
+        ),
+        Beryl::EnvVarSpec.new(
+          name: "SCW_DEFAULT_PROJECT_ID",
+          description: "ID de projet (Console → Settings → Project). Optionnel pour rescue/reboot.",
+          optional: true,
+        ),
+      ]
+    end
+
+    def credentials_help_url : String
+      "https://console.scaleway.com/iam/api-keys (créez une API key avec les permissions Bare Metal + Domains)"
+    end
   end
 end

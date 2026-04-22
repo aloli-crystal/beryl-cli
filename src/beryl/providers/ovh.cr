@@ -37,5 +37,35 @@ module Beryl::Providers
       result["ssh_key_name"] = key_id
       result
     end
+
+    def credentials_env_vars : Array(Beryl::EnvVarSpec)
+      [
+        Beryl::EnvVarSpec.new(
+          name: "OVH_APPLICATION_KEY",
+          description: "Clé applicative (générée à l'URL d'aide)",
+          secret: true,
+        ),
+        Beryl::EnvVarSpec.new(
+          name: "OVH_APPLICATION_SECRET",
+          description: "Secret applicatif (donné une fois à la génération)",
+          secret: true,
+        ),
+        Beryl::EnvVarSpec.new(
+          name: "OVH_CONSUMER_KEY",
+          description: "Consumer key (token utilisateur, validé dans le navigateur)",
+          secret: true,
+        ),
+        Beryl::EnvVarSpec.new(
+          name: "OVH_ENDPOINT",
+          description: "Datacenter (eu|ca|us|kimsufi_eu|kimsufi_ca|soyoustart_eu|soyoustart_ca)",
+          optional: true,
+          default: "eu",
+        ),
+      ]
+    end
+
+    def credentials_help_url : String
+      "https://eu.api.ovh.com/createToken/ (créez une application si vous n'en avez pas : https://eu.api.ovh.com/createApp/)"
+    end
   end
 end

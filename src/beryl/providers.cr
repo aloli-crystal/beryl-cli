@@ -50,6 +50,39 @@ module Beryl
     # `<provider>:` dans le YAML. Utilisé par `beryl init` pour
     # générer un `groups/<zone>.yml` exploitable.
     abstract def ssh_key_yaml_fragment(key_id : String) : Hash(String, String | Array(String))
+
+    # Variables d'environnement nécessaires pour que `available?` soit
+    # vrai et que les appels API marchent. Listées dans l'ordre où
+    # `beryl init` les demandera si le provider n'est pas configuré.
+    # Utilisé pour la configuration interactive + aide.
+    abstract def credentials_env_vars : Array(EnvVarSpec)
+
+    # URL d'aide côté panel hébergeur où l'utilisateur génère les
+    # credentials (token d'API, secret key, etc.). Affichée avant le
+    # prompt interactif pour que l'opérateur ouvre sa page dans un
+    # autre onglet.
+    abstract def credentials_help_url : String
+  end
+
+  # Spécification d'une variable d'environnement attendue par un
+  # provider. Utilisé par la configuration interactive de `beryl init`
+  # pour prompter, sauvegarder dans ~/.beryl/.env, et afficher de
+  # l'aide.
+  struct EnvVarSpec
+    getter name : String        # "OVH_APPLICATION_KEY"
+    getter description : String # "Clé applicative (panel OVH → Mes APIs)"
+    getter optional : Bool
+    getter default : String?
+    getter secret : Bool # masque l'écho à l'écran (tokens)
+
+    def initialize(
+      @name : String,
+      @description : String,
+      @optional : Bool = false,
+      @default : String? = nil,
+      @secret : Bool = false,
+    )
+    end
   end
 
   # Métadonnées d'une clé SSH chez un provider.

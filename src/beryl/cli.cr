@@ -69,10 +69,13 @@ module Beryl::CLI
   GLOBAL_FLAGS_WITH_VALUE = {"-i", "--inventory"}
 
   def self.run(argv : Array(String) = ARGV) : Int32
-    # Charge `.env` du cwd en priorité basse (les variables déjà exportées
-    # dans le shell l'emportent). Évite à l'utilisateur le rituel
-    # `set -a && source .env && set +a` avant chaque commande.
-    LoadEnv.load
+    # Charge les credentials depuis ~/.beryl/.env en priorité basse
+    # (les variables déjà exportées dans le shell l'emportent).
+    # Convention Aloli : tous les credentials d'hébergeur vivent dans
+    # ~/.beryl/.env, écrits par `beryl init` quand un provider est
+    # configuré interactivement. Pas de .env côté projet pour éviter
+    # de confondre config beryl et config app.
+    LoadEnv.load(File.expand_path("~/.beryl/.env", home: true))
 
     inventory_path = resolve_default_inventory_path
 

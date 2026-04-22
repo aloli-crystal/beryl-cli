@@ -184,12 +184,12 @@ module Beryl::CLI::Init
     available = Beryl::Providers.available
     case available.size
     when 0
-      STDERR.puts "[beryl init] Aucun hébergeur configuré dans l'environnement."
-      STDERR.puts "            Exportez les credentials de l'un des providers supportés :"
-      Beryl::Providers.all.each do |p|
-        STDERR.puts "              - #{p.display_name} (#{p.name})"
-      end
-      nil
+      # Aucun provider configuré : on propose la configuration
+      # interactive plutôt que de quitter sèchement. L'utilisateur
+      # choisit un provider, colle ses credentials, on écrit
+      # ~/.beryl/.env, on recharge l'env, et on continue le flow
+      # normal.
+      handle_no_providers(non_interactive)
     when 1
       p = available.first
       STDERR.puts "[beryl init] Hébergeur détecté : #{p.display_name}"
@@ -286,6 +286,126 @@ module Beryl::CLI::Init
       chosen = auto[idx - 1]
       {provider_key_id: chosen[:remote].id, local_pub_path: chosen[:local]}
     end
+  end
+
+  # Chemin fixe du fichier .env où on stocke les credentials providers.
+  ENV_FILE = File.expand_path("~/.beryl/.env", home: true)
+
+  # Propose la configuration interactive d'un provider quand aucun
+  # n'est dispo dans l'environnement. Retourne le provider configuré,
+  # ou nil si l'utilisateur refuse / si --non-interactive.
+  def self.handle_no_providers(non_interactive : Bool) : Beryl::Provider?
+    STDERR.puts
+    STDERR.puts "[beryl init] Aucun hébergeur configuré dans l'environnement."
+    STDERR.puts "            Credentials cherchés dans ~/.beryl/.env et dans le shell."
+    STDERR.puts
+    STDERR.puts "Hébergeurs supportés par beryl :"
+    Beryl::Providers.all.each_with_index do |p, i|
+      STDERR.puts "  #{i + 1}. #{p.display_name} (#{p.name})"
+    end
+
+    if non_interactive
+      STDERR.puts
+      STDERR.puts "En mode --non-interactive : exportez les variables d'env"
+      STDERR.puts "de l'un des providers, puis relancez `beryl init`."
+      return nil
+    end
+
+    STDERR.puts
+    answer = ask("Configurer un hébergeur maintenant ? [O/n] : ", "O")
+    unless answer.downcase.starts_with?("o") || answer.downcase.starts_with?("y")
+      return nil
+    end
+
+    # Choix du provider à configurer.
+    providers = Beryl::Providers.all
+    chosen = if providers.size == 1
+               providers.first
+             else
+               ch = ask("Lequel ? [1] : ", "1")
+               idx = ch.to_i? || 1
+               idx = 1 if idx < 1 || idx > providers.size
+               providers[idx - 1]
+             end
+
+    # Collecte des variables via prompt.
+    configure_provider_credentials(chosen)
+
+    # Recharge ~/.beryl/.env pour que les providers détectent les
+    # credentials qu'on vient d'écrire.
+    LoadEnv.load(ENV_FILE, overwrite: true)
+
+    if chosen.available?
+      STDERR.puts "[beryl init] Provider #{chosen.display_name} configuré."
+      chosen
+    else
+      STDERR.puts "beryl : credentials posés mais #{chosen.display_name} se déclare toujours"
+      STDERR.puts "        indisponible. Vérifiez ~/.beryl/.env."
+      nil
+    end
+  end
+
+  # Prompt chaque variable du provider, écrit dans ~/.beryl/.env en
+  # préservant les lignes existantes (merge + dedup par nom de var).
+  def self.configure_provider_credentials(provider : Beryl::Provider) : Nil
+    STDERR.puts
+    STDERR.puts "Configuration #{provider.display_name} :"
+    STDERR.puts "  URL d'aide : #{provider.credentials_help_url}"
+    STDERR.puts
+
+    values = {} of String => String
+    provider.credentials_env_vars.each do |var|
+      prompt = "  #{var.name}"
+      prompt += " [#{var.default}]" if var.default
+      prompt += " (optionnel)" if var.optional
+      prompt += "  # #{var.description}"
+      prompt += "\n    : "
+
+      input = ask_optional(prompt)
+      # Défaut si vide et default fourni.
+      input = var.default.not_nil! if input.empty? && var.default
+      # Requis non fourni → on skip, l'utilisateur verra l'erreur
+      # au prochain appel API (plutôt que de bloquer init).
+      next if input.empty?
+
+      values[var.name] = input
+    end
+
+    write_env_file(values)
+    STDERR.puts
+    STDERR.puts "[beryl init] Credentials écrits dans #{ENV_FILE}"
+    STDERR.puts "            (chargé automatiquement par beryl à chaque invocation)"
+  end
+
+  # Merge les valeurs dans ~/.beryl/.env. Conserve les autres vars
+  # déjà présentes (ex: credentials d'un autre provider), remplace les
+  # valeurs des clés qu'on pose ici.
+  def self.write_env_file(values : Hash(String, String)) : Nil
+    FileUtils.mkdir_p(File.dirname(ENV_FILE))
+    existing = {} of String => String
+    if File.exists?(ENV_FILE)
+      existing = LoadEnv.parse(File.read(ENV_FILE))
+    end
+    merged = existing.merge(values)
+
+    # Tri alphabétique pour un fichier stable (diff git propre).
+    content = String.build do |io|
+      io << "# Credentials beryl — écrit par `beryl init`\n"
+      io << "# Ajouté/modifié à la main : libre cours, juste garder la\n"
+      io << "# forme `KEY=value` par ligne.\n\n"
+      merged.keys.sort.each do |k|
+        v = merged[k]
+        # Quote la valeur si elle contient des espaces ou caractères
+        # spéciaux — simple heuristique, load-env gère les deux.
+        if v =~ /\s|["'\\]/
+          io << k << '=' << '"' << v.gsub('"', "\\\"") << '"' << '\n'
+        else
+          io << k << '=' << v << '\n'
+        end
+      end
+    end
+    File.write(ENV_FILE, content)
+    File.chmod(ENV_FILE, 0o600) # contient des secrets
   end
 
   # Liste les fichiers ~/.ssh/*.pub (chemins absolus).
