@@ -5,6 +5,7 @@ require "scaleway-api/scaleway_api"
 require "../inventory"
 require "../ssh"
 require "./credentials"
+require "./host_resolver"
 
 # Sous-commande `beryl rescue <host>` : bascule un hébergeur en mode
 # rescue via son API (OVH ou Scaleway), puis attend que SSH réponde sur
@@ -84,14 +85,18 @@ module Beryl::CLI::Rescue
   ) : Int32
     wait = true
     timeout = DEFAULT_SSH_WAIT_TIMEOUT
+    provider_hint : String? = nil
     positional = [] of String
 
     parser = OptionParser.new do |p|
       p.banner = "USAGE : beryl rescue <host> [options]\n\n" \
                  "Bascule un hôte en mode rescue via l'API de l'hébergeur\n" \
-                 "(OVH ou Scaleway) puis attend le retour de SSH sur le rescue."
-      p.on("--no-wait", "Ne pas attendre le retour SSH (retour immédiat après l'appel API)") { wait = false }
-      p.on("--timeout=MIN", "Délai d'attente maximum en minutes (défaut : #{DEFAULT_SSH_WAIT_TIMEOUT.total_minutes.to_i})") do |v|
+                 "(OVH ou Scaleway) puis attend le retour de SSH sur le rescue.\n" \
+                 "Accepte un nom d'inventaire OU un service_name/ID hébergeur nu\n" \
+                 "(ex: ns3156789.ip-51-83-6.eu, avec --provider pour lever l'ambiguïté)."
+      p.on("-p NAME", "--provider=NAME", "Provider (ovh|scaleway) pour un host hors inventaire") { |v| provider_hint = v }
+      p.on("-n", "--no-wait", "Ne pas attendre le retour SSH (retour immédiat après l'appel API)") { wait = false }
+      p.on("-t MIN", "--timeout=MIN", "Délai d'attente maximum en minutes (défaut : #{DEFAULT_SSH_WAIT_TIMEOUT.total_minutes.to_i})") do |v|
         timeout = v.to_i.minutes
       end
       p.on("-h", "--help", "Affiche cette aide") do
@@ -110,8 +115,7 @@ module Beryl::CLI::Rescue
       return EXIT_USAGE
     end
 
-    inventory = Beryl::Inventory.load(inventory_path)
-    host = inventory.find(host_name)
+    host = Beryl::CLI::HostResolver.resolve(inventory_path, host_name, provider_hint)
 
     # Garde-fou DNS : on teste le nom effectivement utilisé pour SSH
     # (= ssh_host : FQDN OVH pour un host OVH avec service_name,
@@ -196,19 +200,42 @@ module Beryl::CLI::Rescue
     service_name = host.ovh_service_name || raise MissingProviderConfig.new(
       "champ `ovh.service_name` manquant pour #{host.name} dans l'inventaire"
     )
-    ssh_key_name = host.ovh_ssh_key_name || raise MissingProviderConfig.new(
-      "champ `ovh.ssh_key_name` manquant pour #{host.name} dans l'inventaire " \
-      "(nom d'une clé déclarée dans /me/sshKey côté OVH)"
-    )
+
+    client = ovh_client_factory.call
+    ssh_key_name = host.ovh_ssh_key_name || auto_select_ovh_ssh_key(client, host)
 
     log "OVH : prepare_rescue pour #{service_name} (clé : #{ssh_key_name})"
-    client = ovh_client_factory.call
     task = client.dedicated_servers.prepare_rescue(
       service_name: service_name,
       ssh_key_name: ssh_key_name,
     )
     log "OVH : tâche ##{task.id} (#{task.function}) en #{task.status}"
     task
+  end
+
+  # Fallback quand le host n'a pas de `ovh.ssh_key_name` (cas d'un
+  # Host virtuel créé depuis un service_name nu) : on interroge
+  # l'API pour récupérer les clés du compte.
+  # 1 clé → on l'utilise. 2+ → on prend la première avec log (le cas
+  # déterministe, évite un prompt dans des commandes non interactives).
+  # 0 → erreur explicite.
+  private def self.auto_select_ovh_ssh_key(client : OvhApi::Client, host : Beryl::Host) : String
+    names = client.ssh_keys.list
+    case names.size
+    when 0
+      raise MissingProviderConfig.new(
+        "champ `ovh.ssh_key_name` manquant pour #{host.name} et aucune clé " \
+        "SSH dans le compte OVH. Créez-en une (panel → Compte → Mes clés SSH) " \
+        "ou déclarez-la dans un groupe zone de l'inventaire."
+      )
+    when 1
+      log "OVH : clé SSH auto-sélectionnée (seule du compte) : #{names.first}"
+      names.first
+    else
+      log "OVH : plusieurs clés SSH dans le compte (#{names.join(", ")}), utilisation de #{names.first}"
+      log "      pour choisir explicitement, ajoutez `ovh.ssh_key_name` dans un groupe de l'inventaire"
+      names.first
+    end
   end
 
   private def self.trigger_scaleway(host : Beryl::Host, scaleway_client_factory : ScalewayClientFactory) : ScalewayApi::Endpoints::Baremetal::Server

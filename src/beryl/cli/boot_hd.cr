@@ -3,6 +3,7 @@ require "ovh-api/ovh_api"
 require "../inventory"
 require "./credentials"
 require "./rescue"
+require "./host_resolver"
 
 # Sous-commande `beryl boot-hd <host>` : bascule un serveur OVH en
 # netboot `harddisk` via l'API et déclenche un reboot. Inverse de
@@ -41,15 +42,18 @@ module Beryl::CLI::BootHd
     wait = true
     user = "admin"
     timeout = DEFAULT_SSH_WAIT_TIMEOUT
+    provider_hint : String? = nil
     positional = [] of String
 
     parser = OptionParser.new do |p|
       p.banner = "USAGE : beryl boot-hd <host> [options]\n\n" \
                  "Bascule le netboot sur le disque via l'API OVH et déclenche un\n" \
-                 "reboot. Attend ensuite que l'OS installé réponde en SSH."
-      p.on("--no-wait", "Ne pas attendre le retour SSH") { wait = false }
-      p.on("--user=USER", "User pour le test SSH post-reboot (défaut : admin)") { |v| user = v }
-      p.on("--timeout=MIN", "Délai d'attente maximum en minutes (défaut : #{DEFAULT_SSH_WAIT_TIMEOUT.total_minutes.to_i})") do |v|
+                 "reboot. Attend ensuite que l'OS installé réponde en SSH.\n" \
+                 "Accepte un nom d'inventaire OU un service_name OVH nu."
+      p.on("-p NAME", "--provider=NAME", "Provider (ovh) pour un host hors inventaire") { |v| provider_hint = v }
+      p.on("-n", "--no-wait", "Ne pas attendre le retour SSH") { wait = false }
+      p.on("-u USER", "--user=USER", "User pour le test SSH post-reboot (défaut : admin)") { |v| user = v }
+      p.on("-t MIN", "--timeout=MIN", "Délai d'attente maximum en minutes (défaut : #{DEFAULT_SSH_WAIT_TIMEOUT.total_minutes.to_i})") do |v|
         timeout = v.to_i.minutes
       end
       p.on("-h", "--help", "Aide") do
@@ -68,8 +72,7 @@ module Beryl::CLI::BootHd
       return EXIT_USAGE
     end
 
-    inventory = Beryl::Inventory.load(inventory_path)
-    host = inventory.find(host_name)
+    host = Beryl::CLI::HostResolver.resolve(inventory_path, host_name, provider_hint)
 
     unless host.provider == "ovh"
       STDERR.puts "beryl : boot-hd n'est implémenté que pour provider `ovh` (hôte #{host.name} : #{host.provider || "inconnu"})."

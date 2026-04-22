@@ -3,6 +3,7 @@ require "../inventory"
 require "../ssh"
 require "./credentials"
 require "./dns_setup"
+require "./host_resolver"
 
 # Sous-commande `beryl scan <host>` : se connecte à un serveur en rescue
 # Linux, détecte les disques physiques, propose interactivement leur
@@ -114,12 +115,10 @@ module Beryl::CLI::Scan
       return EXIT_USAGE
     end
 
-    # Trois cas de résolution du host :
-    # 1. `host_name` est dans l'inventaire → on l'utilise tel quel
-    # 2. `host_name` ressemble à un service_name OVH (ns3...ip-x-y-z.eu) →
-    #    on crée un Host virtuel (provider: ovh) pour pouvoir continuer
-    # 3. sinon → erreur classique « hôte inconnu »
-    host = resolve_host_or_virtual(inventory_path, host_name)
+    # Résolution partagée (Beryl::CLI::HostResolver) : accepte un
+    # nom d'inventaire ou un service_name OVH nu, retourne toujours
+    # un Host exploitable.
+    host = Beryl::CLI::HostResolver.resolve(inventory_path, host_name)
     conn = host.connection
 
     # Si --dns : d'abord pose le nommage custom (records DNS, reverse,
@@ -455,46 +454,10 @@ module Beryl::CLI::Scan
     end
   end
 
-  # Résout le host depuis l'inventaire. S'il n'est pas connu et que le
-  # nom ressemble à un service_name OVH, on construit un Host virtuel
-  # en mémoire (provider: ovh, ovh.service_name: le nom). Permet de
-  # lancer `beryl scan ns3156789.ip-51-83-6.eu` sur un serveur qui
-  # n'a pas encore de DNS custom ni d'entrée dans l'inventaire.
-  def self.resolve_host_or_virtual(inventory_path : String, host_name : String) : Beryl::Host
-    # On essaie d'abord l'inventaire (peut être un dossier ou un fichier).
-    inv = begin
-      Beryl::Inventory.load(inventory_path)
-    rescue File::NotFoundError
-      nil
-    end
-    if inv
-      if existing = inv.find?(host_name)
-        return existing
-      end
-    end
-
-    # Non trouvé. Si ça ressemble à un service_name OVH (`nsXXXXXX.ip-Y-Y-Y.eu|com|net`)
-    # on crée un host virtuel pour permettre la suite du flow.
-    if looks_like_ovh_service_name?(host_name)
-      Beryl::Host.new(
-        name: host_name,
-        provider: "ovh",
-        provider_config: {
-          "service_name" => YAML::Any.new(host_name),
-        },
-      )
-    else
-      raise Beryl::Inventory::NotFound.new(
-        "hôte inconnu : #{host_name}. " \
-        "Si c'est un nouveau serveur OVH, passez son service_name complet " \
-        "(ex. ns3156789.ip-51-83-6.eu) pour que beryl le détecte."
-      )
-    end
-  end
-
-  # Heuristique : un service_name OVH ressemble à `nsXXXXX.ip-A-B-C.tld`.
+  # Délégué à Beryl::CLI::HostResolver pour rétrocompat (utilisé par
+  # des specs locaux). Source unique dans `host_resolver.cr`.
   def self.looks_like_ovh_service_name?(name : String) : Bool
-    !!(name =~ /^ns\d+\.ip-\d+-\d+-\d+\.[a-z]{2,}$/i)
+    Beryl::CLI::HostResolver.looks_like_ovh_service_name?(name)
   end
 
   # Pilote complet du flux --dns : récupère les infos OVH, prompt nom
