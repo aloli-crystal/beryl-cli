@@ -315,8 +315,26 @@ module Beryl::Config
       block[YAML::Any.new(field)]?.try(&.as_s?)
     end
 
+    # Service name OVH. Pour un host déclaré, lu dans `ovh.service_name`.
+    # Pour un host virtuel (serveur neuf, pas de fichier host) dont
+    # `provider: ovh` est explicitement résolu (via domaine ou override
+    # CLI) ET dont le short_name contient un point (FQDN hébergeur),
+    # on fallback sur `short_name` : le nom tapé sur la CLI EST le
+    # service_name côté OVH.
+    #
+    # Le test `includes?('.')` est une sanité, pas une heuristique
+    # silencieuse : un service_name OVH est toujours un FQDN avec
+    # points, donc on évite de confondre un nom logique court
+    # (`rails01`) avec un service_name. Pas de regex sur le format
+    # exact (pattern `nsXXX.ip-...`) — l'API OVH rendra une erreur
+    # claire si le format est mauvais.
     def ovh_service_name : String?
-      provider_field("ovh", "service_name")
+      explicit = provider_field("ovh", "service_name")
+      return explicit if explicit
+      if @virtual && provider == "ovh" && @short_name.includes?('.')
+        return @short_name
+      end
+      nil
     end
 
     def ovh_ssh_key_name : String?

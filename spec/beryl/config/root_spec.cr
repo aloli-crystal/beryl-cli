@@ -175,6 +175,33 @@ describe Beryl::Config::ResolvedHost do
     end
   end
 
+  describe "#ovh_service_name (fallback virtual host)" do
+    it "lit ovh.service_name explicite si présent (host déclaré)" do
+      rh = Beryl::Config::Root.load(fixture("provider-name-search")).resolve("loulou")
+      rh.ovh_service_name.should eq("ns3156789.ip-51-83-6.eu")
+    end
+
+    it "fallback sur short_name pour un virtual host OVH avec FQDN" do
+      # Cas : beryl rescue ns3156789.ip-51-83-6.eu --domain=aloli.net
+      # où aloli.net a `provider: ovh` et pas de fichier host. Le nom
+      # CLI EST le service_name côté OVH.
+      rh = Beryl::Config::Root.load(fixture("multi-provider-domain")).resolve(
+        "ns3156789.ip-51-83-6.eu", domain_hint: "aloli.net")
+      rh.virtual.should be_true
+      rh.ovh_service_name.should eq("ns3156789.ip-51-83-6.eu")
+    end
+
+    it "pas de fallback pour un virtual avec short_name sans point" do
+      # `rails99` est un nom logique court, pas un service_name OVH.
+      # On refuse de l'inférer pour éviter une API OVH qui échoue au
+      # loin avec un 404 sur un service_name inventé.
+      rh = Beryl::Config::Root.load(fixture("multi-provider-domain")).resolve(
+        "rails99", domain_hint: "aloli.net")
+      rh.virtual.should be_true
+      rh.ovh_service_name.should be_nil
+    end
+  end
+
   describe "#present_provider_blocks" do
     it "liste les blocs providers présents dans le merged (ovh + scaleway)" do
       rh = Beryl::Config::Root.load(fixture("multi-provider-domain")).resolve(
