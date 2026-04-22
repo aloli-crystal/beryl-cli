@@ -157,30 +157,53 @@ module Beryl::CLI::DnsSetup
     client.domains.refresh(zone)
   end
 
-  # Pose le reverse DNS. L'API OVH exige l'IP en forme « ipBlock » dans
-  # le path et l'IP précise dans le body (utile quand on a un bloc avec
-  # plusieurs IPs).
+  # Nombre max de tentatives et délai entre chaque quand OVH refuse le
+  # reverse parce que la résolution forward n'a pas encore propagé.
+  # 12 × 10s = 2 min, suffisant pour que les NS OVH prennent en compte
+  # un record A/AAAA fraîchement refresh.
+  REVERSE_MAX_ATTEMPTS = 12
+  REVERSE_RETRY_DELAY  = 10.seconds
+
+  # Pose le reverse DNS. L'API OVH vérifie AVANT d'accepter le reverse
+  # que le forward (FQDN → IP) résout déjà côté leurs résolveurs. Ce
+  # contrôle échoue typiquement juste après `domains.refresh` : la
+  # zone vient d'être mise à jour mais la propagation prend quelques
+  # dizaines de secondes.
+  #
+  # Symptôme constaté le 23 avril 2026 sur loulou :
+  #   HTTP 400 : "Cannot check if loulou.aloli.net. resolves to 51.83.6.208"
+  #
+  # Parade : retry avec backoff sur ce message précis. Les autres
+  # erreurs remontent immédiatement (pas de masquage silencieux).
   def self.set_reverse_if_needed(
     client : OvhApi::Client,
     ip : String,
     reverse : String,
     logger : Proc(String, Nil),
   ) : Nil
-    # Le format attendu : reverse doit finir par un point.
     target = reverse.ends_with?(".") ? reverse : "#{reverse}."
-
-    # On ne connaît pas le bloc exact (v4 = /32, v6 = /64). Dans l'API
-    # OVH, l'endpoint /ip/{ip}/reverse accepte soit l'IP nue (v4) soit
-    # le bloc (v6). Le shard ovh-api gère déjà cette subtilité.
-    client.ips.set_reverse(ip: ip, reverse: target, ip_reverse: ip)
-    logger.call("reverse DNS posé : #{ip} → #{target}")
-  rescue ex : OvhApi::Error
-    # Si le reverse est déjà posé à la bonne valeur, OVH peut lever une
-    # erreur « déjà à cette valeur ». On tolère.
-    if ex.message.to_s.downcase.includes?("already") || ex.message.to_s.downcase.includes?("existe")
-      logger.call("reverse DNS déjà en place pour #{ip}, rien à faire")
-    else
-      raise ex
+    label = "reverse #{ip} → #{target} (attente propagation DNS si besoin)"
+    Beryl.log_step("beryl scan", label) do
+      attempt = 1
+      loop do
+        begin
+          # On ne connaît pas le bloc exact (v4 = /32, v6 = /64). Le
+          # shard ovh-api gère l'endpoint /ip/{ip}/reverse.
+          client.ips.set_reverse(ip: ip, reverse: target, ip_reverse: ip)
+          break # succès
+        rescue ex : OvhApi::Error
+          msg = ex.message.to_s.downcase
+          # Reverse déjà posé à la bonne valeur côté OVH : idempotent.
+          break if msg.includes?("already") || msg.includes?("existe")
+          # Forward pas encore propagé : on retry.
+          if msg.includes?("cannot check if") && attempt < REVERSE_MAX_ATTEMPTS
+            sleep REVERSE_RETRY_DELAY
+            attempt += 1
+            next
+          end
+          raise ex
+        end
+      end
     end
   end
 
