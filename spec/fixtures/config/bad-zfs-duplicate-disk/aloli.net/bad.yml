@@ -1,0 +1,11 @@
+freebsd:
+  hostname: bad
+  zfs:
+    zroot:
+      boot: true
+      raid: 0
+      disks: [/dev/sda]
+    zdata:
+      raid: 0
+      disks: [/dev/sda]         # ← même disque que zroot
+      mountpoint: /data

@@ -311,11 +311,12 @@ module Beryl::CLI::Scan
       end
       io << "\nfreebsd:\n"
       io << "  hostname: " << short << '\n'
-      io << "  zpool:\n"
-      io << "    raid: " << raid
-      io << "  # 0=stripe 1=mirror 5=raidz 6=raidz2 7=raidz3 10=mirror_stripe\n"
-      io << "    disks:\n"
-      disks.each { |d| io << "      - " << d.dev_path << "  # " << d.human_size << " " << d.kind << " " << d.model << '\n' }
+      io << "  zfs:\n"
+      io << "    zroot:              # nom du pool côté ZFS (`zpool list`)\n"
+      io << "      boot: true        # c'est le pool système (exactement un)\n"
+      io << "      raid: " << raid << "             # 0=stripe 1=mirror 5=raidz 6=raidz2 7=raidz3 10=mirror_stripe\n"
+      io << "      disks:\n"
+      disks.each { |d| io << "        - " << d.dev_path << "  # " << d.human_size << " " << d.kind << " " << d.model << '\n' }
     end
   end
 

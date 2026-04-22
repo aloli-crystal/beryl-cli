@@ -361,27 +361,113 @@ module Beryl::Config
       (val.as_a? || [] of YAML::Any).compact_map(&.as_s?)
     end
 
-    # Hash `freebsd.zpool.*` ou vide si absent.
+    # Hash `freebsd.zpool.*` — syntaxe single-pool historique (RAID
+    # numérique + disks à la racine du zpool). Conservée pour lire
+    # une éventuelle config simple.
     def freebsd_zpool_hash : Hash(YAML::Any, YAML::Any)
       freebsd_hash[YAML::Any.new("zpool")]?.try(&.as_h?) || {} of YAML::Any => YAML::Any
     end
 
-    # Niveau RAID numérique (0, 1, 5, 6, 7, 10). Défaut : 0 (stripe).
-    def zpool_raid : Int32
-      freebsd_zpool_hash[YAML::Any.new("raid")]?.try(&.as_i?) || 0
+    # Hash `freebsd.zfs.*` — syntaxe multi-pool : chaque clé enfant
+    # est le nom d'un pool ZFS, avec son propre `raid`, `disks`,
+    # éventuel `boot: true` / `mountpoint`.
+    def freebsd_zfs_hash : Hash(YAML::Any, YAML::Any)
+      freebsd_hash[YAML::Any.new("zfs")]?.try(&.as_h?) || {} of YAML::Any => YAML::Any
     end
 
-    # Mode ZFS correspondant (`stripe`, `mirror`, `raidz`, `raidz2`,
-    # `raidz3`, `mirror_stripe`). Lève sur niveau inconnu.
-    def zpool_zfs_mode : String
-      Beryl::Config::Zpool.zfs_mode(zpool_raid)
+    # Liste tous les pools ZFS déclarés, en supportant les deux
+    # syntaxes :
+    # - `freebsd.zfs.<nom>.{raid, disks, boot, mountpoint}` (preferred)
+    # - `freebsd.zpool.{raid, disks}` (single-pool legacy, interprété
+    #   comme un pool unique nommé « zroot » avec boot: true)
+    def zpools : Array(Beryl::Config::Pool)
+      zfs = freebsd_zfs_hash
+      if zfs.empty?
+        # Legacy : un seul zpool implicite
+        zp = freebsd_zpool_hash
+        return [] of Beryl::Config::Pool if zp.empty?
+        return [Beryl::Config::Pool.new(
+          name: "zroot",
+          boot: true,
+          raid: (zp[YAML::Any.new("raid")]?.try(&.as_i?) || 0),
+          disks: (zp[YAML::Any.new("disks")]?.try(&.as_a?).try(&.compact_map(&.as_s?)) || [] of String),
+        )]
+      end
+      zfs.map do |name_any, value_any|
+        name = name_any.as_s
+        h = value_any.as_h? || {} of YAML::Any => YAML::Any
+        Beryl::Config::Pool.new(
+          name: name,
+          boot: h[YAML::Any.new("boot")]?.try(&.as_bool?) || false,
+          raid: (h[YAML::Any.new("raid")]?.try(&.as_i?) || 0),
+          disks: (h[YAML::Any.new("disks")]?.try(&.as_a?).try(&.compact_map(&.as_s?)) || [] of String),
+          mountpoint: h[YAML::Any.new("mountpoint")]?.try(&.as_s?),
+        )
+      end
     end
 
-    # Valide la compatibilité raid/disks (nombre minimum, parité pour
-    # le RAID 10). Lève une exception explicite si incompatible.
-    def validate_zpool! : Nil
-      Beryl::Config::Zpool.validate!(zpool_raid, freebsd_string_array("disks").size)
+    # Pool de boot (exactement un obligatoirement pour un bootstrap
+    # valide). Lève `NoBootPool` si aucun, `MultipleBootPools` si
+    # plusieurs. Accessible seulement après `validate_zfs!`.
+    def boot_zpool : Beryl::Config::Pool
+      boots = zpools.select(&.boot)
+      raise NoBootPool.new("aucun pool `boot: true` pour #{fqdn}") if boots.empty?
+      raise MultipleBootPools.new("plusieurs pools `boot: true` pour #{fqdn}") if boots.size > 1
+      boots.first
     end
+
+    # Pools data (tous les pools sauf celui de boot). Créés après
+    # l'install FreeBSD via `zpool create`.
+    def data_zpools : Array(Beryl::Config::Pool)
+      zpools.reject(&.boot)
+    end
+
+    # Tous les disques déclarés dans tous les pools, à plat.
+    def all_declared_disks : Array(String)
+      zpools.flat_map(&.disks)
+    end
+
+    # Valide l'ensemble `freebsd.zfs.*` :
+    #   - au moins un pool, exactement un avec `boot: true`
+    #   - chaque pool a un raid+disks compatibles (MIN_DISKS, parité)
+    #   - aucun disque n'est déclaré dans plusieurs pools
+    #   - les pools data ont un mountpoint
+    def validate_zfs! : Nil
+      pools = zpools
+      raise NoZFSPool.new("aucun pool ZFS déclaré pour #{fqdn} (freebsd.zfs.<nom> ou freebsd.zpool)") if pools.empty?
+
+      # Exactement un boot
+      boots = pools.select(&.boot)
+      raise NoBootPool.new("aucun pool `boot: true` pour #{fqdn}") if boots.empty?
+      raise MultipleBootPools.new("plusieurs pools `boot: true` pour #{fqdn} : #{boots.map(&.name).join(", ")}") if boots.size > 1
+
+      # Chaque pool : raid/disks valides
+      pools.each(&.validate!)
+
+      # Pas de disque partagé
+      seen = Set(String).new
+      pools.each do |pool|
+        pool.disks.each do |d|
+          raise DuplicatedDisk.new("le disque #{d} est déclaré dans plusieurs pools") if seen.includes?(d)
+          seen << d
+        end
+      end
+
+      # Les pools data doivent avoir un mountpoint
+      data_zpools.each do |p|
+        raise MissingMountpoint.new("pool data `#{p.name}` sans mountpoint (ajoutez `mountpoint: /xxx`)") if p.mountpoint.nil?
+      end
+    end
+
+    class NoZFSPool < Exception; end
+
+    class NoBootPool < Exception; end
+
+    class MultipleBootPools < Exception; end
+
+    class DuplicatedDisk < Exception; end
+
+    class MissingMountpoint < Exception; end
 
     # Construit une `SSH::Connection` prête à l'emploi vers cet host
     # avec `ssh_host` comme cible.

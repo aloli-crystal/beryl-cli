@@ -1,0 +1,11 @@
+freebsd:
+  hostname: backup01
+  zfs:
+    zroot:
+      boot: true
+      raid: 0
+      disks: [/dev/sda]
+    zdata:
+      raid: 10
+      disks: [/dev/sdb, /dev/sdc, /dev/sdd, /dev/sde]
+      mountpoint: /data

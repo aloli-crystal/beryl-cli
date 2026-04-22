@@ -2,6 +2,7 @@ require "option_parser"
 require "../config"
 require "../bootstrap"
 require "./credentials"
+require "./precheck"
 
 # Sous-commande `beryl bootstrap <host>` : installe FreeBSD 15 sur un
 # hôte actuellement en rescue Linux (voie mfsBSD-in-QEMU, ADR-012/013).
@@ -22,12 +23,14 @@ module Beryl::CLI::Bootstrap
     iso_url_override : String? = nil
     freebsd_version = "15.0"
     dry_run = false
+    force = false
     positional = [] of String
 
     parser = OptionParser.new do |p|
       p.banner = "USAGE : beryl bootstrap <host> [options]"
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
       p.on("-n", "--dry-run", "Affiche le plan d'install sans lancer QEMU/bsdinstall") { dry_run = true }
+      p.on("-f", "--force", "Bypass le précheck (disques déclarés != physiques)") { force = true }
       p.on("-i URL", "--iso-url=URL", "URL mfsBSD (override)") { |v| iso_url_override = v }
       p.on("-v VER", "--freebsd-version=VER", "Version FreeBSD (défaut : 15.0)") { |v| freebsd_version = v }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
@@ -45,35 +48,47 @@ module Beryl::CLI::Bootstrap
     host = root.resolve(host_name, domain_hint: domain_hint)
     root.env_file.apply_to_env(host.domain_name)
 
-    # Lecture des valeurs depuis la config mergée
-    disks = host.freebsd_string_array("disks")
-    if disks.empty?
-      STDERR.puts "beryl : aucun disque dans freebsd.disks pour #{host.fqdn}"
-      STDERR.puts "        (déclarez `freebsd.disks: [/dev/sda]` dans le fichier host)"
-      return EXIT_USAGE
+    # Construction de la connexion SSH rescue (utilisée par le
+    # précheck ET le bootstrap).
+    rescue_conn = Beryl::SSH::Connection.new(
+      host: host.ssh_host,
+      user: host.user,
+      port: host.port,
+      identity_file: host.identity_file,
+      options: {
+        "StrictHostKeyChecking" => "no",
+        "UserKnownHostsFile"    => "/dev/null",
+        "LogLevel"              => "ERROR",
+      },
+    )
+
+    # Précheck : validation config ZFS + comparaison disques déclarés
+    # vs disques physiques côté rescue.
+    precheck = Beryl::CLI::Precheck.run(host, rescue_conn)
+    Beryl::CLI::Precheck.report(host, precheck)
+    unless precheck.ok
+      if force
+        STDERR.puts "[beryl bootstrap] --force : précheck ignoré. PROCÉDEZ AVEC PRUDENCE."
+      else
+        STDERR.puts
+        STDERR.puts "beryl : précheck échoué. Corrigez la config ou utilisez --force."
+        return EXIT_USAGE
+      end
     end
 
-    # Valide raid/disks et traduit le niveau numérique en mode ZFS
-    # (0 → stripe, 1 → mirror, 5 → raidz, etc.).
-    begin
-      host.validate_zpool!
-    rescue ex : Beryl::Config::Zpool::InvalidDiskCount
-      STDERR.puts "beryl : #{ex.message}"
-      return EXIT_USAGE
-    rescue ex : Beryl::Config::Zpool::UnknownRaidLevel
-      STDERR.puts "beryl : #{ex.message}"
-      return EXIT_USAGE
-    end
-
-    raid_level = host.zpool_raid
-    raid = host.zpool_zfs_mode
+    # Infos dérivées du pool boot (single-pool pour le bootstrap ;
+    # les pools data sont créés en post-install — voir TODO plus bas).
+    boot_pool = host.boot_zpool
+    disks = boot_pool.disks
+    raid_level = boot_pool.raid
+    raid = boot_pool.zfs_mode
     if raid == "mirror_stripe"
-      STDERR.puts "beryl : RAID 10 (stripe de mirrors) pas encore câblé côté bootstrap."
-      STDERR.puts "        Utilisez RAID 0, 1, 5, 6 ou 7 en attendant."
+      STDERR.puts "beryl : RAID 10 pas encore câblé côté bsdinstall (pool boot)."
+      STDERR.puts "        Utilisez RAID 0, 1, 5, 6 ou 7 pour le pool boot."
       return EXIT_USAGE
     end
+    pool_name = boot_pool.name
     timezone = host.freebsd_string("timezone") || "Europe/Paris"
-    pool_name = host.freebsd_string("pool_name") || "zroot"
     swap_gb = host.freebsd_int("swap_gb") || 4
     install_type = host.freebsd_string("install_type") || "distribution_sets"
     hostname = host.freebsd_string("hostname") || host.short_name
@@ -117,18 +132,6 @@ module Beryl::CLI::Bootstrap
     end
 
     Beryl.clean_known_hosts_for(host)
-
-    rescue_conn = Beryl::SSH::Connection.new(
-      host: host.ssh_host,
-      user: host.user,
-      port: host.port,
-      identity_file: host.identity_file,
-      options: {
-        "StrictHostKeyChecking" => "no",
-        "UserKnownHostsFile"    => "/dev/null",
-        "LogLevel"              => "ERROR",
-      },
-    )
 
     ovh_client = nil
     if host.provider == "ovh" && host.ovh_service_name

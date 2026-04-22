@@ -84,4 +84,28 @@ module Beryl::Config
     class InvalidDiskCount < Exception
     end
   end
+
+  # Représente un pool ZFS tel que déclaré dans `freebsd.zfs.<nom>`.
+  # Le nom du pool = la clé YAML (pas de champ `name:` redondant).
+  # Un seul pool porte `boot: true` : c'est celui qu'installera
+  # bsdinstall. Les autres sont créés après l'install via
+  # `zpool create <nom> <raid> <disks>`.
+  struct Pool
+    getter name : String         # clé YAML = nom ZFS
+    getter boot : Bool           # true = pool système
+    getter raid : Int32          # 0|1|5|6|7|10
+    getter disks : Array(String) # /dev/sdX
+    getter mountpoint : String?  # /data, /backup…
+
+    def initialize(@name, @boot, @raid, @disks, @mountpoint = nil)
+    end
+
+    def zfs_mode : String
+      Zpool.zfs_mode(@raid)
+    end
+
+    def validate! : Nil
+      Zpool.validate!(@raid, @disks.size)
+    end
+  end
 end

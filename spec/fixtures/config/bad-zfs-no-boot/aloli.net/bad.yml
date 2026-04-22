@@ -1,0 +1,8 @@
+freebsd:
+  hostname: bad
+  zfs:
+    zdata:
+      raid: 0
+      disks: [/dev/sda]
+      mountpoint: /data
+    # Aucun pool avec boot: true → validate_zfs! doit lever

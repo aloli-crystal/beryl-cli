@@ -358,6 +358,17 @@ module Beryl::CLI::Init
     # `<domaine>.yml`, puis éventuellement `<groupe>.yml`, puis le
     # fichier du host. Le niveau le plus spécifique gagne.
     #
+    # Ce fichier ne déclare PAS de pool ZFS : les pools (disques +
+    # RAID + mountpoint) sont spécifiques à chaque host, sous
+    # `freebsd.zfs.<nom>:` dans le fichier host. Exemple minimal :
+    #
+    #   freebsd:
+    #     zfs:
+    #       zroot:
+    #         boot: true     # exactement un pool avec boot: true
+    #         raid: 0        # 0=stripe 1=mirror 5=raidz 6=raidz2 7=raidz3 10=mirror_stripe
+    #         disks: [/dev/sda]
+    #
     # Les clés SSH ne sont PAS ici : elles sont déclarées dans chaque
     # `<domaine>.yml` via le champ `ssh_keys:` et injectées
     # automatiquement dans chaque user par le merge (la clé domaine
@@ -369,34 +380,10 @@ module Beryl::CLI::Init
       # Exemples : Europe/Paris, Europe/London, America/New_York, UTC.
       timezone: Europe/Paris
 
-      # Nom du pool ZFS racine. Convention FreeBSD bsdinstall = `zroot`.
-      # À ne changer que pour convention maison : tous les datasets
-      # (`zroot/ROOT/default`, `zroot/home`, etc.) héritent de ce nom.
-      pool_name: zroot
-
       # Taille du swap en gigaoctets. Partition `gpt/swap0` créée par
-      # bsdinstall sur le premier disque, activée via /etc/fstab.
-      # Valeurs usuelles : 2 à 16. Avec > 8 Go de RAM, un swap plus
-      # petit suffit.
+      # bsdinstall sur le premier disque du pool boot, activée via
+      # /etc/fstab. Valeurs usuelles : 2 à 16.
       swap_gb: 4
-
-      # Mode ZFS du pool racine (ZFSBOOT_VDEV_TYPE). Appliqué à TOUS
-      # les disques déclarés dans `freebsd.disks` du host (un seul
-      # vdev pour l'instant — pour des vdevs séparés, il faudra une
-      # syntaxe `raid_groups` à venir).
-      #
-      #   stripe  : RAID 0 — pas de redondance, capacité = Σ(disques).
-      #             Défaut Aloli : backups bétonnés > redondance disque.
-      #             Minimum 1 disque.
-      #   mirror  : RAID 1 — chaque donnée sur 2+ disques.
-      #             Minimum 2 disques (typique : 2).
-      #   raidz   : 1 disque de parité (tolère 1 panne).
-      #             Minimum 3 disques, 3 à 5 typiques.
-      #   raidz2  : 2 disques de parité (tolère 2 pannes).
-      #             Minimum 4 disques, 6 à 8 typiques.
-      #   raidz3  : 3 disques de parité (tolère 3 pannes).
-      #             Minimum 5 disques, 8+ typiques.
-      raid: stripe
 
       # Chemin d'installation FreeBSD :
       #   distribution_sets : tarballs base.txz + kernel.txz (stable,
