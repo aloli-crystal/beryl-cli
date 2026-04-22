@@ -237,6 +237,44 @@ module Beryl::CLI::Init
     end
   end
 
+  # Si les credentials du provider sont dans le shell mais pas (encore)
+  # dans ~/.beryl/.env, propose à l'opérateur de les sauvegarder. Sans
+  # ça, un `unset` ou un redémarrage de shell les perd, alors que
+  # l'utilisateur croit avoir une config persistante.
+  #
+  # Convention : on ne sauve QUE les valeurs absentes du fichier. Les
+  # variables déjà présentes dans le fichier ne sont jamais écrasées
+  # par cette fonction (le shell peut avoir une valeur temporaire /
+  # différente qu'on ne veut pas rendre permanente silencieusement).
+  private def self.offer_to_persist_shell_credentials(
+    provider : Beryl::Provider,
+    non_interactive : Bool,
+  ) : Nil
+    return if non_interactive
+    file_env = parse_env_file_safe(ENV_FILE)
+    shell_only = provider.credentials_env_vars.select do |var|
+      env_val = ENV[var.name]?
+      env_val && !env_val.empty? && !file_env.has_key?(var.name)
+    end
+    return if shell_only.empty?
+
+    STDERR.puts
+    STDERR.puts "[beryl init] Les credentials #{provider.display_name} viennent du shell, pas du fichier."
+    STDERR.puts "            Variables qui seraient perdues au prochain shell :"
+    shell_only.each { |v| STDERR.puts "              #{v.name}" }
+    answer = ask("Les sauvegarder dans #{ENV_FILE} ? [O/n] : ", "O")
+    return unless answer.downcase.starts_with?("o") || answer.downcase.starts_with?("y")
+
+    values = {} of String => String
+    shell_only.each do |var|
+      if val = ENV[var.name]?
+        values[var.name] = val unless val.empty?
+      end
+    end
+    write_env_file(values)
+    STDERR.puts "[beryl init] Credentials #{provider.display_name} sauvegardés dans #{ENV_FILE}."
+  end
+
   # Statut d'un provider pour affichage dans la liste. Précise la
   # source des credentials quand ils sont dispos, pour que Philippe
   # puisse diagnostiquer un « je croyais avoir tout effacé et pourtant
@@ -275,11 +313,19 @@ module Beryl::CLI::Init
   # S'assure que les credentials du provider sont dispos. Si non et
   # mode interactif, propose de les configurer. Retourne le provider
   # si tout est bon, nil si l'utilisateur annule.
+  #
+  # Bonus : si les credentials sont dispos mais uniquement dans le
+  # shell (pas dans ~/.beryl/.env), propose de les persister. Sinon
+  # ils disparaîtraient au prochain redémarrage du shell ou après un
+  # `unset`, et l'opérateur serait piégé.
   private def self.ensure_provider_configured(
     provider : Beryl::Provider,
     non_interactive : Bool,
   ) : Beryl::Provider?
-    return provider if provider.available?
+    if provider.available?
+      offer_to_persist_shell_credentials(provider, non_interactive)
+      return provider
+    end
 
     if non_interactive
       STDERR.puts "beryl : provider #{provider.name} demandé mais credentials absents."
