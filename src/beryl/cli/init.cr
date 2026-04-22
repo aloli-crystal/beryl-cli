@@ -174,10 +174,19 @@ module Beryl::CLI::Init
     nil
   end
 
-  # Sélectionne l'hébergeur à utiliser parmi ceux enregistrés dans
-  # `Beryl::Providers` dont les credentials sont dispos. 0 → erreur
-  # explicite (rien configuré), 1 → auto, 2+ → prompt. `--provider=NAME`
-  # court-circuite la détection.
+  # Sélectionne l'hébergeur à utiliser. Règles :
+  #
+  # - `flag` (argument positionnel ou --provider=) → utilise ce
+  #   provider. Si ses credentials ne sont pas dans l'env, propose la
+  #   configuration interactive.
+  # - Sans flag : affiche la liste des providers IMPLÉMENTÉS dans
+  #   beryl avec marqueur « [configuré] » ou « [à configurer] ».
+  #   1 provider → auto (configure si besoin). 2+ → prompt.
+  #
+  # Feedback Philippe 22 avril 2026 : « beryl init tout court peut
+  # aussi proposer une liste de providers déjà implémentés dans beryl »
+  # → on liste systématiquement, pas seulement quand rien n'est
+  # configuré.
   def self.resolve_provider(flag : String?, non_interactive : Bool) : Beryl::Provider?
     if flag
       p = Beryl::Providers.find(flag)
@@ -185,38 +194,78 @@ module Beryl::CLI::Init
         STDERR.puts "beryl : provider inconnu : #{flag}. Disponibles : #{Beryl::Providers.all.map(&.name).join(", ")}"
         return nil
       end
-      unless p.available?
-        STDERR.puts "beryl : provider #{flag} demandé mais ses credentials ne sont pas dans l'environnement."
-        return nil
-      end
-      STDERR.puts "[beryl init] Hébergeur : #{p.display_name} (depuis --provider)"
-      return p
+      STDERR.puts "[beryl init] Hébergeur choisi : #{p.display_name} (#{p.name})"
+      return ensure_provider_configured(p, non_interactive)
     end
 
-    available = Beryl::Providers.available
-    case available.size
+    implemented = Beryl::Providers.all
+    case implemented.size
     when 0
-      # Aucun provider configuré : on propose la configuration
-      # interactive plutôt que de quitter sèchement. L'utilisateur
-      # choisit un provider, colle ses credentials, on écrit
-      # ~/.beryl/.env, on recharge l'env, et on continue le flow
-      # normal.
-      handle_no_providers(non_interactive)
+      STDERR.puts "beryl : aucun provider n'est enregistré dans ce build."
+      nil
     when 1
-      p = available.first
-      STDERR.puts "[beryl init] Hébergeur détecté : #{p.display_name}"
-      p
+      # Un seul provider implémenté : on l'utilise. Config interactive
+      # si ses credentials manquent.
+      p = implemented.first
+      STDERR.puts "[beryl init] Hébergeur (seul implémenté) : #{p.display_name}"
+      ensure_provider_configured(p, non_interactive)
     else
+      # Plusieurs providers implémentés : on liste TOUJOURS pour que
+      # Philippe voie ce que beryl sait faire. Le marqueur indique
+      # ce qui est prêt à l'emploi vs ce qui nécessiterait une config.
       if non_interactive
-        raise "plusieurs hébergeurs disponibles (#{available.map(&.name).join(", ")}), passez --provider=NAME"
+        avail = implemented.select(&.available?)
+        raise "--non-interactive : passez --provider=NAME (options : #{implemented.map(&.name).join(", ")})" if avail.size != 1
+        return avail.first
       end
-      STDERR.puts "[beryl init] Hébergeurs disponibles :"
-      available.each_with_index { |p, i| STDERR.puts "  #{i + 1}. #{p.display_name} (#{p.name})" }
-      answer = ask("Lequel utiliser ? [1] : ", "1")
-      idx = answer.to_i? || 1
-      idx = 1 if idx < 1 || idx > available.size
-      available[idx - 1]
+
+      STDERR.puts "[beryl init] Hébergeurs supportés par beryl :"
+      implemented.each_with_index do |p, i|
+        status = p.available? ? "[configuré]" : "[à configurer]"
+        STDERR.puts "  #{i + 1}. #{p.display_name.ljust(30)} (#{p.name.ljust(10)}) #{status}"
+      end
+
+      # Défaut : le premier « [configuré] », sinon 1.
+      default_idx = (implemented.index(&.available?) || 0) + 1
+      answer = ask("Lequel utiliser ? [#{default_idx}] : ", default_idx.to_s)
+      idx = answer.to_i? || default_idx
+      idx = default_idx if idx < 1 || idx > implemented.size
+      chosen = implemented[idx - 1]
+      ensure_provider_configured(chosen, non_interactive)
     end
+  end
+
+  # S'assure que les credentials du provider sont dispos. Si non et
+  # mode interactif, propose de les configurer. Retourne le provider
+  # si tout est bon, nil si l'utilisateur annule.
+  private def self.ensure_provider_configured(
+    provider : Beryl::Provider,
+    non_interactive : Bool,
+  ) : Beryl::Provider?
+    return provider if provider.available?
+
+    if non_interactive
+      STDERR.puts "beryl : provider #{provider.name} demandé mais credentials absents."
+      STDERR.puts "        Exportez : #{provider.credentials_env_vars.reject(&.optional).map(&.name).join(", ")}"
+      return nil
+    end
+
+    STDERR.puts "[beryl init] #{provider.display_name} : credentials non configurés."
+    answer = ask("Les configurer maintenant ? [O/n] : ", "O")
+    unless answer.downcase.starts_with?("o") || answer.downcase.starts_with?("y")
+      return nil
+    end
+
+    configure_provider_credentials(provider)
+    LoadEnv.load(ENV_FILE, overwrite: true)
+
+    unless provider.available?
+      STDERR.puts "beryl : credentials posés mais #{provider.display_name} se déclare toujours"
+      STDERR.puts "        indisponible. Vérifiez #{ENV_FILE}."
+      return nil
+    end
+    STDERR.puts "[beryl init] Provider #{provider.display_name} configuré."
+    provider
   end
 
   # Trouve la correspondance (clé provider ↔ fichier .pub local) sans
@@ -302,60 +351,6 @@ module Beryl::CLI::Init
 
   # Chemin fixe du fichier .env où on stocke les credentials providers.
   ENV_FILE = File.expand_path("~/.beryl/.env", home: true)
-
-  # Propose la configuration interactive d'un provider quand aucun
-  # n'est dispo dans l'environnement. Retourne le provider configuré,
-  # ou nil si l'utilisateur refuse / si --non-interactive.
-  def self.handle_no_providers(non_interactive : Bool) : Beryl::Provider?
-    STDERR.puts
-    STDERR.puts "[beryl init] Aucun hébergeur configuré dans l'environnement."
-    STDERR.puts "            Credentials cherchés dans ~/.beryl/.env et dans le shell."
-    STDERR.puts
-    STDERR.puts "Hébergeurs supportés par beryl :"
-    Beryl::Providers.all.each_with_index do |p, i|
-      STDERR.puts "  #{i + 1}. #{p.display_name} (#{p.name})"
-    end
-
-    if non_interactive
-      STDERR.puts
-      STDERR.puts "En mode --non-interactive : exportez les variables d'env"
-      STDERR.puts "de l'un des providers, puis relancez `beryl init`."
-      return nil
-    end
-
-    STDERR.puts
-    answer = ask("Configurer un hébergeur maintenant ? [O/n] : ", "O")
-    unless answer.downcase.starts_with?("o") || answer.downcase.starts_with?("y")
-      return nil
-    end
-
-    # Choix du provider à configurer.
-    providers = Beryl::Providers.all
-    chosen = if providers.size == 1
-               providers.first
-             else
-               ch = ask("Lequel ? [1] : ", "1")
-               idx = ch.to_i? || 1
-               idx = 1 if idx < 1 || idx > providers.size
-               providers[idx - 1]
-             end
-
-    # Collecte des variables via prompt.
-    configure_provider_credentials(chosen)
-
-    # Recharge ~/.beryl/.env pour que les providers détectent les
-    # credentials qu'on vient d'écrire.
-    LoadEnv.load(ENV_FILE, overwrite: true)
-
-    if chosen.available?
-      STDERR.puts "[beryl init] Provider #{chosen.display_name} configuré."
-      chosen
-    else
-      STDERR.puts "beryl : credentials posés mais #{chosen.display_name} se déclare toujours"
-      STDERR.puts "        indisponible. Vérifiez ~/.beryl/.env."
-      nil
-    end
-  end
 
   # Prompt chaque variable du provider, écrit dans ~/.beryl/.env en
   # préservant les lignes existantes (merge + dedup par nom de var).
