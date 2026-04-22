@@ -501,39 +501,11 @@ module Beryl::Bootstrap
       Beryl.format_timestamp(Time.local)
     end
 
+    # Wrapper vers `Beryl.log_step` avec le préfixe figé pour ce module.
+    # Garde les call sites compacts (pas de prefix à répéter) tout en
+    # partageant la mécanique de compteur `[NNNs]` avec rescue/boot-hd.
     private def log_step(label : String, & : -> T) : T forall T
-      line = "[#{self.class.timestamp}] [beryl bootstrap mfsbsd] #{label}"
-      pad = Beryl.pad_to(line)
-      STDERR.print "#{line}#{pad}  [   0s]"
-      STDERR.flush
-      start = Time.instant
-      done = Channel(Nil).new
-      spawn do
-        loop do
-          select
-          when done.receive?
-            break
-          when timeout(1.second)
-            elapsed = (Time.instant - start).total_seconds.to_i
-            STDERR.printf("\r%s%s  [%4ds]", line, pad, elapsed)
-            STDERR.flush
-          end
-        end
-      end
-      success = false
-      begin
-        result = yield
-        success = true
-        elapsed = (Time.instant - start).total_seconds.to_i
-        STDERR.printf("\r%s%s  [%4ds]\n", line, pad, elapsed)
-        result
-      ensure
-        done.send(nil)
-        unless success
-          elapsed = (Time.instant - start).total_seconds.to_i
-          STDERR.printf("\r%s%s  [%4ds] ✗\n", line, pad, elapsed)
-        end
-      end
+      Beryl.log_step("beryl bootstrap mfsbsd", label) { yield }
     end
 
     private def log(message : String) : Nil

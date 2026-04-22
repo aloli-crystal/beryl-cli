@@ -76,4 +76,58 @@ module Beryl
       host.fqdn
     end
   end
+
+  # Affiche une ligne de log avec un compteur `[NNNs]` en fin de ligne,
+  # rafraîchi chaque seconde par un fiber pour montrer que le process
+  # est vivant pendant une opération longue. La ligne est tenue en
+  # place (retour chariot `\r`) jusqu'à ce que le bloc retourne, puis
+  # saute à la ligne suivante avec le temps final figé.
+  #
+  # Sur exception, on affiche `✗` + le temps final avant de laisser
+  # l'exception remonter. Le fiber est toujours libéré (`ensure`).
+  #
+  # Utilisé par toutes les sous-commandes pour unifier la progression
+  # visuelle :
+  #   - `beryl rescue` : polling task OVH + attente SSH
+  #   - `beryl boot-hd` : idem
+  #   - `beryl bootstrap` : étapes 1-6 du flux mfsBSD-in-QEMU
+  #
+  # Exemple :
+  #   Beryl.log_step("beryl rescue", "OVH : tâche #12345 en doing") do
+  #     # ... long polling ...
+  #   end
+  def self.log_step(prefix : String, label : String, & : -> T) : T forall T
+    line = "[#{format_timestamp(Time.local)}] [#{prefix}] #{label}"
+    pad = pad_to(line)
+    STDERR.print "#{line}#{pad}  [   0s]"
+    STDERR.flush
+    start = Time.instant
+    done = Channel(Nil).new
+    spawn do
+      loop do
+        select
+        when done.receive?
+          break
+        when timeout(1.second)
+          elapsed = (Time.instant - start).total_seconds.to_i
+          STDERR.printf("\r%s%s  [%4ds]", line, pad, elapsed)
+          STDERR.flush
+        end
+      end
+    end
+    success = false
+    begin
+      result = yield
+      success = true
+      elapsed = (Time.instant - start).total_seconds.to_i
+      STDERR.printf("\r%s%s  [%4ds]\n", line, pad, elapsed)
+      result
+    ensure
+      done.send(nil)
+      unless success
+        elapsed = (Time.instant - start).total_seconds.to_i
+        STDERR.printf("\r%s%s  [%4ds] ✗\n", line, pad, elapsed)
+      end
+    end
+  end
 end

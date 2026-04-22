@@ -92,7 +92,6 @@ module Beryl::CLI::BootHd
     client = ovh_client_factory.call
     log "OVH : boot_from_disk pour #{service_name}"
     task = client.dedicated_servers.boot_from_disk(service_name)
-    log "OVH : tâche ##{task.id} (#{task.function}) en #{task.status}"
 
     if wait
       # Poll la task jusqu'à son état terminal avant de tester SSH.
@@ -100,9 +99,11 @@ module Beryl::CLI::BootHd
       # l'OS installé qu'on voulait démarrer.
       wait_ovh_task_done(service_name, task, client)
       target = Beryl.format_ssh_target(host)
-      log "attente SSH sur #{target} (port #{host.port}, user #{user}, timeout #{timeout.total_minutes.to_i} min)"
-      if wait_for_ssh.call(host.ssh_host, host.port, user, timeout, 15.seconds)
-        log "SSH répond sur #{target} en #{user}"
+      ssh_ok = Beryl.log_step(
+        "beryl boot-hd",
+        "attente SSH sur #{target} (port #{host.port}, user #{user}, timeout #{timeout.total_minutes.to_i} min)",
+      ) { wait_for_ssh.call(host.ssh_host, host.port, user, timeout, 15.seconds) }
+      if ssh_ok
         EXIT_OK
       else
         STDERR.puts "beryl : timeout SSH sur #{target}"
@@ -135,17 +136,14 @@ module Beryl::CLI::BootHd
     EXIT_UNEXPECTED
   end
 
-  # Poll la task `reboot` OVH jusqu'à son état terminal. Sans ce poll,
-  # beryl testait SSH juste après `boot_from_disk` — il capturait donc
-  # l'ancien rescue Linux au lieu de l'OS installé qu'on voulait
-  # démarrer.
+  # Poll la task `reboot` OVH jusqu'à son état terminal. Une ligne
+  # `log_step` par état avec compteur vivant — même pattern que rescue.
   private def self.wait_ovh_task_done(
     service_name : String,
     task : OvhApi::Endpoints::Task,
     client : OvhApi::Client,
   ) : Nil
     deadline = Time.instant + TASK_WAIT_TIMEOUT
-    last_status = task.status
     current = task
     while Time.instant < deadline
       return if current.success?
@@ -154,15 +152,17 @@ module Beryl::CLI::BootHd
           "tâche OVH ##{current.id} (#{current.function}) terminée en #{current.status} — #{current.comment}"
         )
       end
-      sleep TASK_POLL_INTERVAL
-      current = client.dedicated_servers.task(service_name, task.id)
-      if current.status != last_status
-        log "OVH : tâche ##{current.id} → #{current.status}"
-        last_status = current.status
+      current_status = current.status
+      Beryl.log_step("beryl boot-hd", "OVH : tâche ##{task.id} en #{current_status}") do
+        while Time.instant < deadline
+          sleep TASK_POLL_INTERVAL
+          current = client.dedicated_servers.task(service_name, task.id)
+          break if current.status != current_status
+        end
       end
     end
     raise TaskFailed.new(
-      "tâche OVH ##{task.id} (#{task.function}) non aboutie après #{TASK_WAIT_TIMEOUT.total_minutes.to_i} min (dernier état : #{last_status})"
+      "tâche OVH ##{task.id} (#{task.function}) non aboutie après #{TASK_WAIT_TIMEOUT.total_minutes.to_i} min (dernier état : #{current.status})"
     )
   end
 

@@ -126,9 +126,11 @@ module Beryl::CLI::Rescue
 
     if wait
       target = Beryl.format_ssh_target(host)
-      log "attente SSH sur #{target} (port #{host.port}, user root, timeout #{timeout.total_minutes.to_i} min)"
-      if wait_for_ssh.call(host.ssh_host, host.port, "root", timeout, SSH_POLL_INTERVAL)
-        log "rescue prêt sur #{target}"
+      ssh_ok = Beryl.log_step(
+        "beryl rescue",
+        "attente SSH sur #{target} (port #{host.port}, user root, timeout #{timeout.total_minutes.to_i} min)",
+      ) { wait_for_ssh.call(host.ssh_host, host.port, "root", timeout, SSH_POLL_INTERVAL) }
+      if ssh_ok
         EXIT_OK
       else
         STDERR.puts "beryl : timeout SSH sur #{target}"
@@ -174,9 +176,7 @@ module Beryl::CLI::Rescue
     client = factory.call
     ssh_key_name = host.ovh_ssh_key_name || auto_select_ovh_ssh_key(client, host)
     log "OVH : prepare_rescue pour #{service_name} (clé : #{ssh_key_name})"
-    task = client.dedicated_servers.prepare_rescue(service_name: service_name, ssh_key_name: ssh_key_name)
-    log "OVH : tâche ##{task.id} (#{task.function}) en #{task.status}"
-    task
+    client.dedicated_servers.prepare_rescue(service_name: service_name, ssh_key_name: ssh_key_name)
   end
 
   # Poll la task hardReboot OVH jusqu'à son état terminal. Sans ce poll,
@@ -188,6 +188,11 @@ module Beryl::CLI::Rescue
   # `ovhError`, `customerError`, `cancelled`. Timeout côté OVH rare
   # (5 min de marge large), mais on garde une limite pour ne pas rester
   # bloqué indéfiniment si l'API boucle.
+  # Poll la task hardReboot OVH jusqu'à son état terminal. Une ligne
+  # `log_step` par état (init, todo, doing, done) avec compteur vivant
+  # `[NNNs]` : on break quand l'état change, log_step fige la ligne
+  # avec le temps final passé DANS cet état. L'opérateur voit
+  # immédiatement combien chaque transition a pris.
   private def self.wait_ovh_task_done(
     host : Beryl::Config::ResolvedHost,
     task : OvhApi::Endpoints::Task,
@@ -196,7 +201,6 @@ module Beryl::CLI::Rescue
     service_name = host.ovh_service_name.not_nil!
     client = factory.call
     deadline = Time.instant + TASK_WAIT_TIMEOUT
-    last_status = task.status
     current = task
     while Time.instant < deadline
       return if current.success?
@@ -205,15 +209,17 @@ module Beryl::CLI::Rescue
           "tâche OVH ##{current.id} (#{current.function}) terminée en #{current.status} — #{current.comment}"
         )
       end
-      sleep TASK_POLL_INTERVAL
-      current = client.dedicated_servers.task(service_name, task.id)
-      if current.status != last_status
-        log "OVH : tâche ##{current.id} → #{current.status}"
-        last_status = current.status
+      current_status = current.status
+      Beryl.log_step("beryl rescue", "OVH : tâche ##{task.id} en #{current_status}") do
+        while Time.instant < deadline
+          sleep TASK_POLL_INTERVAL
+          current = client.dedicated_servers.task(service_name, task.id)
+          break if current.status != current_status
+        end
       end
     end
     raise TaskFailed.new(
-      "tâche OVH ##{task.id} (#{task.function}) non aboutie après #{TASK_WAIT_TIMEOUT.total_minutes.to_i} min (dernier état : #{last_status})"
+      "tâche OVH ##{task.id} (#{task.function}) non aboutie après #{TASK_WAIT_TIMEOUT.total_minutes.to_i} min (dernier état : #{current.status})"
     )
   end
 
