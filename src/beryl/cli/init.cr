@@ -220,10 +220,12 @@ module Beryl::CLI::Init
       end
 
       STDERR.puts "[beryl init] Hébergeurs supportés par beryl :"
+      file_env = parse_env_file_safe(ENV_FILE)
       implemented.each_with_index do |p, i|
-        status = p.available? ? "[configuré]" : "[à configurer]"
+        status = provider_status(p, file_env)
         STDERR.puts "  #{i + 1}. #{p.display_name.ljust(30)} (#{p.name.ljust(10)}) #{status}"
       end
+      STDERR.puts "    (credentials lus depuis #{ENV_FILE} + variables d'env du shell)"
 
       # Défaut : le premier « [configuré] », sinon 1.
       default_idx = (implemented.index(&.available?) || 0) + 1
@@ -233,6 +235,41 @@ module Beryl::CLI::Init
       chosen = implemented[idx - 1]
       ensure_provider_configured(chosen, non_interactive)
     end
+  end
+
+  # Statut d'un provider pour affichage dans la liste. Précise la
+  # source des credentials quand ils sont dispos, pour que Philippe
+  # puisse diagnostiquer un « je croyais avoir tout effacé et pourtant
+  # c'est encore configuré ».
+  #
+  # Trois cas pour « configuré » :
+  # - credentials dans ~/.beryl/.env ET ausi exportés dans le shell
+  #   → [configuré : ~/.beryl/.env + shell]
+  # - uniquement dans ~/.beryl/.env → [configuré : ~/.beryl/.env]
+  # - uniquement dans l'environnement du shell → [configuré : shell]
+  private def self.provider_status(provider : Beryl::Provider, file_env : Hash(String, String)) : String
+    return "[à configurer]" unless provider.available?
+
+    required = provider.credentials_env_vars.reject(&.optional).map(&.name)
+    in_file = required.any? { |v| file_env.has_key?(v) }
+    in_shell = required.any? { |v| ENV.has_key?(v) && !file_env.has_key?(v) }
+
+    if in_file && in_shell
+      "[configuré : ~/.beryl/.env + shell]"
+    elsif in_file
+      "[configuré : ~/.beryl/.env]"
+    else
+      "[configuré : shell]"
+    end
+  end
+
+  # Parse ~/.beryl/.env sans planter si le fichier est absent ou mal
+  # formé. Utilisé uniquement pour l'affichage du statut.
+  private def self.parse_env_file_safe(path : String) : Hash(String, String)
+    return {} of String => String unless File.exists?(path)
+    LoadEnv.parse(File.read(path))
+  rescue
+    {} of String => String
   end
 
   # S'assure que les credentials du provider sont dispos. Si non et
