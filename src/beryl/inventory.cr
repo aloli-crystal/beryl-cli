@@ -118,8 +118,120 @@ module Beryl
     def initialize(@hosts : Hash(String, Host), @bootstrap_defaults : BootstrapDefaults = BootstrapDefaults.new)
     end
 
+    # Charge un inventaire depuis un fichier ou un dossier.
+    #
+    # * Fichier YAML unique : chemin historique, `from_yaml` direct.
+    # * Dossier : convention `groups/*.yml` + `hosts/*.yml`. Chaque hôte
+    #   peut déclarer `groups: [group1, group2]` pour hériter des
+    #   valeurs déclarées dans `groups/group1.yml`, puis `group2.yml`,
+    #   avant ses propres overrides. Merge : les scalaires et listes
+    #   sont remplacés par la valeur la plus spécifique (groupes dans
+    #   l'ordre, puis host). Les hashes imbriqués sont fusionnés.
+    #
+    # Détection : si `path` est un dossier, chargement en mode arborescent.
     def self.load(path : String) : Inventory
-      from_yaml(File.read(path))
+      if File.directory?(path)
+        load_tree(path)
+      else
+        from_yaml(File.read(path))
+      end
+    end
+
+    # Chargement arborescent : groups/*.yml + hosts/*.yml. Chaque host
+    # hérite des groupes listés dans son champ `groups:` (ordre =
+    # priorité croissante), puis ses propres champs s'appliquent en
+    # dernier.
+    #
+    # Convention Aloli : un fichier par host, un fichier par groupe.
+    # Plus lisible qu'un gros inventory.yml pour ≥ quelques dizaines de
+    # serveurs, diffs git propres par serveur.
+    def self.load_tree(root_dir : String) : Inventory
+      groups_dir = File.join(root_dir, "groups")
+      hosts_dir = File.join(root_dir, "hosts")
+      unless File.directory?(hosts_dir)
+        raise "inventaire arborescent : dossier 'hosts/' requis dans #{root_dir}"
+      end
+
+      groups = {} of String => YAML::Any
+      if File.directory?(groups_dir)
+        Dir.glob(File.join(groups_dir, "*.yml")).sort.each do |f|
+          name = File.basename(f, ".yml")
+          groups[name] = YAML.parse(File.read(f))
+        end
+      end
+
+      bootstrap_defaults = BootstrapDefaults.new
+      hosts = {} of String => Host
+      Dir.glob(File.join(hosts_dir, "*.yml")).sort.each do |f|
+        host_name = File.basename(f, ".yml")
+        host_yaml = YAML.parse(File.read(f))
+        host_cfg = host_yaml.as_h? || {} of YAML::Any => YAML::Any
+        group_names = extract_string_array(host_cfg["groups"]?)
+        # Merge : on part vide, on empile les groupes dans l'ordre,
+        # puis les champs host. Dernier écrit = gagnant.
+        merged = {} of YAML::Any => YAML::Any
+        group_names.each do |gn|
+          group_yaml = groups[gn]?
+          raise "hôte #{host_name} : groupe inconnu `#{gn}` (fichier groups/#{gn}.yml absent)" unless group_yaml
+          group_cfg = group_yaml.as_h? || {} of YAML::Any => YAML::Any
+          merged = deep_merge_yaml(merged, group_cfg)
+        end
+        merged = deep_merge_yaml(merged, host_cfg)
+
+        hosts[host_name] = build_host_from_hash(host_name, merged)
+      end
+
+      new(hosts, bootstrap_defaults)
+    end
+
+    # Deep merge de deux Hash(YAML::Any, YAML::Any).
+    # Règle : override gagne. Si les deux côtés sont des hashes, on
+    # recurse. Sinon (scalar, array, type différent), override remplace
+    # purement et simplement. Array = remplacement intégral (pas
+    # d'append), c'est prévisible et c'est ce que la phrase « redéfinie
+    # par le fichier du serveur au besoin » suggère. L'append par clé
+    # pour `packages`/`users` sera une option explicite si besoin.
+    private def self.deep_merge_yaml(
+      base : Hash(YAML::Any, YAML::Any),
+      override : Hash(YAML::Any, YAML::Any),
+    ) : Hash(YAML::Any, YAML::Any)
+      result = base.dup
+      override.each do |k, v|
+        existing = result[k]?
+        if existing && (eh = existing.as_h?) && (vh = v.as_h?)
+          result[k] = YAML::Any.new(deep_merge_yaml(eh, vh))
+        else
+          result[k] = v
+        end
+      end
+      result
+    end
+
+    # Construit un Host à partir d'un hash YAML déjà mergé (groupes +
+    # fichier host). Partage la logique avec `from_yaml` mais travaille
+    # sur un hash plutôt que sur le format `defaults:` + `hosts:`.
+    private def self.build_host_from_hash(
+      name : String,
+      cfg : Hash(YAML::Any, YAML::Any),
+    ) : Host
+      provider = cfg["provider"]?.try(&.as_s)
+      provider_config = if provider
+                          extract_string_keyed_hash(cfg[provider]?)
+                        else
+                          {} of String => YAML::Any
+                        end
+
+      Host.new(
+        name: name,
+        provider: provider,
+        user: cfg["user"]?.try(&.as_s) || "root",
+        port: cfg["port"]?.try(&.as_i) || 22,
+        identity_file: cfg["identity_file"]?.try(&.as_s),
+        recipes: extract_string_array(cfg["recipes"]?),
+        variables: extract_string_keyed_hash(cfg["variables"]?),
+        provider_config: provider_config,
+        freebsd_config: FreebsdConfig.from_yaml(cfg["freebsd"]?),
+      )
     end
 
     def self.from_yaml(source : String) : Inventory

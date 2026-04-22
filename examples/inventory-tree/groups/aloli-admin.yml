@@ -1,0 +1,15 @@
+# Users admin standard Aloli, à inclure sur tous les hôtes.
+#
+# Les clés SSH inline ici sont des placeholders : remplacez-les par
+# votre vraie ssh-ed25519 avant usage. Pour un bootstrap ponctuel avec
+# une clé différente, utilisez `beryl bootstrap --authorized-keys FILE`
+# qui prime sur ce YAML (règle feedback_no_silent_defaults).
+
+freebsd:
+  users:
+    - name: admin
+      primary_group: www
+      secondary_groups: [wheel]
+      shell: /bin/csh
+      ssh_keys:
+        - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIRemplacezMoi philippe@aloli.fr

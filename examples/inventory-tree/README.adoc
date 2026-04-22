@@ -1,0 +1,58 @@
+= Exemple d'inventaire beryl en mode arborescent
+
+Au lieu d'un seul fichier `inventory.yml`, l'inventaire est éclaté en :
+
+* `groups/*.yml` — valeurs par défaut pour un groupe de serveurs.
+* `hosts/*.yml` — un fichier par serveur (le nom du fichier = nom de
+  l'hôte, ex. `hosts/loulou.aloli.net.yml`).
+
+Chaque hôte peut lister les groupes dont il hérite dans son champ
+`groups:` (ordre = priorité croissante, dernier écrit gagne). Ses
+propres champs s'appliquent en tout dernier.
+
+== Usage
+
+[source,sh]
+----
+beryl -i examples/inventory-tree list-hosts
+beryl -i examples/inventory-tree show loulou.aloli.net
+beryl -i examples/inventory-tree bootstrap loulou.aloli.net
+beryl -i examples/inventory-tree apply loulou.aloli.net
+----
+
+== Règles de merge
+
+* *Scalaires* (hostname, raid, swap_gb, timezone…) : le plus spécifique
+  gagne (host > dernier groupe > premier groupe).
+* *Hashes imbriqués* (`freebsd:`, `ovh:`) : merge récursif champ par
+  champ.
+* *Listes* (`packages`, `sudoers`, `users`, `disks`) : remplacement
+  intégral par le niveau le plus spécifique qui la déclare. Si vous
+  voulez ajouter un package spécifique à un host, **recopiez la liste
+  du groupe et étendez-la** dans le fichier host. Pas d'append
+  implicite (prévisible > magique).
+
+== Arborescence
+
+[source]
+----
+examples/inventory-tree/
+├── groups/
+│   ├── aloli-admin.yml      # users admin standard (clés SSH à personnaliser)
+│   ├── rails-servers.yml    # stack Rails (ruby, postgresql, nginx)
+│   └── backup-servers.yml   # stack backup (rsync, restic, borg)
+└── hosts/
+    ├── loulou.aloli.net.yml # hérite aloli-admin + rails-servers
+    └── backup01.aloli.fr.yml # hérite aloli-admin + backup-servers
+----
+
+== Clés SSH
+
+Le fichier `groups/aloli-admin.yml` contient une clé SSH placeholder.
+**Remplacez-la par la vôtre** avant tout bootstrap. Pour un cas ponctuel
+avec une clé différente sans modifier le YAML, utilisez
+`beryl bootstrap --authorized-keys=~/.ssh/ma-cle.pub`.
+
+La règle Aloli interdit les défauts silencieux : si un user n'a aucune
+clé dans le YAML et qu'aucun `--authorized-keys` n'est passé, `beryl`
+refuse de démarrer avec un message explicite.

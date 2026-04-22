@@ -1,0 +1,22 @@
+# Serveur Rails de prod — hérite `rails-servers` + `aloli-admin`.
+#
+# Le nom du fichier (`loulou.aloli.net.yml`) donne le nom de l'hôte :
+# `beryl bootstrap loulou.aloli.net`.
+
+provider: ovh
+ovh:
+  service_name: ns3156789.ip-51-83-6.eu
+  ssh_key_name: philippe-aloli-fr
+
+groups:
+  - aloli-admin
+  - rails-servers
+
+freebsd:
+  hostname: loulou
+  disks: [/dev/sda]
+  # Tout le reste (timezone, packages, sudoers, users, raid, swap,
+  # install_type) vient des groupes. Pour ajouter un package
+  # spécifique à loulou, redéfinissez `packages:` ici — ça remplace
+  # intégralement la liste du groupe (pattern « redéfinie par le
+  # fichier du serveur au besoin »).
