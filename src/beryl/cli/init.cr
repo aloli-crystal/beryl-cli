@@ -320,29 +320,103 @@ module Beryl::CLI::Init
   # sans clés SSH : elles viennent du domaine via ssh_keys: + Merger).
   private def self.default_yaml_content : String
     <<-YAML
+    # ─────────────────────────────────────────────────────────────────
     # Socle technique FreeBSD — commun à TOUS les domaines.
+    # ─────────────────────────────────────────────────────────────────
+    # Héritage : ce fichier est mergé EN PREMIER, puis
+    # `<domaine>.yml`, puis éventuellement `<groupe>.yml`, puis le
+    # fichier du host. Le niveau le plus spécifique gagne.
+    #
     # Les clés SSH ne sont PAS ici : elles sont déclarées dans chaque
-    # <domaine>.yml (ssh_keys:) et injectées automatiquement dans chaque
-    # user par le merge.
+    # `<domaine>.yml` via le champ `ssh_keys:` et injectées
+    # automatiquement dans chaque user par le merge (la clé domaine
+    # est obligatoire, présente dans tous les `authorized_keys`).
 
     freebsd:
+      # Fuseau horaire du système. Format IANA (`tzdata`). Remplacé
+      # au bootstrap par un `cp /usr/share/zoneinfo/<tz> /etc/localtime`.
+      # Exemples : Europe/Paris, Europe/London, America/New_York, UTC.
       timezone: Europe/Paris
+
+      # Nom du pool ZFS racine. Convention FreeBSD bsdinstall = `zroot`.
+      # À ne changer que pour convention maison : tous les datasets
+      # (`zroot/ROOT/default`, `zroot/home`, etc.) héritent de ce nom.
       pool_name: zroot
+
+      # Taille du swap en gigaoctets. Partition `gpt/swap0` créée par
+      # bsdinstall sur le premier disque, activée via /etc/fstab.
+      # Valeurs usuelles : 2 à 16. Avec > 8 Go de RAM, un swap plus
+      # petit suffit.
       swap_gb: 4
+
+      # Mode ZFS du pool racine (ZFSBOOT_VDEV_TYPE). Appliqué à TOUS
+      # les disques déclarés dans `freebsd.disks` du host (un seul
+      # vdev pour l'instant — pour des vdevs séparés, il faudra une
+      # syntaxe `raid_groups` à venir).
+      #
+      #   stripe  : RAID 0 — pas de redondance, capacité = Σ(disques).
+      #             Défaut Aloli : backups bétonnés > redondance disque.
+      #             Minimum 1 disque.
+      #   mirror  : RAID 1 — chaque donnée sur 2+ disques.
+      #             Minimum 2 disques (typique : 2).
+      #   raidz   : 1 disque de parité (tolère 1 panne).
+      #             Minimum 3 disques, 3 à 5 typiques.
+      #   raidz2  : 2 disques de parité (tolère 2 pannes).
+      #             Minimum 4 disques, 6 à 8 typiques.
+      #   raidz3  : 3 disques de parité (tolère 3 pannes).
+      #             Minimum 5 disques, 8+ typiques.
       raid: stripe
+
+      # Chemin d'installation FreeBSD :
+      #   distribution_sets : tarballs base.txz + kernel.txz (stable,
+      #                       chemin testé par Aloli, voir ADR-013)
+      #   packages          : pkgbase (opt-in, non câblé runtime pour
+      #                       l'instant — lève `PkgbaseNotYetImplemented`
+      #                       à l'install jusqu'à nouvel ordre)
       install_type: distribution_sets
+
+      # Packages installés au bootstrap via `pkg -r /mnt install` hors
+      # chroot (contournement Capsicum, ADR-013). Cette liste est
+      # APPENDÉE par les niveaux suivants : un groupe d'usage peut
+      # ajouter `nginx, postgresql16-server`, etc. Les doublons sont
+      # éliminés automatiquement.
       packages:
         - sudo
         - zsh
         - curl
         - git
+
+      # Règles sudoers écrites dans /usr/local/etc/sudoers.d/beryl.
+      # Même logique d'append que les packages : un groupe peut
+      # ajouter des règles métier (ex: `deploy ALL=(www) NOPASSWD:...`).
       sudoers:
         - '%wheel ALL=(ALL) NOPASSWD:ALL'
+
+      # Users créés au bootstrap. SANS `ssh_keys:` ici — les clés
+      # viennent :
+      #   1. du champ `ssh_keys:` du domaine (obligatoire, injecté
+      #      dans chaque user ici)
+      #   2. plus, optionnellement, des clés listées sous `users:`
+      #      dans un <groupe>.yml ou un <host>.yml pour un user donné
+      #
+      # Règle de merge pour `users` : merge par `name`. Un groupe/host
+      # peut raffiner un user existant (ajouter des clés, changer le
+      # shell) sans devoir redéclarer toutes ses propriétés.
+      #
+      # shells typiques :
+      #   /usr/local/bin/zsh   (admin, installé via le package `zsh`)
+      #   /bin/csh             (tcsh-compatible, défaut FreeBSD)
+      #   /bin/sh              (POSIX minimal, pour users automatisés)
       users:
+        # admin : compte interactif principal. Membre de `wheel` →
+        # éligible à sudo (voir la règle sudoers ci-dessus).
         - name: admin
           primary_group: www
           secondary_groups: [wheel]
           shell: /usr/local/bin/zsh
+
+        # deploy : compte utilisé par CI/CD. Pas de wheel : pas de
+        # sudo, pas d'escalade possible. Shell minimal (pas de zsh).
         - name: deploy
           primary_group: www
           secondary_groups: []
