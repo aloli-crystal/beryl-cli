@@ -65,6 +65,7 @@ module Beryl::CLI
 
     case subcommand
     when nil           then show_usage(global_parser); 1
+    when "help"        then cmd_help(global_parser, config_root, sub_args)
     when "init"        then Beryl::CLI::Init.run(config_root, sub_args)
     when "list-hosts"  then cmd_list_hosts(config_root)
     when "show"        then cmd_show(config_root, sub_args)
@@ -84,6 +85,56 @@ module Beryl::CLI
     end
   end
 
+  # Affiche l'aide globale (sans topic) ou l'aide d'une sous-commande
+  # nommée. `beryl help init` équivaut à `beryl init --help` mais plus
+  # naturel à taper et cohérent avec git/systemctl/etc.
+  private def self.cmd_help(global_parser : OptionParser, config_root : String, args : Array(String)) : Int32
+    topic = args.first?
+    unless topic
+      show_usage(global_parser)
+      return 0
+    end
+    # Dispatche vers la sous-commande avec --help. Les sous-commandes
+    # réagissent au flag en imprimant leur aide puis `exit 0`.
+    case topic
+    when "help" then show_usage(global_parser); 0
+    when "init" then Beryl::CLI::Init.run(config_root, ["--help"])
+    when "list-hosts"
+      puts "USAGE : beryl list-hosts"
+      puts
+      puts "Liste tous les hosts de tous les domaines configurés dans #{config_root}."
+      puts "Affiche FQDN, provider, groupe d'usage (ou -), et identifiant hébergeur"
+      puts "(service_name OVH ou server_id Scaleway)."
+      0
+    when "show"
+      puts "USAGE : beryl show <host> [--domain=NAME]"
+      puts
+      puts "Affiche la config effective d'un host (résultat du merge _default +"
+      puts "domaine + groupe éventuel + host) et la liste des fichiers YAML qui"
+      puts "contribuent à cette config."
+      0
+    when "rescue"      then Beryl::CLI::Rescue.run(config_root, ["--help"])
+    when "boot-hd"     then Beryl::CLI::BootHd.run(config_root, ["--help"])
+    when "wipe"        then Beryl::CLI::Wipe.run(config_root, ["--help"])
+    when "bootstrap"   then Beryl::CLI::Bootstrap.run(config_root, ["--help"])
+    when "scan"        then Beryl::CLI::Scan.run(config_root, ["--help"])
+    when "apply"       then Beryl::CLI::Apply.run(config_root, ["--help"])
+    when "prep-rescue" then Beryl::CLI::PrepRescue.run(["--help"])
+    when "bake-seed"   then Beryl::CLI::BakeSeed.run(["--help"])
+    when "version"
+      puts "USAGE : beryl version"
+      puts
+      puts "Affiche la version courante de beryl."
+      0
+    else
+      STDERR.puts "beryl : aucune aide pour « #{topic} »."
+      STDERR.puts "        Sous-commandes connues : init, list-hosts, show, rescue,"
+      STDERR.puts "        boot-hd, wipe, bootstrap, scan, apply, prep-rescue,"
+      STDERR.puts "        bake-seed, version."
+      1
+    end
+  end
+
   private def self.usage_banner : String
     <<-BANNER
     beryl #{Beryl::VERSION} — gestion de configuration FreeBSD (agentless SSH)
@@ -91,6 +142,7 @@ module Beryl::CLI
     USAGE : beryl [options globales] <sous-commande> [arguments]
 
     Sous-commandes :
+      help [<cmd>]          Aide globale ou d'une sous-commande précise
       init [provider]       Initialise ~/.beryl/ (credentials + squelettes)
       list-hosts            Liste les hôtes de tous les domaines
       show <host>           Détails d'un hôte (config mergée complète)
