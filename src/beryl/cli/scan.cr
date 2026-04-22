@@ -123,9 +123,6 @@ module Beryl::CLI::Scan
       STDERR.puts
     end
 
-    chosen = dry_run ? [] of Disk : pick_disks(disks, disks_flag, non_interactive)
-    raid = dry_run ? (raid_flag.try(&.to_i) || 0) : pick_raid(chosen.size, raid_flag, non_interactive)
-
     short = if dns_plan
               dns_plan.short_name
             elsif hostname_flag
@@ -134,20 +131,35 @@ module Beryl::CLI::Scan
               default_hostname(host.fqdn)
             end
 
+    # En dry-run, on s'arrête ici : on a affiché ce qu'on ferait
+    # (plan DNS si --dns), on annonce ce qui se passerait côté disques
+    # + YAML, mais on ne simule aucun contenu. `--dry-run` EXPLIQUE,
+    # il ne FAIT rien (pas de SSH, pas de YAML).
+    if dry_run
+      target = resolve_write_target(write_path, write_auto, config_root, host.domain_name, short)
+      effective_provider = provider_override || host.provider
+      STDERR.puts
+      STDERR.puts "DRY-RUN : actions `beryl scan` prévues :"
+      STDERR.puts "  - SSH vers #{Beryl.format_ssh_target(host)} pour `lsblk` (lecture disques)"
+      STDERR.puts "  - Provider résolu : #{effective_provider || "(non résolu)"}"
+      STDERR.puts "  - Hostname cible : #{short}.#{host.domain_name}"
+      STDERR.puts "  - RAID : #{raid_flag || "demandé interactivement"}"
+      if target
+        STDERR.puts "  - Écriture YAML dans : #{target}"
+      else
+        STDERR.puts "  - YAML affiché à l'écran (pas de --write / --write-to)"
+      end
+      STDERR.puts "DRY-RUN : aucune action exécutée. Retirez --dry-run pour lancer."
+      return EXIT_OK
+    end
+
+    chosen = pick_disks(disks, disks_flag, non_interactive)
+    raid = pick_raid(chosen.size, raid_flag, non_interactive)
+
     yaml = render_yaml(host, short, chosen, raid, provider_override: provider_override)
     target = resolve_write_target(write_path, write_auto, config_root, host.domain_name, short)
 
     if target
-      if dry_run
-        STDERR.puts "DRY-RUN : YAML qui serait écrit dans #{target} :"
-        STDERR.puts "─" * 60
-        print yaml
-        STDERR.puts "─" * 60
-        STDERR.puts "NOTE : en dry-run, les disques ne sont PAS scannés côté rescue"
-        STDERR.puts "       (aucune connexion SSH ouverte). Relancez sans --dry-run"
-        STDERR.puts "       pour que le YAML contienne la liste réelle des disques."
-        return EXIT_OK
-      end
       if File.exists?(target)
         if non_interactive
           STDERR.puts "beryl : #{target} existe (refus en --non-interactive)"
@@ -340,15 +352,7 @@ module Beryl::CLI::Scan
       io << "      boot: true        # c'est le pool système (exactement un)\n"
       io << "      raid: " << raid << "             # 0=stripe 1=mirror 5=raidz 6=raidz2 7=raidz3 10=mirror_stripe\n"
       io << "      disks:\n"
-      if disks.empty?
-        # Cas dry-run : on n'a pas ouvert de SSH, donc pas de liste
-        # réelle. Placeholder pour que le YAML reste valide à l'œil
-        # et que l'utilisateur voie clairement ce qui manque.
-        io << "        # (dry-run) liste réelle des disques non scannée\n"
-        io << "        # Relancez sans --dry-run pour remplir cette section.\n"
-      else
-        disks.each { |d| io << "        - " << d.dev_path << "  # " << d.human_size << " " << d.kind << " " << d.model << '\n' }
-      end
+      disks.each { |d| io << "        - " << d.dev_path << "  # " << d.human_size << " " << d.kind << " " << d.model << '\n' }
     end
   end
 
