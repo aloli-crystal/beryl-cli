@@ -51,12 +51,15 @@ module Beryl::CLI::Init
     provider_hint ||= positional.first?
 
     Dir.mkdir_p(config_root)
+    env_path = File.join(config_root, ".env.yml")
+    env_file = Beryl::Config::EnvFile.load(env_path)
 
-    # Choix du provider
-    provider = choose_provider(config_root, provider_hint, non_interactive)
+    # Étape 1 — Choix du provider (parmi ceux implémentés)
+    provider = pick_provider(provider_hint, non_interactive)
     return EXIT_USAGE unless provider
 
-    # Zone DNS (= nom du domaine)
+    # Étape 2 — Zone DNS (= nom du domaine). Demandée AVANT les
+    # credentials car ils seront écrits dans `.env.yml[<zone>]`.
     zone_in = zone_flag
     zone : String = zone_in ? zone_in : (non_interactive ? raise("--zone requis en --non-interactive") : ask("Zone DNS du domaine (ex: aloli.net) : ", ""))
     return EXIT_USAGE if zone.empty?
@@ -67,18 +70,25 @@ module Beryl::CLI::Init
       return EXIT_USAGE
     end
 
-    # Détection clé SSH provider + fichier .pub local par matching
+    # Étape 3 — Credentials du provider pour CE domaine. On garantit
+    # qu'ils sont persistés dans `.env.yml[<zone>]`, peu importe leur
+    # provenance actuelle (shell, fichier, à saisir).
+    unless ensure_credentials_for(provider, zone, env_file, env_path, non_interactive)
+      return EXIT_ABORTED
+    end
+
+    # Étape 4 — Clé SSH provider + fichier .pub local
     selection = select_ssh_key(provider, ssh_key_name_flag, admin_key_file, non_interactive)
     return EXIT_ABORTED unless selection
 
-    # Écriture du socle _default.yml s'il n'existe pas
+    # Étape 5 — Écriture du socle _default.yml s'il n'existe pas
     defaults_path = File.join(config_root, "_default.yml")
     unless File.exists?(defaults_path)
       File.write(defaults_path, default_yaml_content)
       STDERR.puts "[beryl init] _default.yml créé"
     end
 
-    # Écriture du fichier domaine
+    # Étape 6 — Écriture du fichier domaine
     admin_key_content = selection[:admin_key_content]
     File.write(domain_yml, render_domain_yaml(provider, selection[:provider_key_id], admin_key_content))
     STDERR.puts "[beryl init] #{domain_yml} créé"
@@ -96,17 +106,10 @@ module Beryl::CLI::Init
     EXIT_ABORTED
   end
 
-  # Choisit un provider (avec détection credentials + prompt si
-  # plusieurs + config interactive si absent).
-  private def self.choose_provider(config_root : String, flag : String?, non_interactive : Bool) : Beryl::Provider?
-    env_path = File.join(config_root, ".env.yml")
-    env_file = Beryl::Config::EnvFile.load(env_path)
-
-    # Les providers.available? regardent ENV ; on applique les vars du
-    # .env.yml le temps de la détection.
-    available_names = env_file.domains.flat_map { |d| env_file.for_domain(d).keys }.to_set
-    env_file.domains.each { |d| env_file.apply_to_env(d) }
-
+  # Choisit un provider (parmi ceux IMPLÉMENTÉS dans beryl, pas
+  # seulement ceux dont les credentials sont déjà dispos — la config
+  # se fait à l'étape suivante).
+  private def self.pick_provider(flag : String?, non_interactive : Bool) : Beryl::Provider?
     implemented = Beryl::Providers.all
 
     if flag
@@ -116,63 +119,117 @@ module Beryl::CLI::Init
         return nil
       end
       STDERR.puts "[beryl init] Provider : #{p.display_name}"
-      return configure_provider_if_needed(p, env_file, env_path, non_interactive)
+      return p
     end
 
-    available = implemented.select(&.available?)
-    case available.size
+    case implemented.size
     when 0
-      if non_interactive
-        STDERR.puts "beryl : aucun provider configuré (ajoutez --provider ou exportez les credentials)"
-        return nil
-      end
-      STDERR.puts "[beryl init] Aucun provider configuré."
-      STDERR.puts "Hébergeurs supportés :"
-      implemented.each_with_index { |p, i| STDERR.puts "  #{i + 1}. #{p.display_name} (#{p.name})" }
-      ans = ask("Lequel configurer ? [1] : ", "1")
-      idx = (ans.to_i? || 1).clamp(1, implemented.size) - 1
-      return configure_provider_if_needed(implemented[idx], env_file, env_path, non_interactive)
+      STDERR.puts "beryl : aucun provider n'est enregistré dans ce build"
+      nil
     when 1
-      p = available.first
-      STDERR.puts "[beryl init] Provider détecté : #{p.display_name}"
+      p = implemented.first
+      STDERR.puts "[beryl init] Provider (unique disponible) : #{p.display_name}"
       p
     else
-      STDERR.puts "[beryl init] Providers disponibles :"
-      available.each_with_index { |p, i| STDERR.puts "  #{i + 1}. #{p.display_name} (#{p.name})" }
+      if non_interactive
+        STDERR.puts "beryl : plusieurs providers disponibles (#{implemented.map(&.name).join(", ")}), passez `beryl init <provider>`"
+        return nil
+      end
+      STDERR.puts "[beryl init] Hébergeurs supportés :"
+      implemented.each_with_index do |p, i|
+        status = p.available? ? "[credentials détectés dans le shell]" : "[à configurer]"
+        STDERR.puts "  #{i + 1}. #{p.display_name.ljust(30)} (#{p.name.ljust(10)}) #{status}"
+      end
       ans = ask("Lequel utiliser ? [1] : ", "1")
-      idx = (ans.to_i? || 1).clamp(1, available.size) - 1
-      available[idx]
+      idx = (ans.to_i? || 1).clamp(1, implemented.size) - 1
+      implemented[idx]
     end
   end
 
-  private def self.configure_provider_if_needed(provider : Beryl::Provider, env_file : Beryl::Config::EnvFile, env_path : String, non_interactive : Bool) : Beryl::Provider?
-    return provider if provider.available?
-    return nil if non_interactive
-    STDERR.puts "[beryl init] Configuration #{provider.display_name}"
-    STDERR.puts "  Aide : #{provider.credentials_help_url}"
-    values = {} of String => String
+  # Garantit que `.env.yml[<zone>]` contient toutes les variables
+  # requises par le provider. Règle simple : « soit on les trouve,
+  # soit on les demande » — et dans tous les cas, on persiste dans
+  # `.env.yml[<zone>]` (les credentials doivent survivre à la
+  # fermeture du shell).
+  #
+  # Ordre de recherche par variable :
+  #   1. Déjà dans `.env.yml[<zone>]` → valeur conservée
+  #   2. Exportée dans le shell (ENV)  → récupérée, persistée
+  #   3. Sinon (mode interactif)       → prompt, persisté
+  #   4. Sinon (mode non-interactif)   → erreur explicite
+  private def self.ensure_credentials_for(
+    provider : Beryl::Provider,
+    zone : String,
+    env_file : Beryl::Config::EnvFile,
+    env_path : String,
+    non_interactive : Bool,
+  ) : Bool
+    required = provider.credentials_env_vars.reject(&.optional)
+    current = env_file.for_domain(zone).dup
+    picked_up_from_shell = [] of String
+    prompted = [] of String
+
     provider.credentials_env_vars.each do |var|
+      # 1. Déjà dans le fichier → on garde
+      next if current.has_key?(var.name) && !current[var.name].empty?
+
+      # 2. Exporté dans le shell → on prend
+      if (shell_val = ENV[var.name]?) && !shell_val.empty?
+        current[var.name] = shell_val
+        picked_up_from_shell << var.name
+        next
+      end
+
+      # 3. Défaut → si la var est optionnelle et a une valeur par
+      # défaut, on l'utilise sans déranger l'utilisateur
+      if var.optional && (d = var.default) && !d.empty?
+        current[var.name] = d
+        next
+      end
+
+      # 4. Ni fichier, ni shell, ni défaut → prompt si interactif,
+      # sinon on laisse manquante (on lèvera plus bas)
+      next if non_interactive
+
+      # Intro une seule fois, la première fois qu'on prompt
+      if prompted.empty? && picked_up_from_shell.empty?
+        STDERR.puts "[beryl init] Configuration #{provider.display_name} pour `#{zone}`"
+        STDERR.puts "             Aide : #{provider.credentials_help_url}"
+      end
       prompt = "  #{var.name}"
-      prompt += " [#{var.default}]" if var.default
       prompt += " (optionnel)" if var.optional
       prompt += " : "
       input = ask_optional(prompt)
-      input = var.default.not_nil! if input.empty? && var.default
-      next if input.empty?
-      values[var.name] = input
+      next if input.empty? && var.optional
+      current[var.name] = input unless input.empty?
+      prompted << var.name
     end
 
-    # Section temporaire "__init_pending__" → le domaine sera renommé
-    # après saisie de la zone. Pour simplifier : on demande la zone
-    # tout de suite pour poser les credentials dans la bonne section.
-    zone = ask("Zone DNS de ce domaine (ex: aloli.net) : ", "")
-    raise Aborted.new if zone.empty?
-    env_file.set_domain(zone, values)
+    # Vérifie les requises
+    missing = required.map(&.name).reject { |n| current.has_key?(n) && !current[n].empty? }
+    unless missing.empty?
+      STDERR.puts "beryl : variables requises non fournies pour #{provider.display_name} : #{missing.join(", ")}"
+      return false
+    end
+
+    # Persiste systématiquement. Log clair sur la provenance.
+    env_file.set_domain(zone, current)
     env_file.save
-    STDERR.puts "[beryl init] Credentials écrits dans #{env_path}"
-    # Ré-applique pour que provider.available? devienne vrai.
+    if picked_up_from_shell.empty? && prompted.empty?
+      STDERR.puts "[beryl init] Credentials déjà présents dans #{env_path}[#{zone}]"
+    else
+      source_bits = [] of String
+      source_bits << "#{picked_up_from_shell.size} depuis le shell" unless picked_up_from_shell.empty?
+      source_bits << "#{prompted.size} saisies" unless prompted.empty?
+      STDERR.puts "[beryl init] Credentials écrits dans #{env_path}[#{zone}] (#{source_bits.join(", ")})"
+    end
     env_file.apply_to_env(zone, overwrite: true)
-    provider.available? ? provider : nil
+
+    unless provider.available?
+      STDERR.puts "beryl : credentials posés mais #{provider.display_name} se déclare indisponible (vérifiez #{env_path})"
+      return false
+    end
+    true
   end
 
   # Sélection automatique de la clé SSH chez le provider + matching
