@@ -140,8 +140,9 @@ module Beryl::CLI
     USAGE : beryl [options globales] <sous-commande> [arguments]
 
     Sous-commandes :
-      init                  Crée l'arborescence d'inventaire de départ
-                            dans ~/.beryl/ (groups/ + hosts/)
+      init [provider]       Crée l'arborescence d'inventaire de départ
+                            dans ~/.beryl/ (groups/ + hosts/).
+                            `provider` = ovh | scaleway (auto si omis)
       list-hosts            Liste les hôtes de l'inventaire
       show <host>           Affiche les détails d'un hôte
       rescue <host>         Bascule un hôte en rescue via l'API

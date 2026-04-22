@@ -9,11 +9,12 @@ require "./credentials"
 #
 # Usage :
 #
-#   beryl init
-#   beryl init --zone=aloli.net --ssh-key-name=philippe.aloli.fr --admin-key=~/.ssh/philippe.pub
+#   beryl init                   # auto-détecte le provider via env vars
+#   beryl init ovh               # force le provider OVH (argument positionnel)
+#   beryl init scaleway          # force le provider Scaleway
+#   beryl init ovh --zone=aloli.net --ssh-key-name=philippe.aloli.fr
 #   beryl init --force           # écrase un ~/.beryl/ existant
 #   beryl init --dir=./.beryl    # local au projet au lieu de global
-#   beryl init --dir=/autre/chemin
 #
 # Après `beryl init`, toutes les sous-commandes résolvent leur inventaire
 # automatiquement depuis `~/.beryl/`. `beryl -i AUTRE` reste possible
@@ -39,11 +40,14 @@ module Beryl::CLI::Init
     force = false
     non_interactive = false
 
+    positional = [] of String
     parser = OptionParser.new do |p|
-      p.banner = "USAGE : beryl init [options]\n\n" \
+      p.banner = "USAGE : beryl init [provider] [options]\n\n" \
                  "Crée l'arborescence d'un inventaire beryl dans #{DEFAULT_DIR}\n" \
-                 "avec des squelettes de groupes (zone DNS, admin standard)."
-      p.on("--provider=NAME", "Hébergeur (ovh|scaleway). Auto-détecté depuis l'env si absent.") { |v| provider_flag = v }
+                 "avec des squelettes de groupes (zone DNS, admin standard).\n\n" \
+                 "`provider` est un argument positionnel optionnel (ex: `beryl init ovh`).\n" \
+                 "Sinon auto-détecté via les variables d'env configurées."
+      p.on("--provider=NAME", "Alias de l'argument positionnel") { |v| provider_flag = v }
       p.on("--zone=NAME", "Zone DNS (ex: aloli.net). Sera un groupe `<zone>` (points → tirets).") { |v| zone = v }
       p.on("--ssh-key-name=NAME", "Nom de la clé SSH chez l'hébergeur (sinon auto-détecté via API)") { |v| ssh_key_name = v }
       p.on("--admin-key=FILE", "Fichier .pub local (sinon auto-détecté dans ~/.ssh/)") { |v| admin_key_file = File.expand_path(v, home: true) }
@@ -54,8 +58,16 @@ module Beryl::CLI::Init
         puts p
         exit 0
       end
+      p.unknown_args do |rest, _|
+        positional = rest
+      end
     end
     parser.parse(args)
+
+    # Argument positionnel = provider (si fourni). Le flag --provider
+    # garde sa priorité (si les deux sont donnés → flag gagne, au cas où
+    # un alias serait scripté).
+    provider_flag ||= positional.first?
 
     # Si le dossier existe déjà avec des YAML dedans, on refuse sauf --force.
     if File.directory?(dir) && !force
