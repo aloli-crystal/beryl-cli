@@ -4,6 +4,10 @@ require "./beryl/ssh"
 require "./beryl/freebsd_config"
 require "./beryl/inventory"
 require "./beryl/bootstrap"
+# NB : providers.cr require elle-même cli/credentials.cr qui require
+# les shards ovh-api/scaleway-api. Chargé en dernier pour être sûr que
+# Beryl::Host/Inventory existent avant que les providers s'enregistrent.
+require "./beryl/providers"
 
 module Beryl
   # Largeur cible en caractères pour aligner le compteur `[NNNs]` en fin
