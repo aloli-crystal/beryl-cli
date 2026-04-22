@@ -79,6 +79,30 @@ module Beryl::Providers
       "https://eu.api.ovh.com/createToken/ (créez une application si vous n'en avez pas : https://eu.api.ovh.com/createApp/)"
     end
 
+    # Routes OVH que beryl appelle. À cocher dans le formulaire
+    # `createToken/` côté OVH (ou dans le script de renouvellement
+    # automatique de la consumer key).
+    #
+    # Les `*` sont des wildcards supportés par OVH (pattern "tout
+    # sous ce préfixe"). Grouper par verbe HTTP comme le formulaire
+    # OVH l'exige. Mise à jour : ajout de `PUT /services/*` pour le
+    # rename displayName (a déménagé depuis /dedicated/server/* en
+    # avril 2026).
+    def required_access_rules : Array({verb: String, path: String})
+      [
+        {verb: "GET", path: "/dedicated/server/*"},
+        {verb: "PUT", path: "/dedicated/server/*"},
+        {verb: "POST", path: "/dedicated/server/*"},
+        {verb: "GET", path: "/me/sshKey/*"},
+        {verb: "GET", path: "/domain/zone/*"},
+        {verb: "POST", path: "/domain/zone/*/record"},
+        {verb: "POST", path: "/domain/zone/*/refresh"},
+        {verb: "PUT", path: "/ip/*/reverse"},
+        {verb: "POST", path: "/ip/*/reverse"},
+        {verb: "PUT", path: "/services/*"}, # displayName rename (avril 2026)
+      ]
+    end
+
     def owns?(host_name : String) : Bool
       # Quand un client est injecté (cas test), on l'utilise sans
       # vérifier `available?` (les env vars ne sont pas forcément
