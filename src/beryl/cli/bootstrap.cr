@@ -154,7 +154,8 @@ module Beryl::CLI::Bootstrap
       STDERR.puts "  sudoers     :"
       sudoers.each { |s| STDERR.puts "    - #{s}" }
       STDERR.puts "─" * 60
-      STDERR.puts "DRY-RUN : aucune action exécutée. Retirez --dry-run pour installer."
+      STDERR.puts "DRY-RUN : aucune action exécutée."
+      STDERR.puts "Pour exécuter : #{Beryl.rerun_hint("bootstrap", args)}"
       return EXIT_OK
     end
 

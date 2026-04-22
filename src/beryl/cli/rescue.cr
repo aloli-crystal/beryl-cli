@@ -96,6 +96,7 @@ module Beryl::CLI::Rescue
       if dry_run
         log "DRY-RUN : OVHcloud → prepare_rescue(#{service_name}, ssh_key=#{host.ovh_ssh_key_name || "<auto>"})"
         log "DRY-RUN : puis wait_for_ssh(#{host.ssh_host}:#{host.port} as root, timeout #{timeout.total_minutes.to_i}m)" if wait
+        log "Pour exécuter : #{Beryl.rerun_hint("rescue", args)}"
         return EXIT_OK
       end
       Beryl.clean_known_hosts_for(host)
@@ -111,6 +112,7 @@ module Beryl::CLI::Rescue
       if dry_run
         log "DRY-RUN : Scaleway → reboot(#{server_id}, boot_type=Rescue)"
         log "DRY-RUN : puis wait_for_ssh(#{host.ssh_host}:#{host.port} as root, timeout #{timeout.total_minutes.to_i}m)" if wait
+        log "Pour exécuter : #{Beryl.rerun_hint("rescue", args)}"
         return EXIT_OK
       end
       Beryl.clean_known_hosts_for(host)

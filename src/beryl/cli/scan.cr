@@ -149,7 +149,14 @@ module Beryl::CLI::Scan
       else
         STDERR.puts "  - YAML affiché à l'écran (pas de --write / --write-to)"
       end
-      STDERR.puts "DRY-RUN : aucune action exécutée. Retirez --dry-run pour lancer."
+      STDERR.puts "DRY-RUN : aucune action exécutée."
+      # Afficher la commande à relancer avec --hostname=<short> pour
+      # éviter le prompt interactif au 2e lancement.
+      extras = [] of String
+      unless args.any? { |a| a.starts_with?("--hostname") || a == "-H" }
+        extras << "--hostname=#{short}"
+      end
+      STDERR.puts "Pour exécuter : #{Beryl.rerun_hint("scan", args, extras)}"
       return EXIT_OK
     end
 

@@ -77,6 +77,19 @@ module Beryl
     end
   end
 
+  # Construit la commande shell à afficher à la fin d'un `--dry-run`
+  # pour que l'utilisateur voie exactement quoi relancer (copy-paste
+  # friendly). Retire les flags `--dry-run` / `-n` des args originaux
+  # et concatène d'éventuels arguments additionnels (ex: `--hostname`
+  # pour scan, qui a pu être résolu interactivement pendant le dry-run).
+  #
+  # Philippe 23 avril 2026 : option B — zéro automatisme, zéro clic
+  # enchaîné, l'utilisateur lit et relance lui-même.
+  def self.rerun_hint(cmd : String, args : Array(String), extras : Array(String) = [] of String) : String
+    filtered = args.reject { |a| a == "--dry-run" || a == "-n" }
+    (["beryl", cmd] + filtered + extras).join(" ")
+  end
+
   # Affiche une ligne de log avec un compteur `[NNNs]` en fin de ligne,
   # rafraîchi chaque seconde par un fiber pour montrer que le process
   # est vivant pendant une opération longue. La ligne est tenue en

@@ -112,6 +112,7 @@ module Beryl::CLI::Wipe
       puts "─" * 60
       puts wipe_script_multi(target_disks)
       puts "─" * 60
+      puts "Pour exécuter : #{Beryl.rerun_hint("wipe", args)}"
       return EXIT_OK
     end
 
