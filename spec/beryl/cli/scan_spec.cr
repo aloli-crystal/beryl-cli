@@ -183,4 +183,61 @@ describe Beryl::CLI::Scan do
       Beryl::CLI::Scan.default_hostname("singleword").should eq("singleword")
     end
   end
+
+  describe ".resolve_write_target" do
+    it "retourne nil quand ni --write ni --write=FILE" do
+      Beryl::CLI::Scan.resolve_write_target(nil, false, "inventory.yml", "h.aloli.fr").should be_nil
+    end
+
+    it "priorise --write=FILE sur --write" do
+      Beryl::CLI::Scan.resolve_write_target("/tmp/explicit.yml", true, "inv.yml", "h").should eq("/tmp/explicit.yml")
+    end
+
+    it "--write seul avec inventaire-fichier : ./hosts/<name>.yml" do
+      target = Beryl::CLI::Scan.resolve_write_target(nil, true, "./inventory.yml", "rails01.aloli.fr")
+      target.should eq("./hosts/rails01.aloli.fr.yml")
+    end
+
+    it "--write seul avec inventaire-dossier : <dir>/hosts/<name>.yml" do
+      Dir.mkdir_p("/tmp/beryl-scan-test-inv")
+      begin
+        target = Beryl::CLI::Scan.resolve_write_target(nil, true, "/tmp/beryl-scan-test-inv", "rails01.aloli.fr")
+        target.should eq("/tmp/beryl-scan-test-inv/hosts/rails01.aloli.fr.yml")
+      ensure
+        Dir.delete("/tmp/beryl-scan-test-inv") rescue nil
+      end
+    end
+  end
+end
+
+describe Beryl::Host do
+  describe "#rescue_host / #rescue_connection" do
+    it "utilise ovh.service_name pour un host OVH" do
+      host = Beryl::Host.new(
+        name: "rails01.aloli.fr",
+        provider: "ovh",
+        provider_config: {
+          "service_name" => YAML::Any.new("ns3156789.ip-51-83-6.eu"),
+          "ssh_key_name" => YAML::Any.new("philippe"),
+        },
+      )
+      host.rescue_host.should eq("ns3156789.ip-51-83-6.eu")
+      host.rescue_connection.host.should eq("ns3156789.ip-51-83-6.eu")
+    end
+
+    it "fallback sur le nom logique si pas de service_name OVH" do
+      host = Beryl::Host.new(name: "plain.aloli.fr", provider: "ovh")
+      host.rescue_host.should eq("plain.aloli.fr")
+    end
+
+    it "utilise le nom logique pour un provider non-OVH" do
+      host = Beryl::Host.new(name: "srv.aloli.fr", provider: "scaleway")
+      host.rescue_host.should eq("srv.aloli.fr")
+    end
+
+    it "utilise le nom logique si pas de provider" do
+      host = Beryl::Host.new(name: "x.aloli.fr")
+      host.rescue_host.should eq("x.aloli.fr")
+    end
+  end
 end

@@ -39,10 +39,38 @@ module Beryl
     )
     end
 
-    # Construit une connexion SSH prête à l'emploi vers cet hôte.
+    # Construit une connexion SSH prête à l'emploi vers cet hôte via
+    # son nom logique (typiquement un DNS custom, ex. `rails01.aloli.fr`).
+    # Utilisée après bootstrap quand le DNS pointe bien sur le serveur.
     def connection : SSH::Connection
       SSH::Connection.new(
         host: @name,
+        user: @user,
+        port: @port,
+        identity_file: @identity_file,
+      )
+    end
+
+    # Hostname SSH à utiliser pendant la phase rescue (avant que le DNS
+    # custom ne soit posé/propagé). Pour un host OVH avec service_name
+    # déclaré, on utilise le FQDN OVH (ex. `ns3156789.ip-51-83-6.eu`)
+    # qui est toujours résoluble. Fallback sur le nom logique sinon.
+    def rescue_host : String
+      if @provider == "ovh"
+        if sn = ovh_service_name
+          return sn
+        end
+      end
+      @name
+    end
+
+    # Connexion SSH pour la phase rescue. Utilise `rescue_host` (nom
+    # OVH pour un host OVH, sinon le nom logique). Évite les « ne
+    # résout pas en DNS » quand on opère sur un serveur dont le DNS
+    # custom n'est pas encore pointé.
+    def rescue_connection : SSH::Connection
+      SSH::Connection.new(
+        host: rescue_host,
         user: @user,
         port: @port,
         identity_file: @identity_file,

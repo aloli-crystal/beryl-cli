@@ -63,7 +63,8 @@ module Beryl::CLI::Scan
 
   def self.run(inventory_path : String, args : Array(String)) : Int32
     positional = [] of String
-    write_to : String? = nil
+    write_path : String? = nil # chemin explicite si --write=FILE
+    write_auto = false         # vrai si --write sans argument
     disks_flag : String? = nil
     raid_flag : String? = nil
     groups_flag : String? = nil
@@ -72,8 +73,14 @@ module Beryl::CLI::Scan
 
     parser = OptionParser.new do |p|
       p.banner = "USAGE : beryl scan <host> [options]\n\n" \
-                 "Se connecte au rescue, liste les disques, propose un YAML d'inventaire."
-      p.on("--write=FILE", "Écrit le YAML dans le fichier au lieu de stdout") { |v| write_to = File.expand_path(v, home: true) }
+                 "Se connecte au rescue, liste les disques, propose un YAML d'inventaire.\n" \
+                 "Sans --write : affiche le YAML sur stdout.\n" \
+                 "Avec --write seul : écrit dans hosts/<nom>.yml (mode arborescent).\n" \
+                 "Avec --write=FILE : écrit dans le chemin demandé."
+      # `--write` sans argument = auto-mode hosts/<name>.yml.
+      # `--write=FILE` = chemin explicite.
+      p.on("--write", "Écrit automatiquement dans hosts/<nom>.yml") { write_auto = true }
+      p.on("--write=FILE", "Écrit dans le fichier au chemin donné") { |v| write_path = File.expand_path(v, home: true) }
       p.on("--disks=LIST", "Disques à inclure (liste séparée par virgules, ex: sda,sdb). Non-interactif.") { |v| disks_flag = v }
       p.on("--raid=MODE", "Mode ZFS (stripe|mirror|raidz|raidz2|raidz3). Non-interactif.") { |v| raid_flag = v }
       p.on("--groups=LIST", "Liste de groupes à déclarer (ex: aloli-admin,rails-servers)") { |v| groups_flag = v }
@@ -97,9 +104,17 @@ module Beryl::CLI::Scan
 
     inventory = Beryl::Inventory.load(inventory_path)
     host = inventory.find(host_name)
-    conn = host.connection
+    conn = host.rescue_connection
 
-    log "connexion SSH à #{host.name} (user=#{conn.user}, port=#{conn.port})..."
+    # Log explicite du nom effectif utilisé pour la connexion. Si le
+    # host est OVH, on passe par le FQDN OVH (qui résout toujours)
+    # plutôt que par le nom custom qui peut ne pas encore être dans
+    # le DNS — c'est la correspondance « nom personnalisé = nom système ».
+    if conn.host == host.name
+      log "connexion SSH à #{host.name} (user=#{conn.user}, port=#{conn.port})..."
+    else
+      log "connexion SSH à #{host.name} (= #{conn.host} côté OVH, user=#{conn.user}, port=#{conn.port})..."
+    end
     disks = read_disks(conn)
     if disks.empty?
       STDERR.puts "beryl : aucun disque physique détecté sur #{host.name}."
@@ -121,8 +136,23 @@ module Beryl::CLI::Scan
 
     yaml = render_yaml(host, hostname, chosen_disks, raid, groups)
 
-    target = write_to
+    target = resolve_write_target(write_path, write_auto, inventory_path, host.name)
     if target
+      # Garde-fou : si le fichier existe déjà, on demande confirmation
+      # (ou on refuse si --non-interactive). Évite d'écraser un host
+      # existant que l'opérateur aurait personnalisé à la main.
+      if File.exists?(target)
+        if non_interactive
+          STDERR.puts "beryl : #{target} existe déjà (refus en --non-interactive, ajoutez --force si besoin)."
+          return EXIT_USAGE
+        end
+        answer = ask("#{target} existe déjà. Écraser ? [o/N] : ", default: "N")
+        unless answer.downcase.starts_with?("o") || answer.downcase.starts_with?("y")
+          STDERR.puts "beryl : abandon, fichier conservé."
+          return EXIT_ABORTED
+        end
+      end
+      Dir.mkdir_p(File.dirname(target))
       File.write(target, yaml)
       log "YAML écrit dans #{target}"
       log "Relisez et éditez à la main si besoin, puis lancez : beryl bootstrap #{host.name}"
@@ -368,6 +398,33 @@ module Beryl::CLI::Scan
   # Nom court d'un hôte (première partie avant le premier `.`).
   def self.default_hostname(fqdn : String) : String
     fqdn.split('.').first
+  end
+
+  # Résout le chemin où écrire le YAML en fonction des flags :
+  #  - `--write=FILE` : chemin explicite fourni par l'opérateur
+  #  - `--write` seul : hosts/<name>.yml dans le dossier inventaire
+  #    (si c'est un dossier) ou dans ./hosts/<name>.yml (si inventory.yml)
+  #  - aucun flag : nil (affichage stdout)
+  def self.resolve_write_target(
+    explicit_path : String?,
+    auto_mode : Bool,
+    inventory_path : String,
+    host_name : String,
+  ) : String?
+    return explicit_path if explicit_path
+    return nil unless auto_mode
+
+    # Mode auto : cible `hosts/<name>.yml`. Si l'inventaire est un
+    # dossier, on écrit dedans. Sinon (fichier unique `inventory.yml`),
+    # on écrit à côté, dans ./hosts/<name>.yml — ce qui amorce
+    # proprement le passage au mode arborescent.
+    base_dir = if File.directory?(inventory_path)
+                 inventory_path
+               else
+                 dir = File.dirname(inventory_path)
+                 dir.empty? ? "." : dir
+               end
+    File.join(base_dir, "hosts", "#{host_name}.yml")
   end
 
   # Prompt stdin → chaîne ou valeur par défaut si entrée vide.
