@@ -5,7 +5,18 @@ module Beryl::Providers
   # gérées au niveau IAM (pas par projet) et identifiées par un UUID +
   # un nom humain — on expose les noms dans `list_ssh_keys` mais on
   # écrit les UUIDs dans le YAML (c'est ce que consomme l'API `create`).
+  #
+  # Le client Scaleway est injectable via le constructeur pour les
+  # tests. En production, on laisse le défaut et `client` résout à la
+  # demande via `Credentials.scaleway_client`.
   class Scaleway < Beryl::Provider
+    def initialize(@injected_client : ScalewayApi::Client? = nil)
+    end
+
+    private def client : ScalewayApi::Client
+      @injected_client || Beryl::CLI::Credentials.scaleway_client
+    end
+
     def name : String
       "scaleway"
     end
@@ -20,7 +31,7 @@ module Beryl::Providers
     end
 
     def list_ssh_keys : Array(Beryl::SshKeyInfo)
-      Beryl::CLI::Credentials.scaleway_client.ssh_keys.list.map do |k|
+      client.ssh_keys.list.map do |k|
         # Côté Scaleway, l'id stable est l'UUID (c'est ce qu'attendent
         # les appels `create` ou `install`). On le met dans `id` et
         # on garde le nom lisible dans `name` pour l'affichage.
@@ -40,7 +51,7 @@ module Beryl::Providers
 
     private def resolve_key_uuid(key_id : String) : String
       return key_id if key_id =~ /\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/i
-      keys = Beryl::CLI::Credentials.scaleway_client.ssh_keys.list
+      keys = client.ssh_keys.list
       match = keys.find { |k| k.name == key_id || k.id == key_id }
       raise "clé SSH Scaleway introuvable : #{key_id}. Disponibles : #{keys.map(&.name).join(", ")}" unless match
       match.id
@@ -72,11 +83,10 @@ module Beryl::Providers
     end
 
     def owns?(host_name : String) : Bool
-      return false unless available?
+      return false unless @injected_client || available?
       # Scaleway baremetal.servers.list renvoie des Server avec `id`
       # (UUID) et `name` (libre). On matche sur les deux pour accepter
       # `beryl rescue <uuid>` comme `beryl rescue mon-serveur-custom`.
-      client = Beryl::CLI::Credentials.scaleway_client
       client.baremetal.servers.list.any? { |s| s.id == host_name || s.name == host_name }
     rescue
       false
