@@ -3,6 +3,7 @@ require "socket"
 require "ovh-api/ovh_api"
 require "scaleway-api/scaleway_api"
 require "../config"
+require "../providers"
 require "../ssh"
 require "./credentials"
 
@@ -48,12 +49,14 @@ module Beryl::CLI::Rescue
     wait = true
     timeout = DEFAULT_SSH_WAIT_TIMEOUT
     domain_hint : String? = nil
+    provider_override : String? = nil
     dry_run = false
     positional = [] of String
 
     parser = OptionParser.new do |p|
       p.banner = "USAGE : beryl rescue <host> [options]"
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine (sinon déduit du FQDN)") { |v| domain_hint = v }
+      p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (ex: ovh, scaleway)") { |v| provider_override = v }
       p.on("-n", "--dry-run", "Affiche l'appel API sans le déclencher") { dry_run = true }
       p.on("--no-wait", "Ne pas attendre le retour SSH après l'appel API") { wait = false }
       p.on("-t MIN", "--timeout=MIN", "Timeout SSH en minutes (défaut : #{DEFAULT_SSH_WAIT_TIMEOUT.total_minutes.to_i})") { |v| timeout = v.to_i.minutes }
@@ -77,7 +80,8 @@ module Beryl::CLI::Rescue
       return EXIT_DNS
     end
 
-    provider = host.provider
+    # Résolution du provider : --provider CLI gagne, sinon celui du merge.
+    provider = provider_override || host.provider
     case provider
     when "ovh"
       # Validation précoce avant le cleanup known_hosts
@@ -103,10 +107,11 @@ module Beryl::CLI::Rescue
       Beryl.clean_known_hosts_for(host)
       trigger_scaleway(host, scaleway_client_factory)
     when nil
-      STDERR.puts "beryl : provider non précisé pour #{host.fqdn} (déclarez `provider: ovh` dans #{host.domain.source_path})"
+      report_provider_unresolved(host)
       return EXIT_BAD_PROVIDER
     else
-      STDERR.puts "beryl : provider « #{provider} » inconnu (attendu : ovh, scaleway)"
+      known = Beryl::Providers.all.map(&.name).sort
+      STDERR.puts "beryl : provider « #{provider} » inconnu (attendu : #{known.join(", ")})"
       return EXIT_BAD_PROVIDER
     end
 
@@ -212,5 +217,23 @@ module Beryl::CLI::Rescue
 
   private def self.log(message : String) : Nil
     STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl rescue] #{message}"
+  end
+
+  # Message d'erreur pour quand `provider:` n'est pas résolu. Liste les
+  # providers compilés dans ce build de beryl, ainsi que les blocs
+  # providers déjà présents dans la config mergée — ça aide à voir
+  # « j'ai un bloc `ovh:` mais pas de `provider:` ».
+  private def self.report_provider_unresolved(host : Beryl::Config::ResolvedHost) : Nil
+    known = Beryl::Providers.all.map(&.name).sort
+    blocks = host.present_provider_blocks
+    STDERR.puts "beryl : provider non résolu pour #{host.fqdn}."
+    STDERR.puts "  Déclarez `provider: <nom>` dans #{host.domain.source_path} (défaut du domaine),"
+    STDERR.puts "  ou dans le fichier host, ou passez `--provider=<nom>` sur la ligne de commande."
+    STDERR.puts "  Providers compilés dans ce build : #{known.join(", ")}."
+    if blocks.empty?
+      STDERR.puts "  Aucun bloc provider trouvé dans la config mergée."
+    else
+      STDERR.puts "  Blocs providers présents dans la config mergée : #{blocks.join(", ")}."
+    end
   end
 end

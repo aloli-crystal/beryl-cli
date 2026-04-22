@@ -157,4 +157,37 @@ describe Beryl::Config::ResolvedHost do
     rh.connection.port.should eq(22)
     rh.connection.user.should eq("root")
   end
+
+  describe "#provider" do
+    it "hérite `provider:` du domaine même pour un host virtuel (serveur neuf)" do
+      # Cas premier : beryl rescue <nom_externe> --domain=aloli.net où
+      # le domaine déclare `provider: ovh` et pas de fichier host.
+      rh = Beryl::Config::Root.load(fixture("multi-provider-domain")).resolve(
+        "ns3156789.ip-51-83-6.eu", domain_hint: "aloli.net")
+      rh.virtual.should be_true
+      rh.provider.should eq("ovh")
+    end
+
+    it "retourne nil si aucun niveau (default, domaine, host) ne déclare provider:" do
+      rh = Beryl::Config::Root.load(fixture("minimal-domain")).resolve(
+        "serveur-neuf", domain_hint: "aloli.net")
+      rh.provider.should be_nil
+    end
+  end
+
+  describe "#present_provider_blocks" do
+    it "liste les blocs providers présents dans le merged (ovh + scaleway)" do
+      rh = Beryl::Config::Root.load(fixture("multi-provider-domain")).resolve(
+        "serveur-neuf", domain_hint: "aloli.net")
+      rh.present_provider_blocks.sort.should eq(%w[ovh scaleway])
+    end
+
+    it "vide si aucun bloc provider dans la config mergée" do
+      # with-defaults-and-env n'a que ssh_keys + freebsd, aucun bloc ovh/scaleway.
+      rh = Beryl::Config::Root.load(fixture("with-defaults-and-env")).resolve(
+        "loulou.aloli.net",
+      )
+      rh.present_provider_blocks.should be_empty
+    end
+  end
 end

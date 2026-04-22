@@ -446,9 +446,21 @@ module Beryl::CLI::Init
   # (ssh_keys:) et clé SSH chez le provider (<provider>.ssh_key_name).
   private def self.render_domain_yaml(provider : Beryl::Provider, key_id : String, admin_key : String) : String
     String.build do |io|
-      io << "# Identité du domaine — clé SSH côté " << provider.display_name
+      io << "# Identité du domaine — provider par défaut + clé SSH côté " << provider.display_name
       io << "\n# (injectée au rescue par l'API) + clé(s) SSH des users (posées\n"
-      io << "# dans ~<user>/.ssh/authorized_keys par beryl bootstrap + apply).\n\n"
+      io << "# dans ~<user>/.ssh/authorized_keys par beryl bootstrap + apply).\n"
+      io << "#\n"
+      io << "# `provider:` est obligatoire ici : il permet à beryl d'opérer\n"
+      io << "# sur un serveur pas encore déclaré dans un fichier host dédié\n"
+      io << "# (cas typique : `beryl rescue <nom_hébergeur> --domain=<domaine>`)\n"
+      io << "# où le merge est juste _default.yml + <domaine>.yml.\n"
+      io << "#\n"
+      io << "# Ajoutez d'autres blocs providers (`scaleway:`, `hetzner:`…) en\n"
+      io << "# plus de `" << provider.name << ":` si ce domaine héberge du multi-cloud.\n"
+      io << "# Pour surcharger ce défaut sur un host ou une commande :\n"
+      io << "#   - dans le YAML host :       `provider: scaleway`\n"
+      io << "#   - en CLI (rescue/bootstrap/scan/boot-hd) : `--provider=scaleway`\n\n"
+      io << "provider: " << provider.name << "\n\n"
       io << provider.name << ":\n"
       fragment = provider.ssh_key_yaml_fragment(key_id)
       fragment.each do |k, v|

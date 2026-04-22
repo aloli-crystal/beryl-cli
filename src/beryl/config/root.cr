@@ -298,6 +298,15 @@ module Beryl::Config
       @merged[YAML::Any.new("provider")]?.try(&.as_s?)
     end
 
+    # Noms des blocs providers présents dans le merged (ex: un YAML qui
+    # a `ovh:` et `scaleway:` → ["ovh", "scaleway"]). Utile pour les
+    # messages d'erreur quand `provider:` n'est pas déclaré : on liste
+    # les providers déjà configurés côté data pour aider au diagnostic.
+    def present_provider_blocks : Array(String)
+      known = %w[ovh scaleway hetzner latitude cherry phoenixnap vultr leaseweb]
+      known.select { |name| @merged.has_key?(YAML::Any.new(name)) }
+    end
+
     # Accès générique à un champ du bloc `<provider>:` (service_name,
     # server_id, zone, etc.).
     def provider_field(provider_name : String, field : String) : String?

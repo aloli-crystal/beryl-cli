@@ -20,6 +20,7 @@ module Beryl::CLI::Bootstrap
 
   def self.run(config_root : String, args : Array(String)) : Int32
     domain_hint : String? = nil
+    provider_override : String? = nil
     iso_url_override : String? = nil
     freebsd_version = "15.0"
     dry_run = false
@@ -29,6 +30,7 @@ module Beryl::CLI::Bootstrap
     parser = OptionParser.new do |p|
       p.banner = "USAGE : beryl bootstrap <host> [options]"
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
+      p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (ex: ovh, scaleway)") { |v| provider_override = v }
       p.on("-n", "--dry-run", "Affiche le plan d'install sans lancer QEMU/bsdinstall") { dry_run = true }
       p.on("-f", "--force", "Bypass le précheck (disques déclarés != physiques)") { force = true }
       p.on("-i URL", "--iso-url=URL", "URL mfsBSD (override)") { |v| iso_url_override = v }
@@ -158,8 +160,10 @@ module Beryl::CLI::Bootstrap
 
     Beryl.clean_known_hosts_for(host)
 
+    # Résolution du provider : --provider CLI gagne, sinon celui du merge.
+    effective_provider = provider_override || host.provider
     ovh_client = nil
-    if host.provider == "ovh" && host.ovh_service_name
+    if effective_provider == "ovh" && host.ovh_service_name
       ovh_client = Beryl::CLI::Credentials.ovh_client
     end
 

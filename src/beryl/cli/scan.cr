@@ -61,6 +61,7 @@ module Beryl::CLI::Scan
     raid_flag : String? = nil
     hostname_flag : String? = nil
     zone_flag : String? = nil
+    provider_override : String? = nil
     dns_setup = false
     dry_run = false
     domain_hint : String? = nil
@@ -70,6 +71,7 @@ module Beryl::CLI::Scan
     parser = OptionParser.new do |p|
       p.banner = "USAGE : beryl scan <host> [options]"
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
+      p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (ex: ovh, scaleway)") { |v| provider_override = v }
       p.on("-n", "--dry-run", "Affiche ce qui serait fait sans écrire ni appeler d'API") { dry_run = true }
       p.on("-w", "--write", "Écrit ~/.beryl/<domaine>/<nom>.yml") { write_auto = true }
       p.on("-W PATH", "--write-to=PATH", "Écrit dans le chemin explicite") { |v| write_path = File.expand_path(v, home: true) }
@@ -125,7 +127,7 @@ module Beryl::CLI::Scan
               default_hostname(host.fqdn)
             end
 
-    yaml = render_yaml(host, short, chosen, raid)
+    yaml = render_yaml(host, short, chosen, raid, provider_override: provider_override)
     target = resolve_write_target(write_path, write_auto, config_root, host.domain_name, short)
 
     if target
@@ -298,15 +300,27 @@ module Beryl::CLI::Scan
   # Niveau RAID en notation numérique (0=stripe, 1=mirror, 5=raidz,
   # 6=raidz2, 7=raidz3, 10=mirror_stripe) — traduit en mode ZFS par
   # `Beryl::Config::Zpool.zfs_mode` au moment du bootstrap.
-  def self.render_yaml(host : Beryl::Config::ResolvedHost, short : String, disks : Array(Disk), raid : Int32) : String
+  def self.render_yaml(
+    host : Beryl::Config::ResolvedHost,
+    short : String,
+    disks : Array(Disk),
+    raid : Int32,
+    provider_override : String? = nil,
+  ) : String
     String.build do |io|
       io << "# Généré par `beryl scan` le " << Beryl.format_timestamp(Time.local) << '\n'
       io << "# Mergé avec _default.yml + " << host.domain.source_path << '\n'
       io << "# Relisez avant `beryl bootstrap " << short << "." << host.domain_name << "`.\n\n"
-      if p = host.provider
-        io << "provider: " << p << '\n'
-        if p == "ovh" && (sn = host.ovh_service_name)
-          io << p << ":\n  service_name: " << sn << '\n'
+      # Résolution du provider : --provider CLI gagne, sinon celui du merge.
+      # Le provider effectif est toujours écrit dans le fichier host :
+      # ça fige l'état au moment du scan (plus lisible qu'un fichier
+      # host qui hérite silencieusement) et évite les surprises si le
+      # défaut du domaine change plus tard.
+      effective_provider = provider_override || host.provider
+      if effective_provider
+        io << "provider: " << effective_provider << '\n'
+        if effective_provider == "ovh" && (sn = host.ovh_service_name)
+          io << "ovh:\n  service_name: " << sn << '\n'
         end
       end
       io << "\nfreebsd:\n"

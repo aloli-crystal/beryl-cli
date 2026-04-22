@@ -1,0 +1,10 @@
+provider: ovh
+
+ovh:
+  ssh_key_name: philippe.aloli.fr
+
+scaleway:
+  zone: fr-par-2
+
+ssh_keys:
+  - ssh-ed25519 AAAA philippe@aloli.fr

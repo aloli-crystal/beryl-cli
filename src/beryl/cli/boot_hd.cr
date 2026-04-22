@@ -33,12 +33,14 @@ module Beryl::CLI::BootHd
     user = "admin"
     timeout = DEFAULT_SSH_WAIT_TIMEOUT
     domain_hint : String? = nil
+    provider_override : String? = nil
     dry_run = false
     positional = [] of String
 
     parser = OptionParser.new do |p|
       p.banner = "USAGE : beryl boot-hd <host> [options]"
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
+      p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (boot-hd n'est câblé que pour ovh)") { |v| provider_override = v }
       p.on("-n", "--dry-run", "Affiche l'appel API sans le déclencher") { dry_run = true }
       p.on("--no-wait", "Ne pas attendre le retour SSH") { wait = false }
       p.on("-u USER", "--user=USER", "User pour le test SSH (défaut : admin)") { |v| user = v }
@@ -58,8 +60,10 @@ module Beryl::CLI::BootHd
     host = root.resolve(host_name, domain_hint: domain_hint)
     root.env_file.apply_to_env(host.domain_name)
 
-    unless host.provider == "ovh"
-      STDERR.puts "beryl : boot-hd n'est implémenté que pour provider `ovh` (#{host.fqdn} : #{host.provider || "inconnu"})"
+    # Résolution du provider : --provider CLI gagne, sinon celui du merge.
+    effective_provider = provider_override || host.provider
+    unless effective_provider == "ovh"
+      STDERR.puts "beryl : boot-hd n'est implémenté que pour provider `ovh` (#{host.fqdn} : #{effective_provider || "inconnu"})"
       return EXIT_BAD_PROVIDER
     end
 
