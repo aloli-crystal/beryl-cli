@@ -48,6 +48,13 @@ module Beryl::CLI::Apply
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
     host.apply_all_credentials_to_env!
 
+    # Apply est FreeBSD-only dans ce build. L'architecture ADR-014
+    # prévoit des `Os::Debian`, `Os::Ubuntu`, etc. — pas câblés ici.
+    unless host.os == "freebsd"
+      STDERR.puts "beryl : apply n'est implémenté que pour os: freebsd (host : #{host.os})."
+      return EXIT_USAGE
+    end
+
     conn = host.connection
     log "cible : #{Beryl.format_ssh_target(host)} (user SSH : #{conn.user})"
 

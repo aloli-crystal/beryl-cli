@@ -52,6 +52,15 @@ module Beryl::CLI::Bootstrap
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
     host.apply_all_credentials_to_env!
 
+    # Bootstrap est FreeBSD-only dans ce build. L'architecture prévoit
+    # les autres OS (ADR-014) mais seul le chemin mfsBSD-in-QEMU +
+    # bsdinstall est implémenté aujourd'hui.
+    unless host.os == "freebsd"
+      STDERR.puts "beryl : bootstrap n'est implémenté que pour os: freebsd (host : #{host.os})."
+      STDERR.puts "        Les OS Debian/Ubuntu/Alpine sont sur la roadmap (ADR-014)."
+      return EXIT_USAGE
+    end
+
     # Construction de la connexion SSH rescue (utilisée par le
     # précheck ET le bootstrap).
     rescue_conn = Beryl::SSH::Connection.new(
