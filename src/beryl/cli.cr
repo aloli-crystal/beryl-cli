@@ -55,7 +55,7 @@ module Beryl::CLI
         puts p
         exit(0)
       end
-      p.on("--version", "Affiche la version de beryl") do
+      p.on("-v", "--version", "Affiche la version de beryl") do
         puts "beryl #{Beryl::VERSION}"
         exit(0)
       end
