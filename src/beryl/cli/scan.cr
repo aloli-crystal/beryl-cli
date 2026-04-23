@@ -197,6 +197,9 @@ module Beryl::CLI::Scan
       STDERR.puts "--- YAML suggéré (placez dans #{config_root}/#{host.account_name}/#{host.domain_name}/#{short}.yml) ---"
       print yaml
       STDERR.puts "--- fin ---"
+      STDERR.puts
+      STDERR.puts "Pour écrire ce YAML automatiquement à l'emplacement indiqué :"
+      STDERR.puts "  #{rerun_with_write(args, short)}"
     end
     EXIT_OK
   rescue ex : Beryl::Config::Root::HostNotFound
@@ -400,6 +403,24 @@ module Beryl::CLI::Scan
     return explicit if explicit
     return nil unless auto
     File.join(config_root, account_name, domain_name, "#{short}.yml")
+  end
+
+  # Construit la commande à proposer quand beryl scan affiche un YAML
+  # en mode suggestion (pas de --write) : même args, mais en ajoutant
+  # `--write` et, si l'opérateur n'a pas passé `--hostname`, le short
+  # résolu interactivement pour éviter le re-prompt.
+  def self.rerun_with_write(args : Array(String), short : String) : String
+    extras = [] of String
+    unless args.any? { |a| a.starts_with?("--hostname") || a == "-H" }
+      extras << "--hostname=#{short}"
+    end
+    unless args.any? { |a|
+             a == "--write" || a == "-w" ||
+             a.starts_with?("--write-to") || a == "-W"
+           }
+      extras << "--write"
+    end
+    Beryl.rerun_hint("scan", args, extras)
   end
 
   # Flux --dns : prompt nom + zone, calcule le plan, applique.

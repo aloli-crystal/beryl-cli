@@ -73,4 +73,47 @@ describe Beryl::CLI::Scan do
       result.should be_nil
     end
   end
+
+  describe ".rerun_with_write" do
+    # Le mode suggestion affiche le YAML à l'écran et propose la commande
+    # à relancer pour que beryl écrive lui-même le fichier. Standard
+    # Aloli : toute interaction qui suggère un état suivant doit
+    # proposer la commande précise à copier-coller.
+    it "ajoute --write quand il n'est pas déjà dans les args" do
+      args = ["aloli/ns3156789.ip-51-83-6.eu", "--hostname=loulou", "--raid=0"]
+      result = Beryl::CLI::Scan.rerun_with_write(args, "loulou")
+      result.should contain("--write")
+      result.should contain("aloli/ns3156789.ip-51-83-6.eu")
+      result.should contain("--hostname=loulou")
+      result.should contain("--raid=0")
+    end
+
+    it "n'ajoute pas --hostname si déjà présent (forme longue)" do
+      args = ["host", "--hostname=loulou"]
+      Beryl::CLI::Scan.rerun_with_write(args, "loulou").should_not contain("--hostname=loulou --hostname=loulou")
+    end
+
+    it "n'ajoute pas --hostname si déjà présent (forme courte -H)" do
+      args = ["host", "-H", "loulou"]
+      result = Beryl::CLI::Scan.rerun_with_write(args, "loulou")
+      # La forme courte d'origine reste, pas de conversion vers --hostname
+      result.scan("--hostname=").size.should eq(0)
+    end
+
+    it "ajoute --hostname=<short> quand absent (évite le re-prompt)" do
+      args = ["host", "--raid=0"]
+      Beryl::CLI::Scan.rerun_with_write(args, "loulou").should contain("--hostname=loulou")
+    end
+
+    it "ne duplique pas --write si déjà passé" do
+      args = ["host", "--write"]
+      result = Beryl::CLI::Scan.rerun_with_write(args, "loulou")
+      result.scan("--write").size.should eq(1)
+    end
+
+    it "retire --dry-run / -n s'ils étaient présents" do
+      args = ["host", "--dry-run"]
+      Beryl::CLI::Scan.rerun_with_write(args, "loulou").should_not contain("--dry-run")
+    end
+  end
 end
