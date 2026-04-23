@@ -157,7 +157,6 @@ module Beryl::Providers
 
       STDERR.puts "[beryl init] OVH : ouvrez cette URL dans votre navigateur pour valider :"
       STDERR.puts "             #{result.validation_url}"
-      Beryl.open_in_browser(result.validation_url)
 
       if interactive
         STDERR.print "[beryl init] OVH : Tapez Entrée une fois la clé validée côté OVH... "

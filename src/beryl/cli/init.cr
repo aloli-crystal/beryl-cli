@@ -217,17 +217,17 @@ module Beryl::CLI::Init
       next if non_interactive
 
       # Intro une seule fois, la première fois qu'on prompt. On affiche
-      # aussi les détails d'aide du provider s'il en fournit
-      # (ex: liste des permissions Scaleway, liste des routes OVH
-      # qui seront cochées automatiquement), puis on ouvre l'URL
-      # d'aide dans le navigateur pour raccourcir le chemin.
+      # l'URL d'aide + éventuels détails du provider (permissions IAM
+      # Scaleway, routes OVH à autoriser). C'est l'utilisateur qui
+      # ouvre l'URL dans le navigateur de son choix — beryl n'ouvre
+      # rien automatiquement (règle Aloli : l'ouverture d'applications
+      # est une prérogative de l'utilisateur, sauf contre-ordre).
       if prompted.empty? && picked_up_from_shell.empty?
         STDERR.puts "[beryl init] Configuration #{provider.display_name} pour `#{zone}`"
         STDERR.puts "             Aide : #{provider.credentials_help_url}"
         if details = provider.credentials_help_details
           details.each_line { |line| STDERR.puts "             #{line}" }
         end
-        Beryl.open_in_browser(provider.credentials_help_url)
       end
       prompt = "  #{var.name}"
       prompt += " (optionnel)" if var.optional
