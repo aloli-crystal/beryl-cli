@@ -28,3 +28,4 @@ inventory.local.yml
 
 # macOS
 .DS_Store
+*.adoc.pdf
