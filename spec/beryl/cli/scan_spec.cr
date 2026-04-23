@@ -41,4 +41,36 @@ describe Beryl::CLI::Scan do
       yaml.should contain("provider: hetzner")
     end
   end
+
+  describe ".resolve_write_target" do
+    # Règle ADR-014 : le chemin d'un host YAML est
+    # `<config_root>/<société>/<domaine>/<host>.yml`. Le segment
+    # société est obligatoire (sinon on perd la multi-société).
+    it "construit <config_root>/<société>/<domaine>/<host>.yml en mode auto" do
+      result = Beryl::CLI::Scan.resolve_write_target(
+        explicit: nil, auto: true,
+        config_root: "/tmp/.beryl", account_name: "aloli",
+        domain_name: "aloli.net", short: "loulou",
+      )
+      result.should eq("/tmp/.beryl/aloli/aloli.net/loulou.yml")
+    end
+
+    it "retourne le chemin explicite quand fourni (write_path gagne)" do
+      result = Beryl::CLI::Scan.resolve_write_target(
+        explicit: "/custom/path.yml", auto: true,
+        config_root: "/tmp/.beryl", account_name: "aloli",
+        domain_name: "aloli.net", short: "loulou",
+      )
+      result.should eq("/custom/path.yml")
+    end
+
+    it "retourne nil quand ni --write ni --write-to ne sont passés" do
+      result = Beryl::CLI::Scan.resolve_write_target(
+        explicit: nil, auto: false,
+        config_root: "/tmp/.beryl", account_name: "aloli",
+        domain_name: "aloli.net", short: "loulou",
+      )
+      result.should be_nil
+    end
+  end
 end
