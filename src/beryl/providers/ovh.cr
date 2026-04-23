@@ -170,9 +170,44 @@ module Beryl::Providers
         STDERR.puts "             Elle sera utilisable une fois validée côté OVH."
       end
 
+      # Interroge OVH pour confirmer la validation et afficher la
+      # date d'expiration. Si l'appel échoue (clé pas encore validée,
+      # API qui hoquette…), on continue — la clé est déjà stockée,
+      # l'info d'expiration n'est qu'un confort.
+      report_credential_expiration(app_key, app_secret, endpoint, result.consumer_key)
+
       updated = env.dup
       updated["OVH_CONSUMER_KEY"] = result.consumer_key
       updated
+    end
+
+    # Fait un `GET /auth/currentCredential` avec la nouvelle consumer
+    # key et affiche la durée de validité restante. Silencieux sur
+    # erreur (la clé peut être en `pendingValidation` si l'utilisateur
+    # a tapé Entrée trop vite, l'API OVH peut hoqueter, etc.) — on ne
+    # bloque pas le flux pour une info annexe.
+    private def report_credential_expiration(
+      app_key : String,
+      app_secret : String,
+      endpoint : String,
+      consumer_key : String,
+    ) : Nil
+      signed_client = OvhApi::Client.new(
+        application_key: app_key,
+        application_secret: app_secret,
+        consumer_key: consumer_key,
+        endpoint: endpoint_symbol(endpoint),
+      )
+      info = signed_client.auth.current_credential
+      if days = info.days_until_expiration
+        date = info.expiration.not_nil!.to_s("%d/%m/%Y")
+        STDERR.puts "[beryl init] OVH : consumer key valide pendant #{days} jour(s) (jusqu'au #{date})."
+        STDERR.puts "             Relancez `beryl init ovh --regen-credentials` pour renouveler."
+      else
+        STDERR.puts "[beryl init] OVH : consumer key en validité illimitée."
+      end
+    rescue
+      # Silencieux : info annexe, pas de friction pour l'utilisateur.
     end
 
     # Convertit la String `OVH_ENDPOINT` en Symbol attendu par
