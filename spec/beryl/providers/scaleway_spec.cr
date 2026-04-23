@@ -85,4 +85,29 @@ describe Beryl::Providers::Scaleway do
       optional.should contain("SCW_DEFAULT_PROJECT_ID")
     end
   end
+
+  describe "#required_permissions" do
+    it "liste les permission sets IAM à cocher dans la console" do
+      perms = Beryl::Providers::Scaleway.new.required_permissions
+      perms.should contain("BareMetalFullAccess")
+      perms.should contain("DomainsDNSFullAccess")
+      perms.should contain("IAMReadOnly")
+    end
+  end
+
+  describe "#credentials_help_details" do
+    it "affiche les permissions à cocher pour l'opérateur" do
+      details = Beryl::Providers::Scaleway.new.credentials_help_details.not_nil!
+      details.should contain("BareMetalFullAccess")
+      details.should contain("Secret Key")
+    end
+  end
+
+  describe "#bootstrap_credentials_if_needed" do
+    it "no-op par défaut (Scaleway n'a pas d'auto-gen)" do
+      env = {"SCW_SECRET_KEY" => "abc"}
+      result = Beryl::Providers::Scaleway.new.bootstrap_credentials_if_needed(env)
+      result.should eq(env)
+    end
+  end
 end

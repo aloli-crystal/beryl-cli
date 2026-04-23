@@ -63,6 +63,38 @@ module Beryl
     # autre onglet.
     abstract def credentials_help_url : String
 
+    # Détails d'aide supplémentaires à afficher pendant `beryl init`.
+    # Typiquement la liste exhaustive des permissions/routes que beryl
+    # va appeler, pour que l'opérateur puisse les cocher dans le
+    # formulaire du panel. Retourne nil si pas de détails particuliers.
+    def credentials_help_details : String?
+      nil
+    end
+
+    # Hook appelé par `beryl init` après que les variables de base
+    # (app key, secret, etc.) sont présentes dans `env`. Permet au
+    # provider de compléter les credentials via un flux spécifique
+    # (ex: OVH — générer une consumer key via `POST /auth/credential`
+    # avec la liste des access rules exactes).
+    #
+    # Le hook doit :
+    #   - retourner `env` éventuellement enrichi de nouvelles paires
+    #     clé/valeur (ex: OVH_CONSUMER_KEY)
+    #   - être IDEMPOTENT : si la credential dérivée est déjà là et
+    #     valide, et que `force_regen` est false, ne rien faire.
+    #   - respecter `interactive` : en non-interactif, ne pas prompter
+    #     et lever explicitement si une saisie était indispensable.
+    #
+    # Par défaut : no-op (Scaleway n'a pas d'auto-gen, il se contente
+    # de `credentials_help_details` pour indiquer quoi cocher à la main).
+    def bootstrap_credentials_if_needed(
+      env : Hash(String, String),
+      force_regen : Bool = false,
+      interactive : Bool = true,
+    ) : Hash(String, String)
+      env
+    end
+
     # Vrai si ce provider héberge le serveur identifié par `host_name`.
     # Conservé pour compat (ex: diagnostics). La résolution d'hôte
     # n'en a plus besoin : elle passe par suffix-match et recherche

@@ -52,11 +52,53 @@ describe Beryl::Providers::Ovh do
   end
 
   describe "#credentials_env_vars" do
-    it "liste les 3 variables requises + ENDPOINT optionnel" do
+    it "APP_KEY + APP_SECRET sont obligatoires, CONSUMER_KEY et ENDPOINT optionnels" do
+      # CONSUMER_KEY est marquée optional : beryl init la génère
+      # automatiquement via le hook `bootstrap_credentials_if_needed`
+      # (POST /auth/credential). ENDPOINT a un défaut `eu`.
       vars = Beryl::Providers::Ovh.new.credentials_env_vars
       required = vars.reject(&.optional).map(&.name)
-      required.should eq(["OVH_APPLICATION_KEY", "OVH_APPLICATION_SECRET", "OVH_CONSUMER_KEY"])
+      required.should eq(["OVH_APPLICATION_KEY", "OVH_APPLICATION_SECRET"])
+      vars.find { |v| v.name == "OVH_CONSUMER_KEY" }.not_nil!.optional.should be_true
       vars.find { |v| v.name == "OVH_ENDPOINT" }.not_nil!.optional.should be_true
+    end
+  end
+
+  describe "#required_access_rules" do
+    it "liste les routes OVH à injecter dans la consumer key générée" do
+      rules = Beryl::Providers::Ovh.new.required_access_rules
+      paths = rules.map { |r| r[:path] }
+      paths.should contain("/services/*")         # rename displayName
+      paths.should contain("/dedicated/server/*") # rescue/bootstrap/info
+      paths.should contain("/domain/zone/*")      # DNS forward
+      paths.should contain("/ip/*/reverse")       # DNS reverse
+    end
+  end
+
+  describe "#credentials_help_details" do
+    it "affiche les routes à autoriser dans le navigateur" do
+      details = Beryl::Providers::Ovh.new.credentials_help_details.not_nil!
+      details.should contain("Beryl générera la consumer key")
+      details.should contain("/services/*")
+    end
+  end
+
+  describe "#bootstrap_credentials_if_needed" do
+    it "ne fait rien si OVH_CONSUMER_KEY est déjà présente (idempotent)" do
+      env = {
+        "OVH_APPLICATION_KEY"    => "k",
+        "OVH_APPLICATION_SECRET" => "s",
+        "OVH_CONSUMER_KEY"       => "existing",
+      }
+      result = Beryl::Providers::Ovh.new.bootstrap_credentials_if_needed(env)
+      result["OVH_CONSUMER_KEY"].should eq("existing")
+    end
+
+    it "lève si APP_KEY ou APP_SECRET manquent" do
+      env = {} of String => String
+      expect_raises(Exception, /OVH_APPLICATION_KEY/) do
+        Beryl::Providers::Ovh.new.bootstrap_credentials_if_needed(env)
+      end
     end
   end
 end

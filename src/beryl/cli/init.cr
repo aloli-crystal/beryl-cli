@@ -34,6 +34,7 @@ module Beryl::CLI::Init
     force = false
     dry_run = false
     non_interactive = false
+    regen_credentials = false
     positional = [] of String
 
     parser = OptionParser.new do |p|
@@ -45,6 +46,7 @@ module Beryl::CLI::Init
       p.on("-n", "--dry-run", "Affiche les fichiers qui seraient créés sans rien écrire") { dry_run = true }
       p.on("-f", "--force", "Écrase les fichiers existants") { force = true }
       p.on("-N", "--non-interactive", "Aucune invite (tout via flags)") { non_interactive = true }
+      p.on("-r", "--regen-credentials", "Force la régénération des credentials dérivés (ex: OVH consumer key)") { regen_credentials = true }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
       p.unknown_args { |rest, _| positional = rest }
     end
@@ -75,8 +77,10 @@ module Beryl::CLI::Init
 
     # Étape 3 — Credentials du provider pour CE domaine. On garantit
     # qu'ils sont persistés dans `.env.yml[<zone>]`, peu importe leur
-    # provenance actuelle (shell, fichier, à saisir).
-    unless ensure_credentials_for(provider, zone, env_file, env_path, non_interactive, dry_run: dry_run)
+    # provenance actuelle (shell, fichier, à saisir). Si le provider
+    # expose un flux d'auto-génération (ex: OVH consumer key via
+    # /auth/credential), il est déclenché ici automatiquement.
+    unless ensure_credentials_for(provider, zone, env_file, env_path, non_interactive, regen_credentials, dry_run: dry_run)
       return EXIT_ABORTED
     end
 
@@ -182,6 +186,7 @@ module Beryl::CLI::Init
     env_file : Beryl::Config::EnvFile,
     env_path : String,
     non_interactive : Bool,
+    regen_credentials : Bool = false,
     dry_run : Bool = false,
   ) : Bool
     required = provider.credentials_env_vars.reject(&.optional)
@@ -211,10 +216,16 @@ module Beryl::CLI::Init
       # sinon on laisse manquante (on lèvera plus bas)
       next if non_interactive
 
-      # Intro une seule fois, la première fois qu'on prompt
+      # Intro une seule fois, la première fois qu'on prompt. On affiche
+      # aussi les détails d'aide du provider s'il en fournit
+      # (ex: liste des permissions Scaleway, liste des routes OVH
+      # qui seront cochées automatiquement).
       if prompted.empty? && picked_up_from_shell.empty?
         STDERR.puts "[beryl init] Configuration #{provider.display_name} pour `#{zone}`"
         STDERR.puts "             Aide : #{provider.credentials_help_url}"
+        if details = provider.credentials_help_details
+          details.each_line { |line| STDERR.puts "             #{line}" }
+        end
       end
       prompt = "  #{var.name}"
       prompt += " (optionnel)" if var.optional
@@ -225,7 +236,22 @@ module Beryl::CLI::Init
       prompted << var.name
     end
 
-    # Vérifie les requises
+    # Hook : le provider complète les credentials dérivables (OVH CK
+    # via /auth/credential par ex.). No-op pour les providers qui
+    # n'en ont pas besoin (Scaleway). Lève si les prérequis manquent.
+    begin
+      current = provider.bootstrap_credentials_if_needed(
+        current,
+        force_regen: regen_credentials,
+        interactive: !non_interactive,
+      )
+    rescue ex
+      STDERR.puts "beryl : échec de la génération automatique des credentials #{provider.display_name} — #{ex.message}"
+      return false
+    end
+
+    # Vérifie les requises (après le hook, pour tenir compte des
+    # vars que le hook a pu remplir).
     missing = required.map(&.name).reject { |n| current.has_key?(n) && !current[n].empty? }
     unless missing.empty?
       STDERR.puts "beryl : variables requises non fournies pour #{provider.display_name} : #{missing.join(", ")}"

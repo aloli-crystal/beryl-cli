@@ -61,9 +61,16 @@ module Beryl::Providers
           description: "Secret applicatif (donné une fois à la génération)",
           secret: true,
         ),
+        # OVH_CONSUMER_KEY est marquée `optional` côté prompt : elle
+        # n'est PAS demandée à l'utilisateur. Le hook
+        # `bootstrap_credentials_if_needed` la génère automatiquement
+        # via `POST /auth/credential` avec les access rules exactes,
+        # une fois que APP_KEY + APP_SECRET sont dispos. L'utilisateur
+        # n'a qu'à valider l'URL dans son navigateur.
         Beryl::EnvVarSpec.new(
           name: "OVH_CONSUMER_KEY",
-          description: "Consumer key (token utilisateur, validé dans le navigateur)",
+          description: "Consumer key (générée auto par beryl init)",
+          optional: true,
           secret: true,
         ),
         Beryl::EnvVarSpec.new(
@@ -76,18 +83,26 @@ module Beryl::Providers
     end
 
     def credentials_help_url : String
-      "https://eu.api.ovh.com/createToken/ (créez une application si vous n'en avez pas : https://eu.api.ovh.com/createApp/)"
+      "https://eu.api.ovh.com/createApp/ (pour générer l'APP_KEY + APP_SECRET initiaux)"
     end
 
-    # Routes OVH que beryl appelle. À cocher dans le formulaire
-    # `createToken/` côté OVH (ou dans le script de renouvellement
-    # automatique de la consumer key).
-    #
-    # Les `*` sont des wildcards supportés par OVH (pattern "tout
-    # sous ce préfixe"). Grouper par verbe HTTP comme le formulaire
-    # OVH l'exige. Mise à jour : ajout de `PUT /services/*` pour le
-    # rename displayName (a déménagé depuis /dedicated/server/* en
-    # avril 2026).
+    # Détails affichés pendant `beryl init` : beryl génère la consumer
+    # key automatiquement via `POST /auth/credential`, l'opérateur n'a
+    # donc qu'à cocher « autoriser » dans le navigateur. Les routes
+    # listées ci-dessous sont injectées automatiquement par le hook
+    # `bootstrap_credentials_if_needed` — documentation uniquement.
+    def credentials_help_details : String?
+      lines = [] of String
+      lines << "Beryl générera la consumer key lui-même avec ces droits :"
+      required_access_rules.each { |r| lines << "  #{r[:verb].ljust(5)} #{r[:path]}" }
+      lines << "Après création, ouvrez l'URL de validation dans le navigateur."
+      lines.join("\n")
+    end
+
+    # Routes OVH que beryl appelle. Injectées dans la `consumer_key`
+    # au moment de la création via `POST /auth/credential`. Les `*`
+    # sont des wildcards supportés par OVH (pattern "tout sous ce
+    # préfixe").
     def required_access_rules : Array({verb: String, path: String})
       [
         {verb: "GET", path: "/dedicated/server/*"},
@@ -101,6 +116,93 @@ module Beryl::Providers
         {verb: "POST", path: "/ip/*/reverse"},
         {verb: "PUT", path: "/services/*"}, # displayName rename (avril 2026)
       ]
+    end
+
+    # Génère la consumer key OVH si absente (ou si force_regen).
+    # Utilise `POST /auth/credential` du shard ovh-api 0.4.0 avec
+    # la liste exacte des access rules de `required_access_rules`.
+    #
+    # Flux utilisateur :
+    #   1. Requête API → retourne une URL de validation
+    #   2. Beryl ouvre le navigateur (macOS `open`, Linux `xdg-open`)
+    #   3. L'utilisateur clique « autoriser » dans OVH
+    #   4. Beryl attend une confirmation (Entrée)
+    #   5. La consumer_key est stockée dans env
+    def bootstrap_credentials_if_needed(
+      env : Hash(String, String),
+      force_regen : Bool = false,
+      interactive : Bool = true,
+    ) : Hash(String, String)
+      existing = env["OVH_CONSUMER_KEY"]?
+      return env if existing && !existing.empty? && !force_regen
+
+      app_key = env["OVH_APPLICATION_KEY"]?
+      app_secret = env["OVH_APPLICATION_SECRET"]?
+      endpoint = env["OVH_ENDPOINT"]? || "eu"
+      if app_key.nil? || app_key.empty? || app_secret.nil? || app_secret.empty?
+        raise "OVH_APPLICATION_KEY et OVH_APPLICATION_SECRET requis avant de générer la consumer key"
+      end
+
+      rules = required_access_rules.map do |r|
+        OvhApi::Endpoints::AccessRule.new(method: r[:verb], path: r[:path])
+      end
+
+      STDERR.puts "[beryl init] OVH : génération d'une consumer key avec #{rules.size} access rule(s)..."
+      temp_client = OvhApi::Client.new(
+        application_key: app_key,
+        application_secret: app_secret,
+        endpoint: endpoint_symbol(endpoint),
+      )
+      result = temp_client.auth.request_consumer_key(rules)
+
+      STDERR.puts "[beryl init] OVH : ouvrez cette URL dans votre navigateur pour valider :"
+      STDERR.puts "             #{result.validation_url}"
+      try_open_browser(result.validation_url)
+
+      if interactive
+        STDERR.print "[beryl init] OVH : Tapez Entrée une fois la clé validée côté OVH... "
+        STDERR.flush
+        STDIN.gets
+      else
+        STDERR.puts "[beryl init] OVH : --non-interactive → la clé est enregistrée telle quelle."
+        STDERR.puts "             Elle sera utilisable une fois validée côté OVH."
+      end
+
+      updated = env.dup
+      updated["OVH_CONSUMER_KEY"] = result.consumer_key
+      updated
+    end
+
+    # Convertit la String `OVH_ENDPOINT` en Symbol attendu par
+    # `OvhApi::Client`. Les String pures sont interprétées comme
+    # URLs par le shard, donc on doit mapper explicitement les noms
+    # courts vers leurs symboles.
+    private def endpoint_symbol(endpoint : String) : Symbol
+      case endpoint
+      when "eu"            then :eu
+      when "ca"            then :ca
+      when "us"            then :us
+      when "kimsufi_eu"    then :kimsufi_eu
+      when "kimsufi_ca"    then :kimsufi_ca
+      when "soyoustart_eu" then :soyoustart_eu
+      when "soyoustart_ca" then :soyoustart_ca
+      else
+        raise "OVH_ENDPOINT invalide : #{endpoint.inspect} (eu|ca|us|kimsufi_*|soyoustart_*)"
+      end
+    end
+
+    # Tente d'ouvrir une URL dans le navigateur de l'utilisateur.
+    # Silencieux si ça échoue (l'URL est déjà affichée en STDERR).
+    private def try_open_browser(url : String) : Nil
+      opener = {% if flag?(:darwin) %}
+                 "open"
+               {% else %}
+                 "xdg-open"
+               {% end %}
+      Process.run(opener, [url],
+        output: Process::Redirect::Close, error: Process::Redirect::Close)
+    rescue
+      # Ignore : l'utilisateur peut copier l'URL manuellement.
     end
 
     def owns?(host_name : String) : Bool

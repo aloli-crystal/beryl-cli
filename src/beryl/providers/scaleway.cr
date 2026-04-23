@@ -79,7 +79,32 @@ module Beryl::Providers
     end
 
     def credentials_help_url : String
-      "https://console.scaleway.com/iam/api-keys (créez une API key avec les permissions Bare Metal + Domains)"
+      "https://console.scaleway.com/iam/api-keys (créez une API key avec les policies listées ci-dessous)"
+    end
+
+    # Permissions IAM Scaleway requises par beryl. Contrairement à OVH,
+    # Scaleway ne permet pas de générer une API key depuis zéro via
+    # l'API (chicken-and-egg : il faut déjà une key pour en créer une).
+    # L'utilisateur doit donc créer la key manuellement dans la console,
+    # en cochant les permission_set_names ci-dessous.
+    #
+    # Référence : https://www.scaleway.com/en/developers/api/iam/#permission-sets
+    def required_permissions : Array(String)
+      [
+        "BareMetalFullAccess",  # list/reboot/install servers (rescue, bootstrap)
+        "DomainsDNSFullAccess", # pose records A/AAAA, reverses, refresh zone
+        "IAMReadOnly",          # lecture SSH keys (list_ssh_keys)
+      ]
+    end
+
+    # Détails affichés pendant `beryl init` : liste textuelle des
+    # permissions IAM à cocher dans la console Scaleway.
+    def credentials_help_details : String?
+      lines = [] of String
+      lines << "Créez une API key dans la console Scaleway, onglet Permission sets :"
+      required_permissions.each { |p| lines << "  - #{p}" }
+      lines << "Puis copiez la 'Secret Key' ci-dessous (pas l''Access Key', on n'en a pas besoin)."
+      lines.join("\n")
     end
 
     def owns?(host_name : String) : Bool
