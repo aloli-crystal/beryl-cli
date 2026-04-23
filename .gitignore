@@ -10,17 +10,15 @@
 !**/bootstrap/**
 
 # Fichiers d'inventaire et secrets (non versionnés)
+# Règle stricte sans exception : `.env.yml` est toujours ignoré.
+# Les fixtures de tests sont versionnées en `.env.yml.sample` et
+# copiées vers `.env.yml` par la CI avant les specs (voir
+# `.github/workflows/ci.yml`).
 /inventory.yml
 inventory.local.yml
 *.secret.yml
 .env
 .env.yml
-
-# Exception : les fixtures de tests sous spec/fixtures/ contiennent
-# des .env.yml avec des valeurs bidon (xxx/yyy/zzz) pour stubber le
-# flux sans exposer de credentials réels. Ils DOIVENT être versionnés
-# sinon la CI plante avec `Missing hash key "OVH_APPLICATION_KEY"`.
-!spec/fixtures/**/.env.yml
 
 # Config beryl locale (ex: ./.beryl/ si l'utilisateur teste en local
 # au lieu de ~/.beryl/). Peut contenir des credentials (.env.yml),
