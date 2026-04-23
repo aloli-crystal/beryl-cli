@@ -261,6 +261,21 @@ module Beryl::CLI::Init
       prompted << var.name
     end
 
+    # Log les vars réutilisées depuis le fichier (avec valeurs
+    # masquées pour les secrets) AVANT d'appeler le hook : si le hook
+    # attend une validation navigateur (cas OVH /auth/credential),
+    # l'utilisateur voit d'abord CE qui sera utilisé comme base, puis
+    # l'URL à valider. L'ordre chronologique est plus lisible.
+    unless kept_from_file.empty?
+      STDERR.puts "[beryl init] Variables conservées depuis #{env_path}[#{zone}] :"
+      provider.credentials_env_vars.each do |var|
+        next unless kept_from_file.includes?(var.name)
+        value = current[var.name]
+        display = var.secret ? mask_secret(value) : value
+        STDERR.puts "               #{var.name} = #{display}"
+      end
+    end
+
     # Hook : le provider complète les credentials dérivables (OVH CK
     # via /auth/credential par ex.). No-op pour les providers qui
     # n'en ont pas besoin (Scaleway). Lève si les prérequis manquent.
@@ -281,20 +296,6 @@ module Beryl::CLI::Init
     unless missing.empty?
       STDERR.puts "beryl : variables requises non fournies pour #{provider.display_name} : #{missing.join(", ")}"
       return false
-    end
-
-    # Log les vars réutilisées depuis le fichier (avec valeurs
-    # masquées pour les secrets) : l'utilisateur voit que beryl a
-    # bien récupéré ses APP_KEY/SECRET existants et ne va PAS les
-    # re-saisir. Utile surtout quand --regen-credentials est passé.
-    unless kept_from_file.empty?
-      STDERR.puts "[beryl init] Variables conservées depuis #{env_path}[#{zone}] :"
-      provider.credentials_env_vars.each do |var|
-        next unless kept_from_file.includes?(var.name)
-        value = current[var.name]
-        display = var.secret ? mask_secret(value) : value
-        STDERR.puts "               #{var.name} = #{display}"
-      end
     end
 
     # Persiste systématiquement. Log clair sur la provenance.
