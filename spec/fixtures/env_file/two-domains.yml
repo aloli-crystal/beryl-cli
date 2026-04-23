@@ -1,9 +1,0 @@
-aloli.net:
-  OVH_APPLICATION_KEY: aaa
-  OVH_APPLICATION_SECRET: bbb
-  OVH_CONSUMER_KEY: ccc
-  SCW_SECRET_KEY: ddd
-
-quimeo.fr:
-  OVH_APPLICATION_KEY: eee
-  OVH_APPLICATION_SECRET: fff

@@ -205,8 +205,11 @@ module Beryl::CLI::Init
     regen_credentials : Bool = false,
     dry_run : Bool = false,
   ) : Bool
+    # NOTE : variable `zone` ici représente temporairement la société
+    # dans .env.yml (refactor en cours ; le flux init sera remplacé au
+    # commit 4 par `beryl init <société>` + add-provider + add-domain).
     required = provider.credentials_env_vars.reject(&.optional)
-    current = env_file.for_domain(zone).dup
+    current = env_file.for_account_provider(zone, provider.name).dup
     picked_up_from_shell = [] of String
     prompted = [] of String
     kept_from_file = [] of String
@@ -299,28 +302,26 @@ module Beryl::CLI::Init
     end
 
     # Persiste systématiquement. Log clair sur la provenance.
-    env_file.set_domain(zone, current)
+    env_file.set_account_provider(zone, provider.name, current)
     source_bits = [] of String
     source_bits << "#{kept_from_file.size} conservées" unless kept_from_file.empty?
     source_bits << "#{picked_up_from_shell.size} depuis le shell" unless picked_up_from_shell.empty?
     source_bits << "#{prompted.size} saisies" unless prompted.empty?
     if dry_run
       if source_bits.empty?
-        STDERR.puts "DRY-RUN : credentials déjà présents dans #{env_path}[#{zone}]"
+        STDERR.puts "DRY-RUN : credentials déjà présents dans #{env_path}[#{zone}][#{provider.name}]"
       else
-        STDERR.puts "DRY-RUN : #{env_path}[#{zone}] recevrait #{current.size} variable(s) (#{source_bits.join(", ")})"
+        STDERR.puts "DRY-RUN : #{env_path}[#{zone}][#{provider.name}] recevrait #{current.size} variable(s) (#{source_bits.join(", ")})"
       end
-      # On applique quand même dans ENV pour que la suite du dry-run
-      # (ex: select_ssh_key appelle l'API du provider) fonctionne.
-      env_file.apply_to_env(zone, overwrite: true)
+      env_file.apply_to_env(zone, provider.name, overwrite: true)
     else
       env_file.save
       if source_bits.empty?
-        STDERR.puts "[beryl init] Credentials déjà présents dans #{env_path}[#{zone}]"
+        STDERR.puts "[beryl init] Credentials déjà présents dans #{env_path}[#{zone}][#{provider.name}]"
       else
-        STDERR.puts "[beryl init] Credentials écrits dans #{env_path}[#{zone}] (#{source_bits.join(", ")})"
+        STDERR.puts "[beryl init] Credentials écrits dans #{env_path}[#{zone}][#{provider.name}] (#{source_bits.join(", ")})"
       end
-      env_file.apply_to_env(zone, overwrite: true)
+      env_file.apply_to_env(zone, provider.name, overwrite: true)
     end
 
     unless provider.available?

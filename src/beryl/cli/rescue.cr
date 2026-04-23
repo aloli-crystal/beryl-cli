@@ -78,7 +78,7 @@ module Beryl::CLI::Rescue
 
     root = Beryl::Config::Root.load(config_root)
     host = root.resolve(host_name, domain_hint: domain_hint)
-    root.env_file.apply_to_env(host.domain_name)
+    host.apply_all_credentials_to_env!
 
     unless dns_resolver.call(host.ssh_host)
       STDERR.puts "beryl : #{Beryl.format_ssh_target(host)} ne résout pas en DNS."

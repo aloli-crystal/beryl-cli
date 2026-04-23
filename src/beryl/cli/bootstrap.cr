@@ -48,7 +48,7 @@ module Beryl::CLI::Bootstrap
 
     root = Beryl::Config::Root.load(config_root)
     host = root.resolve(host_name, domain_hint: domain_hint)
-    root.env_file.apply_to_env(host.domain_name)
+    host.apply_all_credentials_to_env!
 
     # Construction de la connexion SSH rescue (utilisée par le
     # précheck ET le bootstrap).

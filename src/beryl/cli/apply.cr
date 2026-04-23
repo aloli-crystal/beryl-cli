@@ -44,7 +44,7 @@ module Beryl::CLI::Apply
 
     root = Beryl::Config::Root.load(config_root)
     host = root.resolve(host_name, domain_hint: domain_hint)
-    root.env_file.apply_to_env(host.domain_name)
+    host.apply_all_credentials_to_env!
 
     conn = host.connection
     log "cible : #{Beryl.format_ssh_target(host)} (user SSH : #{conn.user})"

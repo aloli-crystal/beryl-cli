@@ -41,7 +41,7 @@ module Beryl::CLI::Wipe
 
     root = Beryl::Config::Root.load(config_root)
     host = root.resolve(host_name, domain_hint: domain_hint)
-    root.env_file.apply_to_env(host.domain_name)
+    host.apply_all_credentials_to_env!
 
     # Fusion --disk et --all-declared : union sans doublon, ordre
     # déterministe (les --disk explicites d'abord, puis les déclarés

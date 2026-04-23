@@ -1,11 +1,13 @@
 require "yaml"
 
 module Beryl::Config
-  # Point d'entrée de la configuration beryl. Regroupe :
+  # Point d'entrée de la configuration beryl (ADR-014).
   #
-  #   - le socle `_default.yml` (Hash brut)
-  #   - les domaines chargés (Hash<String, Domain>)
-  #   - `.env.yml` pour les credentials par domaine
+  # Regroupe :
+  #   - le socle `_default.yml` (Hash brut, commun à toutes sociétés)
+  #   - les *sociétés* chargées (`accounts : Hash<String, Account>`),
+  #     chacune contenant ses domaines
+  #   - `.env.yml` pour les credentials indexés `[account][provider]`
   #
   # Les opérations habituelles (résolution d'un host, obtention de la
   # config mergée) passent par des méthodes de cette classe.
@@ -14,11 +16,11 @@ module Beryl::Config
 
     getter path : String
     getter defaults : Hash(YAML::Any, YAML::Any)
-    getter domains : Hash(String, Domain)
+    getter accounts : Hash(String, Account)
     getter env_file : EnvFile
     getter ssh_dir : String
 
-    def initialize(@path, @defaults, @domains, @env_file, @ssh_dir = DEFAULT_SSH_DIR)
+    def initialize(@path, @defaults, @accounts, @env_file, @ssh_dir = DEFAULT_SSH_DIR)
     end
 
     # Charge une arborescence complète depuis le disque. `ssh_dir`
@@ -31,35 +33,44 @@ module Beryl::Config
       Root.new(
         path: expanded,
         defaults: result[:defaults],
-        domains: result[:domains],
+        accounts: result[:accounts],
         env_file: result[:env_file],
         ssh_dir: ssh_dir,
       )
     end
 
-    # Liste des noms de domaines configurés (ex: ["aloli.net", "quimeo.fr"]).
-    def domain_names : Array(String)
-      @domains.keys.sort
+    # Liste des noms de sociétés configurées (triée).
+    def account_names : Array(String)
+      @accounts.keys.sort
     end
 
-    # Retourne un domaine ou nil.
-    def domain?(name : String) : Domain?
-      @domains[name]?
+    # Retourne une société ou nil.
+    def account?(name : String) : Account?
+      @accounts[name]?
     end
 
-    # Tous les hosts de tous les domaines, par FQDN.
-    # Pratique pour lister et pour les recherches globales.
-    def all_hosts_by_fqdn : Hash(String, {domain: Domain, group: Group?, node: HostNode})
-      result = {} of String => NamedTuple(domain: Domain, group: Group?, node: HostNode)
-      @domains.each_value do |domain|
-        domain.direct_hosts.each do |name, node|
-          fqdn = "#{name}.#{domain.name}"
-          result[fqdn] = {domain: domain, group: nil.as(Group?), node: node}
-        end
-        domain.groups.each_value do |group|
-          group.hosts.each do |name, node|
+    # Toutes les sociétés qui ont un domaine de ce nom. Rare qu'il y
+    # en ait plusieurs, mais possible (ex: une société ALOLI et une
+    # société cliente ACME possèdent toutes deux `example.com`).
+    def accounts_with_domain(domain_name : String) : Array(Account)
+      @accounts.values.select { |a| a.domain?(domain_name) }
+    end
+
+    # Tous les hosts de toutes les sociétés, par FQDN.
+    # Pratique pour `beryl list-hosts` et pour les recherches globales.
+    def all_hosts_by_fqdn : Hash(String, NamedTuple(account: Account, domain: Domain, group: Group?, node: HostNode))
+      result = {} of String => NamedTuple(account: Account, domain: Domain, group: Group?, node: HostNode)
+      @accounts.each_value do |account|
+        account.domains.each_value do |domain|
+          domain.direct_hosts.each do |name, node|
             fqdn = "#{name}.#{domain.name}"
-            result[fqdn] = {domain: domain, group: group.as(Group?), node: node}
+            result[fqdn] = {account: account, domain: domain, group: nil.as(Group?), node: node}
+          end
+          domain.groups.each_value do |group|
+            group.hosts.each do |name, node|
+              fqdn = "#{name}.#{domain.name}"
+              result[fqdn] = {account: account, domain: domain, group: group.as(Group?), node: node}
+            end
           end
         end
       end
@@ -70,60 +81,108 @@ module Beryl::Config
     #
     # Règles (premier match gagne) :
     #
-    #   1. `--domain=<name>` fourni ET un host du même nom existe
-    #      dans ce domaine → utilisé.
-    #   2. `--domain=<name>` fourni sans host existant → host virtuel
-    #      dans ce domaine (utile pour `beryl rescue` sur un serveur
-    #      neuf).
-    #   3. Suffix match : `rails01.aloli.net` → `aloli.net` trouvé
-    #      par suffix. Si fichier host existe → utilisé. Sinon host
-    #      virtuel.
-    #   4. Recherche dans les fichiers existants (nom de fichier ou
-    #      valeur `provider.service_name`/`server_id`). Si 1 match →
-    #      utilisé. Si plusieurs → ambigu (lève `AmbiguousHost`).
-    #   5. Sinon → `HostNotFound` qui suggère `--domain`.
+    #   1. `--account=A` + `--domain=D` : cherche dans A/D directement
+    #      (host du fichier si présent, sinon virtuel).
+    #   2. `--domain=D` seul : cherche D dans toutes les sociétés.
+    #      Lève `AmbiguousHost` si plusieurs sociétés ont le domaine
+    #      et que le host n'est pas unique parmi elles.
+    #   3. Suffix match : `rails01.aloli.net` — cherche un domaine
+    #      `aloli.net` dans toutes les sociétés. Si plusieurs sociétés
+    #      l'ont ET que le host existe dans une seule → utilisé.
+    #   4. Recherche nom court + provider-name dans tous les hosts de
+    #      toutes les sociétés. Unique → utilisé ; multi → ambigu.
+    #   5. Sinon → `HostNotFound`.
     #
-    # Résultat : un `ResolvedHost` (host effectif + domaine + groupe).
-    def resolve(name : String, domain_hint : String? = nil) : ResolvedHost
-      # 1–2 : --domain explicite
-      if domain_hint
-        domain = @domains[domain_hint]? || raise UnknownDomain.new(
-          "domaine inconnu : #{domain_hint}. Domaines configurés : #{domain_names.join(", ")}"
+    # Résultat : un `ResolvedHost` (host effectif + société + domaine + groupe).
+    def resolve(name : String, account_hint : String? = nil, domain_hint : String? = nil) : ResolvedHost
+      # 1 : account + domain explicites
+      if account_hint && domain_hint
+        account = @accounts[account_hint]? || raise UnknownAccount.new(
+          "société inconnue : #{account_hint}. Connues : #{account_names.join(", ")}"
+        )
+        domain = account.domain?(domain_hint) || raise UnknownDomain.new(
+          "domaine inconnu dans #{account_hint} : #{domain_hint}. " \
+          "Domaines de #{account_hint} : #{account.domain_names.join(", ")}"
         )
         short = short_name_in_domain(name, domain)
         if node_info = find_host_in_domain(domain, short)
-          return build_resolved(domain, node_info[:group], node_info[:node])
+          return build_resolved(account, domain, node_info[:group], node_info[:node])
         end
-        # Host virtuel : pas de fichier, mais on peut opérer dessus
-        # (ex: beryl rescue sur un serveur neuf).
-        return virtual_resolved(domain, short)
+        return virtual_resolved(account, domain, short)
       end
 
-      # 3 : suffix match sur un domaine connu
+      # 2 : domain seul
+      if domain_hint
+        accounts_with = accounts_with_domain(domain_hint)
+        raise UnknownDomain.new(
+          "domaine inconnu : #{domain_hint}. " \
+          "Aucune société ne l'héberge."
+        ) if accounts_with.empty?
+        if accounts_with.size == 1
+          account = accounts_with.first
+          domain = account.domain?(domain_hint).not_nil!
+          short = short_name_in_domain(name, domain)
+          if node_info = find_host_in_domain(domain, short)
+            return build_resolved(account, domain, node_info[:group], node_info[:node])
+          end
+          return virtual_resolved(account, domain, short)
+        end
+        # Plusieurs sociétés ont ce domaine : si le host existe dans
+        # une seule, on prend celui-là. Sinon ambigu.
+        matches = [] of NamedTuple(account: Account, domain: Domain, group: Group?, node: HostNode)
+        accounts_with.each do |a|
+          d = a.domain?(domain_hint).not_nil!
+          short = short_name_in_domain(name, d)
+          if info = find_host_in_domain(d, short)
+            matches << {account: a, domain: d, group: info[:group], node: info[:node]}
+          end
+        end
+        case matches.size
+        when 1
+          m = matches.first
+          return build_resolved(m[:account], m[:domain], m[:group], m[:node])
+        when 0
+          # Aucun host trouvé : virtual dans la première société qui a le domaine ?
+          # Non, ambigu aussi — on oblige --account.
+          raise AmbiguousHost.new(
+            "domaine `#{domain_hint}` présent dans plusieurs sociétés : " \
+            "#{accounts_with.map(&.name).join(", ")}. Précisez --account=<nom>.",
+            [] of NamedTuple(account: Account, domain: Domain, group: Group?, node: HostNode),
+          )
+        else
+          raise AmbiguousHost.new(
+            "host `#{name}` dans plusieurs sociétés : " \
+            "#{matches.map(&.[:account].name).join(", ")}. Précisez --account=<nom>.",
+            matches,
+          )
+        end
+      end
+
+      # 3 : suffix match sur un domaine connu (toutes sociétés)
       if (suffix_match = match_domain_suffix(name))
-        domain, short = suffix_match
+        account, domain, short = suffix_match
         if node_info = find_host_in_domain(domain, short)
-          return build_resolved(domain, node_info[:group], node_info[:node])
+          return build_resolved(account, domain, node_info[:group], node_info[:node])
         end
-        return virtual_resolved(domain, short)
+        return virtual_resolved(account, domain, short)
       end
 
-      # 4 : recherche dans les fichiers (nom logique et provider-name)
-      matches = search_all_domains(name)
+      # 4 : recherche globale (nom de fichier + provider-names)
+      matches = search_all_accounts(name)
       case matches.size
       when 0
         raise HostNotFound.new(
           "hôte inconnu : #{name}. Passez --domain=<nom> " \
-          "(domaines configurés : #{domain_names.join(", ")})"
+          "(sociétés configurées : #{account_names.join(", ")})"
         )
       when 1
         m = matches.first
-        build_resolved(m[:domain], m[:group], m[:node])
+        build_resolved(m[:account], m[:domain], m[:group], m[:node])
       else
         raise AmbiguousHost.new(
-          "nom `#{name}` présent dans plusieurs domaines : " \
-          "#{matches.map(&.[:domain].name).join(", ")}. " \
-          "Précisez --domain=<nom>.",
+          "nom `#{name}` présent dans plusieurs sociétés : " \
+          "#{matches.map(&.[:account].name).join(", ")}. " \
+          "Précisez --account=<nom> et/ou --domain=<nom>.",
           matches,
         )
       end
@@ -131,20 +190,24 @@ module Beryl::Config
 
     # Extrait le nom court d'un host à partir d'un nom CLI qui peut
     # être FQDN ou court. `rails01.aloli.net` dans le domaine
-    # `aloli.net` → `rails01`. Si le nom est déjà court (pas de point)
-    # ou ne finit pas par `.<domaine>`, on retourne tel quel.
+    # `aloli.net` → `rails01`.
     private def short_name_in_domain(name : String, domain : Domain) : String
       suffix = ".#{domain.name}"
       name.ends_with?(suffix) ? name[0...(name.size - suffix.size)] : name
     end
 
     # Si le nom se termine par `.<domaine>` pour l'un des domaines
-    # configurés, retourne `{domaine, nom_court}`.
-    private def match_domain_suffix(name : String) : {Domain, String}?
-      @domains.each_value do |domain|
-        suffix = ".#{domain.name}"
-        if name.ends_with?(suffix)
-          return {domain, name[0...(name.size - suffix.size)]}
+    # configurés (toutes sociétés confondues), retourne
+    # `{account, domain, nom_court}`. Si plusieurs sociétés partagent
+    # le même domaine (rare), prend la première par ordre alphabétique.
+    private def match_domain_suffix(name : String) : {Account, Domain, String}?
+      @accounts.keys.sort.each do |account_name|
+        account = @accounts[account_name]
+        account.domains.each_value do |domain|
+          suffix = ".#{domain.name}"
+          if name.ends_with?(suffix)
+            return {account, domain, name[0...(name.size - suffix.size)]}
+          end
         end
       end
       nil
@@ -164,17 +227,19 @@ module Beryl::Config
       nil
     end
 
-    # Cherche dans tous les domaines un host par nom de fichier ET par
-    # valeur `provider.service_name` / `scaleway.server_id` / `id`.
-    private def search_all_domains(name : String) : Array(NamedTuple(domain: Domain, group: Group?, node: HostNode))
-      matches = [] of NamedTuple(domain: Domain, group: Group?, node: HostNode)
-      @domains.each_value do |domain|
-        domain.direct_hosts.each do |host_name, node|
-          matches << {domain: domain, group: nil.as(Group?), node: node} if host_matches?(host_name, node, name)
-        end
-        domain.groups.each_value do |group|
-          group.hosts.each do |host_name, node|
-            matches << {domain: domain, group: group.as(Group?), node: node} if host_matches?(host_name, node, name)
+    # Cherche dans toutes les sociétés un host par nom de fichier ET
+    # par valeur `provider.service_name` / `scaleway.server_id` / `id`.
+    private def search_all_accounts(name : String) : Array(NamedTuple(account: Account, domain: Domain, group: Group?, node: HostNode))
+      matches = [] of NamedTuple(account: Account, domain: Domain, group: Group?, node: HostNode)
+      @accounts.each_value do |account|
+        account.domains.each_value do |domain|
+          domain.direct_hosts.each do |host_name, node|
+            matches << {account: account, domain: domain, group: nil.as(Group?), node: node} if host_matches?(host_name, node, name)
+          end
+          domain.groups.each_value do |group|
+            group.hosts.each do |host_name, node|
+              matches << {account: account, domain: domain, group: group.as(Group?), node: node} if host_matches?(host_name, node, name)
+            end
           end
         end
       end
@@ -185,10 +250,6 @@ module Beryl::Config
     # déclarées dans le YAML correspond au nom cherché.
     private def host_matches?(host_name : String, node : HostNode, search : String) : Bool
       return true if host_name == search
-      # Cherche dans les provider-names connus au niveau host (le
-      # merge complet serait nécessaire pour le champ qui vient du
-      # domaine — mais en pratique c'est le host lui-même qui porte
-      # le service_name spécifique).
       %w[ovh scaleway hetzner latitude cherry phoenixnap vultr leaseweb].each do |p|
         p_block = node.raw[YAML::Any.new(p)]?.try(&.as_h?)
         next unless p_block
@@ -200,21 +261,23 @@ module Beryl::Config
       false
     end
 
-    private def build_resolved(domain : Domain, group : Group?, node : HostNode) : ResolvedHost
+    private def build_resolved(account : Account, domain : Domain, group : Group?, node : HostNode) : ResolvedHost
       merged = Merger.merge(@defaults, domain, group, node, ssh_dir: @ssh_dir)
       ResolvedHost.new(
         short_name: node.name,
+        account: account,
         domain: domain,
         group: group,
         node: node,
         merged: merged,
+        env_file: @env_file,
       )
     end
 
-    # Construit un host virtuel (pas de fichier). Utilisé pour
-    # `beryl rescue` sur un serveur neuf : on connaît le domaine et
-    # le nom mais il n'y a pas encore de YAML dédié.
-    private def virtual_resolved(domain : Domain, short_name : String) : ResolvedHost
+    # Construit un host virtuel (pas de fichier host). Utilisé pour
+    # `beryl rescue` sur un serveur neuf : on connaît la société, le
+    # domaine et le nom mais il n'y a pas encore de YAML dédié.
+    private def virtual_resolved(account : Account, domain : Domain, short_name : String) : ResolvedHost
       virtual_node = HostNode.new(
         name: short_name,
         raw: {} of YAML::Any => YAML::Any,
@@ -223,15 +286,20 @@ module Beryl::Config
       merged = Merger.merge(@defaults, domain, nil, virtual_node, ssh_dir: @ssh_dir)
       ResolvedHost.new(
         short_name: short_name,
+        account: account,
         domain: domain,
         group: nil,
         node: virtual_node,
         merged: merged,
+        env_file: @env_file,
         virtual: true,
       )
     end
 
     # ---------- Exceptions de résolution ----------
+
+    class UnknownAccount < Exception
+    end
 
     class UnknownDomain < Exception
     end
@@ -240,7 +308,7 @@ module Beryl::Config
     end
 
     class AmbiguousHost < Exception
-      getter candidates : Array(NamedTuple(domain: Domain, group: Group?, node: HostNode))
+      getter candidates : Array(NamedTuple(account: Account, domain: Domain, group: Group?, node: HostNode))
 
       def initialize(message : String, @candidates)
         super(message)
@@ -249,24 +317,26 @@ module Beryl::Config
   end
 
   # Host résolu : résultat d'une recherche dans la `Root`. Porte le
-  # contexte (domaine, groupe éventuel) + la config effective mergée.
-  # Expose des accesseurs pratiques pour les sous-commandes (ssh_host,
-  # ovh_service_name, …) qui évitent ainsi le parsing manuel du hash
-  # `merged`.
+  # contexte (société, domaine, groupe éventuel) + la config effective
+  # mergée + un accès direct aux credentials via `credentials_for`.
   class ResolvedHost
     getter short_name : String # "rails01"
+    getter account : Account
     getter domain : Domain
     getter group : Group?
     getter node : HostNode
     getter merged : Hash(YAML::Any, YAML::Any)
+    getter env_file : EnvFile
     getter virtual : Bool # true si pas de fichier
 
     def initialize(
       @short_name : String,
+      @account : Account,
       @domain : Domain,
       @group : Group?,
       @node : HostNode,
       @merged : Hash(YAML::Any, YAML::Any),
+      @env_file : EnvFile,
       @virtual : Bool = false,
     )
     end
@@ -274,12 +344,11 @@ module Beryl::Config
     # FQDN reconstitué : `<short_name>.<domaine>`. Le groupe
     # n'apparaît pas (règle figée : pas de `rails01.web.aloli.net`).
     #
-    # Exception : si `short_name` contient déjà un point, c'est que
-    # l'utilisateur a passé un FQDN externe (nom hébergeur type
-    # `ns3156789.ip-51-83-6.eu` ou un alias DNS qui ne relève pas du
-    # domaine aloli). Dans ce cas on le garde tel quel — sans quoi on
-    # fabriquerait un `ns3156789.ip-51-83-6.eu.aloli.net` qui ne
-    # résout nulle part.
+    # Exception : si `short_name` contient déjà un point, c'est un
+    # FQDN externe (nom hébergeur type `ns3156789.ip-51-83-6.eu` ou
+    # alias DNS qui ne relève pas du domaine aloli). On le garde
+    # tel quel — sans quoi on fabriquerait un
+    # `ns3156789.ip-51-83-6.eu.aloli.net` qui ne résout nulle part.
     def fqdn : String
       return @short_name if @short_name.includes?('.')
       "#{@short_name}.#{@domain.name}"
@@ -293,17 +362,49 @@ module Beryl::Config
       @domain.name
     end
 
-    # Provider déclaré dans le merged (ex: "ovh", "scaleway").
+    def account_name : String
+      @account.name
+    end
+
+    # Credentials du (account, provider) pour ce host. Utilisé par
+    # les CLI qui font des appels API (rescue, bootstrap, scan…).
+    def credentials_for(provider : String) : Hash(String, String)
+      @env_file.for_account_provider(@account.name, provider)
+    end
+
+    # Injecte les credentials d'un provider dans `ENV` (pour les
+    # shards OVH/Scaleway qui lisent leurs variables depuis ENV).
+    # Retourne le nombre de variables posées.
+    def apply_credentials_to_env!(provider : String, overwrite : Bool = true) : Int32
+      @env_file.apply_to_env(@account.name, provider, overwrite: overwrite)
+    end
+
+    # Injecte TOUTES les credentials de la société dans `ENV` (tous
+    # fournisseurs confondus). Utilisé par les CLI qui peuvent
+    # potentiellement appeler plusieurs APIs (ex: scan --dns qui
+    # touche au DNS provider + compute provider).
+    def apply_all_credentials_to_env! : Int32
+      @env_file.apply_all_to_env(@account.name, overwrite: true)
+    end
+
+    # Provider déclaré dans le merged (ex: "ovh", "scaleway"). Dans
+    # le vocabulaire ADR-014 c'est le *compute_provider* (où le
+    # serveur est hébergé), distinct du `dns_provider` du domaine.
     def provider : String?
       @merged[YAML::Any.new("provider")]?.try(&.as_s?)
     end
 
-    # Noms des blocs providers présents dans le merged (ex: un YAML qui
-    # a `ovh:` et `scaleway:` → ["ovh", "scaleway"]). Utile pour les
-    # messages d'erreur quand `provider:` n'est pas déclaré : on liste
-    # les providers déjà configurés côté data pour aider au diagnostic.
+    # DNS provider du domaine (qui gère la zone). Peut différer du
+    # `provider` (hébergeur) — cas typique : zone chez Gandi, serveurs
+    # chez OVH.
+    def dns_provider : String?
+      @merged[YAML::Any.new("dns_provider")]?.try(&.as_s?)
+    end
+
+    # Noms des blocs providers présents dans le merged. Utile pour
+    # les messages d'erreur quand `provider:` n'est pas déclaré.
     def present_provider_blocks : Array(String)
-      known = %w[ovh scaleway hetzner latitude cherry phoenixnap vultr leaseweb]
+      known = %w[ovh scaleway hetzner latitude cherry phoenixnap vultr leaseweb gandi cloudflare]
       known.select { |name| @merged.has_key?(YAML::Any.new(name)) }
     end
 
@@ -316,18 +417,9 @@ module Beryl::Config
     end
 
     # Service name OVH. Pour un host déclaré, lu dans `ovh.service_name`.
-    # Pour un host virtuel (serveur neuf, pas de fichier host) dont
-    # `provider: ovh` est explicitement résolu (via domaine ou override
-    # CLI) ET dont le short_name contient un point (FQDN hébergeur),
-    # on fallback sur `short_name` : le nom tapé sur la CLI EST le
-    # service_name côté OVH.
-    #
-    # Le test `includes?('.')` est une sanité, pas une heuristique
-    # silencieuse : un service_name OVH est toujours un FQDN avec
-    # points, donc on évite de confondre un nom logique court
-    # (`rails01`) avec un service_name. Pas de regex sur le format
-    # exact (pattern `nsXXX.ip-...`) — l'API OVH rendra une erreur
-    # claire si le format est mauvais.
+    # Pour un host virtuel (serveur neuf) dont `provider: ovh` est
+    # explicitement résolu ET dont le short_name contient un point
+    # (FQDN hébergeur), on fallback sur `short_name`.
     def ovh_service_name : String?
       explicit = provider_field("ovh", "service_name")
       return explicit if explicit
@@ -361,9 +453,16 @@ module Beryl::Config
       @merged[YAML::Any.new("identity_file")]?.try(&.as_s?)
     end
 
+    # OS du host (freebsd, debian, ubuntu, …). Défaut : freebsd
+    # (historique beryl). L'architecture ADR-014 prévoit l'extension
+    # multi-OS, l'impl actuelle ne câble que FreeBSD.
+    def os : String
+      @merged[YAML::Any.new("os")]?.try(&.as_s?) || "freebsd"
+    end
+
     # Hostname effectif pour SSH. Pour OVH avec service_name déclaré,
     # on privilégie le FQDN OVH (toujours résoluble). Sinon le FQDN
-    # logique. Permet de se connecter même sans DNS custom posé.
+    # logique.
     def ssh_host : String
       if provider == "ovh" && (sn = ovh_service_name)
         return sn
@@ -372,7 +471,7 @@ module Beryl::Config
     end
 
     # Vrai si ssh_host ≠ fqdn (on utilise le nom hébergeur, pas le
-    # nom custom). Utile pour afficher les deux dans les logs.
+    # nom custom).
     def ssh_host_is_provider_name? : Bool
       ssh_host != fqdn
     end
@@ -396,29 +495,20 @@ module Beryl::Config
       (val.as_a? || [] of YAML::Any).compact_map(&.as_s?)
     end
 
-    # Hash `freebsd.zpool.*` — syntaxe single-pool historique (RAID
-    # numérique + disks à la racine du zpool). Conservée pour lire
-    # une éventuelle config simple.
+    # Hash `freebsd.zpool.*` — syntaxe single-pool legacy.
     def freebsd_zpool_hash : Hash(YAML::Any, YAML::Any)
       freebsd_hash[YAML::Any.new("zpool")]?.try(&.as_h?) || {} of YAML::Any => YAML::Any
     end
 
-    # Hash `freebsd.zfs.*` — syntaxe multi-pool : chaque clé enfant
-    # est le nom d'un pool ZFS, avec son propre `raid`, `disks`,
-    # éventuel `boot: true` / `mountpoint`.
+    # Hash `freebsd.zfs.*` — syntaxe multi-pool.
     def freebsd_zfs_hash : Hash(YAML::Any, YAML::Any)
       freebsd_hash[YAML::Any.new("zfs")]?.try(&.as_h?) || {} of YAML::Any => YAML::Any
     end
 
-    # Liste tous les pools ZFS déclarés, en supportant les deux
-    # syntaxes :
-    # - `freebsd.zfs.<nom>.{raid, disks, boot, mountpoint}` (preferred)
-    # - `freebsd.zpool.{raid, disks}` (single-pool legacy, interprété
-    #   comme un pool unique nommé « zroot » avec boot: true)
+    # Liste tous les pools ZFS déclarés (ancienne et nouvelle syntaxe).
     def zpools : Array(Beryl::Config::Pool)
       zfs = freebsd_zfs_hash
       if zfs.empty?
-        # Legacy : un seul zpool implicite
         zp = freebsd_zpool_hash
         return [] of Beryl::Config::Pool if zp.empty?
         return [Beryl::Config::Pool.new(
@@ -441,9 +531,6 @@ module Beryl::Config
       end
     end
 
-    # Pool de boot (exactement un obligatoirement pour un bootstrap
-    # valide). Lève `NoBootPool` si aucun, `MultipleBootPools` si
-    # plusieurs. Accessible seulement après `validate_zfs!`.
     def boot_zpool : Beryl::Config::Pool
       boots = zpools.select(&.boot)
       raise NoBootPool.new("aucun pool `boot: true` pour #{fqdn}") if boots.empty?
@@ -451,35 +538,24 @@ module Beryl::Config
       boots.first
     end
 
-    # Pools data (tous les pools sauf celui de boot). Créés après
-    # l'install FreeBSD via `zpool create`.
     def data_zpools : Array(Beryl::Config::Pool)
       zpools.reject(&.boot)
     end
 
-    # Tous les disques déclarés dans tous les pools, à plat.
     def all_declared_disks : Array(String)
       zpools.flat_map(&.disks)
     end
 
-    # Valide l'ensemble `freebsd.zfs.*` :
-    #   - au moins un pool, exactement un avec `boot: true`
-    #   - chaque pool a un raid+disks compatibles (MIN_DISKS, parité)
-    #   - aucun disque n'est déclaré dans plusieurs pools
-    #   - les pools data ont un mountpoint
     def validate_zfs! : Nil
       pools = zpools
       raise NoZFSPool.new("aucun pool ZFS déclaré pour #{fqdn} (freebsd.zfs.<nom> ou freebsd.zpool)") if pools.empty?
 
-      # Exactement un boot
       boots = pools.select(&.boot)
       raise NoBootPool.new("aucun pool `boot: true` pour #{fqdn}") if boots.empty?
       raise MultipleBootPools.new("plusieurs pools `boot: true` pour #{fqdn} : #{boots.map(&.name).join(", ")}") if boots.size > 1
 
-      # Chaque pool : raid/disks valides
       pools.each(&.validate!)
 
-      # Pas de disque partagé
       seen = Set(String).new
       pools.each do |pool|
         pool.disks.each do |d|
@@ -488,7 +564,6 @@ module Beryl::Config
         end
       end
 
-      # Les pools data doivent avoir un mountpoint
       data_zpools.each do |p|
         raise MissingMountpoint.new("pool data `#{p.name}` sans mountpoint (ajoutez `mountpoint: /xxx`)") if p.mountpoint.nil?
       end
@@ -504,8 +579,7 @@ module Beryl::Config
 
     class MissingMountpoint < Exception; end
 
-    # Construit une `SSH::Connection` prête à l'emploi vers cet host
-    # avec `ssh_host` comme cible.
+    # Construit une `SSH::Connection` prête à l'emploi.
     def connection : SSH::Connection
       SSH::Connection.new(
         host: ssh_host,
@@ -513,10 +587,6 @@ module Beryl::Config
         port: port,
         identity_file: identity_file,
       )
-    end
-
-    def group_name : String?
-      @group.try(&.name)
     end
   end
 end

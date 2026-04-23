@@ -99,7 +99,7 @@ module Beryl::CLI::Scan
 
     root = Beryl::Config::Root.load(config_root)
     host = root.resolve(host_name, domain_hint: domain_hint)
-    root.env_file.apply_to_env(host.domain_name)
+    host.apply_all_credentials_to_env!
 
     # --dns : faire le rename DNS + reverse AVANT le scan disques.
     # En dry-run, run_dns_setup respecte le flag et n'appelle aucune API.

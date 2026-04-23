@@ -1,3 +1,4 @@
-aloli.net:
-  BERYL_TEST_NEW: valeur_fichier
-  BERYL_TEST_EXISTING: valeur_fichier
+aloli:
+  ovh:
+    BERYL_TEST_NEW: valeur_fichier
+    BERYL_TEST_EXISTING: valeur_fichier
