@@ -157,6 +157,9 @@ module Beryl::Providers
 
       STDERR.puts "[beryl init] OVH : ouvrez cette URL dans votre navigateur pour valider :"
       STDERR.puts "             #{result.validation_url}"
+      STDERR.puts "             (Après « Authorize », OVH affiche un message déconcertant"
+      STDERR.puts "              « Authorize %!s(<nil>) » — c'est un bug d'affichage chez eux,"
+      STDERR.puts "              la clé est bien créée et stockée par beryl.)"
 
       if interactive
         STDERR.print "[beryl init] OVH : Tapez Entrée une fois la clé validée côté OVH... "
