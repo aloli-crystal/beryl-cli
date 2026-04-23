@@ -9,6 +9,9 @@ module Beryl::Providers
   # En production, on laisse le défaut `nil` et `client` résout à
   # la demande via `Credentials.ovh_client`.
   class Ovh < Beryl::Provider
+    include Beryl::DnsProvider
+    include Beryl::ComputeProvider
+
     def initialize(@injected_client : OvhApi::Client? = nil)
     end
 
@@ -22,6 +25,60 @@ module Beryl::Providers
 
     def display_name : String
       "OVHcloud"
+    end
+
+    def capabilities : Array(Symbol)
+      [:dns, :compute]
+    end
+
+    # --- DnsProvider ---
+
+    def ensure_record(zone : String, field_type : String, sub_domain : String, target : String) : Nil
+      client.domains.ensure_record(zone, field_type, sub_domain, target)
+    end
+
+    def refresh_zone(zone : String) : Nil
+      client.domains.refresh(zone)
+    end
+
+    def set_reverse(ip : String, reverse : String) : Nil
+      target = reverse.ends_with?(".") ? reverse : "#{reverse}."
+      client.ips.set_reverse(ip: ip, reverse: target, ip_reverse: ip)
+    end
+
+    def set_display_name(resource_id : String, new_name : String) : Nil
+      client.dedicated_servers.update(resource_id, display_name: new_name)
+    end
+
+    # --- ComputeProvider ---
+
+    def request_rescue(resource_id : String, ssh_key_ref : String) : String
+      task = client.dedicated_servers.prepare_rescue(
+        service_name: resource_id, ssh_key_name: ssh_key_ref,
+      )
+      task.id.to_s
+    end
+
+    def boot_from_disk(resource_id : String) : String
+      task = client.dedicated_servers.boot_from_disk(resource_id)
+      task.id.to_s
+    end
+
+    def compute_task_status(task_id : String) : String
+      # OVH : la task est liée à un service_name (pas un id global).
+      # Le caller doit connaître le service_name pour interroger. À
+      # l'usage, on préfère garder le pattern OVH existant (task
+      # polling dans rescue.cr / boot_hd.cr) plutôt qu'une
+      # abstraction lourde. Cette méthode est conservée pour l'API
+      # mais jamais utilisée en interne — levée explicite.
+      raise NotImplementedError.new(
+        "OVH : compute_task_status n'est pas implémenté via cette API. " \
+        "Utilisez `client.dedicated_servers.task(service_name, task_id)` directement."
+      )
+    end
+
+    def compute_task_done?(status : String) : Bool
+      status == "done"
     end
 
     def available? : Bool

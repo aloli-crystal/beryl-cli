@@ -28,6 +28,42 @@ module Beryl
     # Nom humain pour affichage (ex: "OVHcloud", "Scaleway Elastic Metal").
     abstract def display_name : String
 
+    # Capabilities que ce provider expose (ADR-014). Valeurs connues :
+    #
+    #   :dns            — gestion d'une zone DNS (records, reverse, refresh)
+    #   :compute        — hébergement de serveurs (rescue, boot_from_disk…)
+    #   :object_storage — stockage objet compatible S3 (futur)
+    #   :cdn            — CDN (futur)
+    #   :cert           — certificats SSL (futur)
+    #
+    # Un provider peut en avoir plusieurs (OVH = [:dns, :compute]).
+    # Beryl vérifie la capability avant d'appeler une méthode
+    # correspondante — si un `dns_provider: hetzner` est déclaré
+    # alors qu'Hetzner n'a pas `:dns`, une erreur explicite est
+    # levée à la résolution.
+    #
+    # Par défaut vide : chaque sous-classe doit la définir.
+    def capabilities : Array(Symbol)
+      [] of Symbol
+    end
+
+    # Raccourci : `provider.capable_of?(:dns)`.
+    def capable_of?(capability : Symbol) : Bool
+      capabilities.includes?(capability)
+    end
+
+    # Vrai si le provider est implémenté dans le build courant de
+    # beryl. Utile pour `beryl init` : si l'utilisateur demande un
+    # DNS provider qu'on ne sait pas pilote, beryl l'avertit clairement
+    # plutôt que d'échouer silencieusement plus tard.
+    #
+    # Par défaut : `true` — une classe `Provider` qui existe dans ce
+    # build est implémentée. Un provider « stub » (placeholder pour
+    # un futur shard) peut retourner `false`.
+    def implemented? : Bool
+      true
+    end
+
     # Vrai si les credentials nécessaires sont disponibles (variables
     # d'env, fichiers de config, agent local…). Ne lève jamais : un
     # provider « indisponible » est simplement sauté par `beryl init`.
@@ -198,6 +234,7 @@ module Beryl
   end
 end
 
+require "./providers/capabilities"
 require "./providers/ovh"
 require "./providers/scaleway"
 require "./providers/registrations"

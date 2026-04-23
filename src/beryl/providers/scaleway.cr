@@ -10,6 +10,8 @@ module Beryl::Providers
   # tests. En production, on laisse le défaut et `client` résout à la
   # demande via `Credentials.scaleway_client`.
   class Scaleway < Beryl::Provider
+    include Beryl::ComputeProvider
+
     def initialize(@injected_client : ScalewayApi::Client? = nil)
     end
 
@@ -23,6 +25,61 @@ module Beryl::Providers
 
     def display_name : String
       "Scaleway Elastic Metal"
+    end
+
+    def capabilities : Array(Symbol)
+      # Scaleway sait aussi faire du DNS (Scaleway Domains) et du
+      # stockage objet (Scaleway Object Storage), mais aucun n'est
+      # câblé dans beryl aujourd'hui. On ajoutera les capabilities
+      # correspondantes quand on branchera les APIs.
+      [:compute]
+    end
+
+    # --- ComputeProvider ---
+
+    def request_rescue(resource_id : String, ssh_key_ref : String) : String
+      # Scaleway passe le boot_type=Rescue, pas de clé SSH à injecter
+      # explicitement (la machine boot sur une image rescue standard
+      # avec les SSH keys du projet préchargées).
+      _ = ssh_key_ref # paramètre non utilisé pour Scaleway
+      server = client.baremetal.servers.reboot(
+        server_id: resource_id,
+        zone: scaleway_zone,
+        boot_type: ScalewayApi::Endpoints::Baremetal::BootType::Rescue,
+      )
+      server.id
+    end
+
+    def boot_from_disk(resource_id : String) : String
+      # Pas implémenté côté Scaleway (pas de notion OVH « boot-hd » :
+      # la machine démarre par défaut sur son disque local).
+      raise NotImplementedError.new(
+        "Scaleway : boot_from_disk n'est pas applicable — la machine boot " \
+        "sur son disque par défaut. Pour repasser du rescue au disque, " \
+        "utilisez `beryl rescue --no-wait` puis reboot normal."
+      )
+    end
+
+    def compute_task_status(task_id : String) : String
+      # Scaleway renvoie un état directement dans le Server
+      # (stopping/starting/running/rescue…). Pas de task id à
+      # poller distinctement. Conservé pour cohérence de l'API mais
+      # non utilisé en interne.
+      _ = task_id
+      raise NotImplementedError.new(
+        "Scaleway : pas de notion de task async à poller. Utilisez " \
+        "`client.baremetal.servers.get(server_id)` pour l'état courant."
+      )
+    end
+
+    def compute_task_done?(status : String) : Bool
+      # Pour un serveur Scaleway, les états terminaux du reboot sont
+      # `running` (disque) ou `rescue` (rescue image).
+      status == "running" || status == "rescue"
+    end
+
+    private def scaleway_zone : String?
+      ENV["SCW_DEFAULT_ZONE"]?
     end
 
     def available? : Bool

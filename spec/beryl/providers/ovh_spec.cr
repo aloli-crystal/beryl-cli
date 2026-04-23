@@ -64,6 +64,22 @@ describe Beryl::Providers::Ovh do
     end
   end
 
+  describe "#capabilities" do
+    it "expose :dns et :compute (ADR-014)" do
+      ovh = Beryl::Providers::Ovh.new
+      ovh.capabilities.sort.should eq([:compute, :dns])
+      ovh.capable_of?(:dns).should be_true
+      ovh.capable_of?(:compute).should be_true
+      ovh.capable_of?(:cdn).should be_false
+    end
+
+    it "inclut les modules DnsProvider et ComputeProvider" do
+      ovh = Beryl::Providers::Ovh.new
+      ovh.is_a?(Beryl::DnsProvider).should be_true
+      ovh.is_a?(Beryl::ComputeProvider).should be_true
+    end
+  end
+
   describe "#required_access_rules" do
     it "liste les routes OVH à injecter dans la consumer key générée" do
       rules = Beryl::Providers::Ovh.new.required_access_rules

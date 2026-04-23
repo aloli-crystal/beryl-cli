@@ -86,6 +86,21 @@ describe Beryl::Providers::Scaleway do
     end
   end
 
+  describe "#capabilities" do
+    it "expose :compute uniquement (DNS et Object Storage non câblés pour l'instant)" do
+      scw = Beryl::Providers::Scaleway.new
+      scw.capabilities.should eq([:compute])
+      scw.capable_of?(:compute).should be_true
+      scw.capable_of?(:dns).should be_false
+    end
+
+    it "inclut le module ComputeProvider mais pas DnsProvider" do
+      scw = Beryl::Providers::Scaleway.new
+      scw.is_a?(Beryl::ComputeProvider).should be_true
+      scw.is_a?(Beryl::DnsProvider).should be_false
+    end
+  end
+
   describe "#required_permissions" do
     it "liste les permission sets IAM à cocher dans la console" do
       perms = Beryl::Providers::Scaleway.new.required_permissions
