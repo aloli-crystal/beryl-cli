@@ -147,7 +147,7 @@ module Beryl::CLI::Scan
     # + YAML, mais on ne simule aucun contenu. `--dry-run` EXPLIQUE,
     # il ne FAIT rien (pas de SSH, pas de YAML).
     if dry_run
-      target = resolve_write_target(write_path, write_auto, config_root, host.domain_name, short)
+      target = resolve_write_target(write_path, write_auto, config_root, host.account_name, host.domain_name, short)
       effective_provider = provider_override || host.provider
       STDERR.puts
       STDERR.puts "DRY-RUN : actions `beryl scan` prévues :"
@@ -175,7 +175,7 @@ module Beryl::CLI::Scan
     raid = pick_raid(chosen.size, raid_flag, non_interactive)
 
     yaml = render_yaml(host, short, chosen, raid, provider_override: provider_override)
-    target = resolve_write_target(write_path, write_auto, config_root, host.domain_name, short)
+    target = resolve_write_target(write_path, write_auto, config_root, host.account_name, host.domain_name, short)
 
     if target
       if File.exists?(target)
@@ -194,7 +194,7 @@ module Beryl::CLI::Scan
       log "YAML écrit dans #{target}"
       log "Prochaine étape : beryl bootstrap #{short}.#{host.domain_name}"
     else
-      STDERR.puts "--- YAML suggéré (placez dans #{config_root}/#{host.domain_name}/#{short}.yml) ---"
+      STDERR.puts "--- YAML suggéré (placez dans #{config_root}/#{host.account_name}/#{host.domain_name}/#{short}.yml) ---"
       print yaml
       STDERR.puts "--- fin ---"
     end
@@ -396,10 +396,10 @@ module Beryl::CLI::Scan
     fqdn.split('.').first
   end
 
-  def self.resolve_write_target(explicit : String?, auto : Bool, config_root : String, domain_name : String, short : String) : String?
+  def self.resolve_write_target(explicit : String?, auto : Bool, config_root : String, account_name : String, domain_name : String, short : String) : String?
     return explicit if explicit
     return nil unless auto
-    File.join(config_root, domain_name, "#{short}.yml")
+    File.join(config_root, account_name, domain_name, "#{short}.yml")
   end
 
   # Flux --dns : prompt nom + zone, calcule le plan, applique.
