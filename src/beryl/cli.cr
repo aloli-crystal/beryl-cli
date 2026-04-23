@@ -65,7 +65,12 @@ module Beryl::CLI
     subcommand = rest.first?
     sub_args = rest[1..]? || [] of String
 
-    case subcommand
+    # Résolution des alias courts vers leur nom long. Règle mémoire
+    # Aloli (feedback_cli_short_flags) : chaque sous-commande a un
+    # alias court.
+    resolved = resolve_alias(subcommand)
+
+    case resolved
     when nil            then show_usage(global_parser); 1
     when "help"         then cmd_help(global_parser, config_root, sub_args)
     when "init"         then Beryl::CLI::Init.run(config_root, sub_args)
@@ -87,6 +92,32 @@ module Beryl::CLI
       show_usage(global_parser)
       1
     end
+  end
+
+  # Table des alias courts → nom long. Chaque sous-commande est
+  # adressable via une forme courte (mémoire feedback_cli_short_flags).
+  # Si `name` est déjà un nom long, retourné tel quel.
+  SUBCOMMAND_ALIASES = {
+    "h"  => "help",
+    "i"  => "init",
+    "ap" => "add-provider",
+    "ad" => "add-domain",
+    "ls" => "list-hosts",
+    "sh" => "show",
+    "r"  => "rescue",
+    "bh" => "boot-hd",
+    "w"  => "wipe",
+    "b"  => "bootstrap",
+    "s"  => "scan",
+    "a"  => "apply",
+    "pr" => "prep-rescue",
+    "bs" => "bake-seed",
+    "v"  => "version",
+  }
+
+  private def self.resolve_alias(name : String?) : String?
+    return name unless name
+    SUBCOMMAND_ALIASES[name]? || name
   end
 
   # Affiche l'aide globale (sans topic) ou l'aide d'une sous-commande
@@ -147,22 +178,22 @@ module Beryl::CLI
 
     USAGE : beryl [options globales] <sous-commande> [arguments]
 
-    Sous-commandes :
-      help [<cmd>]          Aide globale ou d'une sous-commande précise
-      init [<société>]      Initialise ~/.beryl/<société>/ + propose providers/domaines
-      add-provider          Ajoute un fournisseur à une société (credentials)
-      add-domain            Ajoute un domaine à une société (zone DNS)
-      list-hosts            Liste les hôtes de toutes les sociétés
-      show <host>           Détails d'un hôte (config mergée complète)
-      rescue <host>         Bascule un hôte en rescue via l'API hébergeur
-      boot-hd <host>        Bascule sur le disque via l'API (inverse rescue)
-      wipe <host> --disk    Efface un disque sur un hôte en rescue
-      bootstrap <host>      Installe FreeBSD 15 (mfsBSD-in-QEMU)
-      scan <host>           Détecte les disques et propose un YAML host
-      apply <host>          Synchronise packages/users/clés SSH
-      prep-rescue           HTTP local pour préparer un rescue Debian
-      bake-seed             cloud-init seed.img pour Ubuntu Server live
-      version               Affiche la version
+    Sous-commandes (chacune a un alias court) :
+      help          [h]     Aide globale ou d'une sous-commande précise
+      init          [i]     Initialise ~/.beryl/<société>/ + propose providers/domaines
+      add-provider  [ap]    Ajoute un fournisseur à une société (credentials)
+      add-domain    [ad]    Ajoute un domaine à une société (zone DNS)
+      list-hosts    [ls]    Liste les hôtes de toutes les sociétés
+      show          [sh]    Détails d'un hôte (config mergée complète)
+      rescue        [r]     Bascule un hôte en rescue via l'API hébergeur
+      boot-hd       [bh]    Bascule sur le disque via l'API (inverse rescue)
+      wipe          [w]     Efface un disque sur un hôte en rescue
+      bootstrap     [b]     Installe FreeBSD 15 (mfsBSD-in-QEMU)
+      scan          [s]     Détecte les disques et propose un YAML host
+      apply         [a]     Synchronise packages/users/clés SSH
+      prep-rescue   [pr]    HTTP local pour préparer un rescue Debian
+      bake-seed     [bs]    cloud-init seed.img pour Ubuntu Server live
+      version       [v]     Affiche la version
 
     Host : FQDN (ex: rails01.aloli.net), nom court, ou identifiant hébergeur
            (service_name OVH, UUID Scaleway). Ajoutez `--domain=<nom>` si le

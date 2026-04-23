@@ -1,0 +1,244 @@
+= beryl — référence CLI : sous-commandes et shorts
+:toc: left
+:toc-title: Table des matières
+:toclevels: 3
+:source-highlighter: rouge
+:icons: font
+
+*Date de mise à jour.* 23 avril 2026 — beryl 0.1.2. +
+*Règle Aloli.* Chaque sous-commande et chaque flag long possède une
+forme courte (feedback_cli_short_flags).
+
+== Sous-commandes (alias courts)
+
+Chaque commande est utilisable sous sa forme longue ou sa forme courte :
+
+[cols="2,1,4",options="header"]
+|===
+|Commande |Alias |Description
+
+|`help` |`h` |Aide globale ou d'une sous-commande (ex: `beryl h rescue`)
+|`init` |`i` |Initialise `~/.beryl/<société>/` + propose providers/domaines
+|`add-provider` |`ap` |Ajoute un fournisseur à une société (credentials)
+|`add-domain` |`ad` |Ajoute un domaine à une société (zone DNS)
+|`list-hosts` |`ls` |Liste les hôtes de toutes les sociétés
+|`show` |`sh` |Détails d'un hôte (config mergée complète)
+|`rescue` |`r` |Bascule un hôte en rescue via l'API hébergeur
+|`boot-hd` |`bh` |Bascule sur le disque via l'API (inverse rescue)
+|`wipe` |`w` |Efface un disque sur un hôte en rescue
+|`bootstrap` |`b` |Installe FreeBSD 15 (mfsBSD-in-QEMU)
+|`scan` |`s` |Détecte les disques et propose un YAML host
+|`apply` |`a` |Synchronise packages/users/clés SSH
+|`prep-rescue` |`pr` |HTTP local pour préparer un rescue Debian
+|`bake-seed` |`bs` |cloud-init seed.img pour Ubuntu Server live
+|`version` |`v` |Affiche la version
+|===
+
+== Options globales
+
+[cols="2,1,4",options="header"]
+|===
+|Long |Court |Description
+
+|`--config=PATH` |`-c` |Racine de configuration (défaut : `~/.beryl`)
+|`--help` |`-h` |Aide globale
+|`--version` |`-v` |Version de beryl
+|===
+
+== Flags par sous-commande
+
+=== `beryl init [<société>]`
+
+[cols="2,1,4",options="header"]
+|===
+|Long |Court |Description
+
+|`--force` |`-f` |Écrase `_account.yml` si existant
+|`--non-interactive` |`-N` |Aucun prompt
+|`--help` |`-h` |Aide
+|===
+
+=== `beryl add-provider <société>/<provider>` ou `<provider> [--account]`
+
+[cols="2,1,4",options="header"]
+|===
+|Long |Court |Description
+
+|`--account=NAME` |`-a` |Société cible
+|`--regen-credentials` |`-r` |Force la régénération des credentials dérivés (ex: OVH CK)
+|`--non-interactive` |`-N` |Aucun prompt
+|`--help` |`-h` |Aide
+|===
+
+=== `beryl add-domain <société>/<domaine>` ou `<domaine> [--account]`
+
+[cols="2,1,4",options="header"]
+|===
+|Long |Court |Description
+
+|`--account=NAME` |`-a` |Société cible
+|`--dns-provider=NAME` |`-D` |Gestionnaire DNS
+|`--provider=NAME` |`-P` |Hébergeur par défaut
+|`--ssh-key-name=NAME` |`-s` |Label clé SSH chez le provider
+|`--admin-key=FILE` |`-k` |Fichier `.pub` local
+|`--force` |`-f` |Écrase le fichier domaine existant
+|`--non-interactive` |`-N` |Aucun prompt
+|`--help` |`-h` |Aide
+|===
+
+=== `beryl rescue <host>`
+
+[cols="2,1,4",options="header"]
+|===
+|Long |Court |Description
+
+|`--account=NAME` |`-a` |Forcer la société (si ambiguë)
+|`--domain=NAME` |`-d` |Forcer le domaine
+|`--provider=NAME` |`-P` |Surcharge `provider:` du merge
+|`--dry-run` |`-n` |Affiche l'appel API sans le déclencher
+|`--no-wait` |`-W` |Ne pas attendre le retour SSH
+|`--timeout=MIN` |`-t` |Timeout SSH en minutes
+|`--help` |`-h` |Aide
+|===
+
+=== `beryl boot-hd <host>`
+
+[cols="2,1,4",options="header"]
+|===
+|Long |Court |Description
+
+|`--account=NAME` |`-a` |Forcer la société (si ambiguë)
+|`--domain=NAME` |`-d` |Forcer le domaine
+|`--provider=NAME` |`-P` |Surcharge `provider:` du merge
+|`--dry-run` |`-n` |Affiche l'appel API sans le déclencher
+|`--no-wait` |`-W` |Ne pas attendre le retour SSH
+|`--user=USER` |`-u` |User pour le test SSH
+|`--timeout=MIN` |`-t` |Timeout SSH en minutes
+|`--help` |`-h` |Aide
+|===
+
+=== `beryl bootstrap <host>`
+
+[cols="2,1,4",options="header"]
+|===
+|Long |Court |Description
+
+|`--account=NAME` |`-a` |Forcer la société (si ambiguë)
+|`--domain=NAME` |`-d` |Forcer le domaine
+|`--provider=NAME` |`-P` |Surcharge `provider:` du merge
+|`--dry-run` |`-n` |Affiche le plan d'install sans lancer
+|`--force` |`-f` |Bypass le précheck
+|`--iso-url=URL` |`-i` |URL mfsBSD (override)
+|`--freebsd-version=VER` |`-v` |Version FreeBSD
+|`--help` |`-h` |Aide
+|===
+
+=== `beryl scan <host>`
+
+[cols="2,1,4",options="header"]
+|===
+|Long |Court |Description
+
+|`--account=NAME` |`-a` |Forcer la société
+|`--domain=NAME` |`-d` |Forcer le domaine
+|`--provider=NAME` |`-P` |Surcharge `provider:` du merge
+|`--dry-run` |`-n` |Affiche sans écrire ni appeler d'API
+|`--write` |`-w` |Écrit `~/.beryl/<société>/<domaine>/<host>.yml`
+|`--write-to=PATH` |`-W` |Écrit dans le chemin explicite
+|`--disks=LIST` |`-k` |Disques à inclure (non-interactif)
+|`--raid=N` |`-r` |Niveau RAID (0\|1\|5\|6\|7\|10)
+|`--hostname=NAME` |`-H` |Nom court à poser
+|`--zone=ZONE` |`-z` |Zone DNS pour `--dns`
+|`--dns` |`-D` |Pose records DNS + reverse + rename OVH
+|`--non-interactive` |`-N` |Refuse toute invite
+|`--help` |`-h` |Aide
+|===
+
+=== `beryl wipe <host>`
+
+[cols="2,1,4",options="header"]
+|===
+|Long |Court |Description
+
+|`--account=NAME` |`-a` |Forcer la société
+|`--disk=PATH` |`-k` |Disque à effacer (répétable)
+|`--all-declared` |`-A` |Efface tous les disques déclarés
+|`--domain=NAME` |`-d` |Forcer le domaine
+|`--dry-run` |`-n` |Affiche les commandes sans les exécuter
+|`--force` |`-f` |Pas de confirmation (scripts uniquement)
+|`--help` |`-h` |Aide
+|===
+
+=== `beryl apply <host>`
+
+[cols="2,1,4",options="header"]
+|===
+|Long |Court |Description
+
+|`--account=NAME` |`-a` |Forcer la société
+|`--domain=NAME` |`-d` |Forcer le domaine
+|`--help` |`-h` |Aide
+|===
+
+=== `beryl prep-rescue`
+
+[cols="2,1,4",options="header"]
+|===
+|Long |Court |Description
+
+|`--port=PORT` |`-p` |Port d'écoute local
+|`--bind=ADDR` |`-b` |Adresse d'écoute
+|`--public` |`-P` |Raccourci pour `--bind 0.0.0.0`
+|`--pubkey=FILE` |`-k` |Fichier de clé publique SSH
+|`--help` |`-h` |Aide
+|===
+
+=== `beryl bake-seed`
+
+[cols="2,1,4",options="header"]
+|===
+|Long |Court |Description
+
+|`--output=PATH` |`-o` |Fichier de sortie
+|`--pubkey=FILE` |`-k` |Clé publique SSH
+|`--hostname=NAME` |`-H` |Hostname cible
+|`--user=USER` |`-u` |Utilisateur autorisé
+|`--size=KB` |`-s` |Taille de l'image en Ko
+|`--help` |`-h` |Aide
+|===
+
+== Exemples de combinaisons courtes
+
+[source,console]
+----
+# Init d'une société et ajout de fournisseurs/domaines
+beryl i aloli
+beryl ap aloli/ovh
+beryl ap aloli/scaleway
+beryl ad aloli/aloli.net
+
+# Opérations sur serveur (forme courte + flags courts)
+beryl r ns3156789.ip-51-83-6.eu -d aloli.net
+beryl s ns3156789.ip-51-83-6.eu -d aloli.net -D -w
+beryl b loulou.aloli.net
+beryl w loulou.aloli.net -A    # wipe tous les disques déclarés
+beryl a loulou.aloli.net
+
+# Version / aide
+beryl -v
+beryl h ap
+----
+
+== Maintenance de ce tableau
+
+Ce fichier est la source de vérité pour les shorts. Toute nouvelle
+commande ou nouveau flag doit :
+
+. Avoir un short défini dans le code (`p.on("-X", "--option", ...)`)
+. Être ajouté dans ce fichier
+. Être vérifié par un grep du type :
+
+  grep -rn "p\\.on(" src/beryl/cli/ | grep -v "\"-[a-zA-Z]" | grep "\"--"
+
+qui doit ne rien retourner. Les sous-commandes ajoutées dans `cli.cr`
+doivent avoir une entrée dans la table `SUBCOMMAND_ALIASES`.

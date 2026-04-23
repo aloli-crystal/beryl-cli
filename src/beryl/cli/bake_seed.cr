@@ -22,15 +22,15 @@ module Beryl::CLI::BakeSeed
                  "publique, prêt à attacher à une VM Ubuntu Server live en 2ᵉ\n" \
                  "cdrom. Cloud-init configure SSH pour l'utilisateur choisi\n" \
                  "automatiquement au premier boot."
-      p.on("--output=PATH", "Fichier de sortie (défaut : #{DEFAULT_OUTPUT})") do |v|
+      p.on("-o PATH", "--output=PATH", "Fichier de sortie (défaut : #{DEFAULT_OUTPUT})") do |v|
         output_path = File.expand_path(v, home: true)
       end
-      p.on("--pubkey=FILE", "Clé publique SSH (défaut : #{DEFAULT_PUBKEY})") do |v|
+      p.on("-k FILE", "--pubkey=FILE", "Clé publique SSH (défaut : #{DEFAULT_PUBKEY})") do |v|
         pubkey_path = File.expand_path(v, home: true)
       end
-      p.on("--hostname=NAME", "Hostname cible (défaut : #{DEFAULT_HOSTNAME})") { |v| hostname = v }
-      p.on("--user=USER", "Utilisateur autorisé (défaut : root)") { |v| ssh_user = v }
-      p.on("--size=KB", "Taille de l'image en Ko (défaut : #{DEFAULT_SIZE_KB})") { |v| size_kb = v.to_i }
+      p.on("-H NAME", "--hostname=NAME", "Hostname cible (défaut : #{DEFAULT_HOSTNAME})") { |v| hostname = v }
+      p.on("-u USER", "--user=USER", "Utilisateur autorisé (défaut : root)") { |v| ssh_user = v }
+      p.on("-s KB", "--size=KB", "Taille de l'image en Ko (défaut : #{DEFAULT_SIZE_KB})") { |v| size_kb = v.to_i }
       p.on("-h", "--help", "Aide") do
         puts p
         exit 0

@@ -25,8 +25,8 @@ module Beryl::CLI::Wipe
     parser = OptionParser.new do |p|
       p.banner = "USAGE : beryl wipe <host> (--disk PATH... | --all-declared) [options]"
       p.on("-k PATH", "--disk=PATH", "Disque à effacer (répétable, ex. --disk=/dev/sda --disk=/dev/sdb)") { |v| target_disks << v }
-      p.on("-a", "--all-declared", "Efface tous les disques déclarés dans freebsd.zfs.*") { all_declared = true }
-      p.on("--account=NAME", "Forcer la société (si ambiguë)") { |v| account_hint = v }
+      p.on("-A", "--all-declared", "Efface tous les disques déclarés dans freebsd.zfs.*") { all_declared = true }
+      p.on("-a NAME", "--account=NAME", "Forcer la société (si ambiguë)") { |v| account_hint = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
       p.on("-n", "--dry-run", "Affiche les commandes sans les exécuter") { dry_run = true }
       p.on("-f", "--force", "Pas de confirmation (DANGER, scripts uniquement)") { force = true }

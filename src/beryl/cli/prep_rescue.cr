@@ -60,10 +60,10 @@ module Beryl::CLI::PrepRescue
       p.banner = "USAGE : beryl prep-rescue [options]\n\n" \
                  "Lance un serveur HTTP local qui sert votre clé publique SSH et\n" \
                  "un script de provisioning pour un rescue Linux Debian/Ubuntu."
-      p.on("--port=PORT", "Port d'écoute local (défaut : #{DEFAULT_PORT})") { |v| port = v.to_i }
-      p.on("--bind=ADDR", "Adresse d'écoute (défaut : #{DEFAULT_BIND})") { |v| bind = v }
-      p.on("--public", "Raccourci pour --bind 0.0.0.0 (exposer à internet)") { bind = "0.0.0.0" }
-      p.on("--pubkey=FILE", "Fichier de clé publique SSH (défaut : #{DEFAULT_PUBKEY})") do |v|
+      p.on("-p PORT", "--port=PORT", "Port d'écoute local (défaut : #{DEFAULT_PORT})") { |v| port = v.to_i }
+      p.on("-b ADDR", "--bind=ADDR", "Adresse d'écoute (défaut : #{DEFAULT_BIND})") { |v| bind = v }
+      p.on("-P", "--public", "Raccourci pour --bind 0.0.0.0 (exposer à internet)") { bind = "0.0.0.0" }
+      p.on("-k FILE", "--pubkey=FILE", "Fichier de clé publique SSH (défaut : #{DEFAULT_PUBKEY})") do |v|
         pubkey_path = File.expand_path(v, home: true)
       end
       p.on("-h", "--help", "Affiche cette aide") do

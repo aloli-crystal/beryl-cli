@@ -65,7 +65,7 @@ module Beryl::CLI::Rescue
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine (sinon déduit du FQDN)") { |v| domain_hint = v }
       p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (ex: ovh, scaleway)") { |v| provider_override = v }
       p.on("-n", "--dry-run", "Affiche l'appel API sans le déclencher") { dry_run = true }
-      p.on("--no-wait", "Ne pas attendre le retour SSH après l'appel API") { wait = false }
+      p.on("-W", "--no-wait", "Ne pas attendre le retour SSH après l'appel API") { wait = false }
       p.on("-t MIN", "--timeout=MIN", "Timeout SSH en minutes (défaut : #{DEFAULT_SSH_WAIT_TIMEOUT.total_minutes.to_i})") { |v| timeout = v.to_i.minutes }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
       p.unknown_args { |rest, _| positional = rest }

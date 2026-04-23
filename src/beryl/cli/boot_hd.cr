@@ -52,7 +52,7 @@ module Beryl::CLI::BootHd
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
       p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (boot-hd n'est câblé que pour ovh)") { |v| provider_override = v }
       p.on("-n", "--dry-run", "Affiche l'appel API sans le déclencher") { dry_run = true }
-      p.on("--no-wait", "Ne pas attendre le retour SSH") { wait = false }
+      p.on("-W", "--no-wait", "Ne pas attendre le retour SSH") { wait = false }
       p.on("-u USER", "--user=USER", "User pour le test SSH (défaut : admin)") { |v| user = v }
       p.on("-t MIN", "--timeout=MIN", "Timeout SSH en minutes (défaut : #{DEFAULT_SSH_WAIT_TIMEOUT.total_minutes.to_i})") { |v| timeout = v.to_i.minutes }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
