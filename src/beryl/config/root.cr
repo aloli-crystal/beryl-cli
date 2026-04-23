@@ -111,6 +111,36 @@ module Beryl::Config
         return virtual_resolved(account, domain, short)
       end
 
+      # 1b : account_hint seul (sans domain) — cas typique de la
+      # forme path-like `aloli/loulou` ou `aloli/ns3156789.ip-...`.
+      if account_hint
+        account = @accounts[account_hint]? || raise UnknownAccount.new(
+          "société inconnue : #{account_hint}. Connues : #{account_names.join(", ")}"
+        )
+        # Cherche le host dans tous les domaines de l'account.
+        account.domains.each_value do |d|
+          short = short_name_in_domain(name, d)
+          if info = find_host_in_domain(d, short)
+            return build_resolved(account, d, info[:group], info[:node])
+          end
+        end
+        # Pas trouvé : host virtuel. Si l'account a un seul domaine,
+        # on crée le virtual dedans directement. Sinon on ne sait
+        # pas lequel choisir → on lève AmbiguousHost.
+        if account.domains.size == 1
+          d = account.domains.values.first
+          short = short_name_in_domain(name, d)
+          return virtual_resolved(account, d, short)
+        end
+        raise AmbiguousHost.new(
+          "host `#{name}` introuvable dans #{account_hint}, et plusieurs " \
+          "domaines existent (#{account.domain_names.join(", ")}). " \
+          "Précisez --domain=<nom> ou utilisez " \
+          "`#{account_hint}/<domaine>/#{name}`.",
+          [] of NamedTuple(account: Account, domain: Domain, group: Group?, node: HostNode),
+        )
+      end
+
       # 2 : domain seul
       if domain_hint
         accounts_with = accounts_with_domain(domain_hint)
