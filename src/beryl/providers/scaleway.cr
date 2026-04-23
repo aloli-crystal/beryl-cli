@@ -79,7 +79,11 @@ module Beryl::Providers
     end
 
     def credentials_help_url : String
-      "https://console.scaleway.com/iam/api-keys (créez une API key avec les policies listées ci-dessous)"
+      # La page `/iam/api-keys` liste les clés existantes et affiche
+      # un bouton « Generate an API key ». Beryl ouvre directement
+      # cette page dans le navigateur pendant `beryl init scaleway`
+      # pour raccourcir le chemin de création.
+      "https://console.scaleway.com/iam/api-keys"
     end
 
     # Permissions IAM Scaleway requises par beryl. Contrairement à OVH,

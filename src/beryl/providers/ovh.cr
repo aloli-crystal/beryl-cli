@@ -157,7 +157,7 @@ module Beryl::Providers
 
       STDERR.puts "[beryl init] OVH : ouvrez cette URL dans votre navigateur pour valider :"
       STDERR.puts "             #{result.validation_url}"
-      try_open_browser(result.validation_url)
+      Beryl.open_in_browser(result.validation_url)
 
       if interactive
         STDERR.print "[beryl init] OVH : Tapez Entrée une fois la clé validée côté OVH... "
@@ -189,20 +189,6 @@ module Beryl::Providers
       else
         raise "OVH_ENDPOINT invalide : #{endpoint.inspect} (eu|ca|us|kimsufi_*|soyoustart_*)"
       end
-    end
-
-    # Tente d'ouvrir une URL dans le navigateur de l'utilisateur.
-    # Silencieux si ça échoue (l'URL est déjà affichée en STDERR).
-    private def try_open_browser(url : String) : Nil
-      opener = {% if flag?(:darwin) %}
-                 "open"
-               {% else %}
-                 "xdg-open"
-               {% end %}
-      Process.run(opener, [url],
-        output: Process::Redirect::Close, error: Process::Redirect::Close)
-    rescue
-      # Ignore : l'utilisateur peut copier l'URL manuellement.
     end
 
     def owns?(host_name : String) : Bool

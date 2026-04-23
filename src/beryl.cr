@@ -77,6 +77,22 @@ module Beryl
     end
   end
 
+  # Tente d'ouvrir une URL dans le navigateur par défaut de
+  # l'utilisateur. Utilise `open` sur macOS, `xdg-open` sur Linux.
+  # Silencieux si ça échoue : l'URL est supposée être déjà affichée
+  # ailleurs (log stderr), l'utilisateur peut copier-coller.
+  def self.open_in_browser(url : String) : Nil
+    opener = {% if flag?(:darwin) %}
+               "open"
+             {% else %}
+               "xdg-open"
+             {% end %}
+    Process.run(opener, [url],
+      output: Process::Redirect::Close, error: Process::Redirect::Close)
+  rescue
+    # Silencieux : beryl a déjà affiché l'URL dans stderr.
+  end
+
   # Construit la commande shell à afficher à la fin d'un `--dry-run`
   # pour que l'utilisateur voie exactement quoi relancer (copy-paste
   # friendly). Retire les flags `--dry-run` / `-n` des args originaux
