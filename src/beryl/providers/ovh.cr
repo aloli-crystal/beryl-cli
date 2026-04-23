@@ -158,15 +158,22 @@ module Beryl::Providers
 
     # Routes OVH que beryl appelle. Injectées dans la `consumer_key`
     # au moment de la création via `POST /auth/credential`. Les `*`
-    # sont des wildcards supportés par OVH (pattern "tout sous ce
-    # préfixe").
+    # sont des wildcards supportés par OVH (pattern « tout sous ce
+    # préfixe avec un / »). ATTENTION : `/me/sshKey/*` NE matche PAS
+    # `/me/sshKey` nu (endpoint de liste). Il faut les deux :
+    #   - `/me/sshKey`   → GET pour lister les noms de clés
+    #   - `/me/sshKey/*` → GET pour récupérer le détail d'une clé
+    # Même logique pour `/dedicated/server` et `/domain/zone`.
     def required_access_rules : Array({verb: String, path: String})
       [
-        {verb: "GET", path: "/dedicated/server/*"},
+        {verb: "GET", path: "/dedicated/server"},   # liste des serveurs
+        {verb: "GET", path: "/dedicated/server/*"}, # détails + sous-routes
         {verb: "PUT", path: "/dedicated/server/*"},
         {verb: "POST", path: "/dedicated/server/*"},
-        {verb: "GET", path: "/me/sshKey/*"},
-        {verb: "GET", path: "/domain/zone/*"},
+        {verb: "GET", path: "/me/sshKey"},     # liste des clés SSH
+        {verb: "GET", path: "/me/sshKey/*"},   # contenu d'une clé
+        {verb: "GET", path: "/domain/zone"},   # liste des zones
+        {verb: "GET", path: "/domain/zone/*"}, # records d'une zone
         {verb: "POST", path: "/domain/zone/*/record"},
         {verb: "POST", path: "/domain/zone/*/refresh"},
         {verb: "PUT", path: "/ip/*/reverse"},

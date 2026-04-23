@@ -85,9 +85,21 @@ describe Beryl::Providers::Ovh do
       rules = Beryl::Providers::Ovh.new.required_access_rules
       paths = rules.map { |r| r[:path] }
       paths.should contain("/services/*")         # rename displayName
-      paths.should contain("/dedicated/server/*") # rescue/bootstrap/info
-      paths.should contain("/domain/zone/*")      # DNS forward
+      paths.should contain("/dedicated/server/*") # détails + sous-routes
+      paths.should contain("/domain/zone/*")      # records d'une zone
       paths.should contain("/ip/*/reverse")       # DNS reverse
+    end
+
+    it "inclut les endpoints de LISTE en plus des wildcards (nécessaires pour GET /me/sshKey, etc.)" do
+      # Le wildcard OVH `/me/sshKey/*` ne couvre PAS `/me/sshKey` nu
+      # (endpoint de liste). Il faut les deux pour que beryl puisse
+      # lister les clés SSH (cas découvert terrain 23 avril 2026).
+      rules = Beryl::Providers::Ovh.new.required_access_rules
+      paths = rules.map { |r| r[:path] }
+      paths.should contain("/me/sshKey")
+      paths.should contain("/me/sshKey/*")
+      paths.should contain("/dedicated/server")
+      paths.should contain("/domain/zone")
     end
   end
 

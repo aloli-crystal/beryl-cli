@@ -116,9 +116,21 @@ module Beryl::Providers
 
     def credentials_env_vars : Array(Beryl::EnvVarSpec)
       [
+        # La console Scaleway affiche deux valeurs lors de la création
+        # d'une API key : un « ID de la clé d'accès » (alphanum court,
+        # type `SCWxxxxxxxxxxxxxxxx`) et une « Clé secrète » (UUID).
+        # L'API Scaleway s'authentifie via X-Auth-Token = secret_key,
+        # donc SCW_SECRET_KEY est la seule strictement nécessaire.
+        # SCW_ACCESS_KEY est stockée pour traçabilité (identifier à
+        # quelle clé correspond le secret dans la console) et pour
+        # préparer une éventuelle évolution API SigV4.
+        Beryl::EnvVarSpec.new(
+          name: "SCW_ACCESS_KEY",
+          description: "ID de la clé d'accès (SCWxxxxxxxxxxxxxxxx, affiché dans la console)",
+        ),
         Beryl::EnvVarSpec.new(
           name: "SCW_SECRET_KEY",
-          description: "Secret key (UUID généré dans Console → IAM → API keys)",
+          description: "Clé secrète (UUID, affichée UNE FOIS lors de la création dans la console)",
           secret: true,
         ),
         Beryl::EnvVarSpec.new(
