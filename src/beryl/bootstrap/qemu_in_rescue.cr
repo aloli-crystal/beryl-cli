@@ -1,4 +1,5 @@
 require "base64"
+require "uri"
 require "ovh-api/ovh_api"
 require "ssh"
 require "../config/zpool"
@@ -119,7 +120,6 @@ module Beryl::Bootstrap
       "https://github.com/mmatuska/mfsbsd/releases/latest/download/mfsbsd-se-__VERSION_MFS__-RELEASE-amd64.iso"
 
     WORK_DIR     = "/root/beryl-test"
-    MFSBSD_PATH  = "#{WORK_DIR}/mfsbsd-se.img"
     INSTALLERCFG = "#{WORK_DIR}/installerconfig"
     QEMU_SERIAL  = "#{WORK_DIR}/qemu-serial.log"
 
@@ -144,7 +144,9 @@ module Beryl::Bootstrap
     TEMPLATE_RESCUE_RUN_VM   = {{ read_file("#{__DIR__}/templates/rescue-run-vm.sh") }}
 
     RESCUE_RUN_VM_PATH = "#{WORK_DIR}/rescue-run-vm.sh"
-    QEMU_PATTERN       = "qemu-system-x86_64.*mfsbsd-se.img"
+    # Matche tous les mfsBSD-SE quelle que soit leur version / extension
+    # (.iso côté GitHub, .img côté ancien vx.sk).
+    QEMU_PATTERN = "qemu-system-x86_64.*mfsbsd-se-"
 
     getter rescue_conn : SSH::Connection
     getter disks : Array(String)
@@ -254,6 +256,17 @@ module Beryl::Bootstrap
       @mfsbsd_url
     end
 
+    # Chemin local (côté rescue) où l'image mfsBSD SE est téléchargée.
+    # **Inclut la version** pour qu'un changement de version upstream
+    # (ex: 14.2 → 15.0) force un nouveau téléchargement au lieu de
+    # réutiliser un cache périmé d'une version précédente. L'extension
+    # provient de l'URL (.iso GitHub, .img vx.sk).
+    def mfsbsd_local_path : String
+      ext = File.extname(URI.parse(@mfsbsd_url).path.to_s)
+      ext = ".iso" if ext.empty?
+      "#{WORK_DIR}/mfsbsd-se-#{@mfsbsd_version}#{ext}"
+    end
+
     def target_disk : String
       @disks.first
     end
@@ -309,7 +322,7 @@ module Beryl::Bootstrap
         .gsub("__QEMU_RAM_MB__", @qemu_ram_mb.to_s)
         .gsub("__OVMF_CODE_SOURCE__", OVMF_CODE_SOURCE)
         .gsub("__OVMF_VARS_PATH__", OVMF_VARS_PATH)
-        .gsub("__MFSBSD_PATH__", MFSBSD_PATH)
+        .gsub("__MFSBSD_PATH__", mfsbsd_local_path)
         .gsub("__QEMU_TARGET_DISKS__", qemu_target_disks_args)
         .gsub("__DISTSITE__", "http://ftp.freebsd.org/pub/FreeBSD/releases/amd64/#{@freebsd_version}-RELEASE")
         .gsub("__FREEBSD_VERSION__", @freebsd_version)
@@ -426,7 +439,7 @@ module Beryl::Bootstrap
     end
 
     private def download_mfsbsd_if_needed : Nil
-      quoted = Process.quote(MFSBSD_PATH)
+      quoted = Process.quote(mfsbsd_local_path)
       quoted_url = Process.quote(@mfsbsd_url)
       @rescue_conn.exec(
         "test -s #{quoted} || curl -fLo #{quoted} #{quoted_url}"

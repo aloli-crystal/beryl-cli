@@ -78,23 +78,36 @@ scp_to_vm() {
 # ----------------------------------------------------------------------
 # Étape 0 — lance QEMU via systemd-run (détaché de la session ssh)
 # ----------------------------------------------------------------------
+# On stoppe TOUJOURS l'unité qemu-vm existante avant de relancer :
+# une VM survivante d'un run précédent peut tourner sur une ancienne
+# image mfsBSD (version différente) et produire un mismatch subtil avec
+# les tarballs qu'on s'apprête à extraire. Mieux vaut un boot frais à
+# chaque run.
 
 if systemctl is-active --quiet qemu-vm.service; then
-  echo "[rescue-run-vm] QEMU déjà actif (systemd service qemu-vm), réutilise"
-else
-  : > "$QEMU_SERIAL"
-  systemd-run --unit=qemu-vm --description='beryl bootstrap QEMU' \
-    /usr/bin/qemu-system-x86_64 -enable-kvm -machine q35 -cpu host \
-    -smp __QEMU_CPUS__ -m __QEMU_RAM_MB__M \
-    -drive if=pflash,format=raw,readonly=on,file=__OVMF_CODE_SOURCE__ \
-    -drive if=pflash,format=raw,file=__OVMF_VARS_PATH__ \
-    -drive file=__MFSBSD_PATH__,format=raw,if=virtio \
-    __QEMU_TARGET_DISKS__ \
-    -netdev user,id=net0,hostfwd=tcp::__VM_PORT__-:22 \
-    -device virtio-net-pci,netdev=net0 \
-    -nographic -serial file:"$QEMU_SERIAL" -no-reboot
-  echo "[rescue-run-vm] QEMU lancé dans systemd unit qemu-vm.service"
+  echo "[rescue-run-vm] unité qemu-vm.service active : arrêt pour repartir sur une VM fraîche"
+  systemctl stop qemu-vm.service || true
+  # Laisse le temps au process de vraiment sortir avant qu'on réutilise
+  # le même port hôte (2223).
+  for _ in 1 2 3 4 5; do
+    systemctl is-active --quiet qemu-vm.service || break
+    sleep 1
+  done
+  systemctl reset-failed qemu-vm.service 2>/dev/null || true
 fi
+
+: > "$QEMU_SERIAL"
+systemd-run --unit=qemu-vm --description='beryl bootstrap QEMU' \
+  /usr/bin/qemu-system-x86_64 -enable-kvm -machine q35 -cpu host \
+  -smp __QEMU_CPUS__ -m __QEMU_RAM_MB__M \
+  -drive if=pflash,format=raw,readonly=on,file=__OVMF_CODE_SOURCE__ \
+  -drive if=pflash,format=raw,file=__OVMF_VARS_PATH__ \
+  -drive file=__MFSBSD_PATH__,format=raw,if=virtio \
+  __QEMU_TARGET_DISKS__ \
+  -netdev user,id=net0,hostfwd=tcp::__VM_PORT__-:22 \
+  -device virtio-net-pci,netdev=net0 \
+  -nographic -serial file:"$QEMU_SERIAL" -no-reboot
+echo "[rescue-run-vm] QEMU lancé dans systemd unit qemu-vm.service"
 
 # ----------------------------------------------------------------------
 # Étape 1 — attend SSH mfsBSD
