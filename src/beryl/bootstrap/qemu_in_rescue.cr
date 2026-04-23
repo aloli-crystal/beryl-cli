@@ -165,6 +165,9 @@ module Beryl::Bootstrap
     getter sudoers : Array(String)
     getter install_type : String
     getter data_pools : Array(DataPoolSpec)
+    # Nom à suggérer dans le hint `beryl follow-install <name>`
+    # (typiquement FQDN ou `<société>/<host>`). nil → fallback « <host> ».
+    getter follow_hint_host_name : String?
 
     def initialize(
       @rescue_conn : SSH::Connection,
@@ -189,6 +192,7 @@ module Beryl::Bootstrap
       @sudoers : Array(String) = [] of String,
       @install_type : String = "distribution_sets",
       @data_pools : Array(DataPoolSpec) = [] of DataPoolSpec,
+      @follow_hint_host_name : String? = nil,
     )
       raise ArgumentError.new("disks ne peut pas être vide") if @disks.empty?
       raise ArgumentError.new("hostname requis") if @hostname.empty?
@@ -445,11 +449,14 @@ module Beryl::Bootstrap
     end
 
     private def hint_follow_bsdinstall : Nil
-      rescue_host = @rescue_conn.host
       border = "# " + "=" * 77
       STDERR.puts border
-      STDERR.puts "# Pour suivre bsdinstall en direct depuis un autre terminal, copiez-collez :"
-      STDERR.puts %(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@#{rescue_host} 'sshpass -p #{MFSBSD_ROOT_PASSWORD} ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=keyboard-interactive -o PubkeyAuthentication=no -p #{VM_SSH_PORT} root@#{VM_SSH_HOST} "while [ ! -f #{VM_BSDINSTALL_LG} ]; do sleep 2; done; tail -f #{VM_BSDINSTALL_LG} | grep --line-buffered -vE \\"DEBUG: (dialog\\\\.|common\\\\.|struct\\\\.|variable\\\\.|device\\\\.|geom\\\\.|strings\\\\.|password/|f_dialog|f_debug|f_include|f_variable|f_getvar)|DEBUG_SELF_INITIALIZE|UNAME_S=|ARGV=\\""')
+      STDERR.puts "# Pour suivre bsdinstall en direct depuis un autre terminal :"
+      if name = @follow_hint_host_name
+        STDERR.puts "#   beryl follow-install #{name}"
+      else
+        STDERR.puts "#   beryl follow-install <host>"
+      end
       STDERR.puts border
     end
 

@@ -201,6 +201,7 @@ module Beryl::CLI::Bootstrap
       ovh_service_name: host.ovh_service_name,
       install_type: install_type,
       data_pools: data_pools,
+      follow_hint_host_name: "#{host.account_name}/#{host.fqdn}",
     )
     bootstrap.run
 
