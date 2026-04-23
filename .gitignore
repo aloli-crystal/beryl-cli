@@ -16,6 +16,12 @@ inventory.local.yml
 .env
 .env.yml
 
+# Exception : les fixtures de tests sous spec/fixtures/ contiennent
+# des .env.yml avec des valeurs bidon (xxx/yyy/zzz) pour stubber le
+# flux sans exposer de credentials réels. Ils DOIVENT être versionnés
+# sinon la CI plante avec `Missing hash key "OVH_APPLICATION_KEY"`.
+!spec/fixtures/**/.env.yml
+
 # Config beryl locale (ex: ./.beryl/ si l'utilisateur teste en local
 # au lieu de ~/.beryl/). Peut contenir des credentials (.env.yml),
 # des clés SSH et d'autres secrets — JAMAIS dans git.
