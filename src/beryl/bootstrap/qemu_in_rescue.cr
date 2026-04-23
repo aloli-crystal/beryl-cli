@@ -488,32 +488,30 @@ module Beryl::Bootstrap
       sleep REBOOT_GRACE_PERIOD
     end
 
+    # Attend que le FreeBSD fraîchement installé réponde en SSH. Pas
+    # de log en propre ici : l'appelant enveloppe déjà cet appel dans
+    # un `log_step("6/6 — reboot bare metal … attente SSH")` qui porte
+    # le compteur vivant `[NNNs]`. Double affichage = ligne mélangée,
+    # observé sur loulou le 23 avril 2026.
     private def wait_for_installed_ssh : SSH::Connection
       conn = SSH::Connection.new(
         host: @rescue_conn.host,
         user: @installed_user,
         port: @installed_port,
       )
-      start = Time.instant
-      deadline = start + SSH_WAIT_TIMEOUT
+      deadline = Time.instant + SSH_WAIT_TIMEOUT
       last_error = nil
       while Time.instant < deadline
         begin
           result = conn.exec("uname -s", raise_on_error: false)
           if result.success? && result.stdout.strip == "FreeBSD"
-            STDERR.print "\n"
-            log "FreeBSD installé et joignable (uname -s = FreeBSD, user = #{@installed_user})"
             return conn
           end
         rescue ex
           last_error = ex
         end
-        elapsed = (Time.instant - start).total_seconds.to_i
-        STDERR.printf("  [%4ds] attente SSH FreeBSD sur %s...\r", elapsed, @rescue_conn.host)
-        STDERR.flush
         sleep SSH_POLL_INTERVAL
       end
-      STDERR.print "\n"
       raise "timeout : le FreeBSD installé n'a pas répondu en SSH au bout de #{SSH_WAIT_TIMEOUT.total_minutes.to_i} min (dernière erreur : #{last_error.try(&.message)})"
     end
 
