@@ -494,10 +494,16 @@ module Beryl::Bootstrap
     # le compteur vivant `[NNNs]`. Double affichage = ligne mélangée,
     # observé sur loulou le 23 avril 2026.
     private def wait_for_installed_ssh : SSH::Connection
+      # Réutilise l'identity_file du rescue : c'est la clé OPS locale,
+      # qui DOIT aussi avoir été injectée dans `~admin/.ssh/authorized_keys`
+      # pendant le post-install (via `user.ssh_keys` du YAML). Sans ça,
+      # `BatchMode=yes` forcé par le shard ssh fait échouer silencieusement
+      # l'auth publickey et le polling tourne dans le vide.
       conn = SSH::Connection.new(
         host: @rescue_conn.host,
         user: @installed_user,
         port: @installed_port,
+        identity_file: @rescue_conn.identity_file,
       )
       deadline = Time.instant + SSH_WAIT_TIMEOUT
       last_error = nil
