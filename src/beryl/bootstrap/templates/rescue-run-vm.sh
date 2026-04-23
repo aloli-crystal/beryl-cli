@@ -128,19 +128,23 @@ while true; do
 done
 
 # ----------------------------------------------------------------------
-# Étape 2 — vérifie que les dists sont disponibles dans la VM
+# Étape 2 — s'assure que MANIFEST + base.txz + kernel.txz sont présents
 # ----------------------------------------------------------------------
-# mfsBSD SE embarque déjà MANIFEST + base.txz + kernel.txz pour sa
-# propre version FreeBSD (14.2 actuellement). On installe donc la
-# même version — pas de téléchargement, pas de mismatch pkg entre
-# mfsBSD et /mnt, pas d'IGNORE_OSVERSION à trimballer.
+# mfsBSD SE embarquait historiquement ces dists (versions 14.x sur
+# vx.sk). Les releases GitHub actuelles (15.0+) ne les embarquent plus
+# — l'ISO est allégé (~336 MB vs ~432 MB). On télécharge à la demande
+# si manquant, depuis le mirror FreeBSD officiel. Le `test -s <file>`
+# évite tout re-download quand les dists sont déjà là.
 #
-# Pour installer une autre version, il faudrait une mfsBSD SE de la
-# version cible. Une future `beryl upgrade` fera la bascule 14.2 → 15
-# une fois le système installé et rebooté.
+# mfsBSD SE et la version FreeBSD cible sont synchronisés (même X.Y),
+# donc pas de mismatch pkg dans le post-install.
 
-echo "[rescue-run-vm] vérifie les dists embarqués mfsBSD SE"
-ssh_vm_long "ls -la /usr/freebsd-dist/MANIFEST /usr/freebsd-dist/base.txz /usr/freebsd-dist/kernel.txz"
+echo "[rescue-run-vm] s'assure que MANIFEST + base.txz + kernel.txz sont disponibles dans la VM"
+ssh_vm_long "mkdir -p /usr/freebsd-dist && cd /usr/freebsd-dist && \
+  (test -s MANIFEST   || fetch -q -o MANIFEST   $DISTSITE/MANIFEST) && \
+  (test -s base.txz   || fetch -q -o base.txz   $DISTSITE/base.txz) && \
+  (test -s kernel.txz || fetch -q -o kernel.txz $DISTSITE/kernel.txz) && \
+  ls -la MANIFEST base.txz kernel.txz"
 
 # ----------------------------------------------------------------------
 # Étape 3 — scp installerconfig + bsdinstall (préambule seul)
