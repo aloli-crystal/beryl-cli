@@ -69,12 +69,14 @@ module Beryl::CLI::Scan
     provider_override : String? = nil
     dns_setup = false
     dry_run = false
+    account_hint : String? = nil
     domain_hint : String? = nil
     non_interactive = false
     positional = [] of String
 
     parser = OptionParser.new do |p|
       p.banner = "USAGE : beryl scan <host> [options]"
+      p.on("-a NAME", "--account=NAME", "Forcer la société") { |v| account_hint = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
       p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (ex: ovh, scaleway)") { |v| provider_override = v }
       p.on("-n", "--dry-run", "Affiche ce qui serait fait sans écrire ni appeler d'API") { dry_run = true }
@@ -98,7 +100,7 @@ module Beryl::CLI::Scan
     end
 
     root = Beryl::Config::Root.load(config_root)
-    host = root.resolve(host_name, domain_hint: domain_hint)
+    host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
     host.apply_all_credentials_to_env!
 
     # --dns : faire le rename DNS + reverse AVANT le scan disques.

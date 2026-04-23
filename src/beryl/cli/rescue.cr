@@ -53,6 +53,7 @@ module Beryl::CLI::Rescue
   ) : Int32
     wait = true
     timeout = DEFAULT_SSH_WAIT_TIMEOUT
+    account_hint : String? = nil
     domain_hint : String? = nil
     provider_override : String? = nil
     dry_run = false
@@ -60,6 +61,7 @@ module Beryl::CLI::Rescue
 
     parser = OptionParser.new do |p|
       p.banner = "USAGE : beryl rescue <host> [options]"
+      p.on("-a NAME", "--account=NAME", "Forcer la société (si ambiguë entre sociétés)") { |v| account_hint = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine (sinon déduit du FQDN)") { |v| domain_hint = v }
       p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (ex: ovh, scaleway)") { |v| provider_override = v }
       p.on("-n", "--dry-run", "Affiche l'appel API sans le déclencher") { dry_run = true }
@@ -77,7 +79,7 @@ module Beryl::CLI::Rescue
     end
 
     root = Beryl::Config::Root.load(config_root)
-    host = root.resolve(host_name, domain_hint: domain_hint)
+    host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
     host.apply_all_credentials_to_env!
 
     unless dns_resolver.call(host.ssh_host)

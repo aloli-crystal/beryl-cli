@@ -18,6 +18,7 @@ module Beryl::CLI::Wipe
     all_declared = false
     force = false
     dry_run = false
+    account_hint : String? = nil
     domain_hint : String? = nil
     positional = [] of String
 
@@ -25,6 +26,7 @@ module Beryl::CLI::Wipe
       p.banner = "USAGE : beryl wipe <host> (--disk PATH... | --all-declared) [options]"
       p.on("-k PATH", "--disk=PATH", "Disque à effacer (répétable, ex. --disk=/dev/sda --disk=/dev/sdb)") { |v| target_disks << v }
       p.on("-a", "--all-declared", "Efface tous les disques déclarés dans freebsd.zfs.*") { all_declared = true }
+      p.on("--account=NAME", "Forcer la société (si ambiguë)") { |v| account_hint = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
       p.on("-n", "--dry-run", "Affiche les commandes sans les exécuter") { dry_run = true }
       p.on("-f", "--force", "Pas de confirmation (DANGER, scripts uniquement)") { force = true }
@@ -40,7 +42,7 @@ module Beryl::CLI::Wipe
     end
 
     root = Beryl::Config::Root.load(config_root)
-    host = root.resolve(host_name, domain_hint: domain_hint)
+    host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
     host.apply_all_credentials_to_env!
 
     # Fusion --disk et --all-declared : union sans doublon, ordre

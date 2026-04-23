@@ -24,11 +24,13 @@ module Beryl::CLI::Apply
 
   def self.run(config_root : String, args : Array(String)) : Int32
     dry_run = false
+    account_hint : String? = nil
     domain_hint : String? = nil
     positional = [] of String
 
     parser = OptionParser.new do |p|
       p.banner = "USAGE : beryl apply <host> [options]"
+      p.on("-a NAME", "--account=NAME", "Forcer la société (si ambiguë)") { |v| account_hint = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
       p.on("-n", "--dry-run", "Affiche ce qui changerait sans l'appliquer") { dry_run = true }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
@@ -43,7 +45,7 @@ module Beryl::CLI::Apply
     end
 
     root = Beryl::Config::Root.load(config_root)
-    host = root.resolve(host_name, domain_hint: domain_hint)
+    host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
     host.apply_all_credentials_to_env!
 
     conn = host.connection

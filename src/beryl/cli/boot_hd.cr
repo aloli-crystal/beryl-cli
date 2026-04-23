@@ -40,6 +40,7 @@ module Beryl::CLI::BootHd
     wait = true
     user = "admin"
     timeout = DEFAULT_SSH_WAIT_TIMEOUT
+    account_hint : String? = nil
     domain_hint : String? = nil
     provider_override : String? = nil
     dry_run = false
@@ -47,6 +48,7 @@ module Beryl::CLI::BootHd
 
     parser = OptionParser.new do |p|
       p.banner = "USAGE : beryl boot-hd <host> [options]"
+      p.on("-a NAME", "--account=NAME", "Forcer la société (si ambiguë)") { |v| account_hint = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
       p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (boot-hd n'est câblé que pour ovh)") { |v| provider_override = v }
       p.on("-n", "--dry-run", "Affiche l'appel API sans le déclencher") { dry_run = true }
@@ -65,7 +67,7 @@ module Beryl::CLI::BootHd
     end
 
     root = Beryl::Config::Root.load(config_root)
-    host = root.resolve(host_name, domain_hint: domain_hint)
+    host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
     host.apply_all_credentials_to_env!
 
     # Résolution du provider : --provider CLI gagne, sinon celui du merge.

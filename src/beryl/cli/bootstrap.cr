@@ -19,6 +19,7 @@ module Beryl::CLI::Bootstrap
   EXIT_PKGBASE_NYI = 11
 
   def self.run(config_root : String, args : Array(String)) : Int32
+    account_hint : String? = nil
     domain_hint : String? = nil
     provider_override : String? = nil
     iso_url_override : String? = nil
@@ -29,6 +30,7 @@ module Beryl::CLI::Bootstrap
 
     parser = OptionParser.new do |p|
       p.banner = "USAGE : beryl bootstrap <host> [options]"
+      p.on("-a NAME", "--account=NAME", "Forcer la société (si ambiguë)") { |v| account_hint = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
       p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (ex: ovh, scaleway)") { |v| provider_override = v }
       p.on("-n", "--dry-run", "Affiche le plan d'install sans lancer QEMU/bsdinstall") { dry_run = true }
@@ -47,7 +49,7 @@ module Beryl::CLI::Bootstrap
     end
 
     root = Beryl::Config::Root.load(config_root)
-    host = root.resolve(host_name, domain_hint: domain_hint)
+    host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
     host.apply_all_credentials_to_env!
 
     # Construction de la connexion SSH rescue (utilisée par le
