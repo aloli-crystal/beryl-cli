@@ -87,4 +87,161 @@ module Beryl::CLI::AccountUtils
   # Exception de sortie utilisateur (Ctrl-D, Ctrl-C logique).
   class Aborted < Exception
   end
+
+  # Rassemble les credentials déjà en mémoire pour un provider dans
+  # une société. Sources inspectées :
+  #   1. le fichier `.env.yml[<account>][<provider>]` (passé en arg)
+  #   2. les variables d'environnement du shell courant
+  # Factorisé ici pour que tous les flux credentials (OVH, Scaleway,
+  # Gandi…) partagent le même mécanisme.
+  def self.collect_pre_existing(provider : Beryl::Provider, current_file : Hash(String, String)) : Hash(String, String)
+    result = {} of String => String
+    provider.credentials_env_vars.each do |var|
+      if current_file.has_key?(var.name) && !current_file[var.name].empty?
+        result[var.name] = current_file[var.name]
+      elsif (shell_val = ENV[var.name]?) && !shell_val.empty?
+        result[var.name] = shell_val
+      end
+    end
+    result
+  end
+
+  # Flux générique de récupération des credentials d'un provider
+  # pour une société. Utilisé par `beryl add-provider` et indirectement
+  # par `beryl init` (qui enchaîne add-provider). Applicable à
+  # n'importe quel provider : la sémantique vient de
+  # `provider.credentials_env_vars` + du hook
+  # `provider.bootstrap_credentials_if_needed`.
+  #
+  # Étapes :
+  #   0. Détecter les credentials déjà en mémoire (fichier + shell).
+  #      Si présents et interactif, demander à l'utilisateur s'il
+  #      veut les réutiliser ou en générer/saisir de nouveaux.
+  #   1-4. Récupération classique (fichier → shell → défaut → prompt).
+  #   5. Hook `bootstrap_credentials_if_needed` (OVH : génère la CK).
+  #   6. Vérif des vars requises.
+  #   7. Persist .env.yml + apply to ENV.
+  #
+  # Retourne true si tout s'est bien passé, false sinon (avec message
+  # d'erreur déjà émis sur STDERR).
+  def self.ensure_credentials(
+    provider : Beryl::Provider,
+    account : String,
+    env_file : Beryl::Config::EnvFile,
+    env_path : String,
+    non_interactive : Bool,
+    regen_credentials : Bool,
+  ) : Bool
+    required = provider.credentials_env_vars.reject(&.optional)
+    current = env_file.for_account_provider(account, provider.name).dup
+    regen = regen_credentials
+    picked_up_from_shell = [] of String
+    prompted = [] of String
+    kept_from_file = [] of String
+
+    # Étape 0 : détecter pré-existants, demander si utiliser/regen.
+    pre_existing = collect_pre_existing(provider, current)
+    if !pre_existing.empty? && !non_interactive && !regen
+      STDERR.puts "[beryl] J'ai trouvé des credentials existants pour `#{provider.name}` dans la société `#{account}` :"
+      provider.credentials_env_vars.each do |var|
+        next unless pre_existing.has_key?(var.name)
+        value = pre_existing[var.name]
+        display = var.secret ? mask_secret(value) : value
+        source = if current.has_key?(var.name) && !current[var.name].empty?
+                   "fichier #{env_path}"
+                 else
+                   "variable d'environnement du shell courant"
+                 end
+        STDERR.puts "       #{var.name.ljust(22)} = #{display}"
+        STDERR.puts "       #{" " * 22}   ↪ source : #{source}"
+      end
+      if ask_yes_no(
+           "Voulez-vous les utiliser, ou en générer/saisir de nouveaux ? (O = utiliser, n = régénérer)",
+           default_yes: true,
+         )
+        # Conserve tout.
+      else
+        STDERR.puts "[beryl] Les credentials existants sont ignorés ; nouvelle saisie/génération."
+        current = {} of String => String
+        regen = true
+      end
+    end
+
+    # Étapes 1-4 : fichier → shell → défaut → prompt.
+    provider.credentials_env_vars.each do |var|
+      if current.has_key?(var.name) && !current[var.name].empty?
+        kept_from_file << var.name
+        next
+      end
+      unless regen
+        if (shell_val = ENV[var.name]?) && !shell_val.empty?
+          current[var.name] = shell_val
+          picked_up_from_shell << var.name
+          next
+        end
+      end
+      if var.optional && (d = var.default) && !d.empty?
+        current[var.name] = d
+        next
+      end
+      next if non_interactive
+      if prompted.empty? && picked_up_from_shell.empty?
+        STDERR.puts "       Aide : #{provider.credentials_help_url}"
+        if details = provider.credentials_help_details
+          details.each_line { |line| STDERR.puts "       #{line}" }
+        end
+      end
+      prompt = "  #{var.name}"
+      prompt += " (optionnel)" if var.optional
+      prompt += " : "
+      STDERR.print prompt
+      STDERR.flush
+      line = STDIN.gets
+      raise Aborted.new if line.nil?
+      input = line.chomp.strip
+      next if input.empty? && var.optional
+      current[var.name] = input unless input.empty?
+      prompted << var.name
+    end
+
+    unless kept_from_file.empty?
+      STDERR.puts "[beryl] Variables conservées :"
+      provider.credentials_env_vars.each do |var|
+        next unless kept_from_file.includes?(var.name)
+        value = current[var.name]
+        display = var.secret ? mask_secret(value) : value
+        STDERR.puts "       #{var.name.ljust(22)} = #{display}"
+      end
+    end
+
+    # Étape 5 : hook provider (génération auto, ex: OVH CK).
+    begin
+      current = provider.bootstrap_credentials_if_needed(
+        current,
+        force_regen: regen,
+        interactive: !non_interactive,
+      )
+    rescue ex
+      STDERR.puts "beryl : échec de la génération automatique des credentials #{provider.display_name} — #{ex.message}"
+      return false
+    end
+
+    # Étape 6 : vérif requises.
+    missing = required.map(&.name).reject { |n| current.has_key?(n) && !current[n].empty? }
+    unless missing.empty?
+      STDERR.puts "beryl : variables requises non fournies pour #{provider.display_name} : #{missing.join(", ")}"
+      return false
+    end
+
+    # Étape 7 : persist + apply ENV.
+    env_file.set_account_provider(account, provider.name, current)
+    env_file.save
+    env_file.apply_to_env(account, provider.name, overwrite: true)
+
+    unless provider.available?
+      STDERR.puts "beryl : credentials posés mais #{provider.display_name} se déclare indisponible. Vérifiez #{env_path}."
+      return false
+    end
+    true
+  end
 end

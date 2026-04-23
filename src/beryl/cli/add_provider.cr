@@ -81,7 +81,7 @@ module Beryl::CLI::AddProvider
     env_file = Beryl::Config::EnvFile.load(env_path)
 
     STDERR.puts "[beryl add-provider] Ajout de #{provider.display_name} pour la société `#{account}`"
-    success = populate_credentials(
+    success = Beryl::CLI::AccountUtils.ensure_credentials(
       provider: provider,
       account: account,
       env_file: env_file,
@@ -96,106 +96,5 @@ module Beryl::CLI::AddProvider
   rescue ex : Beryl::CLI::AccountUtils::Aborted
     STDERR.puts "beryl : abandon"
     EXIT_ABORTED
-  end
-
-  # Flux credentials adapté ADR-014 : on ne gère que les vars du
-  # provider concerné, stockées dans .env.yml[account][provider].
-  private def self.populate_credentials(
-    provider : Beryl::Provider,
-    account : String,
-    env_file : Beryl::Config::EnvFile,
-    env_path : String,
-    non_interactive : Bool,
-    regen_credentials : Bool,
-  ) : Bool
-    required = provider.credentials_env_vars.reject(&.optional)
-    current = env_file.for_account_provider(account, provider.name).dup
-    picked_up_from_shell = [] of String
-    prompted = [] of String
-    kept_from_file = [] of String
-
-    provider.credentials_env_vars.each do |var|
-      # 1. Déjà dans le fichier → on garde
-      if current.has_key?(var.name) && !current[var.name].empty?
-        kept_from_file << var.name
-        next
-      end
-
-      # 2. Exporté dans le shell → on prend
-      if (shell_val = ENV[var.name]?) && !shell_val.empty?
-        current[var.name] = shell_val
-        picked_up_from_shell << var.name
-        next
-      end
-
-      # 3. Défaut optionnel
-      if var.optional && (d = var.default) && !d.empty?
-        current[var.name] = d
-        next
-      end
-
-      # 4. Prompt interactif
-      next if non_interactive
-
-      # Intro une seule fois
-      if prompted.empty? && picked_up_from_shell.empty?
-        STDERR.puts "             Aide : #{provider.credentials_help_url}"
-        if details = provider.credentials_help_details
-          details.each_line { |line| STDERR.puts "             #{line}" }
-        end
-      end
-      prompt = "  #{var.name}"
-      prompt += " (optionnel)" if var.optional
-      prompt += " : "
-      STDERR.print prompt
-      STDERR.flush
-      line = STDIN.gets
-      raise Beryl::CLI::AccountUtils::Aborted.new if line.nil?
-      input = line.chomp.strip
-      next if input.empty? && var.optional
-      current[var.name] = input unless input.empty?
-      prompted << var.name
-    end
-
-    # Log les vars conservées (masquées) AVANT le hook
-    unless kept_from_file.empty?
-      STDERR.puts "[beryl add-provider] Variables conservées :"
-      provider.credentials_env_vars.each do |var|
-        next unless kept_from_file.includes?(var.name)
-        value = current[var.name]
-        display = var.secret ? Beryl::CLI::AccountUtils.mask_secret(value) : value
-        STDERR.puts "               #{var.name} = #{display}"
-      end
-    end
-
-    # Hook : génération auto de credentials dérivées (OVH CK)
-    begin
-      current = provider.bootstrap_credentials_if_needed(
-        current,
-        force_regen: regen_credentials,
-        interactive: !non_interactive,
-      )
-    rescue ex
-      STDERR.puts "beryl : échec de la génération automatique des credentials #{provider.display_name} — #{ex.message}"
-      return false
-    end
-
-    # Vérifie les requises
-    missing = required.map(&.name).reject { |n| current.has_key?(n) && !current[n].empty? }
-    unless missing.empty?
-      STDERR.puts "beryl : variables requises non fournies pour #{provider.display_name} : #{missing.join(", ")}"
-      return false
-    end
-
-    # Persiste
-    env_file.set_account_provider(account, provider.name, current)
-    env_file.save
-    env_file.apply_to_env(account, provider.name, overwrite: true)
-
-    unless provider.available?
-      STDERR.puts "beryl : credentials posés mais #{provider.display_name} se déclare indisponible. Vérifiez #{env_path}."
-      return false
-    end
-    true
   end
 end
