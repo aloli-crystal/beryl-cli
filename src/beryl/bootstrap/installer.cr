@@ -13,8 +13,11 @@ module Beryl::Bootstrap
   # `MfsBSD + Installer` en une seule étape (bsdinstall non interactif
   # dans une VM QEMU lancée côté rescue Linux).
   #
-  # Installe FreeBSD 15 sur disque depuis une image mfsBSD active en RAM,
-  # en mode **pkgbase** par défaut (le nouveau système 15.0).
+  # Installe FreeBSD 14.2 sur disque depuis une image mfsBSD SE 14.2
+  # active en RAM. Les dists `base.txz` / `kernel.txz` sont embarqués
+  # dans mfsBSD SE — pas de téléchargement nécessaire. Une future
+  # sous-commande `beryl upgrade` gérera la migration vers FreeBSD 15
+  # quand la mfsBSD SE 15 sera disponible.
   #
   # Le script shell d'installation est un template livré avec beryl
   # (`templates/install-pkgbase.sh`). Les placeholders `__XXX__` sont
@@ -50,7 +53,7 @@ module Beryl::Bootstrap
       @pool_name : String = "zroot",
       @swap_gb : Int32 = 4,
       @timezone : String = "Europe/Paris",
-      @abi : String = "FreeBSD:15:amd64",
+      @abi : String = "FreeBSD:14:amd64",
     )
       raise ArgumentError.new("authorized_keys ne peut pas être vide (sinon root sera injoignable)") if @authorized_keys.empty?
       raise ArgumentError.new("hostname requis") if @hostname.empty?

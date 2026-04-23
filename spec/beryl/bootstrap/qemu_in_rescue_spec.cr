@@ -11,11 +11,17 @@ private def user_admin(keys = ["ssh-ed25519 AAAA test@laptop"])
 end
 
 private def make_bootstrap(**overrides) : Beryl::Bootstrap::QemuInRescue
+  # Valeurs explicites pour les tests : en prod, ces trois champs
+  # viennent de `Beryl::Bootstrap::MfsBSDRelease.latest` (détection
+  # dynamique GitHub). Ici on fige pour isoler le comportement.
   defaults = {
-    rescue_conn: SSH::Connection.new(host: "srv.example.com"),
-    disks:       ["/dev/sda"],
-    hostname:    "srv.example.com",
-    users:       [user_admin],
+    rescue_conn:     SSH::Connection.new(host: "srv.example.com"),
+    disks:           ["/dev/sda"],
+    hostname:        "srv.example.com",
+    users:           [user_admin],
+    freebsd_version: "14.2",
+    mfsbsd_version:  "14.2",
+    abi:             "FreeBSD:14:amd64",
   }
   Beryl::Bootstrap::QemuInRescue.new(**defaults.merge(overrides))
 end
@@ -111,6 +117,7 @@ describe Beryl::Bootstrap::QemuInRescue do
         Beryl::Bootstrap::QemuInRescue.new(
           rescue_conn: SSH::Connection.new(host: "x"),
           disks: [] of String, hostname: "srv", users: [user_admin],
+          freebsd_version: "14.2", mfsbsd_version: "14.2", abi: "FreeBSD:14:amd64",
         )
       end
     end
@@ -120,6 +127,7 @@ describe Beryl::Bootstrap::QemuInRescue do
         Beryl::Bootstrap::QemuInRescue.new(
           rescue_conn: SSH::Connection.new(host: "x"),
           disks: ["/dev/sda"], hostname: "srv", users: [] of Beryl::Bootstrap::UserSpec,
+          freebsd_version: "14.2", mfsbsd_version: "14.2", abi: "FreeBSD:14:amd64",
         )
       end
     end
@@ -129,6 +137,7 @@ describe Beryl::Bootstrap::QemuInRescue do
         Beryl::Bootstrap::QemuInRescue.new(
           rescue_conn: SSH::Connection.new(host: "x"),
           disks: ["/dev/sda"], hostname: "", users: [user_admin],
+          freebsd_version: "14.2", mfsbsd_version: "14.2", abi: "FreeBSD:14:amd64",
         )
       end
     end
@@ -168,13 +177,14 @@ describe Beryl::Bootstrap::QemuInRescue do
       end
     end
 
-    it "a des défauts raisonnables" do
+    it "a des défauts raisonnables pour les paramètres non versionnés" do
+      # freebsd_version / mfsbsd_version / abi n'ont plus de défaut :
+      # résolus dynamiquement en prod via MfsBSDRelease.latest, ou
+      # fournis explicitement par le caller (cf. make_bootstrap).
       bs = make_bootstrap
-      bs.freebsd_version.should eq("15.0")
       bs.timezone.should eq("Europe/Paris")
       bs.pool_name.should eq("zroot")
       bs.swap_gb.should eq(4)
-      bs.abi.should eq("FreeBSD:15:amd64")
       bs.qemu_ram_mb.should eq(4096)
       bs.qemu_cpus.should eq(4)
       bs.installed_user.should eq("admin")
@@ -183,10 +193,11 @@ describe Beryl::Bootstrap::QemuInRescue do
       bs.sudoers.should be_empty
     end
 
-    it "construit l'URL mfsBSD SE par défaut (ADR-012)" do
+    it "construit l'URL mfsBSD SE par défaut (GitHub releases)" do
       bs = make_bootstrap
       bs.iso_url.should contain("mfsbsd-se")
       bs.iso_url.should contain("14.2")
+      bs.iso_url.should contain("github.com/mmatuska")
       bs.iso_url.should_not contain("__VERSION_MFS__")
     end
 

@@ -1,3 +1,4 @@
+require "./bootstrap/mfsbsd_release"
 require "./bootstrap/qemu_in_rescue"
 
 # Les classes ci-dessous restent dispo pour les tests et le support

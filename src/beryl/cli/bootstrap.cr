@@ -24,7 +24,10 @@ module Beryl::CLI::Bootstrap
     domain_hint : String? = nil
     provider_override : String? = nil
     iso_url_override : String? = nil
-    freebsd_version = "15.0"
+    # freebsd_version : si nil après parse, on appelle
+    # `MfsBSDRelease.latest` pour détecter la dernière disponible sur
+    # GitHub (aucun défaut en dur — règle « pas de version figée »).
+    freebsd_version_flag : String? = nil
     dry_run = false
     force = false
     positional = [] of String
@@ -37,7 +40,7 @@ module Beryl::CLI::Bootstrap
       p.on("-n", "--dry-run", "Affiche le plan d'install sans lancer QEMU/bsdinstall") { dry_run = true }
       p.on("-f", "--force", "Bypass le précheck (disques déclarés != physiques)") { force = true }
       p.on("-i URL", "--iso-url=URL", "URL mfsBSD (override)") { |v| iso_url_override = v }
-      p.on("-v VER", "--freebsd-version=VER", "Version FreeBSD (défaut : 15.0)") { |v| freebsd_version = v }
+      p.on("-v VER", "--freebsd-version=VER", "Version FreeBSD à installer (défaut : dernière mfsBSD SE détectée sur GitHub)") { |v| freebsd_version_flag = v }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
       p.unknown_args { |rest, _| positional = rest }
     end
@@ -56,6 +59,35 @@ module Beryl::CLI::Bootstrap
     root = Beryl::Config::Root.load(config_root)
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
     host.apply_all_credentials_to_env!
+
+    # Résolution de la version FreeBSD + URL mfsBSD. Règle « pas de
+    # version en dur » : par défaut on interroge les releases GitHub
+    # mfsBSD pour prendre la dernière disponible. Le flag
+    # `--freebsd-version=X.Y` force une version précise (utilise
+    # l'URL `/releases/latest/download/` qui pointe toujours vers la
+    # dernière release tagguée contenant cette version).
+    freebsd_version : String
+    mfsbsd_version : String
+    abi : String
+    resolved_iso_url = iso_url_override
+    if forced = freebsd_version_flag
+      freebsd_version = forced
+      mfsbsd_version = forced
+      abi = "FreeBSD:#{forced.split('.').first}:amd64"
+    else
+      begin
+        info = Beryl::Bootstrap::MfsBSDRelease.latest
+        freebsd_version = info.version
+        mfsbsd_version = info.version
+        abi = info.abi
+        resolved_iso_url ||= info.image_url
+        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] mfsBSD SE détectée : #{info.version} (#{info.image_url})"
+      rescue ex : Beryl::Bootstrap::MfsBSDRelease::DetectionFailed
+        STDERR.puts "beryl : impossible de détecter la dernière version mfsBSD SE — #{ex.message}"
+        STDERR.puts "        Passez --freebsd-version=X.Y pour forcer une version."
+        return EXIT_USAGE
+      end
+    end
 
     # Bootstrap est FreeBSD-only dans ce build. L'architecture prévoit
     # les autres OS (ADR-014) mais seul le chemin mfsBSD-in-QEMU +
@@ -191,8 +223,10 @@ module Beryl::CLI::Bootstrap
       packages: packages,
       sudoers: sudoers,
       freebsd_version: freebsd_version,
+      mfsbsd_version: mfsbsd_version,
+      abi: abi,
       timezone: timezone,
-      iso_url: iso_url_override,
+      iso_url: resolved_iso_url,
       pool_name: pool_name,
       swap_gb: swap_gb,
       installed_user: installed_user,

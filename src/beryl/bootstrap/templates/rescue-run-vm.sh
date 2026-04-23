@@ -115,17 +115,19 @@ while true; do
 done
 
 # ----------------------------------------------------------------------
-# Étape 2 — pré-fetch MANIFEST + base.txz + kernel.txz dans la VM
+# Étape 2 — vérifie que les dists sont disponibles dans la VM
 # ----------------------------------------------------------------------
-# Évite le dialog « Mirror Selection » de bsdinstall et garantit les
-# bons checksums.
+# mfsBSD SE embarque déjà MANIFEST + base.txz + kernel.txz pour sa
+# propre version FreeBSD (14.2 actuellement). On installe donc la
+# même version — pas de téléchargement, pas de mismatch pkg entre
+# mfsBSD et /mnt, pas d'IGNORE_OSVERSION à trimballer.
+#
+# Pour installer une autre version, il faudrait une mfsBSD SE de la
+# version cible. Une future `beryl upgrade` fera la bascule 14.2 → 15
+# une fois le système installé et rebooté.
 
-echo "[rescue-run-vm] pré-fetch MANIFEST + txz dans la VM"
-ssh_vm_long "mkdir -p /usr/freebsd-dist && cd /usr/freebsd-dist && \
-  test -s MANIFEST   || fetch -q -o MANIFEST   $DISTSITE/MANIFEST && \
-  test -s base.txz   || fetch -q -o base.txz   $DISTSITE/base.txz && \
-  test -s kernel.txz || fetch -q -o kernel.txz $DISTSITE/kernel.txz && \
-  ls -la"
+echo "[rescue-run-vm] vérifie les dists embarqués mfsBSD SE"
+ssh_vm_long "ls -la /usr/freebsd-dist/MANIFEST /usr/freebsd-dist/base.txz /usr/freebsd-dist/kernel.txz"
 
 # ----------------------------------------------------------------------
 # Étape 3 — scp installerconfig + bsdinstall (préambule seul)
@@ -200,7 +202,9 @@ done
 
 if [ -n "$PACKAGES" ]; then
   echo "[rescue-run-vm] pkg -r /mnt install (hors chroot → pas de Capsicum)"
-  ssh_vm_long "env ABI=$ABI IGNORE_OSVERSION=yes pkg -r /mnt install -y $PACKAGES"
+  # mfsBSD SE et /mnt partagent la même version FreeBSD (14.2), donc
+  # plus d'IGNORE_OSVERSION : pkg est parfaitement cohérent.
+  ssh_vm_long "env ABI=$ABI pkg -r /mnt install -y $PACKAGES"
 fi
 
 if [ -n "$SUDOERS_CONTENT" ]; then

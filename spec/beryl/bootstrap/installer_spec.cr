@@ -34,12 +34,15 @@ describe Beryl::Bootstrap::Installer do
       end
     end
 
-    it "a des défauts raisonnables pour pool, swap, timezone, abi" do
+    it "a des défauts raisonnables pour pool, swap, timezone" do
       installer = make_installer
       installer.pool_name.should eq("zroot")
       installer.swap_gb.should eq(4)
       installer.timezone.should eq("Europe/Paris")
-      installer.abi.should eq("FreeBSD:15:amd64")
+      # `abi` garde un défaut ici (Installer est la voie legacy mfsBSD
+      # pré-ADR-011, plus sur le chemin principal) ; la détection
+      # dynamique n'opère que côté `QemuInRescue` / CLI bootstrap.
+      installer.abi.should eq("FreeBSD:14:amd64")
     end
   end
 

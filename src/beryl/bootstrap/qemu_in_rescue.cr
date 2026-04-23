@@ -112,8 +112,11 @@ module Beryl::Bootstrap
   #
   # Voir ADR-013 pour la justification détaillée du pattern no-chroot.
   class QemuInRescue
+    # Template URL GitHub releases (source officielle actuelle mfsBSD).
+    # L'endpoint `/releases/latest/download/<asset>` redirige toujours
+    # vers la release la plus récente — pas besoin de tag à maintenir.
     DEFAULT_MFSBSD_URL_TEMPLATE =
-      "https://mfsbsd.vx.sk/files/images/__VERSION_MAJOR__/amd64/mfsbsd-se-__VERSION_MFS__-RELEASE-amd64.img"
+      "https://github.com/mmatuska/mfsbsd/releases/latest/download/mfsbsd-se-__VERSION_MFS__-RELEASE-amd64.iso"
 
     WORK_DIR     = "/root/beryl-test"
     MFSBSD_PATH  = "#{WORK_DIR}/mfsbsd-se.img"
@@ -174,14 +177,14 @@ module Beryl::Bootstrap
       @disks : Array(String),
       @hostname : String,
       @users : Array(UserSpec),
+      @freebsd_version : String,
+      @mfsbsd_version : String,
+      @abi : String,
       @raid : String = "stripe",
-      @freebsd_version : String = "15.0",
-      @mfsbsd_version : String = "14.2",
       @timezone : String = "Europe/Paris",
       iso_url : String? = nil,
       @pool_name : String = "zroot",
       @swap_gb : Int32 = 4,
-      @abi : String = "FreeBSD:15:amd64",
       @qemu_ram_mb : Int32 = 4096,
       @qemu_cpus : Int32 = 4,
       @installed_user : String = "admin",
@@ -243,10 +246,7 @@ module Beryl::Bootstrap
     VALID_INSTALL_TYPES = %w[distribution_sets packages]
 
     def self.default_mfsbsd_url(mfsbsd_version : String) : String
-      major = mfsbsd_version.split('.').first
-      DEFAULT_MFSBSD_URL_TEMPLATE
-        .gsub("__VERSION_MAJOR__", major)
-        .gsub("__VERSION_MFS__", mfsbsd_version)
+      DEFAULT_MFSBSD_URL_TEMPLATE.gsub("__VERSION_MFS__", mfsbsd_version)
     end
 
     # Alias rétrocompat — ancien paramètre iso_url.
