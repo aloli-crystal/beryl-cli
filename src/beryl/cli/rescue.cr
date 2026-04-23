@@ -4,7 +4,7 @@ require "ovh-api/ovh_api"
 require "scaleway-api/scaleway_api"
 require "../config"
 require "../providers"
-require "../ssh"
+require "ssh"
 require "./account_utils"
 require "./credentials"
 
@@ -110,7 +110,6 @@ module Beryl::CLI::Rescue
         log "Pour exécuter : #{Beryl.rerun_hint("rescue", args)}"
         return EXIT_OK
       end
-      Beryl.clean_known_hosts_for(host)
       task = trigger_ovh(host, ovh_client_factory)
       # Poll la task jusqu'à son état terminal avant de tester SSH.
       # Sinon on capture potentiellement l'ancien contexte (FreeBSD de
@@ -126,7 +125,6 @@ module Beryl::CLI::Rescue
         log "Pour exécuter : #{Beryl.rerun_hint("rescue", args)}"
         return EXIT_OK
       end
-      Beryl.clean_known_hosts_for(host)
       trigger_scaleway(host, scaleway_client_factory)
     when nil
       report_provider_unresolved(host)

@@ -1,5 +1,5 @@
 require "base64"
-require "../ssh"
+require "ssh"
 
 module Beryl::Bootstrap
   # DEPRECATED (ADR-010 / ADR-011) — n'est plus sur le chemin principal.
@@ -113,7 +113,7 @@ module Beryl::Bootstrap
     end
 
     private def wait_for_installed_system : SSH::Connection
-      conn = SSH::Connection.insecure_bootstrap(
+      conn = SSH::Connection.new(
         host: @mfsbsd_conn.host,
         user: "root",
         port: @mfsbsd_conn.port,

@@ -68,7 +68,7 @@ module Beryl::CLI::Bootstrap
 
     # Construction de la connexion SSH rescue (utilisée par le
     # précheck ET le bootstrap).
-    rescue_conn = Beryl::SSH::Connection.new(
+    rescue_conn = SSH::Connection.new(
       host: host.ssh_host,
       user: host.user,
       port: host.port,
@@ -175,8 +175,6 @@ module Beryl::CLI::Bootstrap
       return EXIT_OK
     end
 
-    Beryl.clean_known_hosts_for(host)
-
     # Résolution du provider : --provider CLI gagne, sinon celui du merge.
     effective_provider = provider_override || host.provider
     ovh_client = nil
@@ -217,7 +215,7 @@ module Beryl::CLI::Bootstrap
   rescue ex : Beryl::Config::Root::UnknownDomain
     STDERR.puts "beryl : #{ex.message}"
     EXIT_USAGE
-  rescue ex : Beryl::SSH::CommandFailed
+  rescue ex : SSH::CommandFailed
     STDERR.puts "beryl : #{ex.message}"
     EXIT_SSH_FAILED
   rescue ex : Beryl::Bootstrap::QemuInRescue::TargetDiskNotEmpty

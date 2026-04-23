@@ -2,7 +2,7 @@ require "../../spec_helper"
 
 private def make_installer(**overrides) : Beryl::Bootstrap::Installer
   defaults = {
-    mfsbsd_conn:     Beryl::SSH::Connection.new(host: "srv.example.com"),
+    mfsbsd_conn:     SSH::Connection.new(host: "srv.example.com"),
     target_disk:     "/dev/ada0",
     hostname:        "srv.example.com",
     authorized_keys: ["ssh-ed25519 AAAAC3... me@laptop"],
@@ -15,7 +15,7 @@ describe Beryl::Bootstrap::Installer do
     it "refuse une liste de clés SSH vide (sinon root serait injoignable)" do
       expect_raises(ArgumentError, /authorized_keys/) do
         Beryl::Bootstrap::Installer.new(
-          mfsbsd_conn: Beryl::SSH::Connection.new(host: "x"),
+          mfsbsd_conn: SSH::Connection.new(host: "x"),
           target_disk: "/dev/ada0",
           hostname: "srv",
           authorized_keys: [] of String,
@@ -26,7 +26,7 @@ describe Beryl::Bootstrap::Installer do
     it "refuse un hostname vide" do
       expect_raises(ArgumentError, /hostname/) do
         Beryl::Bootstrap::Installer.new(
-          mfsbsd_conn: Beryl::SSH::Connection.new(host: "x"),
+          mfsbsd_conn: SSH::Connection.new(host: "x"),
           target_disk: "/dev/ada0",
           hostname: "",
           authorized_keys: ["ssh-ed25519 AAA me@x"],

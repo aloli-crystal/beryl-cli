@@ -12,7 +12,7 @@ end
 
 private def make_bootstrap(**overrides) : Beryl::Bootstrap::QemuInRescue
   defaults = {
-    rescue_conn: Beryl::SSH::Connection.new(host: "srv.example.com"),
+    rescue_conn: SSH::Connection.new(host: "srv.example.com"),
     disks:       ["/dev/sda"],
     hostname:    "srv.example.com",
     users:       [user_admin],
@@ -109,7 +109,7 @@ describe Beryl::Bootstrap::QemuInRescue do
     it "refuse disks vide" do
       expect_raises(ArgumentError, /disks/) do
         Beryl::Bootstrap::QemuInRescue.new(
-          rescue_conn: Beryl::SSH::Connection.new(host: "x"),
+          rescue_conn: SSH::Connection.new(host: "x"),
           disks: [] of String, hostname: "srv", users: [user_admin],
         )
       end
@@ -118,7 +118,7 @@ describe Beryl::Bootstrap::QemuInRescue do
     it "refuse users vide" do
       expect_raises(ArgumentError, /users/) do
         Beryl::Bootstrap::QemuInRescue.new(
-          rescue_conn: Beryl::SSH::Connection.new(host: "x"),
+          rescue_conn: SSH::Connection.new(host: "x"),
           disks: ["/dev/sda"], hostname: "srv", users: [] of Beryl::Bootstrap::UserSpec,
         )
       end
@@ -127,7 +127,7 @@ describe Beryl::Bootstrap::QemuInRescue do
     it "refuse un hostname vide" do
       expect_raises(ArgumentError, /hostname/) do
         Beryl::Bootstrap::QemuInRescue.new(
-          rescue_conn: Beryl::SSH::Connection.new(host: "x"),
+          rescue_conn: SSH::Connection.new(host: "x"),
           disks: ["/dev/sda"], hostname: "", users: [user_admin],
         )
       end

@@ -2,7 +2,7 @@ require "option_parser"
 require "ovh-api/ovh_api"
 require "../config"
 require "../providers"
-require "../ssh"
+require "ssh"
 require "./credentials"
 require "./dns_setup"
 
@@ -208,7 +208,7 @@ module Beryl::CLI::Scan
   rescue ex : Beryl::Config::Root::UnknownDomain
     STDERR.puts "beryl : #{ex.message}"
     EXIT_USAGE
-  rescue ex : Beryl::SSH::CommandFailed
+  rescue ex : SSH::CommandFailed
     STDERR.puts "beryl : SSH échoué sur le rescue — #{ex.message}"
     EXIT_SSH_FAILED
   rescue ex : Aborted
@@ -237,7 +237,7 @@ module Beryl::CLI::Scan
     EXIT_UNEXPECTED
   end
 
-  def self.read_disks(conn : Beryl::SSH::Connection) : Array(Disk)
+  def self.read_disks(conn : SSH::Connection) : Array(Disk)
     result = conn.exec("lsblk -b -d -n -o NAME,SIZE,MODEL,ROTA,TRAN,VENDOR 2>/dev/null | cat")
     parse_lsblk(result.stdout)
   end

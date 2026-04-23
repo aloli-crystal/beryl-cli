@@ -1,6 +1,6 @@
 require "base64"
 require "ovh-api/ovh_api"
-require "../ssh"
+require "ssh"
 require "../config/zpool"
 
 module Beryl::Bootstrap
@@ -469,7 +469,7 @@ module Beryl::Bootstrap
     end
 
     private def wait_for_installed_ssh : SSH::Connection
-      conn = SSH::Connection.insecure_bootstrap(
+      conn = SSH::Connection.new(
         host: @rescue_conn.host,
         user: @installed_user,
         port: @installed_port,

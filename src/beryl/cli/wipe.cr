@@ -1,6 +1,6 @@
 require "option_parser"
 require "../config"
-require "../ssh"
+require "ssh"
 require "./account_utils"
 
 # Sous-commande `beryl wipe <host> --disk PATH` : efface un disque sur
@@ -70,7 +70,7 @@ module Beryl::CLI::Wipe
       return EXIT_USAGE
     end
 
-    rescue_conn = Beryl::SSH::Connection.new(
+    rescue_conn = SSH::Connection.new(
       host: host.ssh_host,
       user: host.user,
       port: host.port,
@@ -156,7 +156,7 @@ module Beryl::CLI::Wipe
   rescue ex : Beryl::Config::Root::UnknownDomain
     STDERR.puts "beryl : #{ex.message}"
     EXIT_USAGE
-  rescue ex : Beryl::SSH::CommandFailed
+  rescue ex : SSH::CommandFailed
     STDERR.puts "beryl : #{ex.message}"
     EXIT_SSH_FAILED
   rescue ex

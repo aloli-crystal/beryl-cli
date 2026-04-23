@@ -479,8 +479,29 @@ module Beryl::Config
       @merged[YAML::Any.new("user")]?.try(&.as_s?) || "root"
     end
 
+    # Chemin de la clé privée SSH à utiliser pour ce host.
+    #
+    # Ordre de résolution :
+    #
+    #   1. `identity_file:` explicitement déclaré dans le merge (YAML
+    #      host, domaine, `_account.yml` ou `_default.yml`). Prime.
+    #   2. Résolution par convention Aloli depuis `ovh.ssh_key_name` :
+    #      le label côté OVH (ex: `philippe-aloli-fr`) est traduit en
+    #      fichier local `<ssh_dir>/philippe.aloli.fr.key`. Permet de
+    #      ne pas dupliquer l'info : la même clé est référencée par
+    #      son nom côté provider et résolue automatiquement côté disque.
+    #   3. Sinon nil. `SSH::Connection` lancera alors sans `-i`, et
+    #      comme `IdentitiesOnly=yes` est forcé, l'auth publickey
+    #      échouera avec un message clair (pas de fallback silencieux
+    #      sur les clés par défaut du shell).
     def identity_file : String?
-      @merged[YAML::Any.new("identity_file")]?.try(&.as_s?)
+      if explicit = @merged[YAML::Any.new("identity_file")]?.try(&.as_s?)
+        return File.expand_path(explicit, home: true)
+      end
+      if name = ovh_ssh_key_name
+        return ::SSH::KeyStore.new.path_for(name)
+      end
+      nil
     end
 
     # OS du host (freebsd, debian, ubuntu, …). Défaut : freebsd

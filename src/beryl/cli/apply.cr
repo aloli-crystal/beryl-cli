@@ -1,6 +1,6 @@
 require "option_parser"
 require "../config"
-require "../ssh"
+require "ssh"
 require "./account_utils"
 
 # Sous-commande `beryl apply <host>` : synchronise la config effective
@@ -89,7 +89,7 @@ module Beryl::CLI::Apply
   rescue ex : Beryl::Config::Root::UnknownDomain
     STDERR.puts "beryl : #{ex.message}"
     EXIT_USAGE
-  rescue ex : Beryl::SSH::CommandFailed
+  rescue ex : SSH::CommandFailed
     STDERR.puts "beryl : #{ex.message}"
     EXIT_SSH_FAILED
   rescue ex
@@ -114,7 +114,7 @@ module Beryl::CLI::Apply
     end
   end
 
-  private def self.apply_packages(conn : Beryl::SSH::Connection, packages : Array(String), dry_run : Bool) : Nil
+  private def self.apply_packages(conn : SSH::Connection, packages : Array(String), dry_run : Bool) : Nil
     installed = conn.exec("pkg info -q 2>/dev/null | awk '{print $1}' | sed 's/-[0-9].*$//' | sort -u", raise_on_error: false).stdout.lines.map(&.strip).reject(&.empty?).to_set
     missing = packages.reject { |p| installed.includes?(p) }
     if missing.empty?
@@ -126,7 +126,7 @@ module Beryl::CLI::Apply
     conn.exec("pkg install -y #{missing.map { |p| Process.quote(p) }.join(" ")}")
   end
 
-  private def self.apply_sudoers(conn : Beryl::SSH::Connection, rules : Array(String), dry_run : Bool) : Nil
+  private def self.apply_sudoers(conn : SSH::Connection, rules : Array(String), dry_run : Bool) : Nil
     content = rules.join("\n") + "\n"
     target = "/usr/local/etc/sudoers.d/beryl"
     current = conn.exec("cat #{target} 2>/dev/null", raise_on_error: false).stdout
@@ -146,7 +146,7 @@ module Beryl::CLI::Apply
   # État désiré = exactement les clés listées dans freebsd.users[].ssh_keys
   # (la clé domaine a déjà été injectée par Merger).
   private def self.apply_user_keys(
-    conn : Beryl::SSH::Connection,
+    conn : SSH::Connection,
     users : Array(NamedTuple(name: String, keys: Array(String))),
     dry_run : Bool,
   ) : Nil

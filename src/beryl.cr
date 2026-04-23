@@ -1,6 +1,6 @@
+require "ssh"
 require "./beryl/version"
 require "./beryl/i18n"
-require "./beryl/ssh"
 require "./beryl/config"
 require "./beryl/bootstrap"
 require "./beryl/providers"
@@ -43,27 +43,6 @@ module Beryl
   def self.pad_to(line : String, width : Int32 = STEP_LINE_WIDTH) : String
     needed = width - line.size
     needed > 0 ? " " * needed : ""
-  end
-
-  # Nettoie ~/.ssh/known_hosts de toute entrée pour `host` (et la
-  # variante `[host]:port` si port != 22). Silencieux si l'entrée
-  # n'existe pas.
-  def self.clean_known_hosts(host : String, port : Int32 = 22) : Nil
-    Process.run("ssh-keygen", ["-R", host],
-      output: Process::Redirect::Close, error: Process::Redirect::Close)
-    if port != 22
-      Process.run("ssh-keygen", ["-R", "[#{host}]:#{port}"],
-        output: Process::Redirect::Close, error: Process::Redirect::Close)
-    end
-  end
-
-  # Nettoie ~/.ssh/known_hosts pour les DEUX noms d'un host résolu :
-  # son FQDN logique et son nom côté hébergeur (quand ils diffèrent).
-  # Évite un futur « REMOTE HOST IDENTIFICATION HAS CHANGED » quel que
-  # soit le nom que l'opérateur utilise ensuite.
-  def self.clean_known_hosts_for(host : Beryl::Config::ResolvedHost) : Nil
-    clean_known_hosts(host.fqdn, host.port)
-    clean_known_hosts(host.ssh_host, host.port) if host.ssh_host_is_provider_name?
   end
 
   # Formate une cible SSH pour les logs de façon uniforme :

@@ -11,7 +11,7 @@ describe Beryl::Bootstrap::MfsBSD do
 
   describe "#initialize" do
     it "accepte les paramètres par défaut et conserve le disque cible" do
-      conn = Beryl::SSH::Connection.new(host: "rescue.example.com")
+      conn = SSH::Connection.new(host: "rescue.example.com")
       bootstrap = Beryl::Bootstrap::MfsBSD.new(
         rescue_conn: conn,
         target_disk: "/dev/sda",
@@ -21,7 +21,7 @@ describe Beryl::Bootstrap::MfsBSD do
     end
 
     it "permet d'overrider l'URL de l'image mfsBSD" do
-      conn = Beryl::SSH::Connection.new(host: "rescue.example.com")
+      conn = SSH::Connection.new(host: "rescue.example.com")
       custom_url = "https://example.com/mfsbsd.img"
       bootstrap = Beryl::Bootstrap::MfsBSD.new(
         rescue_conn: conn,

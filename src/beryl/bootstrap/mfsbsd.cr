@@ -1,4 +1,4 @@
-require "../ssh"
+require "ssh"
 
 module Beryl::Bootstrap
   # DEPRECATED (ADR-010 / ADR-011) — n'est plus sur le chemin principal.
@@ -24,10 +24,12 @@ module Beryl::Bootstrap
   # écriture `dd` sur le disque cible (destructif), redémarrage, puis
   # réouverture SSH vers l'image mfsBSD fraîchement démarrée.
   #
-  # La clé d'hôte SSH change entre les deux phases : la connexion de retour
-  # est construite via `SSH::Connection.insecure_bootstrap` pour ignorer
-  # volontairement la vérification (MITM possible, mais c'est le seul
-  # mode envisageable pour le bootstrap initial).
+  # La clé d'hôte SSH change entre les deux phases. Le shard `ssh`
+  # configure toutes les connexions avec `StrictHostKeyChecking=no` et
+  # `UserKnownHostsFile=/dev/null` — la vérification de la clé d'hôte
+  # est donc désactivée par défaut (MITM théoriquement possible, mais
+  # c'est le seul mode envisageable pour un bootstrap initial où la
+  # clé change à chaque reboot).
   class MfsBSD
     DEFAULT_IMAGE_URL   = "https://depenguin.me/files/mfsbsd-15.0-RELEASE-amd64.iso"
     SSH_WAIT_TIMEOUT    = 20.minutes
@@ -109,7 +111,7 @@ module Beryl::Bootstrap
     end
 
     private def wait_for_mfsbsd : SSH::Connection
-      conn = SSH::Connection.insecure_bootstrap(
+      conn = SSH::Connection.new(
         host: @rescue_conn.host,
         user: @mfsbsd_user,
         port: @mfsbsd_port,

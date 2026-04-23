@@ -1,5 +1,5 @@
 require "../config"
-require "../ssh"
+require "ssh"
 
 # Vérifications préalables à `beryl bootstrap` : s'assure que la
 # config YAML est cohérente ET que les disques déclarés correspondent
@@ -31,7 +31,7 @@ module Beryl::CLI::Precheck
   # 4. Comparaison YAML vs physique
   def self.run(
     host : Beryl::Config::ResolvedHost,
-    conn : Beryl::SSH::Connection,
+    conn : SSH::Connection,
   ) : Result
     errors = [] of String
     warnings = [] of String

@@ -1,7 +1,7 @@
 require "option_parser"
 require "ovh-api/ovh_api"
 require "../config"
-require "../ssh"
+require "ssh"
 require "./account_utils"
 require "./credentials"
 require "./rescue"
@@ -94,8 +94,6 @@ module Beryl::CLI::BootHd
       log "Pour exécuter : #{Beryl.rerun_hint("boot-hd", args)}"
       return EXIT_OK
     end
-
-    Beryl.clean_known_hosts_for(host)
 
     client = ovh_client_factory.call
     log "OVH : boot_from_disk pour #{service_name}"

@@ -1,5 +1,5 @@
 name: beryl
-version: 0.1.7
+version: 0.1.8
 
 description: >
   Outil Crystal de gestion de configuration FreeBSD, agentless SSH.
@@ -25,6 +25,9 @@ dependencies:
     branch: production
   load-env:
     github: aloli-crystal/crystal-load-env
+    branch: production
+  ssh:
+    github: aloli-crystal/crystal-ssh
     branch: production
 
 targets:
