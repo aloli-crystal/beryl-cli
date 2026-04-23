@@ -508,25 +508,63 @@ Beryl le découvre au démarrage via le registre.
 
 === Refonte immédiate (cet ADR)
 
+Deux formes équivalentes pour désigner l'objet à créer : une *forme
+path-like* qui reprend directement l'arborescence de `~/.beryl/`
+(concise, naturelle pour un admin qui navigue dans son filesystem),
+et une *forme drapeau* plus classique en CLI. L'utilisateur choisit
+celle qui lui parle.
+
 [cols="2,3,3",options="header"]
 |===
-|Commande |Rôle |Exemple
+|Commande |Rôle |Exemples équivalents
 
 |`beryl init <société>`
 |Crée `~/.beryl/<société>/`. Propose d'ajouter providers et domaines en chaîne.
 |`beryl init aloli`
 
-|`beryl add-provider <provider> [--account=S]`
-|Ajoute un fournisseur à une société. Credentials écrits dans `.env.yml[account][provider]`. Pour OVH : auto-gen consumer key avec routes complètes.
-|`beryl add-provider scaleway --account=aloli`
+|`beryl add-provider <société>/<provider>` +
+`beryl add-provider <provider> [--account=S]`
+|Ajoute un fournisseur à une société. Credentials écrits dans
+`.env.yml[account][provider]`. Pour OVH : auto-gen consumer key
+avec routes complètes.
+a|
+[source,console]
+----
+beryl add-provider aloli/ovh
+beryl add-provider aloli/scaleway
+# équivalent verbeux :
+beryl add-provider ovh --account=aloli
+----
 
-|`beryl add-domain <domaine> [--account=S]`
-|Crée `~/.beryl/<société>/<domaine>.yml`. Demande DNS provider, default compute provider, SSH key.
-|`beryl add-domain aloli.net --account=aloli`
+|`beryl add-domain <société>/<domaine>` +
+`beryl add-domain <domaine> [--account=S]`
+|Crée `~/.beryl/<société>/<domaine>.yml`. Demande DNS provider,
+default compute provider, SSH key.
+a|
+[source,console]
+----
+beryl add-domain aloli/aloli.net
+beryl add-domain aloli/aloli.fr
+# équivalent verbeux :
+beryl add-domain aloli.net --account=aloli
+----
 |===
 
-Si une seule société existe dans `~/.beryl/`, `--account` est optionnel
-(auto-détecté). S'il y en a plusieurs, beryl demande laquelle.
+*Règle de désambiguïsation* : si l'argument contient un `/`, beryl
+l'interprète comme `<société>/<objet>` ; sinon, il cherche `--account`
+(ou auto-détecte si une seule société existe dans `~/.beryl/`).
+
+Si une seule société existe dans `~/.beryl/`, ni le slash ni
+`--account` ne sont nécessaires :
+
+[source,console]
+----
+beryl add-provider ovh           # société déduite (une seule)
+beryl add-domain aloli.net       # société déduite (une seule)
+----
+
+En mode `--non-interactive` avec plusieurs sociétés, l'argument
+doit être explicite (slash ou flag) sous peine d'erreur.
 
 === Commandes existantes (inchangées côté signature)
 
@@ -566,20 +604,24 @@ $ beryl init aloli
 [beryl init] Ajouter un fournisseur maintenant ? [o/N] : o
 # … chaîne vers add-provider …
 
-$ beryl add-provider ovh --account=aloli
+$ beryl add-provider aloli/ovh
 # prompt app_key + app_secret
 # auto-gen consumer key (POST /auth/credential)
 # écrit .env.yml[aloli][ovh]
 
-$ beryl add-provider scaleway --account=aloli
+$ beryl add-provider aloli/scaleway
 # prompt SCW_SECRET_KEY
 # écrit .env.yml[aloli][scaleway]
 
-$ beryl add-domain aloli.net --account=aloli
+$ beryl add-domain aloli/aloli.net
 # Qui gère la zone DNS ? [ovh, scaleway] : ovh
 # Hébergeur par défaut ? [ovh, scaleway] : ovh
 # Sélection SSH key OVH… ↔ ~/.ssh/philippe.aloli.fr.pub
 # Écrit ~/.beryl/aloli/aloli.net.yml
+
+# Équivalent 100% avec la forme verbeuse :
+$ beryl add-provider ovh --account=aloli
+$ beryl add-domain aloli.net --account=aloli
 ----
 
 == Migration depuis l'état actuel
