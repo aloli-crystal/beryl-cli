@@ -5,7 +5,8 @@
 :source-highlighter: rouge
 :icons: font
 
-*Statut.* Proposé — en attente de validation Philippe. +
+*Statut.* Accepté — refactor livré en 6 commits sur `production` le
+23 avril 2026 (commits f2bcfd2 → ced342b). +
 *Date.* 23 avril 2026. +
 *Auteur.* Philippe Nénert (Aloli).
 

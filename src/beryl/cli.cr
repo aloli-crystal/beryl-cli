@@ -101,8 +101,10 @@ module Beryl::CLI
     # Dispatche vers la sous-commande avec --help. Les sous-commandes
     # réagissent au flag en imprimant leur aide puis `exit 0`.
     case topic
-    when "help" then show_usage(global_parser); 0
-    when "init" then Beryl::CLI::Init.run(config_root, ["--help"])
+    when "help"         then show_usage(global_parser); 0
+    when "init"         then Beryl::CLI::Init.run(config_root, ["--help"])
+    when "add-provider" then Beryl::CLI::AddProvider.run(config_root, ["--help"])
+    when "add-domain"   then Beryl::CLI::AddDomain.run(config_root, ["--help"])
     when "list-hosts"
       puts "USAGE : beryl list-hosts"
       puts
@@ -132,9 +134,9 @@ module Beryl::CLI
       0
     else
       STDERR.puts "beryl : aucune aide pour « #{topic} »."
-      STDERR.puts "        Sous-commandes connues : init, list-hosts, show, rescue,"
-      STDERR.puts "        boot-hd, wipe, bootstrap, scan, apply, prep-rescue,"
-      STDERR.puts "        bake-seed, version."
+      STDERR.puts "        Sous-commandes connues : init, add-provider, add-domain,"
+      STDERR.puts "        list-hosts, show, rescue, boot-hd, wipe, bootstrap,"
+      STDERR.puts "        scan, apply, prep-rescue, bake-seed, version."
       1
     end
   end
@@ -147,8 +149,10 @@ module Beryl::CLI
 
     Sous-commandes :
       help [<cmd>]          Aide globale ou d'une sous-commande précise
-      init [provider]       Initialise ~/.beryl/ (credentials + squelettes)
-      list-hosts            Liste les hôtes de tous les domaines
+      init [<société>]      Initialise ~/.beryl/<société>/ + propose providers/domaines
+      add-provider          Ajoute un fournisseur à une société (credentials)
+      add-domain            Ajoute un domaine à une société (zone DNS)
+      list-hosts            Liste les hôtes de toutes les sociétés
       show <host>           Détails d'un hôte (config mergée complète)
       rescue <host>         Bascule un hôte en rescue via l'API hébergeur
       boot-hd <host>        Bascule sur le disque via l'API (inverse rescue)
