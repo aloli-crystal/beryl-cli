@@ -29,6 +29,7 @@ module Beryl::CLI::Init
   def self.run(config_root : String, args : Array(String)) : Int32
     force = false
     non_interactive = false
+    dry_run = false
     positional = [] of String
 
     parser = OptionParser.new do |p|
@@ -38,6 +39,7 @@ module Beryl::CLI::Init
                  "Enchaînements possibles :\n" \
                  "  beryl add-provider <société>/<provider>\n" \
                  "  beryl add-domain   <société>/<domaine>"
+      p.on("-n", "--dry-run", "Affiche ce qui serait créé sans rien écrire") { dry_run = true }
       p.on("-f", "--force", "Écrase _account.yml si existant") { force = true }
       p.on("-N", "--non-interactive", "Refuse tout prompt") { non_interactive = true }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
@@ -45,7 +47,7 @@ module Beryl::CLI::Init
     end
     parser.parse(args)
 
-    Dir.mkdir_p(config_root)
+    Dir.mkdir_p(config_root) unless dry_run
 
     # Étape 1 : nom de la société (argument ou prompt)
     account = positional.first?
@@ -63,6 +65,30 @@ module Beryl::CLI::Init
     end
 
     account_dir = File.join(config_root, account)
+
+    if dry_run
+      STDERR.puts
+      STDERR.puts "DRY-RUN : actions `beryl init #{account}` prévues :"
+      STDERR.puts "  - Création du dossier : #{account_dir}"
+      defaults_path = File.join(config_root, "_default.yml")
+      if File.exists?(defaults_path)
+        STDERR.puts "  - #{defaults_path} existe déjà, pas écrasé"
+      else
+        STDERR.puts "  - Écriture socle : #{defaults_path} (#{default_yaml_content.bytesize} octets)"
+      end
+      account_meta_path = File.join(account_dir, "_account.yml")
+      if File.exists?(account_meta_path) && !force
+        STDERR.puts "  - #{account_meta_path} existe déjà, pas écrasé (utilisez --force)"
+      else
+        STDERR.puts "  - Écriture métadonnées : #{account_meta_path}"
+      end
+      STDERR.puts "  - Proposition de chaîner add-provider / add-domain (interactif seulement)"
+      STDERR.puts
+      STDERR.puts "DRY-RUN : aucune action exécutée."
+      STDERR.puts "Pour exécuter : #{Beryl.rerun_hint("init", args)}"
+      return EXIT_OK
+    end
+
     Dir.mkdir_p(account_dir)
     STDERR.puts
     STDERR.puts "[beryl init] Dossier créé : #{account_dir}"

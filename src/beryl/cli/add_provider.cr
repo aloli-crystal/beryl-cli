@@ -27,6 +27,7 @@ module Beryl::CLI::AddProvider
     account_flag : String? = nil
     regen_credentials = false
     non_interactive = false
+    dry_run = false
     positional = [] of String
 
     parser = OptionParser.new do |p|
@@ -36,6 +37,7 @@ module Beryl::CLI::AddProvider
                  "Ajoute un fournisseur à une société et stocke ses credentials\n" \
                  "dans ~/.beryl/.env.yml[<société>][<provider>]."
       p.on("-a NAME", "--account=NAME", "Société cible (si ambiguë)") { |v| account_flag = v }
+      p.on("-n", "--dry-run", "Affiche ce qui serait fait sans écrire ni appeler d'API") { dry_run = true }
       p.on("-r", "--regen-credentials", "Force la régénération des credentials dérivés (ex: OVH consumer key)") { regen_credentials = true }
       p.on("-N", "--non-interactive", "Refuse tout prompt") { non_interactive = true }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
@@ -75,9 +77,34 @@ module Beryl::CLI::AddProvider
     end
 
     account_dir = File.join(config_root, account)
-    Dir.mkdir_p(account_dir)
-
     env_path = File.join(config_root, ".env.yml")
+
+    if dry_run
+      env_file_stub = Beryl::Config::EnvFile.load(env_path)
+      pre_existing = Beryl::CLI::AccountUtils.collect_pre_existing(
+        provider,
+        env_file_stub.for_account_provider(account, provider.name).dup,
+      )
+      STDERR.puts
+      STDERR.puts "DRY-RUN : actions `beryl add-provider #{account}/#{provider.name}` prévues :"
+      STDERR.puts "  - Création dossier société (si absent) : #{account_dir}"
+      STDERR.puts "  - Demande des variables requises : #{provider.credentials_env_vars.reject(&.optional).map(&.name).join(", ")}"
+      unless pre_existing.empty?
+        STDERR.puts "  - Note : credentials pré-existants détectés (#{pre_existing.keys.join(", ")})"
+        STDERR.puts "           → beryl demanderait confirmation avant de les réutiliser"
+      end
+      if provider.name == "ovh"
+        STDERR.puts "  - Hook OVH : appel `POST /auth/credential` avec #{provider.as(Beryl::Providers::Ovh).required_access_rules.size} access rules"
+        STDERR.puts "              → URL de validation à ouvrir dans le navigateur"
+      end
+      STDERR.puts "  - Écriture : #{env_path}[#{account}][#{provider.name}]"
+      STDERR.puts
+      STDERR.puts "DRY-RUN : aucune action exécutée."
+      STDERR.puts "Pour exécuter : #{Beryl.rerun_hint("add-provider", args)}"
+      return EXIT_OK
+    end
+
+    Dir.mkdir_p(account_dir)
     env_file = Beryl::Config::EnvFile.load(env_path)
 
     STDERR.puts "[beryl add-provider] Ajout de #{provider.display_name} pour la société `#{account}`"

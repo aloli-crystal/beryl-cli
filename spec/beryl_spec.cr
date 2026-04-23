@@ -2,6 +2,6 @@ require "./spec_helper"
 
 describe Beryl do
   it "expose une version" do
-    Beryl::VERSION.should eq("0.1.5")
+    Beryl::VERSION.should eq("0.1.6")
   end
 end

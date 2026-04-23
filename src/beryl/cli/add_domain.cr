@@ -31,6 +31,7 @@ module Beryl::CLI::AddDomain
     admin_key_file : String? = nil
     force = false
     non_interactive = false
+    dry_run = false
     positional = [] of String
 
     parser = OptionParser.new do |p|
@@ -39,6 +40,7 @@ module Beryl::CLI::AddDomain
                  "  beryl add-domain <domaine> [--account=NAME]\n\n" \
                  "Crée ~/.beryl/<société>/<domaine>.yml."
       p.on("-a NAME", "--account=NAME", "Société cible") { |v| account_flag = v }
+      p.on("-n", "--dry-run", "Affiche ce qui serait fait sans écrire ni appeler d'API") { dry_run = true }
       p.on("-D NAME", "--dns-provider=NAME", "Gestionnaire DNS (ovh, gandi, cloudflare…)") { |v| dns_provider_flag = v }
       p.on("-P NAME", "--provider=NAME", "Hébergeur par défaut (ovh, scaleway…)") { |v| provider_flag = v }
       p.on("-s NAME", "--ssh-key-name=NAME", "Label clé SSH chez le provider (auto sinon)") { |v| ssh_key_name_flag = v }
@@ -114,8 +116,22 @@ module Beryl::CLI::AddDomain
       return EXIT_USAGE
     end
 
-    # Sélection de la SSH key côté compute provider
     compute_prov_instance = Beryl::Providers.find(compute_provider).not_nil!
+
+    if dry_run
+      STDERR.puts
+      STDERR.puts "DRY-RUN : actions `beryl add-domain #{account}/#{domain_name}` prévues :"
+      STDERR.puts "  - DNS provider    : #{dns_provider}"
+      STDERR.puts "  - Compute provider : #{compute_provider}"
+      STDERR.puts "  - Sélection SSH key côté #{compute_provider} (appel API `list_ssh_keys`)"
+      STDERR.puts "  - Écriture du fichier : #{domain_yml}"
+      STDERR.puts
+      STDERR.puts "DRY-RUN : aucune action exécutée, aucune API appelée."
+      STDERR.puts "Pour exécuter : #{Beryl.rerun_hint("add-domain", args)}"
+      return EXIT_OK
+    end
+
+    # Sélection de la SSH key côté compute provider
     env_file.apply_to_env(account, compute_provider, overwrite: true)
 
     selection = select_ssh_key(compute_prov_instance, ssh_key_name_flag, admin_key_file, non_interactive)

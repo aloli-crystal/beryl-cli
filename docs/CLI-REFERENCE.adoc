@@ -92,6 +92,7 @@ Chaque commande est utilisable sous sa forme longue ou sa forme courte :
 |===
 |Long |Court |Description
 
+|`--dry-run` |`-n` |Affiche ce qui serait créé sans rien écrire
 |`--force` |`-f` |Écrase `_account.yml` si existant
 |`--non-interactive` |`-N` |Aucun prompt
 |`--help` |`-h` |Aide
@@ -104,6 +105,7 @@ Chaque commande est utilisable sous sa forme longue ou sa forme courte :
 |Long |Court |Description
 
 |`--account=NAME` |`-a` |Société cible
+|`--dry-run` |`-n` |Affiche sans écrire ni appeler d'API
 |`--regen-credentials` |`-r` |Force la régénération des credentials dérivés (ex: OVH CK)
 |`--non-interactive` |`-N` |Aucun prompt
 |`--help` |`-h` |Aide
@@ -116,6 +118,7 @@ Chaque commande est utilisable sous sa forme longue ou sa forme courte :
 |Long |Court |Description
 
 |`--account=NAME` |`-a` |Société cible
+|`--dry-run` |`-n` |Affiche sans écrire ni appeler d'API
 |`--dns-provider=NAME` |`-D` |Gestionnaire DNS
 |`--provider=NAME` |`-P` |Hébergeur par défaut
 |`--ssh-key-name=NAME` |`-s` |Label clé SSH chez le provider
