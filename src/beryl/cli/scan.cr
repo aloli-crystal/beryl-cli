@@ -93,11 +93,15 @@ module Beryl::CLI::Scan
     end
     parser.parse(args)
 
-    host_name = positional.first?
-    unless host_name
+    raw = positional.first?
+    unless raw
       STDERR.puts "beryl : hôte non précisé. USAGE : beryl scan <host>"
       return EXIT_USAGE
     end
+    parsed = Beryl::CLI::AccountUtils.split_host_path(raw)
+    host_name = parsed[:host]
+    account_hint ||= parsed[:account]
+    domain_hint ||= parsed[:domain]
 
     root = Beryl::Config::Root.load(config_root)
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)

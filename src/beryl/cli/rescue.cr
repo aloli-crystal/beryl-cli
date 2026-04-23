@@ -5,6 +5,7 @@ require "scaleway-api/scaleway_api"
 require "../config"
 require "../providers"
 require "../ssh"
+require "./account_utils"
 require "./credentials"
 
 # Sous-commande `beryl rescue <host> [options]` : bascule un hôte en
@@ -72,11 +73,19 @@ module Beryl::CLI::Rescue
     end
     parser.parse(args)
 
-    host_name = positional.first?
-    unless host_name
+    raw = positional.first?
+    unless raw
       STDERR.puts "beryl : hôte non précisé. USAGE : beryl rescue <host>"
       return EXIT_USAGE
     end
+
+    # Parse forme path-like `<société>/<host>` ou
+    # `<société>/<domaine>/<host>`. Les flags `-a` / `-d`, s'ils sont
+    # fournis, priment sur les valeurs extraites du chemin.
+    parsed = Beryl::CLI::AccountUtils.split_host_path(raw)
+    host_name = parsed[:host]
+    account_hint ||= parsed[:account]
+    domain_hint ||= parsed[:domain]
 
     root = Beryl::Config::Root.load(config_root)
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)

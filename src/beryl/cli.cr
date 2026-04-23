@@ -241,18 +241,26 @@ module Beryl::CLI
   # ---------- show ----------
 
   private def self.cmd_show(config_root : String, args : Array(String)) : Int32
-    name = args.first?
-    unless name
-      STDERR.puts "USAGE : beryl show <host>"
+    raw = args.first?
+    unless raw
+      STDERR.puts "USAGE : beryl show <host>  ou  beryl show <société>/<host>"
       return 1
     end
+    parsed = Beryl::CLI::AccountUtils.split_host_path(raw)
     root = Beryl::Config::Root.load(config_root)
-    rh = root.resolve(name, domain_hint: extract_domain_flag(args))
+    rh = root.resolve(
+      parsed[:host],
+      account_hint: parsed[:account] || extract_account_flag(args),
+      domain_hint: parsed[:domain] || extract_domain_flag(args),
+    )
 
     puts "name:           #{rh.fqdn}"
+    puts "account:        #{rh.account_name}"
     puts "domain:         #{rh.domain_name}"
     puts "group:          #{rh.group_name || "-"}"
     puts "provider:       #{rh.provider || "-"}"
+    puts "dns_provider:   #{rh.dns_provider || "-"}"
+    puts "os:             #{rh.os}"
     puts "ssh_host:       #{rh.ssh_host}"
     puts "port:           #{rh.port}"
     puts "user:           #{rh.user}"
@@ -284,6 +292,17 @@ module Beryl::CLI
     args.each do |a|
       if a.starts_with?("--domain=")
         return a[9..]
+      end
+    end
+    nil
+  end
+
+  # Même idée pour `--account=X`. Utilisé par `show` qui ne passe pas
+  # par un OptionParser dédié.
+  def self.extract_account_flag(args : Array(String)) : String?
+    args.each do |a|
+      if a.starts_with?("--account=")
+        return a[10..]
       end
     end
     nil

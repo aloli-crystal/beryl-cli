@@ -16,6 +16,38 @@ module Beryl::CLI::AccountUtils
     end
   end
 
+  # Sépare un argument de host (formes path-like) en
+  # `{account, domain, host}`. Trois formes acceptées :
+  #
+  #   "loulou"                        → {nil, nil, "loulou"}
+  #   "loulou.aloli.net"              → {nil, nil, "loulou.aloli.net"}
+  #   "aloli/loulou"                  → {"aloli", nil, "loulou"}
+  #   "aloli/loulou.aloli.net"        → {"aloli", nil, "loulou.aloli.net"}
+  #   "aloli/aloli.net/loulou"        → {"aloli", "aloli.net", "loulou"}
+  #   "aloli/aloli.net/ns3156789.ip-..."  → {"aloli", "aloli.net",
+  #                                          "ns3156789.ip-..."}
+  #
+  # Règle : 0 slash → `{nil, nil, raw}` (comportement actuel).
+  #         1 slash → `{account, nil, rest}` (suffix-match dans l'account).
+  #         2 slashes → `{account, domain, host}` (exact).
+  #         ≥ 3 slashes → erreur (ambiguïté de parsing).
+  def self.split_host_path(raw : String) : NamedTuple(account: String?, domain: String?, host: String)
+    parts = raw.split('/')
+    case parts.size
+    when 1
+      {account: nil.as(String?), domain: nil.as(String?), host: parts[0]}
+    when 2
+      {account: parts[0].as(String?), domain: nil.as(String?), host: parts[1]}
+    when 3
+      {account: parts[0].as(String?), domain: parts[1].as(String?), host: parts[2]}
+    else
+      raise ArgumentError.new(
+        "argument `#{raw}` : trop de slashes. Formes acceptées : " \
+        "<host>, <société>/<host>, <société>/<domaine>/<host>"
+      )
+    end
+  end
+
   # Résolution de la société à utiliser pour une commande :
   #
   #   - priorité 1 : path-like (si l'argument contient un `/`)

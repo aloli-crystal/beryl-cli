@@ -1,6 +1,7 @@
 require "option_parser"
 require "../config"
 require "../ssh"
+require "./account_utils"
 
 # Sous-commande `beryl apply <host>` : synchronise la config effective
 # du host (résultat du merge _default + domaine + groupe + host) avec
@@ -38,11 +39,15 @@ module Beryl::CLI::Apply
     end
     parser.parse(args)
 
-    host_name = positional.first?
-    unless host_name
+    raw = positional.first?
+    unless raw
       STDERR.puts "beryl : hôte non précisé. USAGE : beryl apply <host>"
       return EXIT_USAGE
     end
+    parsed = Beryl::CLI::AccountUtils.split_host_path(raw)
+    host_name = parsed[:host]
+    account_hint ||= parsed[:account]
+    domain_hint ||= parsed[:domain]
 
     root = Beryl::Config::Root.load(config_root)
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)

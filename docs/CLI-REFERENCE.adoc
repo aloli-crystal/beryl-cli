@@ -5,9 +5,48 @@
 :source-highlighter: rouge
 :icons: font
 
-*Date de mise à jour.* 23 avril 2026 — beryl 0.1.2. +
+*Date de mise à jour.* 23 avril 2026 — beryl 0.1.5. +
 *Règle Aloli.* Chaque sous-commande et chaque flag long possède une
 forme courte (feedback_cli_short_flags).
+
+== Syntax path-like pour les commandes de host
+
+Depuis beryl 0.1.5, toutes les commandes qui prennent un host
+(`rescue`, `bootstrap`, `scan`, `wipe`, `apply`, `boot-hd`, `show`)
+acceptent une syntaxe path-like miroir du filesystem `~/.beryl/` :
+
+[cols="3,4",options="header"]
+|===
+|Forme |Sémantique
+
+|`<host>`
+|Comportement actuel : auto-détection (une seule société), ou
+combiné avec `-a` / `-d` si plusieurs.
+
+|`<société>/<host>`
+|Scope restreint aux domaines de la société. Auto-sélection du
+domaine si un seul, ambiguïté levée sinon.
+
+|`<société>/<domaine>/<host>`
+|Scope exact (société + domaine). Utile quand une société a
+plusieurs domaines et que le host existe dans plusieurs.
+|===
+
+Exemples :
+
+[source,console]
+----
+# Société `aloli` avec un seul domaine `aloli.net` : 2-tiers suffit
+beryl r aloli/loulou
+beryl b aloli/loulou.aloli.net
+
+# Société avec plusieurs domaines et host ambigu : 3-tiers
+beryl r aloli/aloli.fr/mail
+beryl r aloli/aloli.net/mail
+
+# Forme plate (auto si une seule société dans ~/.beryl/) :
+beryl r loulou
+----
 
 == Sous-commandes (alias courts)
 

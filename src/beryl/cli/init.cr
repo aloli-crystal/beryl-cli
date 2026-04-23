@@ -64,18 +64,21 @@ module Beryl::CLI::Init
 
     account_dir = File.join(config_root, account)
     Dir.mkdir_p(account_dir)
+    STDERR.puts
     STDERR.puts "[beryl init] Dossier créé : #{account_dir}"
 
     # Étape 2 : socle _default.yml si absent
     defaults_path = File.join(config_root, "_default.yml")
     unless File.exists?(defaults_path)
       File.write(defaults_path, default_yaml_content)
+      STDERR.puts
       STDERR.puts "[beryl init] _default.yml créé (socle FreeBSD)."
     end
 
     # Étape 3 : _account.yml (métadonnées optionnelles)
     account_meta_path = File.join(account_dir, "_account.yml")
     if !File.exists?(account_meta_path) || force
+      STDERR.puts
       write_account_metadata(account_meta_path, account, non_interactive)
     end
 
@@ -127,9 +130,11 @@ module Beryl::CLI::Init
                         ans
                       end
 
+      STDERR.puts
       exit_code = Beryl::CLI::AddProvider.run(config_root, [provider_name, "--account=#{account}"])
       return exit_code unless exit_code == EXIT_OK
 
+      STDERR.puts
       break unless Beryl::CLI::AccountUtils.ask_yes_no("Ajouter un autre fournisseur ?", default_yes: false)
     end
 
@@ -139,6 +144,7 @@ module Beryl::CLI::Init
       break unless Beryl::CLI::AccountUtils.ask_yes_no("Ajouter un domaine maintenant ?", default_yes: true)
       domain = Beryl::CLI::AccountUtils.ask("Nom du domaine (ex: aloli.net) :", "")
       next if domain.empty?
+      STDERR.puts
       exit_code = Beryl::CLI::AddDomain.run(config_root, [domain, "--account=#{account}"])
       return exit_code unless exit_code == EXIT_OK
     end
