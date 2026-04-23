@@ -70,8 +70,24 @@ module Beryl::CLI::Init
     return EXIT_USAGE if zone.empty?
 
     domain_yml = File.join(config_root, "#{zone}.yml")
+
+    # Mode --regen-credentials : court-circuit dédié à la
+    # régénération d'une credential dérivée (ex: OVH consumer key
+    # sans le droit PUT /services/*). Le fichier domaine et les clés
+    # SSH sont laissés intacts. Ce mode marche sur une install déjà
+    # complète : on n'a pas à repasser par le wizard entier.
+    if regen_credentials
+      STDERR.puts "[beryl init] Mode --regen-credentials : on ne touche ni à #{domain_yml} ni aux clés SSH."
+      unless ensure_credentials_for(provider, zone, env_file, env_path, non_interactive, regen_credentials, dry_run: dry_run)
+        return EXIT_ABORTED
+      end
+      STDERR.puts
+      STDERR.puts "[beryl init] Credentials régénérés pour `#{zone}` dans #{env_path}."
+      return EXIT_OK
+    end
+
     if File.exists?(domain_yml) && !force
-      STDERR.puts "beryl : #{domain_yml} existe déjà (utilisez --force pour écraser)"
+      STDERR.puts "beryl : #{domain_yml} existe déjà (utilisez --force pour écraser, ou --regen-credentials pour juste régénérer les credentials)"
       return EXIT_USAGE
     end
 
@@ -193,10 +209,17 @@ module Beryl::CLI::Init
     current = env_file.for_domain(zone).dup
     picked_up_from_shell = [] of String
     prompted = [] of String
+    kept_from_file = [] of String
 
     provider.credentials_env_vars.each do |var|
-      # 1. Déjà dans le fichier → on garde
-      next if current.has_key?(var.name) && !current[var.name].empty?
+      # 1. Déjà dans le fichier → on garde. On note que la var est
+      # retenue pour en afficher un récap clair à la fin (important
+      # quand on lance --regen-credentials : l'utilisateur voit que
+      # ses APP_KEY/SECRET ne sont pas re-saisis, juste réutilisés).
+      if current.has_key?(var.name) && !current[var.name].empty?
+        kept_from_file << var.name
+        next
+      end
 
       # 2. Exporté dans le shell → on prend
       if (shell_val = ENV[var.name]?) && !shell_val.empty?
@@ -260,9 +283,24 @@ module Beryl::CLI::Init
       return false
     end
 
+    # Log les vars réutilisées depuis le fichier (avec valeurs
+    # masquées pour les secrets) : l'utilisateur voit que beryl a
+    # bien récupéré ses APP_KEY/SECRET existants et ne va PAS les
+    # re-saisir. Utile surtout quand --regen-credentials est passé.
+    unless kept_from_file.empty?
+      STDERR.puts "[beryl init] Variables conservées depuis #{env_path}[#{zone}] :"
+      provider.credentials_env_vars.each do |var|
+        next unless kept_from_file.includes?(var.name)
+        value = current[var.name]
+        display = var.secret ? mask_secret(value) : value
+        STDERR.puts "               #{var.name} = #{display}"
+      end
+    end
+
     # Persiste systématiquement. Log clair sur la provenance.
     env_file.set_domain(zone, current)
     source_bits = [] of String
+    source_bits << "#{kept_from_file.size} conservées" unless kept_from_file.empty?
     source_bits << "#{picked_up_from_shell.size} depuis le shell" unless picked_up_from_shell.empty?
     source_bits << "#{prompted.size} saisies" unless prompted.empty?
     if dry_run
@@ -524,5 +562,14 @@ module Beryl::CLI::Init
     STDERR.flush
     line = STDIN.gets || return ""
     line.chomp.strip
+  end
+
+  # Masque un secret pour l'affichage : garde les 4 premiers et 4
+  # derniers caractères si la valeur est assez longue, masque entre
+  # les deux. Retourne `***` si trop court. Permet à l'utilisateur
+  # de reconnaître un secret sans le divulguer dans les logs.
+  private def self.mask_secret(value : String) : String
+    return "***" if value.size < 12
+    "#{value[0, 4]}#{"*" * (value.size - 8)}#{value[-4, 4]}"
   end
 end
