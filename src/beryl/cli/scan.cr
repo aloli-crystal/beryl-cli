@@ -227,7 +227,7 @@ module Beryl::CLI::Scan
       Dir.mkdir_p(File.dirname(target))
       File.write(target, yaml)
       log "YAML écrit dans #{target}"
-      log "Prochaine étape : beryl bootstrap #{short}.#{host.domain_name}"
+      log "Prochaine étape : beryl bootstrap #{host.account_name}/#{short}.#{host.domain_name}"
     else
       STDERR.puts "--- YAML suggéré (placez dans #{config_root}/#{host.account_name}/#{host.domain_name}/#{short}.yml) ---"
       print yaml
