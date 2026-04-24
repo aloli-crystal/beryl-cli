@@ -294,8 +294,9 @@ module Beryl::CLI::Scan
         STDERR.puts "Disques non affectés à un pool :"
         STDERR.puts disks_table(remaining)
         STDERR.puts
-        name = ask("Nom du pool ZFS à créer (ex: zdata, zcache) ou [Entrée] pour terminer : ", default: "").strip
-        break if name.empty?
+        declared = pools.map(&.name)
+        name = ask_pool_name(declared)
+        break unless name
         chosen = pick_disks_for(name, remaining, nil, false)
         raid = pick_raid_for(name, chosen.size, nil, false)
         pools << PoolSpec.new(name: name, disks: chosen, raid: raid, boot: false)
@@ -449,6 +450,62 @@ module Beryl::CLI::Scan
     end.join('\n')
   end
 
+  # Regex des noms de pool ZFS autorisés : commence par une lettre
+  # minuscule, suivie de lettres/chiffres/underscore. Convention
+  # standard ZFS — évite les caractères qui poseraient problème
+  # en shell ou dans un YAML (espaces, tirets, majuscules…).
+  POOL_NAME_RX = /\A[a-z][a-z0-9_]*\z/
+
+  # Boucle interactive « demande / valide » : appelle `ask`, exécute
+  # le bloc sur la réponse, re-prompte sur `ArgumentError` avec le
+  # message de l'erreur. Permet de garder l'opérateur dans le flow
+  # sur une typo plutôt que de faire sortir `beryl scan` en
+  # EXIT_UNEXPECTED. `Aborted` (réponse vide délibérée) remonte.
+  private def self.ask_until_valid(prompt : String, default : String, & : String -> T) : T forall T
+    loop do
+      ans = ask(prompt, default: default)
+      begin
+        return yield(ans)
+      rescue ex : ArgumentError
+        STDERR.puts "  beryl : #{ex.message}"
+        STDERR.puts
+      end
+    end
+  end
+
+  # Demande un nom de pool à l'opérateur, refuse les noms déjà
+  # déclarés ou les formats invalides. Retourne `nil` si l'opérateur
+  # tape [Entrée] (signal « stop la boucle multi-pool »).
+  private def self.ask_pool_name(already_declared : Array(String)) : String?
+    ask_until_valid(
+      "Nom du pool ZFS à créer (ex: zdata, zcache) ou [Entrée] pour terminer : ",
+      default: "",
+    ) do |ans|
+      stripped = ans.strip
+      # Chaîne vide = signal d'arrêt, pas une erreur.
+      next nil if stripped.empty?
+      validate_pool_name!(stripped)
+      if already_declared.includes?(stripped)
+        raise ArgumentError.new(
+          "pool #{stripped.inspect} déjà déclaré (choisissez un autre nom, " \
+          "déjà posés : #{already_declared.join(", ")})"
+        )
+      end
+      stripped
+    end
+  end
+
+  # Valide le nom d'un pool ZFS. Lève `ArgumentError` avec un message
+  # explicite sur quoi l'opérateur aurait dû taper. Utilisé à la fois
+  # côté interactif (`ask_pool_name`) et côté CLI (`parse_pool_spec`).
+  def self.validate_pool_name!(name : String) : Nil
+    return if name.matches?(POOL_NAME_RX)
+    raise ArgumentError.new(
+      "nom de pool invalide : #{name.inspect} (attendu : commence par une lettre, " \
+      "uniquement minuscules/chiffres/underscore, ex: zroot, zdata, zcache01)"
+    )
+  end
+
   # Sélection des disques pour un pool donné (`zroot`, `zdata`, …).
   # Le nom du pool apparaît dans le prompt pour que l'opérateur sache
   # toujours dans quelle « case » il travaille.
@@ -457,11 +514,20 @@ module Beryl::CLI::Scan
   #   - options entre parenthèses `(…)`
   #   - défaut entre crochets `[défaut : X]` avec espaces français
   #     autour des `:`
+  #
+  # En mode flag (`--disks=…` ou `--pool=…`) : `resolve_disk_selection`
+  # lève `ArgumentError` sur saisie invalide, qui remonte jusqu'à
+  # `run()` (pas de re-prompt possible pour un flag).
+  # En mode interactif : `ask_until_valid` re-prompte sur
+  # `ArgumentError` avec message, seul `Aborted` (réponse vide)
+  # termine.
   private def self.pick_disks_for(pool_name : String, candidates : Array(Disk), flag : String?, non_interactive : Bool) : Array(Disk)
     return resolve_disk_selection(candidates, flag) if flag
     raise "--non-interactive requiert --disks=LIST (ou --pool=NAME:DISKS:RAID)" if non_interactive
-    ans = ask("Disques à utiliser pour #{pool_name} ? (1,2 | sda,sdb | 'all') [défaut : all] : ", default: "all")
-    resolve_disk_selection(candidates, ans)
+    ask_until_valid(
+      "Disques à utiliser pour #{pool_name} ? (1,2 | sda,sdb | 'all') [défaut : all] : ",
+      default: "all",
+    ) { |ans| resolve_disk_selection(candidates, ans) }
   end
 
   def self.resolve_disk_selection(all : Array(Disk), answer : String) : Array(Disk)
@@ -469,13 +535,30 @@ module Beryl::CLI::Scan
     raise Aborted.new if answer.empty?
     return all if answer.downcase == "all"
     result = [] of Disk
+    available_names = all.map(&.name).join(", ")
     answer.split(",").map(&.strip).reject(&.empty?).each do |token|
       if token =~ /^\d+$/
         idx = token.to_i - 1
-        raise "index disque invalide : #{token}" unless (0...all.size).includes?(idx)
-        result << all[idx]
+        unless (0...all.size).includes?(idx)
+          raise ArgumentError.new(
+            "index disque invalide : #{token} (attendu : 1 à #{all.size})"
+          )
+        end
+        disk = all[idx]
+        if result.includes?(disk)
+          raise ArgumentError.new("disque en doublon dans la sélection : #{disk.name}")
+        end
+        result << disk
       else
-        disk = all.find { |d| d.name == token } || raise "disque inconnu : #{token}"
+        disk = all.find { |d| d.name == token }
+        unless disk
+          raise ArgumentError.new(
+            "disque inconnu : #{token} (disques disponibles : #{available_names})"
+          )
+        end
+        if result.includes?(disk)
+          raise ArgumentError.new("disque en doublon dans la sélection : #{disk.name}")
+        end
         result << disk
       end
     end
@@ -489,45 +572,57 @@ module Beryl::CLI::Scan
   #
   # Format cohérent avec `pick_disks_for` : options entre `(…)`,
   # défaut entre `[…]` avec espaces français autour des `:`.
+  # Niveau RAID par défaut : toujours 0 (stripe), convention Aloli —
+  # backups bétonnés > redondance disque. L'opérateur qui veut
+  # autre chose doit le dire explicitement, pas de magie sur le
+  # nombre de disques (un défaut qui change selon le contexte = UX
+  # imprévisible).
+  DEFAULT_RAID = 0
+
   private def self.pick_raid_for(pool_name : String, count : Int32, flag : String?, non_interactive : Bool) : Int32
-    default = raid_default_for(count)
+    _ = count
     if flag
-      n = flag.to_i? || raise "raid invalide : #{flag} (attendu : un nombre)"
-      raise "niveau RAID #{n} non supporté" unless Beryl::Config::Zpool.known?(n)
-      return n
+      return validate_raid!(flag)
     end
-    return default if non_interactive
-    ans = ask("Niveau RAID de #{pool_name} (0=stripe 1=mirror 5=raidz 6=raidz2 7=raidz3 10=mirror_stripe) [défaut : #{default}] : ", default: default.to_s)
-    n = ans.to_i? || raise "raid invalide : #{ans}"
-    raise "niveau RAID #{n} non supporté (valeurs : 0, 1, 5, 6, 7, 10)" unless Beryl::Config::Zpool.known?(n)
+    return DEFAULT_RAID if non_interactive
+    ask_until_valid(
+      "Niveau RAID de #{pool_name} (0=stripe 1=mirror 5=raidz 6=raidz2 7=raidz3 10=mirror_stripe) [défaut : #{DEFAULT_RAID}] : ",
+      default: DEFAULT_RAID.to_s,
+    ) { |ans| validate_raid!(ans) }
+  end
+
+  # Valide une chaîne RAID. Lève `ArgumentError` sur entrée non-numérique
+  # ou niveau inconnu.
+  def self.validate_raid!(answer : String) : Int32
+    n = answer.strip.to_i? || raise ArgumentError.new(
+      "RAID invalide : #{answer.inspect} (attendu : un entier parmi 0, 1, 5, 6, 7, 10)"
+    )
+    unless Beryl::Config::Zpool.known?(n)
+      raise ArgumentError.new(
+        "niveau RAID #{n} non supporté (valeurs : 0, 1, 5, 6, 7, 10)"
+      )
+    end
     n
   end
 
   # Parse une spec `--pool=NAME:DISKS:RAID` et retourne un `PoolSpec`.
   # DISKS accepte `sda,sdb` ou `all` (tous les disques restants).
-  # RAID accepte 0|1|5|6|7|10.
+  # RAID accepte 0|1|5|6|7|10. Toutes les validations lèvent
+  # `ArgumentError` pour remonter un message clair à l'opérateur.
   def self.parse_pool_spec(spec : String, remaining : Array(Disk)) : PoolSpec
     parts = spec.split(':', 3)
-    raise "--pool=#{spec.inspect} : format attendu NAME:DISKS:RAID (ex : zdata:sda,sdb,sdc,sdd:10)" unless parts.size == 3
-    name, disks_str, raid_str = parts
-    raise "--pool=#{spec.inspect} : nom de pool vide" if name.strip.empty?
-    disks = resolve_disk_selection(remaining, disks_str)
-    raid = raid_str.to_i? || raise "--pool=#{spec.inspect} : RAID invalide « #{raid_str} » (attendu un entier)"
-    raise "--pool=#{spec.inspect} : niveau RAID #{raid} non supporté (valeurs : 0, 1, 5, 6, 7, 10)" unless Beryl::Config::Zpool.known?(raid)
-    PoolSpec.new(name: name.strip, disks: disks, raid: raid, boot: false)
-  end
-
-  # Défaut raisonnable selon le nombre de disques :
-  #   1 disque  → 0 (stripe, pas le choix)
-  #   2 disques → 1 (mirror, sécurité sans perte d'espace surprise)
-  #   3+ disques → 0 (stripe, convention Aloli :
-  #                backups bétonnés > redondance disque)
-  def self.raid_default_for(count : Int32) : Int32
-    case count
-    when 1 then 0
-    when 2 then 1
-    else        0
+    unless parts.size == 3
+      raise ArgumentError.new(
+        "--pool=#{spec.inspect} : format attendu NAME:DISKS:RAID (ex : zdata:sda,sdb,sdc,sdd:10)"
+      )
     end
+    name, disks_str, raid_str = parts
+    name = name.strip
+    raise ArgumentError.new("--pool=#{spec.inspect} : nom de pool vide") if name.empty?
+    validate_pool_name!(name)
+    disks = resolve_disk_selection(remaining, disks_str)
+    raid = validate_raid!(raid_str)
+    PoolSpec.new(name: name, disks: disks, raid: raid, boot: false)
   end
 
   # Rend le YAML d'un host. Le fichier ne contient QUE ce qui est

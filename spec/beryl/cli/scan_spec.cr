@@ -99,26 +99,161 @@ describe Beryl::CLI::Scan do
     end
 
     it "refuse un format sans 2 `:` (NAME:DISKS:RAID requis)" do
-      expect_raises(Exception, /NAME:DISKS:RAID/) do
+      expect_raises(ArgumentError, /NAME:DISKS:RAID/) do
         Beryl::CLI::Scan.parse_pool_spec("zdata:sda", [sample_disk])
       end
     end
 
     it "refuse un RAID inconnu (ex: 42)" do
-      expect_raises(Exception, /niveau RAID 42/) do
+      expect_raises(ArgumentError, /niveau RAID 42/) do
         Beryl::CLI::Scan.parse_pool_spec("zdata:sda:42", [sample_disk])
       end
     end
 
-    it "refuse un disque qui n'est pas dans les candidates" do
-      expect_raises(Exception, /disque inconnu : sdz/) do
-        Beryl::CLI::Scan.parse_pool_spec("zdata:sdz:0", [sample_disk("sda")])
+    it "refuse un RAID non-numérique (ex: abc)" do
+      expect_raises(ArgumentError, /RAID invalide : "abc"/) do
+        Beryl::CLI::Scan.parse_pool_spec("zdata:sda:abc", [sample_disk])
       end
     end
 
+    it "refuse un disque qui n'est pas dans les candidates, en listant ceux disponibles" do
+      ex = expect_raises(ArgumentError, /disque inconnu : sdz/) do
+        Beryl::CLI::Scan.parse_pool_spec("zdata:sdz:0", [sample_disk("sda"), sample_disk("sdb")])
+      end
+      ex.message.to_s.should contain("disques disponibles : sda, sdb")
+    end
+
     it "refuse un nom de pool vide" do
-      expect_raises(Exception, /nom de pool vide/) do
+      expect_raises(ArgumentError, /nom de pool vide/) do
         Beryl::CLI::Scan.parse_pool_spec(":sda:0", [sample_disk])
+      end
+    end
+
+    it "refuse un nom de pool avec des caractères invalides (majuscules, espaces, tirets)" do
+      ["Zroot", "z root", "z-data", "1root", "zroot!"].each do |bad|
+        expect_raises(ArgumentError, /nom de pool invalide/) do
+          Beryl::CLI::Scan.parse_pool_spec("#{bad}:sda:0", [sample_disk])
+        end
+      end
+    end
+  end
+
+  describe ".validate_pool_name!" do
+    it "accepte les noms ZFS conventionnels" do
+      %w[zroot zdata zcache z_data zdata01 zroot2].each do |ok|
+        # doit passer sans raise
+        Beryl::CLI::Scan.validate_pool_name!(ok)
+      end
+    end
+
+    it "refuse majuscules, espaces, tirets, et début par un chiffre" do
+      ["Zroot", "z root", "z-data", "1root", "zroot!", " ", "", "ZROOT"].each do |bad|
+        expect_raises(ArgumentError, /nom de pool invalide/) do
+          Beryl::CLI::Scan.validate_pool_name!(bad)
+        end
+      end
+    end
+  end
+
+  describe ".validate_raid!" do
+    it "accepte les niveaux supportés" do
+      [0, 1, 5, 6, 7, 10].each do |n|
+        Beryl::CLI::Scan.validate_raid!(n.to_s).should eq(n)
+      end
+    end
+
+    it "refuse une valeur non-numérique avec message explicite" do
+      ex = expect_raises(ArgumentError, /RAID invalide/) do
+        Beryl::CLI::Scan.validate_raid!("abc")
+      end
+      ex.message.to_s.should contain("0, 1, 5, 6, 7, 10")
+    end
+
+    it "refuse un niveau RAID inconnu (ex: 2, 42)" do
+      [2, 3, 4, 8, 42].each do |n|
+        expect_raises(ArgumentError, /RAID #{n} non supporté/) do
+          Beryl::CLI::Scan.validate_raid!(n.to_s)
+        end
+      end
+    end
+
+    it "accepte des espaces autour (strip)" do
+      Beryl::CLI::Scan.validate_raid!("  1 ").should eq(1)
+    end
+  end
+
+  describe ".resolve_disk_selection" do
+    it "accepte `all` (casse ignorée) et retourne tous les disques" do
+      disks = [sample_disk("sda"), sample_disk("sdb")]
+      Beryl::CLI::Scan.resolve_disk_selection(disks, "all").size.should eq(2)
+      Beryl::CLI::Scan.resolve_disk_selection(disks, "ALL").size.should eq(2)
+    end
+
+    it "résout par index 1-based" do
+      disks = [sample_disk("sda"), sample_disk("sdb"), sample_disk("sdc")]
+      result = Beryl::CLI::Scan.resolve_disk_selection(disks, "1,3")
+      result.map(&.name).should eq(["sda", "sdc"])
+    end
+
+    it "résout par nom" do
+      disks = [sample_disk("sda"), sample_disk("sdb")]
+      result = Beryl::CLI::Scan.resolve_disk_selection(disks, "sdb")
+      result.map(&.name).should eq(["sdb"])
+    end
+
+    it "index hors bornes : message avec la plage valide" do
+      disks = [sample_disk("sda"), sample_disk("sdb"), sample_disk("sdc")]
+      ex = expect_raises(ArgumentError, /index disque invalide : 42/) do
+        Beryl::CLI::Scan.resolve_disk_selection(disks, "42")
+      end
+      ex.message.to_s.should contain("attendu : 1 à 3")
+    end
+
+    it "index 0 refusé (les indexes sont 1-based dans le prompt)" do
+      disks = [sample_disk("sda")]
+      expect_raises(ArgumentError, /index disque invalide : 0/) do
+        Beryl::CLI::Scan.resolve_disk_selection(disks, "0")
+      end
+    end
+
+    it "nom inconnu : message avec la liste des disponibles" do
+      disks = [sample_disk("sda"), sample_disk("sdb")]
+      ex = expect_raises(ArgumentError, /disque inconnu : sdz/) do
+        Beryl::CLI::Scan.resolve_disk_selection(disks, "sdz")
+      end
+      ex.message.to_s.should contain("disques disponibles : sda, sdb")
+    end
+
+    it "doublon dans la sélection (index et nom pointent vers le même) : refusé" do
+      disks = [sample_disk("sda"), sample_disk("sdb")]
+      expect_raises(ArgumentError, /doublon/) do
+        Beryl::CLI::Scan.resolve_disk_selection(disks, "1,sda")
+      end
+    end
+
+    it "doublon direct (ex: 1,1) : refusé" do
+      disks = [sample_disk("sda"), sample_disk("sdb")]
+      expect_raises(ArgumentError, /doublon/) do
+        Beryl::CLI::Scan.resolve_disk_selection(disks, "1,1")
+      end
+    end
+
+    it "mix index + nom dans la même sélection" do
+      disks = [sample_disk("sda"), sample_disk("sdb"), sample_disk("sdc")]
+      result = Beryl::CLI::Scan.resolve_disk_selection(disks, "1,sdc")
+      result.map(&.name).should eq(["sda", "sdc"])
+    end
+
+    it "réponse vide = Aborted (l'opérateur refuse explicitement)" do
+      expect_raises(Beryl::CLI::Scan::Aborted) do
+        Beryl::CLI::Scan.resolve_disk_selection([sample_disk], "")
+      end
+    end
+
+    it "tous les tokens en whitespace = Aborted (après strip : résultat vide)" do
+      # `,, ,` → après strip et reject(empty), il reste 0 tokens → Aborted
+      expect_raises(Beryl::CLI::Scan::Aborted) do
+        Beryl::CLI::Scan.resolve_disk_selection([sample_disk], ",, ,")
       end
     end
   end
