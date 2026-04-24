@@ -184,7 +184,13 @@ module Beryl::CLI::Scan
     disks = [] of Disk
     unless dry_run
       conn = host.connection
-      log "connexion SSH à #{Beryl.format_ssh_target(host)} (user=#{conn.user}, port=#{conn.port})..."
+      # On affiche la clé privée qui sera tentée : quand SSH échoue
+      # en « Permission denied (publickey) », l'opérateur doit pouvoir
+      # vérifier d'un coup d'œil que la clé publique correspondante
+      # est bien déposée côté provider (projet Scaleway, clé SSH OVH,
+      # slot IAM Dedibox…).
+      key = host.identity_file || "(aucune, résolution échouera)"
+      log "connexion SSH à #{Beryl.format_ssh_target(host)} (user=#{conn.user}, port=#{conn.port}, key=#{key})..."
       disks = read_disks(conn)
       if disks.empty?
         STDERR.puts "beryl : aucun disque physique détecté sur #{host.fqdn}"
@@ -275,6 +281,14 @@ module Beryl::CLI::Scan
     EXIT_USAGE
   rescue ex : SSH::CommandFailed
     STDERR.puts "beryl : SSH échoué sur le rescue — #{ex.message}"
+    if ex.message.try(&.includes?("Permission denied"))
+      STDERR.puts
+      STDERR.puts "  Diagnostic : la clé privée n'est pas autorisée par le rescue."
+      STDERR.puts "  Vérifiez que la clé publique correspondante est déposée côté provider :"
+      STDERR.puts "    - Scaleway : https://console.scaleway.com → IAM → SSH keys (org-wide)"
+      STDERR.puts "    - OVH      : https://www.ovh.com → Serveurs → Clés SSH (puis `ovh.ssh_key_name`)"
+      STDERR.puts "    - Dedibox  : injection IAM automatique en rescue — vérifier que beryl a fait le promote 4/4"
+    end
     EXIT_SSH_FAILED
   rescue ex : Aborted
     STDERR.puts "beryl : abandon"
