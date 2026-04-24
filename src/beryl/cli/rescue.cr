@@ -316,8 +316,16 @@ module Beryl::CLI::Rescue
     log "Dedibox 1/4 : credentials rescue — login=#{creds.login} (password généré par l'API, clé SSH IAM auto-injectée par Dedibox)"
 
     log "Dedibox 2/4 : reboot(server_id=#{server_id}, reason=\"beryl rescue\")"
+    # L'API Dedibox retourne parfois `false` (« reboot refusé »)
+    # alors que le reboot a bien été déclenché côté hardware
+    # (constaté terrain : last_reboot côté API change malgré la
+    # réponse `false`). On log en warning mais on continue — le
+    # 2b/4 « attente chute sshd » confirmera ou infirmera via la
+    # vraie perte de TCP. Si sshd ne tombe pas dans les 2 min, le
+    # warning sera validé comme vrai refus.
     unless client.servers.reboot(server_id, reason: "beryl rescue")
-      raise TaskFailed.new("Dedibox a refusé le reboot pour #{server_id}")
+      STDERR.puts "  ⚠ l'API Dedibox a retourné `false` au reboot, mais on poursuit " \
+                  "(2b/4 vérifiera si le hardware a bien lâché sshd)"
     end
 
     # Attente « reboot effectif ». L'API Dedibox retourne en quelques
