@@ -22,5 +22,5 @@ shards:
 
   ssh:
     git: https://github.com/aloli-crystal/crystal-ssh.git
-    version: 0.1.0+git.commit.b23428d42f082bcd473fa4cea19d055ff780f60b
+    version: 0.1.1+git.commit.f9f0ec1b29d29179aa1f6ce52e6a21f3c3f04788
 

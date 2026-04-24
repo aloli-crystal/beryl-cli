@@ -276,6 +276,15 @@ module Beryl::CLI
       puts "  #{g.source_path}" if g.source_path
     end
     puts "  #{rh.node.source_path}" unless rh.virtual
+    puts
+    puts "config mergée effective :"
+    puts "─" * 60
+    # Sérialisation YAML du merge complet (ce que `bootstrap` / `apply`
+    # consomment réellement). Permet de voir comment les ssh_keys
+    # domaine sont injectées dans chaque user, quels packages/sudoers
+    # héritent, etc.
+    puts rh.merged.to_yaml
+    puts "─" * 60
     0
   rescue ex : Beryl::Config::Root::HostNotFound
     STDERR.puts "beryl : #{ex.message}"

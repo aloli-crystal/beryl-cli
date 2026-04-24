@@ -285,7 +285,7 @@ module Beryl::Bootstrap
       log_step("5/6 — QEMU + mfsBSD + bsdinstall + post-install no-chroot (10-25 min)") do
         @rescue_conn.exec("bash #{Process.quote(RESCUE_RUN_VM_PATH)}")
       end
-      result = log_step("6/6 — reboot bare metal (API OVH boot-from-disk), attente SSH") do
+      result = log_step("6/6 — reboot bare metal, attente SSH du FreeBSD installé") do
         reboot_bare_metal
         wait_for_installed_ssh
       end
