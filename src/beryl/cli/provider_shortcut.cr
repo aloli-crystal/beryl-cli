@@ -27,11 +27,22 @@ module Beryl::CLI::ProviderShortcut
   class NotFound < Exception
   end
 
-  # Retourne `{ip_publique, server_id_string}` si `host_name` est un
-  # ID provider pur et si l'appel API réussit. Retourne `nil` si le
-  # `host_name` ne correspond pas au pattern attendu pour ce provider.
-  # Lève `NotFound` si le pattern matche mais que l'API ne trouve
-  # rien.
+  # Résultat d'une résolution réussie. `zone` n'est renseigné que
+  # pour Scaleway (zone découverte par scan) : nil pour Dedibox
+  # (pas de notion de zone côté API Dedibox) et pour OVH (pas de
+  # shortcut).
+  alias Resolved = NamedTuple(ip: String, server_id: String, zone: String?)
+
+  # Retourne `{ip, server_id, zone}` si `host_name` est un ID
+  # provider pur et si l'appel API réussit. Retourne `nil` si le
+  # `host_name` ne correspond pas au pattern attendu pour ce
+  # provider. Lève `NotFound` si le pattern matche mais que l'API
+  # ne trouve rien.
+  #
+  # La zone est capitale côté Scaleway : sans elle, l'appel
+  # `reboot` qui suit repartirait sur la zone par défaut du shard
+  # (fr-par-2) et échouerait en 404 si le serveur est ailleurs
+  # (constaté sur chouquette, zone pl-waw-3).
   #
   # `ovh_factory` / `scaleway_factory` / `dedibox_factory` sont des
   # closures qui retournent un client API (injectables pour les tests).
@@ -42,7 +53,7 @@ module Beryl::CLI::ProviderShortcut
     ovh_factory : (-> OvhApi::Client)? = nil,
     scaleway_factory : (-> ScalewayApi::Client)? = nil,
     dedibox_factory : (-> DediboxApi::Client)? = nil,
-  ) : {String, String}?
+  ) : Resolved?
     case provider
     when "dedibox"
       return nil unless host_name =~ INT_RX
@@ -51,7 +62,7 @@ module Beryl::CLI::ProviderShortcut
       ip = info.public_ip || raise NotFound.new(
         "Dedibox #{host_name} : aucune IP publique trouvée via l'API"
       )
-      {ip, host_name}
+      {ip: ip, server_id: host_name, zone: nil}
     when "scaleway"
       return nil unless host_name =~ UUID_RX
       factory = scaleway_factory || raise ArgumentError.new("scaleway_factory requis")
@@ -60,7 +71,7 @@ module Beryl::CLI::ProviderShortcut
         begin
           server = client.baremetal.servers.get(server_id: host_name, zone: zone)
           ip = server.ips.first?.try(&.address) || next
-          return {ip, host_name}
+          return {ip: ip, server_id: host_name, zone: zone}
         rescue ScalewayApi::NotFound
           next
         rescue ex : ScalewayApi::ApiError

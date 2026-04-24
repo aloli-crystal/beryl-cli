@@ -116,6 +116,13 @@ module Beryl::CLI::Scan
 
     # Raccourci UX : `beryl scan aloli/<ID> --provider=<name>`. Même
     # logique que `beryl rescue` — voir src/beryl/cli/provider_shortcut.cr.
+    #
+    # On mémorise la zone Scaleway découverte par le shortcut pour
+    # l'écrire dans le YAML : sinon le fichier sortirait avec
+    # `scaleway.server_id` mais sans `scaleway.zone`, et tout appel
+    # ultérieur retomberait sur la zone par défaut du shard
+    # (fr-par-2) → 404 si le serveur est ailleurs.
+    scaleway_zone_override : String? = nil
     if (po = provider_override) && (acct = account_hint)
       root.env_file.apply_all_to_env(acct, overwrite: true)
       resolved = Beryl::CLI::ProviderShortcut.resolve(
@@ -124,10 +131,11 @@ module Beryl::CLI::Scan
         scaleway_factory: -> { Beryl::CLI::Credentials.scaleway_client },
       )
       if resolved
-        ip, inferred_server_id = resolved
-        log "provider=#{po} id=#{host_name} → IP #{ip} (résolu via API)"
-        host_name = ip
-        server_id_flag ||= inferred_server_id
+        log "provider=#{po} id=#{host_name} → IP #{resolved[:ip]}" \
+            "#{resolved[:zone] ? " (zone #{resolved[:zone]})" : ""} (résolu via API)"
+        host_name = resolved[:ip]
+        server_id_flag ||= resolved[:server_id]
+        scaleway_zone_override = resolved[:zone]
       end
     end
 
@@ -228,7 +236,7 @@ module Beryl::CLI::Scan
     chosen = pick_disks(disks, disks_flag, non_interactive)
     raid = pick_raid(chosen.size, raid_flag, non_interactive)
 
-    yaml = render_yaml(host, short, chosen, raid, provider_override: provider_override, server_id_override: server_id_flag)
+    yaml = render_yaml(host, short, chosen, raid, provider_override: provider_override, server_id_override: server_id_flag, scaleway_zone_override: scaleway_zone_override)
     target = resolve_write_target(write_path, write_auto, config_root, host.account_name, host.domain_name, short)
 
     if target
@@ -422,6 +430,7 @@ module Beryl::CLI::Scan
     raid : Int32,
     provider_override : String? = nil,
     server_id_override : String? = nil,
+    scaleway_zone_override : String? = nil,
   ) : String
     String.build do |io|
       io << "# Généré par `beryl scan` le " << Beryl.format_timestamp(Time.local) << '\n'
@@ -444,7 +453,10 @@ module Beryl::CLI::Scan
           sid = server_id_override || host.scaleway_server_id
           if sid
             io << "scaleway:\n  server_id: " << sid << '\n'
-            if zone = host.scaleway_zone
+            # Priorité à la zone découverte par le shortcut : c'est
+            # la source autoritaire (l'API a confirmé que ce server_id
+            # vit dans cette zone), plus fiable que le YAML parent.
+            if zone = scaleway_zone_override || host.scaleway_zone
               io << "  zone: " << zone << '\n'
             end
           end

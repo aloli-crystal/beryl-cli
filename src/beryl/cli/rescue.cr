@@ -104,6 +104,13 @@ module Beryl::CLI::Rescue
     # variables du <société>.<provider> avant, sans passer par un
     # host résolu (on n'a pas encore le host : c'est précisément ce
     # que le shortcut construit).
+    # Zone Scaleway découverte par le shortcut (scan des zones).
+    # On la garde pour la passer à `trigger_scaleway` plus bas : le
+    # YAML `host.scaleway_zone` n'existe pas quand on démarre d'un
+    # UUID sans host déclaré, donc sans propagation on retomberait
+    # sur la zone par défaut du shard (fr-par-2).
+    scaleway_zone_override : String? = nil
+
     if (po = provider_override) && (acct = account_hint)
       root.env_file.apply_all_to_env(acct, overwrite: true)
       resolved = Beryl::CLI::ProviderShortcut.resolve(
@@ -113,10 +120,11 @@ module Beryl::CLI::Rescue
         dedibox_factory: dedibox_client_factory,
       )
       if resolved
-        ip, inferred_server_id = resolved
-        log "provider=#{po} id=#{host_name} → IP #{ip} (résolu via API)"
-        host_name = ip
-        server_id_flag ||= inferred_server_id
+        log "provider=#{po} id=#{host_name} → IP #{resolved[:ip]}" \
+            "#{resolved[:zone] ? " (zone #{resolved[:zone]})" : ""} (résolu via API)"
+        host_name = resolved[:ip]
+        server_id_flag ||= resolved[:server_id]
+        scaleway_zone_override = resolved[:zone]
       end
     end
 
@@ -151,13 +159,14 @@ module Beryl::CLI::Rescue
       server_id = server_id_flag || host.scaleway_server_id || raise MissingProviderConfig.new(
         "server_id Scaleway manquant : ni --server-id, ni `scaleway.server_id` dans le merge pour #{host.fqdn}"
       )
+      dry_zone = scaleway_zone_override || host.scaleway_zone
       if dry_run
-        log "DRY-RUN : Scaleway → reboot(#{server_id}, boot_type=Rescue)"
+        log "DRY-RUN : Scaleway → reboot(#{server_id}#{dry_zone ? ", zone=#{dry_zone}" : ""}, boot_type=Rescue)"
         log "DRY-RUN : puis wait_for_ssh(#{host.ssh_host}:#{host.port} as root, timeout #{timeout.total_minutes.to_i}m)" if wait
         log "Pour exécuter : #{Beryl.rerun_hint("rescue", args, replace_host: {raw, "#{host.account_name}/#{host.fqdn}"})}"
         return EXIT_OK
       end
-      trigger_scaleway(host, scaleway_client_factory, server_id)
+      trigger_scaleway(host, scaleway_client_factory, server_id, scaleway_zone_override)
     when "dedibox"
       # Priorité : --server-id CLI > dedibox.server_id du merge.
       # Permet un rescue sans YAML host pré-existant (provisionning
@@ -296,8 +305,17 @@ module Beryl::CLI::Rescue
     end
   end
 
-  private def self.trigger_scaleway(host : Beryl::Config::ResolvedHost, factory : ScalewayClientFactory, server_id : String) : Nil
-    zone = host.scaleway_zone
+  private def self.trigger_scaleway(
+    host : Beryl::Config::ResolvedHost,
+    factory : ScalewayClientFactory,
+    server_id : String,
+    zone_override : String? = nil,
+  ) : Nil
+    # La zone découverte par ProviderShortcut (scan des zones)
+    # prime sur celle du YAML : quand on provisionne un serveur
+    # tout neuf via `aloli/<UUID>`, le YAML n'existe pas encore
+    # donc `host.scaleway_zone` est nil.
+    zone = zone_override || host.scaleway_zone
     log "Scaleway : reboot(Rescue) sur #{server_id}#{zone ? " (zone #{zone})" : ""}"
     client = factory.call
     server = client.baremetal.servers.reboot(
