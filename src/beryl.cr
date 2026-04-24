@@ -108,10 +108,17 @@ module Beryl
     STDERR.flush
     start = Time.instant
     done = Channel(Nil).new
+    ack = Channel(Nil).new
+    # Ticker : update le compteur chaque seconde jusqu'à recevoir
+    # `done`. Envoie ensuite `ack` pour que l'appelant sache qu'on
+    # a fini d'écrire sur STDERR (évite la race du printf final vs
+    # le dernier tick, qui provoquait un chevauchement visuel
+    # entre deux log_step successifs).
     spawn do
       loop do
         select
         when done.receive?
+          ack.send(nil)
           break
         when timeout(1.second)
           elapsed = (Time.instant - start).total_seconds.to_i
@@ -124,14 +131,27 @@ module Beryl
     begin
       result = yield
       success = true
+      done.send(nil)
+      ack.receive
       elapsed = (Time.instant - start).total_seconds.to_i
       STDERR.printf("\r%s%s  [%4ds]\n", line, pad, elapsed)
+      STDERR.flush
       result
     ensure
-      done.send(nil)
       unless success
+        # yield a levé. Stopper proprement le ticker d'abord puis
+        # afficher la ligne finale avec ✗. Double send protégé par
+        # un channel non-bufferisé : si le success branch a déjà
+        # envoyé `done`, on arrive ici sans refaire l'opération.
+        begin
+          done.send(nil)
+          ack.receive
+        rescue Channel::ClosedError
+          # déjà envoyé
+        end
         elapsed = (Time.instant - start).total_seconds.to_i
         STDERR.printf("\r%s%s  [%4ds] ✗\n", line, pad, elapsed)
+        STDERR.flush
       end
     end
   end
