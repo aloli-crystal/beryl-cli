@@ -1,5 +1,5 @@
 name: beryl
-version: 0.1.57
+version: 0.1.58
 
 description: >
   Outil Crystal de gestion de configuration FreeBSD, agentless SSH.
