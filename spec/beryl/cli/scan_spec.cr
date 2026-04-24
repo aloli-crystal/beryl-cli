@@ -40,6 +40,83 @@ describe Beryl::CLI::Scan do
       yaml = Beryl::CLI::Scan.render_yaml(host, "serveur-neuf", [sample_disk], 0, provider_override: "hetzner")
       yaml.should contain("provider: hetzner")
     end
+
+    it "mode multi-pool : écrit zroot (boot) + zdata (non-boot) avec leurs disques et RAID respectifs" do
+      root = Beryl::Config::Root.load(File.join(FIXTURES, "multi-provider-domain"))
+      host = root.resolve("loulou", domain_hint: "aloli.net")
+      pools = [
+        Beryl::CLI::Scan::PoolSpec.new(name: "zroot", disks: [sample_disk("nvme0n1")], raid: 0, boot: true),
+        Beryl::CLI::Scan::PoolSpec.new(name: "zdata", disks: [sample_disk("sda"), sample_disk("sdb"), sample_disk("sdc"), sample_disk("sdd")], raid: 10, boot: false),
+      ]
+      yaml = Beryl::CLI::Scan.render_yaml(host, "quantas", [] of Beryl::CLI::Scan::Disk, 0, pools: pools)
+
+      # zroot en premier, avec boot: true
+      yaml.should contain("zroot:")
+      yaml.should contain("boot: true")
+      yaml.should contain("/dev/nvme0n1")
+
+      # zdata en second, sans boot, avec RAID 10 et 4 disques
+      yaml.should contain("zdata:")
+      yaml.should contain("raid: 10")
+      yaml.should contain("/dev/sda")
+      yaml.should contain("/dev/sdb")
+      yaml.should contain("/dev/sdc")
+      yaml.should contain("/dev/sdd")
+
+      # `boot: true` ne doit apparaître QUE pour zroot (exactement un pool système)
+      yaml.scan("boot: true").size.should eq(1)
+    end
+
+    it "mode single-pool (rétrocompat) : disks + raid sans pools → zroot implicite" do
+      root = Beryl::Config::Root.load(File.join(FIXTURES, "multi-provider-domain"))
+      host = root.resolve("loulou", domain_hint: "aloli.net")
+      yaml = Beryl::CLI::Scan.render_yaml(host, "loulou", [sample_disk("sda"), sample_disk("sdb")], 1)
+      yaml.should contain("zroot:")
+      yaml.should contain("boot: true")
+      yaml.should contain("raid: 1")
+      yaml.should_not contain("zdata:")
+    end
+  end
+
+  describe ".parse_pool_spec" do
+    it "parse `zdata:sda,sdb:10` et consomme les disques du pool courant" do
+      candidates = [sample_disk("sda"), sample_disk("sdb"), sample_disk("sdc")]
+      pool = Beryl::CLI::Scan.parse_pool_spec("zdata:sda,sdb:10", candidates)
+      pool.name.should eq("zdata")
+      pool.raid.should eq(10)
+      pool.boot.should be_false
+      pool.disks.map(&.name).should eq(["sda", "sdb"])
+    end
+
+    it "accepte `all` pour prendre tous les disques restants" do
+      candidates = [sample_disk("sda"), sample_disk("sdb"), sample_disk("sdc")]
+      pool = Beryl::CLI::Scan.parse_pool_spec("zdata:all:6", candidates)
+      pool.disks.map(&.name).should eq(["sda", "sdb", "sdc"])
+    end
+
+    it "refuse un format sans 2 `:` (NAME:DISKS:RAID requis)" do
+      expect_raises(Exception, /NAME:DISKS:RAID/) do
+        Beryl::CLI::Scan.parse_pool_spec("zdata:sda", [sample_disk])
+      end
+    end
+
+    it "refuse un RAID inconnu (ex: 42)" do
+      expect_raises(Exception, /niveau RAID 42/) do
+        Beryl::CLI::Scan.parse_pool_spec("zdata:sda:42", [sample_disk])
+      end
+    end
+
+    it "refuse un disque qui n'est pas dans les candidates" do
+      expect_raises(Exception, /disque inconnu : sdz/) do
+        Beryl::CLI::Scan.parse_pool_spec("zdata:sdz:0", [sample_disk("sda")])
+      end
+    end
+
+    it "refuse un nom de pool vide" do
+      expect_raises(Exception, /nom de pool vide/) do
+        Beryl::CLI::Scan.parse_pool_spec(":sda:0", [sample_disk])
+      end
+    end
   end
 
   describe ".resolve_write_target" do

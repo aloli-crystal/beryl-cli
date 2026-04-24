@@ -71,11 +71,30 @@ module Beryl::CLI::Scan
   class MissingProviderConfig < Exception
   end
 
+  # Un pool ZFS déclaré par l'opérateur : nom, disques alloués,
+  # niveau RAID numérique (0|1|5|6|7|10), et `boot: true` pour
+  # exactement UN pool (le zroot, pool système).
+  #
+  # Plusieurs pools sont supportés — le zroot embarque le système,
+  # et `zdata` / `zcache` / etc. couvrent la capacité de stockage
+  # utile. L'opérateur peut les déclarer interactivement (boucle
+  # « disques restants → nouveau pool ? ») ou via `--pool=…`
+  # répété en ligne de commande.
+  record PoolSpec,
+    name : String,
+    disks : Array(Disk),
+    raid : Int32,
+    boot : Bool
+
   def self.run(config_root : String, args : Array(String)) : Int32
     write_auto = false
     write_path : String? = nil
     disks_flag : String? = nil
     raid_flag : String? = nil
+    # Pools additionnels en ligne de commande (répétable). Format :
+    # `NAME:DISKS:RAID` — ex : `--pool=zdata:sda,sdb,sdc,sdd:10`.
+    # Le zroot reste piloté par `--disks` + `--raid` (rétrocompat).
+    pool_specs = [] of String
     hostname_flag : String? = nil
     zone_flag : String? = nil
     provider_override : String? = nil
@@ -96,8 +115,9 @@ module Beryl::CLI::Scan
       p.on("-n", "--dry-run", "Affiche ce qui serait fait sans écrire ni appeler d'API") { dry_run = true }
       p.on("-w", "--write", "Écrit ~/.beryl/<domaine>/<nom>.yml") { write_auto = true }
       p.on("-W PATH", "--write-to=PATH", "Écrit dans le chemin explicite") { |v| write_path = File.expand_path(v, home: true) }
-      p.on("-k LIST", "--disks=LIST", "Disques à inclure (ex: sda,sdb), non-interactif") { |v| disks_flag = v }
-      p.on("-r N", "--raid=N", "Niveau RAID (0|1|5|6|7|10)") { |v| raid_flag = v }
+      p.on("-k LIST", "--disks=LIST", "Disques du pool zroot (ex: sda,sdb | 'all')") { |v| disks_flag = v }
+      p.on("-r N", "--raid=N", "Niveau RAID du pool zroot (0|1|5|6|7|10)") { |v| raid_flag = v }
+      p.on("--pool=SPEC", "Pool additionnel NAME:DISKS:RAID (répétable, ex: zdata:sda,sdb:10)") { |v| pool_specs << v }
       p.on("-H NAME", "--hostname=NAME", "Nom court à poser (défaut : nom court du FQDN)") { |v| hostname_flag = v }
       p.on("-z ZONE", "--zone=ZONE", "Zone DNS pour --dns (défaut : le domaine)") { |v| zone_flag = v }
       p.on("-D", "--dns", "Pose records DNS + reverse + rename OVH") { dns_setup = true }
@@ -250,10 +270,42 @@ module Beryl::CLI::Scan
       return EXIT_OK
     end
 
-    chosen = pick_disks(disks, disks_flag, non_interactive)
-    raid = pick_raid(chosen.size, raid_flag, non_interactive)
+    # Construction multi-pool :
+    #   1. zroot (obligatoire) : soit `--disks` + `--raid`, soit prompt.
+    #   2. Pools additionnels : soit `--pool=NAME:DISKS:RAID` répétés,
+    #      soit boucle interactive tant qu'il reste des disques.
+    remaining = disks.dup
+    zroot_disks = pick_disks_for("zroot", remaining, disks_flag, non_interactive)
+    zroot_raid = pick_raid_for("zroot", zroot_disks.size, raid_flag, non_interactive)
+    pools = [PoolSpec.new(name: "zroot", disks: zroot_disks, raid: zroot_raid, boot: true)]
+    remaining = remaining.reject { |d| zroot_disks.includes?(d) }
 
-    yaml = render_yaml(host, short, chosen, raid, provider_override: provider_override, server_id_override: server_id_flag, scaleway_zone_override: scaleway_zone_override)
+    if !pool_specs.empty?
+      # Mode non-interactif (ou complémentaire) : parse les --pool CLI.
+      pool_specs.each do |spec|
+        parsed = parse_pool_spec(spec, remaining)
+        pools << parsed
+        remaining = remaining.reject { |d| parsed.disks.includes?(d) }
+      end
+    elsif !non_interactive
+      # Mode interactif : tant qu'il reste des disques, propose un pool.
+      while !remaining.empty?
+        STDERR.puts
+        STDERR.puts "Disques non affectés à un pool :"
+        STDERR.puts disks_table(remaining)
+        STDERR.puts
+        name = ask("Nom du pool ZFS à créer (ex: zdata, zcache) ou [Entrée] pour terminer : ", default: "").strip
+        break if name.empty?
+        chosen = pick_disks_for(name, remaining, nil, false)
+        raid = pick_raid_for(name, chosen.size, nil, false)
+        pools << PoolSpec.new(name: name, disks: chosen, raid: raid, boot: false)
+        remaining = remaining.reject { |d| chosen.includes?(d) }
+      end
+    end
+
+    yaml = render_yaml(host, short, pools.first.disks, pools.first.raid,
+      provider_override: provider_override, server_id_override: server_id_flag,
+      scaleway_zone_override: scaleway_zone_override, pools: pools)
     target = resolve_write_target(write_path, write_auto, config_root, host.account_name, host.domain_name, short)
 
     if target
@@ -397,11 +449,19 @@ module Beryl::CLI::Scan
     end.join('\n')
   end
 
-  private def self.pick_disks(all : Array(Disk), flag : String?, non_interactive : Bool) : Array(Disk)
-    return resolve_disk_selection(all, flag) if flag
-    raise "--non-interactive requiert --disks=LIST" if non_interactive
-    ans = ask("Disques à utiliser ? (1,2 | sda,sdb | 'all') [all] : ", default: "all")
-    resolve_disk_selection(all, ans)
+  # Sélection des disques pour un pool donné (`zroot`, `zdata`, …).
+  # Le nom du pool apparaît dans le prompt pour que l'opérateur sache
+  # toujours dans quelle « case » il travaille.
+  #
+  # Format des messages (norme Aloli) :
+  #   - options entre parenthèses `(…)`
+  #   - défaut entre crochets `[défaut : X]` avec espaces français
+  #     autour des `:`
+  private def self.pick_disks_for(pool_name : String, candidates : Array(Disk), flag : String?, non_interactive : Bool) : Array(Disk)
+    return resolve_disk_selection(candidates, flag) if flag
+    raise "--non-interactive requiert --disks=LIST (ou --pool=NAME:DISKS:RAID)" if non_interactive
+    ans = ask("Disques à utiliser pour #{pool_name} ? (1,2 | sda,sdb | 'all') [défaut : all] : ", default: "all")
+    resolve_disk_selection(candidates, ans)
   end
 
   def self.resolve_disk_selection(all : Array(Disk), answer : String) : Array(Disk)
@@ -423,10 +483,13 @@ module Beryl::CLI::Scan
     result
   end
 
-  # Prompt du niveau RAID sous forme numérique (convention parlante
-  # voulue par Philippe : 0, 1, 5, 6, 7, 10 plutôt que
-  # stripe/mirror/raidz…).
-  private def self.pick_raid(count : Int32, flag : String?, non_interactive : Bool) : Int32
+  # Prompt du niveau RAID sous forme numérique pour un pool donné.
+  # Convention parlante Aloli : 0, 1, 5, 6, 7, 10 plutôt que
+  # stripe/mirror/raidz…
+  #
+  # Format cohérent avec `pick_disks_for` : options entre `(…)`,
+  # défaut entre `[…]` avec espaces français autour des `:`.
+  private def self.pick_raid_for(pool_name : String, count : Int32, flag : String?, non_interactive : Bool) : Int32
     default = raid_default_for(count)
     if flag
       n = flag.to_i? || raise "raid invalide : #{flag} (attendu : un nombre)"
@@ -434,10 +497,24 @@ module Beryl::CLI::Scan
       return n
     end
     return default if non_interactive
-    ans = ask("Niveau RAID [0=stripe 1=mirror 5=raidz 6=raidz2 7=raidz3] (défaut: #{default}) : ", default: default.to_s)
+    ans = ask("Niveau RAID de #{pool_name} (0=stripe 1=mirror 5=raidz 6=raidz2 7=raidz3 10=mirror_stripe) [défaut : #{default}] : ", default: default.to_s)
     n = ans.to_i? || raise "raid invalide : #{ans}"
     raise "niveau RAID #{n} non supporté (valeurs : 0, 1, 5, 6, 7, 10)" unless Beryl::Config::Zpool.known?(n)
     n
+  end
+
+  # Parse une spec `--pool=NAME:DISKS:RAID` et retourne un `PoolSpec`.
+  # DISKS accepte `sda,sdb` ou `all` (tous les disques restants).
+  # RAID accepte 0|1|5|6|7|10.
+  def self.parse_pool_spec(spec : String, remaining : Array(Disk)) : PoolSpec
+    parts = spec.split(':', 3)
+    raise "--pool=#{spec.inspect} : format attendu NAME:DISKS:RAID (ex : zdata:sda,sdb,sdc,sdd:10)" unless parts.size == 3
+    name, disks_str, raid_str = parts
+    raise "--pool=#{spec.inspect} : nom de pool vide" if name.strip.empty?
+    disks = resolve_disk_selection(remaining, disks_str)
+    raid = raid_str.to_i? || raise "--pool=#{spec.inspect} : RAID invalide « #{raid_str} » (attendu un entier)"
+    raise "--pool=#{spec.inspect} : niveau RAID #{raid} non supporté (valeurs : 0, 1, 5, 6, 7, 10)" unless Beryl::Config::Zpool.known?(raid)
+    PoolSpec.new(name: name.strip, disks: disks, raid: raid, boot: false)
   end
 
   # Défaut raisonnable selon le nombre de disques :
@@ -468,7 +545,12 @@ module Beryl::CLI::Scan
     provider_override : String? = nil,
     server_id_override : String? = nil,
     scaleway_zone_override : String? = nil,
+    pools : Array(PoolSpec)? = nil,
   ) : String
+    # Rétrocompat : si l'appelant passe la forme `(disks, raid)`
+    # historique (single pool), on construit la liste avec un seul
+    # zroot. Sinon on utilise les `pools` fournis.
+    effective_pools = pools || [PoolSpec.new(name: "zroot", disks: disks, raid: raid, boot: true)]
     String.build do |io|
       io << "# Généré par `beryl scan` le " << Beryl.format_timestamp(Time.local) << '\n'
       io << "# Mergé avec _default.yml + " << host.domain.source_path << '\n'
@@ -507,11 +589,13 @@ module Beryl::CLI::Scan
       io << "\nfreebsd:\n"
       io << "  hostname: " << short << '\n'
       io << "  zfs:\n"
-      io << "    zroot:              # nom du pool côté ZFS (`zpool list`)\n"
-      io << "      boot: true        # c'est le pool système (exactement un)\n"
-      io << "      raid: " << raid << "             # 0=stripe 1=mirror 5=raidz 6=raidz2 7=raidz3 10=mirror_stripe\n"
-      io << "      disks:\n"
-      disks.each { |d| io << "        - " << d.dev_path << "  # " << d.human_size << " " << d.kind << " " << d.model << '\n' }
+      effective_pools.each do |pool|
+        io << "    " << pool.name << ":              # nom du pool côté ZFS (`zpool list`)\n"
+        io << "      boot: true        # c'est le pool système (exactement un)\n" if pool.boot
+        io << "      raid: " << pool.raid << "             # 0=stripe 1=mirror 5=raidz 6=raidz2 7=raidz3 10=mirror_stripe\n"
+        io << "      disks:\n"
+        pool.disks.each { |d| io << "        - " << d.dev_path << "  # " << d.human_size << " " << d.kind << " " << d.model << '\n' }
+      end
     end
   end
 
