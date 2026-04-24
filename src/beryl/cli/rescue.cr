@@ -360,8 +360,11 @@ module Beryl::CLI::Rescue
       "`dedibox.server_id` doit être un entier pour #{host.fqdn} (reçu : #{server_id_str.inspect})"
     )
 
+    # Défaut d'image rescue géré côté shard (dedibox-api 0.1.4+,
+    # `DediboxApi::Endpoints::Servers::DEFAULT_RESCUE_IMAGE`). Le
+    # merge YAML peut toujours surcharger via `dedibox.rescue_image`.
     image = host.provider_field("dedibox", "rescue_image") ||
-            Beryl::Providers::Dedibox::DEFAULT_RESCUE_IMAGE
+            DediboxApi::Endpoints::Servers::DEFAULT_RESCUE_IMAGE
     client = factory.call
 
     log "Dedibox 1/4 : prepare_rescue(server_id=#{server_id}, image=#{image})"

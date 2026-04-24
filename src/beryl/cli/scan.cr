@@ -1,5 +1,7 @@
 require "option_parser"
 require "ovh-api/ovh_api"
+require "scaleway-api/scaleway_api"
+require "dedibox-api/dedibox_api"
 require "../config"
 require "../providers"
 require "ssh"
@@ -64,6 +66,9 @@ module Beryl::CLI::Scan
     def initialize
       super("provider=dedibox mais server_id inconnu (ni --server-id, ni dans le merge)")
     end
+  end
+
+  class MissingProviderConfig < Exception
   end
 
   def self.run(config_root : String, args : Array(String)) : Int32
@@ -167,12 +172,18 @@ module Beryl::CLI::Scan
       case effective_provider
       when "ovh"
         dns_plan = run_dns_setup(host, hostname_flag, zone_flag, non_interactive, dry_run: dry_run)
+      when "scaleway"
+        sid = server_id_flag || host.scaleway_server_id || raise MissingProviderConfig.new(
+          "--dns + provider=scaleway : server_id manquant (ni --server-id, ni scaleway.server_id dans le merge)"
+        )
+        zone = scaleway_zone_override || host.scaleway_zone
+        dns_plan = run_dns_setup_scaleway(host, hostname_flag, zone_flag, non_interactive, dry_run, sid, zone)
       when "dedibox"
         sid = server_id_flag || host.dedibox_server_id || raise MissingDediboxServerId.new
         dns_plan = run_dns_setup_dedibox(host, hostname_flag, zone_flag, non_interactive, dry_run, sid)
       else
         STDERR.puts "beryl : --dns n'est pas câblé pour provider=#{effective_provider.inspect} " \
-                    "(supportés : dedibox, ovh). Le scan continue sans DNS."
+                    "(supportés : dedibox, ovh, scaleway). Le scan continue sans DNS."
       end
     end
 
@@ -293,6 +304,18 @@ module Beryl::CLI::Scan
   rescue ex : Aborted
     STDERR.puts "beryl : abandon"
     EXIT_ABORTED
+  rescue ex : MissingDediboxServerId
+    STDERR.puts "beryl : #{ex.message}"
+    EXIT_USAGE
+  rescue ex : MissingProviderConfig
+    STDERR.puts "beryl : #{ex.message}"
+    EXIT_USAGE
+  rescue ex : ScalewayApi::Error
+    STDERR.puts "beryl : erreur API Scaleway — #{ex.message}"
+    EXIT_API_ERROR
+  rescue ex : DediboxApi::ApiError
+    STDERR.puts "beryl : erreur API Dedibox — #{ex.message}"
+    EXIT_API_ERROR
   rescue ex : OvhApi::AuthenticationError
     # 403 "This call has not been granted" : la consumer key n'a pas
     # le bon access rule pour cette route. On liste les droits requis
@@ -652,6 +675,122 @@ module Beryl::CLI::Scan
     end
 
     log "nommage DNS + Dedibox posé : #{fqdn} ↔ serveur #{server_id} (reverse DNS à poser manuellement)"
+    plan
+  end
+
+  # Variante Scaleway de `run_dns_setup`. Différences vs Dedibox :
+  #
+  #   - IPs + current_name viennent de l'API Scaleway
+  #     (`client.baremetal.servers.get(uuid, zone)`). Si la zone
+  #     n'est pas fournie explicitement (cas d'un UUID brut venu
+  #     du shortcut), on la retrouve via `find_any_zone`.
+  #   - Records A/AAAA posés via le DNS provider de la zone
+  #     (OVH côté Aloli). Même code que Dedibox.
+  #   - Rename console : `client.baremetal.servers.update(name:)`.
+  #     Scaleway n'a pas de séparation « nom système / nom console »
+  #     comme Dedibox : le `name` sert de nom d'affichage dans la
+  #     console et dans les logs d'install.
+  #   - Reverse DNS : EXPOSÉ par l'API Scaleway,
+  #     `client.baremetal.servers.update(reverse:)`. Contrairement
+  #     à Dedibox (qui force l'opérateur à passer par la console
+  #     web), on peut le poser automatiquement.
+  def self.run_dns_setup_scaleway(
+    host : Beryl::Config::ResolvedHost,
+    hostname_flag : String?,
+    zone_flag : String?,
+    non_interactive : Bool,
+    dry_run : Bool,
+    server_id : String,
+    zone_override : String?,
+  ) : Beryl::CLI::DnsSetup::Plan
+    short = hostname_flag || (non_interactive ? raise("--dns + --non-interactive requiert --hostname=NAME") : ask("Nom court du serveur (ex: chouquette) : ", default: ""))
+    raise Aborted.new if short.empty?
+    dns_zone = zone_flag || host.domain_name
+    fqdn = "#{short}.#{dns_zone}"
+
+    scaleway = Beryl::CLI::Credentials.scaleway_client
+    # Zone Scaleway : priorité au flag → YAML → scan multi-zones.
+    # Si le scan ne trouve pas, message d'erreur clair.
+    server = if zone_override
+               scaleway.baremetal.servers.get(server_id: server_id, zone: zone_override)
+             else
+               scaleway.baremetal.servers.find_any_zone(server_id) ||
+                 raise "Scaleway UUID #{server_id} : introuvable dans les zones connues"
+             end
+    scw_zone = server.zone || raise "Scaleway : zone indéterminée pour #{server_id}"
+    ipv4 = server.ips.find { |ip| ip.version == "IPv4" }.try(&.address) ||
+           server.ips.first?.try(&.address) ||
+           raise "aucune IP attachée au serveur Scaleway #{server_id}"
+    ipv6 = server.ips.find { |ip| ip.version == "IPv6" }.try(&.address)
+    current_name = server.name || ""
+    current_reverse = server.ips.find { |ip| ip.version == "IPv4" }.try(&.reverse)
+
+    plan = Beryl::CLI::DnsSetup::Plan.new(
+      service_name: server_id,
+      fqdn: fqdn,
+      short_name: short,
+      zone: dns_zone,
+      ipv4: ipv4,
+      ipv6: ipv6,
+      current_display_name: current_name,
+    )
+    STDERR.puts
+    STDERR.puts "Actions DNS + Scaleway prévues pour serveur #{server_id} (zone #{scw_zone}) :"
+    STDERR.puts "  1. Créer (ou vérifier) A     #{fqdn}  →  #{ipv4}"
+    if v6 = ipv6
+      STDERR.puts "  2. Créer (ou vérifier) AAAA  #{fqdn}  →  #{v6}"
+    else
+      STDERR.puts "  2. AAAA : aucune IPv6 publique détectée côté Scaleway, ignoré"
+    end
+    STDERR.puts "  3. Rafraîchir la zone #{dns_zone}"
+    if current_name == short
+      STDERR.puts "  4. nom console Scaleway déjà à #{short}, rien à faire"
+    else
+      STDERR.puts "  4. Renommer console Scaleway : #{current_name.empty? ? "(aucun)" : current_name}  →  #{short}"
+    end
+    if current_reverse == fqdn
+      STDERR.puts "  5. Reverse DNS IPv4 déjà à #{fqdn}, rien à faire"
+    else
+      STDERR.puts "  5. Reverse DNS IPv4 : #{current_reverse || "(aucun)"}  →  #{fqdn}"
+    end
+    STDERR.puts
+
+    if dry_run
+      log "DRY-RUN : plan DNS Scaleway affiché, aucun appel API effectué"
+      return plan
+    end
+    unless non_interactive
+      ans = ask("Exécuter ces actions ? [o/N] : ", default: "N")
+      raise Aborted.new unless ans.downcase.starts_with?("o") || ans.downcase.starts_with?("y")
+    end
+
+    # Records DNS via le DNS provider (OVH côté Aloli aujourd'hui).
+    # Même logique que Dedibox : si la zone est ailleurs qu'OVH, il
+    # faudra une abstraction DnsProvider — pas encore câblée.
+    ovh = Beryl::CLI::Credentials.ovh_client
+    logger = Proc(String, Nil).new { |m| log(m); nil }
+    Beryl::CLI::DnsSetup.ensure_record(ovh, dns_zone, "A", short, ipv4, logger)
+    if v6 = ipv6
+      Beryl::CLI::DnsSetup.ensure_record(ovh, dns_zone, "AAAA", short, v6, logger)
+    end
+    Beryl::CLI::DnsSetup.refresh_zone(ovh, dns_zone, logger)
+
+    # Rename + reverse via un PATCH unique sur l'API Scaleway.
+    # L'update est idempotent côté Scaleway : renvoyer un nom ou un
+    # reverse déjà en place n'est pas une erreur.
+    new_name = current_name == short ? nil : short
+    new_reverse = current_reverse == fqdn ? nil : fqdn
+    if new_name || new_reverse
+      log "Scaleway : PATCH server name=#{new_name || "(inchangé)"} reverse=#{new_reverse || "(inchangé)"}"
+      scaleway.baremetal.servers.update(
+        server_id: server_id,
+        zone: scw_zone,
+        name: new_name,
+        reverse: new_reverse,
+      )
+    end
+
+    log "nommage DNS + Scaleway posé : #{fqdn} ↔ serveur #{server_id} (zone #{scw_zone})"
     plan
   end
 

@@ -20,11 +20,6 @@ module Beryl::Providers
   class Dedibox < Beryl::Provider
     include Beryl::ComputeProvider
 
-    # Image rescue par défaut. Debian 12 est le choix le plus stable
-    # pour héberger le bootstrap mfsBSD-in-QEMU côté beryl (cohérent
-    # avec ce qu'on fait sur OVH rescue).
-    DEFAULT_RESCUE_IMAGE = "debian-12_amd64"
-
     def initialize(@injected_client : DediboxApi::Client? = nil)
     end
 
@@ -55,7 +50,9 @@ module Beryl::Providers
     def request_rescue(resource_id : String, ssh_key_ref : String) : String
       _ = ssh_key_ref
       id = parse_id(resource_id)
-      client.servers.prepare_rescue(id, DEFAULT_RESCUE_IMAGE)
+      # Image rescue : défaut porté par le shard dedibox-api
+      # (`DediboxApi::Endpoints::Servers::DEFAULT_RESCUE_IMAGE`).
+      client.servers.prepare_rescue(id)
       ok = client.servers.reboot(id, reason: "beryl rescue")
       raise "Dedibox a refusé le reboot (server #{id})" unless ok
       id.to_s
