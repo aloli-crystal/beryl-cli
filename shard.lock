@@ -1,5 +1,9 @@
 version: 2.0
 shards:
+  dedibox-api:
+    git: https://github.com/aloli-crystal/crystal-api-dedibox.git
+    version: 0.1.2+git.commit.97296b65758547b9322c2d92eacd1baa333f1da0
+
   load-env:
     git: https://github.com/aloli-crystal/crystal-load-env.git
     version: 0.1.0+git.commit.357cb130668a0177543710155fcb6c0a56b3f710

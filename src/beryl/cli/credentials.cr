@@ -5,6 +5,7 @@
 # on passe donc par la forme longue `<shard-dir>/<file>`.
 require "ovh-api/ovh_api"
 require "scaleway-api/scaleway_api"
+require "dedibox-api/dedibox_api"
 
 # Helpers pour construire les clients d'API des hébergeurs à partir de
 # variables d'environnement. Séparés de la sous-commande `rescue` pour
@@ -64,6 +65,14 @@ module Beryl::CLI::Credentials
       default_zone: ENV["SCW_DEFAULT_ZONE"]? || ScalewayApi::DEFAULT_ZONE,
       default_project_id: ENV["SCW_DEFAULT_PROJECT_ID"]?,
     )
+  end
+
+  # Construit un `DediboxApi::Client` à partir de la variable
+  # d'environnement `DEDIBOX_TOKEN` (Bearer token généré depuis
+  # https://console.online.net/fr/api/access). Pas de signature
+  # HMAC, pas d'endpoint à choisir — beaucoup plus simple qu'OVH.
+  def self.dedibox_client : DediboxApi::Client
+    DediboxApi::Client.new(token: fetch_env("DEDIBOX_TOKEN"))
   end
 
   # Levée quand une variable d'environnement obligatoire est manquante.

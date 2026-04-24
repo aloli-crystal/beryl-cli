@@ -467,6 +467,20 @@ module Beryl::Config
       provider_field("scaleway", "server_id")
     end
 
+    # ID entier Dedibox (stocké sous `dedibox.server_id` dans le YAML).
+    # Retourne la valeur sous forme de String pour homogénéité avec
+    # les autres providers ; le parsing Int32 se fait côté
+    # `Beryl::Providers::Dedibox#request_rescue`.
+    def dedibox_server_id : String?
+      explicit = provider_field("dedibox", "server_id")
+      return explicit if explicit
+      # Tolère aussi un champ entier natif (YAML `server_id: 186260`).
+      block = @merged[YAML::Any.new("dedibox")]?.try(&.as_h?)
+      return nil unless block
+      int_val = block[YAML::Any.new("server_id")]?.try(&.as_i?)
+      int_val.try(&.to_s)
+    end
+
     def scaleway_zone : String?
       provider_field("scaleway", "zone")
     end

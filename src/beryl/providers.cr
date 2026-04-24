@@ -237,4 +237,5 @@ end
 require "./providers/capabilities"
 require "./providers/ovh"
 require "./providers/scaleway"
+require "./providers/dedibox"
 require "./providers/registrations"

@@ -12,3 +12,4 @@
 # suffit à le rendre visible à `beryl init`.
 Beryl::Providers.register(Beryl::Providers::Ovh.new)
 Beryl::Providers.register(Beryl::Providers::Scaleway.new)
+Beryl::Providers.register(Beryl::Providers::Dedibox.new)

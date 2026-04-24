@@ -1,5 +1,5 @@
 name: beryl
-version: 0.1.17
+version: 0.1.18
 
 description: >
   Outil Crystal de gestion de configuration FreeBSD, agentless SSH.
@@ -22,6 +22,9 @@ dependencies:
     branch: production
   scaleway-api:
     github: aloli-crystal/crystal-api-scaleway
+    branch: production
+  dedibox-api:
+    github: aloli-crystal/crystal-api-dedibox
     branch: production
   load-env:
     github: aloli-crystal/crystal-load-env

@@ -34,6 +34,7 @@ module Beryl::CLI::Rescue
 
   alias OvhClientFactory = -> OvhApi::Client
   alias ScalewayClientFactory = -> ScalewayApi::Client
+  alias DediboxClientFactory = -> DediboxApi::Client
 
   class DnsResolutionFailed < Exception
   end
@@ -49,6 +50,7 @@ module Beryl::CLI::Rescue
     args : Array(String),
     ovh_client_factory : OvhClientFactory = -> { Beryl::CLI::Credentials.ovh_client },
     scaleway_client_factory : ScalewayClientFactory = -> { Beryl::CLI::Credentials.scaleway_client },
+    dedibox_client_factory : DediboxClientFactory = -> { Beryl::CLI::Credentials.dedibox_client },
     wait_for_ssh : Proc(String, Int32, String, Time::Span, Time::Span, Bool) = ->default_wait_for_ssh(String, Int32, String, Time::Span, Time::Span),
     dns_resolver : Proc(String, Bool) = ->default_dns_resolve(String),
   ) : Int32
@@ -126,6 +128,18 @@ module Beryl::CLI::Rescue
         return EXIT_OK
       end
       trigger_scaleway(host, scaleway_client_factory)
+    when "dedibox"
+      server_id = host.dedibox_server_id || raise MissingProviderConfig.new(
+        "champ `dedibox.server_id` manquant pour #{host.fqdn}"
+      )
+      if dry_run
+        log "DRY-RUN : Dedibox → prepare_rescue(#{server_id}, image=debian-12_amd64)"
+        log "DRY-RUN : puis reboot(#{server_id}, reason=\"beryl rescue\")"
+        log "DRY-RUN : puis wait_for_ssh(#{host.ssh_host}:#{host.port} as root, timeout #{timeout.total_minutes.to_i}m)" if wait
+        log "Pour exécuter : #{Beryl.rerun_hint("rescue", args)}"
+        return EXIT_OK
+      end
+      trigger_dedibox(host, dedibox_client_factory)
     when nil
       report_provider_unresolved(host)
       return EXIT_BAD_PROVIDER
@@ -174,6 +188,9 @@ module Beryl::CLI::Rescue
     EXIT_API_ERROR
   rescue ex : ScalewayApi::Error
     STDERR.puts "beryl : erreur API Scaleway — #{ex.message}"
+    EXIT_API_ERROR
+  rescue ex : DediboxApi::ApiError
+    STDERR.puts "beryl : erreur API Dedibox — #{ex.message}"
     EXIT_API_ERROR
   rescue ex
     STDERR.puts "beryl : erreur inattendue — #{ex.class}: #{ex.message}"
@@ -259,6 +276,25 @@ module Beryl::CLI::Rescue
       boot_type: ScalewayApi::Endpoints::Baremetal::BootType::Rescue,
     )
     log "Scaleway : serveur #{server.id} passé en status = #{server.status}"
+  end
+
+  private def self.trigger_dedibox(host : Beryl::Config::ResolvedHost, factory : DediboxClientFactory) : Nil
+    server_id_str = host.dedibox_server_id || raise MissingProviderConfig.new(
+      "champ `dedibox.server_id` manquant pour #{host.fqdn}"
+    )
+    server_id = server_id_str.to_i? || raise MissingProviderConfig.new(
+      "`dedibox.server_id` doit être un entier pour #{host.fqdn} (reçu : #{server_id_str.inspect})"
+    )
+    image = host.provider_field("dedibox", "rescue_image") ||
+            Beryl::Providers::Dedibox::DEFAULT_RESCUE_IMAGE
+    client = factory.call
+    log "Dedibox : prepare_rescue(#{server_id}, image=#{image})"
+    creds = client.servers.prepare_rescue(server_id, image)
+    log "Dedibox : credentials rescue — login=#{creds.login} (password fourni par l'API, clé SSH IAM auto-injectée)"
+    log "Dedibox : reboot(#{server_id}) pour basculer sur le rescue"
+    unless client.servers.reboot(server_id, reason: "beryl rescue")
+      raise TaskFailed.new("Dedibox a refusé le reboot pour #{server_id}")
+    end
   end
 
   # Par défaut, résolution DNS via `Socket::Addrinfo.resolve`.
