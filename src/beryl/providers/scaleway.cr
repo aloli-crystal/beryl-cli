@@ -139,10 +139,21 @@ module Beryl::Providers
           optional: true,
           default: "fr-par-2",
         ),
+        # Project ID obligatoire : toutes les opérations qui listent
+        # des ressources (ssh_keys.list, servers.list, reinstall…)
+        # l'exigent côté API. Avant, marqué optionnel — terrain
+        # chouquette 25 avril 2026, `beryl scaleway-reinstall` plantait
+        # en « project_id manquant ». Mieux vaut le collecter dès
+        # `beryl add-provider`.
+        #
+        # Où le trouver : Console Scaleway → menu grille (haut gauche) →
+        # Projects dashboard → cliquer sur « Default » (ou le projet voulu) →
+        # onglet Settings → Project ID (UUID).
+        # Ou plus rapide : l'UUID est dans l'URL quand vous êtes sur un
+        # projet (console.scaleway.com/project/<UUID>/…).
         Beryl::EnvVarSpec.new(
           name: "SCW_DEFAULT_PROJECT_ID",
-          description: "ID de projet (Console → Settings → Project). Optionnel pour rescue/reboot.",
-          optional: true,
+          description: "UUID du projet — Console → grille (haut gauche) → Projects → Default → Settings → Project ID",
         ),
       ]
     end

@@ -232,7 +232,8 @@ module Beryl::CLI::ScalewayReinstall
     )
     log "install lancé, status=#{updated.status}"
     log "l'installation Scaleway prend typiquement 10-15 minutes avant que le rescue puisse être réactivé."
-    log "prochaine étape : attendez que `beryl scaleway-reinstall` soit terminé côté Scaleway, puis relancez `beryl rescue #{host.account_name}/#{host.fqdn} --provider=scaleway`"
+    log "prochaine étape : attendez 10-15 min que l'install Scaleway soit terminée, puis relancez :"
+    log "  beryl rescue #{suggest_path} --provider=scaleway"
 
     EXIT_OK
   rescue ex : Beryl::Config::Root::HostNotFound
