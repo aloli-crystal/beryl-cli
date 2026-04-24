@@ -427,7 +427,11 @@ module Beryl::CLI::Rescue
     privkey_path = host.identity_file || raise MissingProviderConfig.new(
       "identity_file non résolu pour #{host.fqdn} — déclarez `ovh.ssh_key_name` dans le domaine"
     )
-    pubkey_path = privkey_path + ".pub"
+    # Convention Aloli : la clé publique remplace l'extension `.key`
+    # par `.pub` (ex: `philippe.aloli.fr.key` → `philippe.aloli.fr.pub`).
+    # Fallback : suffixe `.pub` ajouté à la fin si le fichier n'est pas
+    # nommé en `.key` (pour compat avec les conventions non-Aloli).
+    pubkey_path = privkey_path.ends_with?(".key") ? privkey_path.sub(/\.key\z/, ".pub") : "#{privkey_path}.pub"
     unless File.exists?(pubkey_path)
       raise MissingProviderConfig.new(
         "Scaleway pre-check : clé publique absente (#{pubkey_path}). " \
