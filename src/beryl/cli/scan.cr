@@ -59,6 +59,12 @@ module Beryl::CLI::Scan
   class Aborted < Exception
   end
 
+  class MissingDediboxServerId < Exception
+    def initialize
+      super("provider=dedibox mais server_id inconnu (ni --server-id, ni dans le merge)")
+    end
+  end
+
   def self.run(config_root : String, args : Array(String)) : Int32
     write_auto = false
     write_path : String? = nil
@@ -67,6 +73,7 @@ module Beryl::CLI::Scan
     hostname_flag : String? = nil
     zone_flag : String? = nil
     provider_override : String? = nil
+    server_id_flag : String? = nil
     dns_setup = false
     dry_run = false
     account_hint : String? = nil
@@ -78,7 +85,8 @@ module Beryl::CLI::Scan
       p.banner = "USAGE : beryl scan <host> [options]"
       p.on("-a NAME", "--account=NAME", "Forcer la société") { |v| account_hint = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
-      p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (ex: ovh, scaleway)") { |v| provider_override = v }
+      p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (ex: ovh, scaleway, dedibox)") { |v| provider_override = v }
+      p.on("-I ID", "--server-id=ID", "ID serveur côté hébergeur (ex: Dedibox entier, Scaleway UUID). Inutile pour OVH (le FQDN est le service_name)") { |v| server_id_flag = v }
       p.on("-n", "--dry-run", "Affiche ce qui serait fait sans écrire ni appeler d'API") { dry_run = true }
       p.on("-w", "--write", "Écrit ~/.beryl/<domaine>/<nom>.yml") { write_auto = true }
       p.on("-W PATH", "--write-to=PATH", "Écrit dans le chemin explicite") { |v| write_path = File.expand_path(v, home: true) }
@@ -107,11 +115,38 @@ module Beryl::CLI::Scan
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
     host.apply_all_credentials_to_env!
 
+    # Provider Dedibox : on a BESOIN d'un server_id (entier) pour
+    # écrire le YAML complet. S'il n'est ni en flag ni dans le merge,
+    # on prompte interactivement. En --non-interactive, on refuse.
+    effective_provider = provider_override || host.provider
+    if effective_provider == "dedibox" && server_id_flag.nil? && host.dedibox_server_id.nil?
+      if non_interactive
+        STDERR.puts "beryl : provider=dedibox mais server_id inconnu (ni --server-id, ni dans le merge). " \
+                    "Refus en --non-interactive."
+        return EXIT_USAGE
+      end
+      answer = ask("ID serveur Dedibox (entier, ex: 186260) : ", default: "").strip
+      if answer.empty? || answer.to_i?.nil?
+        STDERR.puts "beryl : ID serveur Dedibox invalide (attendu : entier), reçu : #{answer.inspect}"
+        return EXIT_USAGE
+      end
+      server_id_flag = answer
+    end
+
     # --dns : faire le rename DNS + reverse AVANT le scan disques.
     # En dry-run, run_dns_setup respecte le flag et n'appelle aucune API.
     dns_plan : Beryl::CLI::DnsSetup::Plan? = nil
     if dns_setup
-      dns_plan = run_dns_setup(host, hostname_flag, zone_flag, non_interactive, dry_run: dry_run)
+      case effective_provider
+      when "ovh"
+        dns_plan = run_dns_setup(host, hostname_flag, zone_flag, non_interactive, dry_run: dry_run)
+      when "dedibox"
+        sid = server_id_flag || host.dedibox_server_id || raise MissingDediboxServerId.new
+        dns_plan = run_dns_setup_dedibox(host, hostname_flag, zone_flag, non_interactive, dry_run, sid)
+      else
+        STDERR.puts "beryl : --dns n'est pas câblé pour provider=#{effective_provider.inspect} " \
+                    "(supportés : ovh, dedibox). Le scan continue sans DNS."
+      end
     end
 
     # Scan disques : UNIQUEMENT hors dry-run. Le dry-run doit rester
@@ -174,7 +209,7 @@ module Beryl::CLI::Scan
     chosen = pick_disks(disks, disks_flag, non_interactive)
     raid = pick_raid(chosen.size, raid_flag, non_interactive)
 
-    yaml = render_yaml(host, short, chosen, raid, provider_override: provider_override)
+    yaml = render_yaml(host, short, chosen, raid, provider_override: provider_override, server_id_override: server_id_flag)
     target = resolve_write_target(write_path, write_auto, config_root, host.account_name, host.domain_name, short)
 
     if target
@@ -367,6 +402,7 @@ module Beryl::CLI::Scan
     disks : Array(Disk),
     raid : Int32,
     provider_override : String? = nil,
+    server_id_override : String? = nil,
   ) : String
     String.build do |io|
       io << "# Généré par `beryl scan` le " << Beryl.format_timestamp(Time.local) << '\n'
@@ -380,8 +416,24 @@ module Beryl::CLI::Scan
       effective_provider = provider_override || host.provider
       if effective_provider
         io << "provider: " << effective_provider << '\n'
-        if effective_provider == "ovh" && (sn = host.ovh_service_name)
-          io << "ovh:\n  service_name: " << sn << '\n'
+        case effective_provider
+        when "ovh"
+          if sn = host.ovh_service_name
+            io << "ovh:\n  service_name: " << sn << '\n'
+          end
+        when "scaleway"
+          sid = server_id_override || host.scaleway_server_id
+          if sid
+            io << "scaleway:\n  server_id: " << sid << '\n'
+            if zone = host.scaleway_zone
+              io << "  zone: " << zone << '\n'
+            end
+          end
+        when "dedibox"
+          sid = server_id_override || host.dedibox_server_id
+          if sid
+            io << "dedibox:\n  server_id: " << sid << '\n'
+          end
         end
       end
       io << "\nfreebsd:\n"
@@ -451,6 +503,100 @@ module Beryl::CLI::Scan
     logger = Proc(String, Nil).new { |m| log(m); nil }
     Beryl::CLI::DnsSetup.apply!(client, plan, logger)
     log "nommage DNS + OVH posé : #{plan.fqdn} ↔ #{service_name}"
+    plan
+  end
+
+  # Variante Dedibox de `run_dns_setup`. Différences :
+  #   - IPs + current_hostname viennent de l'API Dedibox
+  #     (`GET /server/{id}`), pas OVH.
+  #   - records A/AAAA posés via le DNS provider de la zone
+  #     (typiquement OVH côté Aloli si la zone aloli.net y est
+  #     hébergée). On réutilise `DnsSetup.ensure_record` /
+  #     `refresh_zone`.
+  #   - rename console : `DediboxApi::Client.servers.update_hostname`
+  #     (API validée live 24 avril 2026).
+  #   - reverse DNS : **skip**, l'API Dedibox ne l'expose pas.
+  #     Warning explicite pour que l'opérateur le pose manuellement
+  #     dans https://console.online.net.
+  def self.run_dns_setup_dedibox(
+    host : Beryl::Config::ResolvedHost,
+    hostname_flag : String?,
+    zone_flag : String?,
+    non_interactive : Bool,
+    dry_run : Bool,
+    server_id_str : String,
+  ) : Beryl::CLI::DnsSetup::Plan
+    server_id = server_id_str.to_i? || raise "dedibox.server_id doit être un entier : #{server_id_str.inspect}"
+    short = hostname_flag || (non_interactive ? raise("--dns + --non-interactive requiert --hostname=NAME") : ask("Nom court du serveur (ex: cookie) : ", default: ""))
+    raise Aborted.new if short.empty?
+    zone = zone_flag || host.domain_name
+
+    dedibox = Beryl::CLI::Credentials.dedibox_client
+    info = dedibox.servers.info(server_id)
+    ipv4 = info.public_ip || raise "aucune IP publique sur serveur Dedibox #{server_id}"
+    # Dedibox IPv6 : pas encore remonté dans le struct Server
+    # (présent dans info.raw["ip"][i] si type=public et v6). À étendre
+    # au besoin — pour l'instant on pose seulement v4.
+    ipv6 = info.ips.find { |ip| ip.public? && ip.address.includes?(':') }.try(&.address)
+    current_hostname = info.hostname
+    fqdn = "#{short}.#{zone}"
+
+    plan = Beryl::CLI::DnsSetup::Plan.new(
+      service_name: server_id.to_s,
+      fqdn: fqdn,
+      short_name: short,
+      zone: zone,
+      ipv4: ipv4,
+      ipv6: ipv6,
+      current_display_name: current_hostname,
+    )
+    STDERR.puts
+    STDERR.puts "Actions DNS + Dedibox prévues pour serveur #{server_id} :"
+    STDERR.puts "  1. Créer (ou vérifier) A     #{short}.#{zone}  →  #{ipv4}"
+    if v6 = ipv6
+      STDERR.puts "  2. Créer (ou vérifier) AAAA  #{short}.#{zone}  →  #{v6}"
+    else
+      STDERR.puts "  2. AAAA : aucune IPv6 publique détectée côté Dedibox, ignoré"
+    end
+    STDERR.puts "  3. Rafraîchir la zone #{zone}"
+    if current_hostname == short
+      STDERR.puts "  4. hostname console Dedibox déjà à #{short}, rien à faire"
+    else
+      STDERR.puts "  4. Renommer console Dedibox : #{current_hostname.empty? ? "(aucun)" : current_hostname}  →  #{short}"
+    end
+    STDERR.puts "  5. Reverse DNS : NON câblé (l'API Dedibox ne l'expose pas)."
+    STDERR.puts "     → à poser manuellement dans https://console.online.net"
+    STDERR.puts "       (Serveur → IP failover / Reverse DNS) pour #{ipv4}#{ipv6 ? " et #{ipv6}" : ""}."
+    STDERR.puts
+
+    if dry_run
+      log "DRY-RUN : plan DNS Dedibox affiché, aucun appel API effectué"
+      return plan
+    end
+    unless non_interactive
+      ans = ask("Exécuter ces actions ? [o/N] : ", default: "N")
+      raise Aborted.new unless ans.downcase.starts_with?("o") || ans.downcase.starts_with?("y")
+    end
+
+    # Records DNS via le DNS provider (OVH côté Aloli aujourd'hui).
+    # Beryl instancie un client OVH pour poser les records A/AAAA
+    # dans la zone aloli.net. Si la zone était ailleurs (Gandi…),
+    # il faudrait une abstraction DnsProvider — pas encore câblée.
+    ovh = Beryl::CLI::Credentials.ovh_client
+    logger = Proc(String, Nil).new { |m| log(m); nil }
+    Beryl::CLI::DnsSetup.ensure_record(ovh, zone, "A", short, ipv4, logger)
+    if v6 = ipv6
+      Beryl::CLI::DnsSetup.ensure_record(ovh, zone, "AAAA", short, v6, logger)
+    end
+    Beryl::CLI::DnsSetup.refresh_zone(ovh, zone, logger)
+
+    # Rename côté console Dedibox (via PUT /server/{id}).
+    if current_hostname != short
+      log "renomme hostname console Dedibox : #{server_id} → #{short}"
+      dedibox.servers.update_hostname(server_id, short)
+    end
+
+    log "nommage DNS + Dedibox posé : #{fqdn} ↔ serveur #{server_id} (reverse DNS à poser manuellement)"
     plan
   end
 

@@ -59,6 +59,7 @@ module Beryl::CLI::Rescue
     account_hint : String? = nil
     domain_hint : String? = nil
     provider_override : String? = nil
+    server_id_flag : String? = nil
     dry_run = false
     positional = [] of String
 
@@ -66,7 +67,8 @@ module Beryl::CLI::Rescue
       p.banner = "USAGE : beryl rescue <host> [options]"
       p.on("-a NAME", "--account=NAME", "Forcer la société (si ambiguë entre sociétés)") { |v| account_hint = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine (sinon déduit du FQDN)") { |v| domain_hint = v }
-      p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (ex: ovh, scaleway)") { |v| provider_override = v }
+      p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (ex: ovh, scaleway, dedibox)") { |v| provider_override = v }
+      p.on("-I ID", "--server-id=ID", "ID serveur côté hébergeur (Dedibox entier, Scaleway UUID). Inutile pour OVH") { |v| server_id_flag = v }
       p.on("-n", "--dry-run", "Affiche l'appel API sans le déclencher") { dry_run = true }
       p.on("-W", "--no-wait", "Ne pas attendre le retour SSH après l'appel API") { wait = false }
       p.on("-t MIN", "--timeout=MIN", "Timeout SSH en minutes (défaut : #{DEFAULT_SSH_WAIT_TIMEOUT.total_minutes.to_i})") { |v| timeout = v.to_i.minutes }
@@ -129,8 +131,11 @@ module Beryl::CLI::Rescue
       end
       trigger_scaleway(host, scaleway_client_factory)
     when "dedibox"
-      server_id = host.dedibox_server_id || raise MissingProviderConfig.new(
-        "champ `dedibox.server_id` manquant pour #{host.fqdn}"
+      # Priorité : --server-id CLI > dedibox.server_id du merge.
+      # Permet un rescue sans YAML host pré-existant (provisionning
+      # initial d'un serveur Dedibox non encore déclaré).
+      server_id = server_id_flag || host.dedibox_server_id || raise MissingProviderConfig.new(
+        "server_id Dedibox manquant : ni --server-id, ni `dedibox.server_id` dans le merge pour #{host.fqdn}"
       )
       if dry_run
         log "DRY-RUN : Dedibox → prepare_rescue(#{server_id}, image=debian-12_amd64)"
@@ -139,7 +144,7 @@ module Beryl::CLI::Rescue
         log "Pour exécuter : #{Beryl.rerun_hint("rescue", args)}"
         return EXIT_OK
       end
-      trigger_dedibox(host, dedibox_client_factory)
+      trigger_dedibox(host, dedibox_client_factory, server_id)
     when nil
       report_provider_unresolved(host)
       return EXIT_BAD_PROVIDER
@@ -278,10 +283,7 @@ module Beryl::CLI::Rescue
     log "Scaleway : serveur #{server.id} passé en status = #{server.status}"
   end
 
-  private def self.trigger_dedibox(host : Beryl::Config::ResolvedHost, factory : DediboxClientFactory) : Nil
-    server_id_str = host.dedibox_server_id || raise MissingProviderConfig.new(
-      "champ `dedibox.server_id` manquant pour #{host.fqdn}"
-    )
+  private def self.trigger_dedibox(host : Beryl::Config::ResolvedHost, factory : DediboxClientFactory, server_id_str : String) : Nil
     server_id = server_id_str.to_i? || raise MissingProviderConfig.new(
       "`dedibox.server_id` doit être un entier pour #{host.fqdn} (reçu : #{server_id_str.inspect})"
     )
