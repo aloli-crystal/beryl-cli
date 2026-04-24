@@ -86,7 +86,7 @@ module Beryl::CLI::Scan
       p.banner = "USAGE : beryl scan <host> [options]"
       p.on("-a NAME", "--account=NAME", "Forcer la société") { |v| account_hint = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
-      p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (ex: ovh, scaleway, dedibox)") { |v| provider_override = v }
+      p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (ex: dedibox, ovh, scaleway)") { |v| provider_override = v }
       p.on("-I ID", "--server-id=ID", "ID serveur côté hébergeur (ex: Dedibox entier, Scaleway UUID). Inutile pour OVH (le FQDN est le service_name)") { |v| server_id_flag = v }
       p.on("-n", "--dry-run", "Affiche ce qui serait fait sans écrire ni appeler d'API") { dry_run = true }
       p.on("-w", "--write", "Écrit ~/.beryl/<domaine>/<nom>.yml") { write_auto = true }
@@ -172,7 +172,7 @@ module Beryl::CLI::Scan
         dns_plan = run_dns_setup_dedibox(host, hostname_flag, zone_flag, non_interactive, dry_run, sid)
       else
         STDERR.puts "beryl : --dns n'est pas câblé pour provider=#{effective_provider.inspect} " \
-                    "(supportés : ovh, dedibox). Le scan continue sans DNS."
+                    "(supportés : dedibox, ovh). Le scan continue sans DNS."
       end
     end
 
@@ -285,9 +285,9 @@ module Beryl::CLI::Scan
       STDERR.puts
       STDERR.puts "  Diagnostic : la clé privée n'est pas autorisée par le rescue."
       STDERR.puts "  Vérifiez que la clé publique correspondante est déposée côté provider :"
-      STDERR.puts "    - Scaleway : https://console.scaleway.com → IAM → SSH keys (org-wide)"
-      STDERR.puts "    - OVH      : https://www.ovh.com → Serveurs → Clés SSH (puis `ovh.ssh_key_name`)"
       STDERR.puts "    - Dedibox  : injection IAM automatique en rescue — vérifier que beryl a fait le promote 4/4"
+      STDERR.puts "    - OVH      : https://www.ovh.com → Serveurs → Clés SSH (puis `ovh.ssh_key_name`)"
+      STDERR.puts "    - Scaleway : https://console.scaleway.com → IAM → SSH keys (org-wide)"
     end
     EXIT_SSH_FAILED
   rescue ex : Aborted

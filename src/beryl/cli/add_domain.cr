@@ -12,7 +12,7 @@ require "./account_utils"
 #   beryl add-domain aloli.net --account=aloli
 #
 # Le domaine déclare :
-#   - `dns_provider` : qui gère la zone (ovh, scaleway, gandi…)
+#   - `dns_provider` : qui gère la zone (gandi, ovh, scaleway…)
 #   - `provider`     : hébergeur par défaut des hosts du domaine
 #   - un bloc `<provider>:` avec la SSH key du compte provider
 #     (auto-sélectionnée via l'API si une seule clé correspond)
@@ -41,8 +41,8 @@ module Beryl::CLI::AddDomain
                  "Crée ~/.beryl/<société>/<domaine>.yml."
       p.on("-a NAME", "--account=NAME", "Société cible") { |v| account_flag = v }
       p.on("-n", "--dry-run", "Affiche ce qui serait fait sans écrire ni appeler d'API") { dry_run = true }
-      p.on("-D NAME", "--dns-provider=NAME", "Gestionnaire DNS (ovh, gandi, cloudflare…)") { |v| dns_provider_flag = v }
-      p.on("-P NAME", "--provider=NAME", "Hébergeur par défaut (ovh, scaleway…)") { |v| provider_flag = v }
+      p.on("-D NAME", "--dns-provider=NAME", "Gestionnaire DNS (cloudflare, gandi, ovh…)") { |v| dns_provider_flag = v }
+      p.on("-P NAME", "--provider=NAME", "Hébergeur par défaut (dedibox, ovh, scaleway…)") { |v| provider_flag = v }
       p.on("-s NAME", "--ssh-key-name=NAME", "Label clé SSH chez le provider (auto sinon)") { |v| ssh_key_name_flag = v }
       p.on("-k FILE", "--admin-key=FILE", "Fichier .pub local (auto via ~/.ssh/ sinon)") { |v| admin_key_file = File.expand_path(v, home: true) }
       p.on("-f", "--force", "Écrase le fichier domaine existant") { force = true }

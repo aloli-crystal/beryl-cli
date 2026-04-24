@@ -120,7 +120,7 @@ module Beryl::CLI::Init
     end
 
     STDERR.puts "Prochaines étapes :"
-    STDERR.puts "  beryl add-provider #{account}/<provider>   # ovh, scaleway, …"
+    STDERR.puts "  beryl add-provider #{account}/<provider>   # dedibox, ovh, scaleway, …"
     STDERR.puts "  beryl add-domain   #{account}/<domaine>    # aloli.net, …"
     EXIT_OK
   rescue ex : Beryl::CLI::AccountUtils::Aborted

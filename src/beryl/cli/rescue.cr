@@ -68,7 +68,7 @@ module Beryl::CLI::Rescue
       p.banner = "USAGE : beryl rescue <host> [options]"
       p.on("-a NAME", "--account=NAME", "Forcer la société (si ambiguë entre sociétés)") { |v| account_hint = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine (sinon déduit du FQDN)") { |v| domain_hint = v }
-      p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (ex: ovh, scaleway, dedibox)") { |v| provider_override = v }
+      p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (ex: dedibox, ovh, scaleway)") { |v| provider_override = v }
       p.on("-I ID", "--server-id=ID", "ID serveur côté hébergeur (Dedibox entier, Scaleway UUID). Inutile pour OVH") { |v| server_id_flag = v }
       p.on("-n", "--dry-run", "Affiche l'appel API sans le déclencher") { dry_run = true }
       p.on("-W", "--no-wait", "Ne pas attendre le retour SSH après l'appel API") { wait = false }
