@@ -303,9 +303,9 @@ module Beryl::CLI::Scan
       end
     end
 
-    yaml = render_yaml(host, short, pools.first.disks, pools.first.raid,
+    yaml = render_yaml(host, short, pools,
       provider_override: provider_override, server_id_override: server_id_flag,
-      scaleway_zone_override: scaleway_zone_override, pools: pools)
+      scaleway_zone_override: scaleway_zone_override)
     target = resolve_write_target(write_path, write_auto, config_root, host.account_name, host.domain_name, short)
 
     if target
@@ -540,17 +540,11 @@ module Beryl::CLI::Scan
   def self.render_yaml(
     host : Beryl::Config::ResolvedHost,
     short : String,
-    disks : Array(Disk),
-    raid : Int32,
+    pools : Array(PoolSpec),
     provider_override : String? = nil,
     server_id_override : String? = nil,
     scaleway_zone_override : String? = nil,
-    pools : Array(PoolSpec)? = nil,
   ) : String
-    # Rétrocompat : si l'appelant passe la forme `(disks, raid)`
-    # historique (single pool), on construit la liste avec un seul
-    # zroot. Sinon on utilise les `pools` fournis.
-    effective_pools = pools || [PoolSpec.new(name: "zroot", disks: disks, raid: raid, boot: true)]
     String.build do |io|
       io << "# Généré par `beryl scan` le " << Beryl.format_timestamp(Time.local) << '\n'
       io << "# Mergé avec _default.yml + " << host.domain.source_path << '\n'
@@ -589,7 +583,7 @@ module Beryl::CLI::Scan
       io << "\nfreebsd:\n"
       io << "  hostname: " << short << '\n'
       io << "  zfs:\n"
-      effective_pools.each do |pool|
+      pools.each do |pool|
         io << "    " << pool.name << ":              # nom du pool côté ZFS (`zpool list`)\n"
         io << "      boot: true        # c'est le pool système (exactement un)\n" if pool.boot
         io << "      raid: " << pool.raid << "             # 0=stripe 1=mirror 5=raidz 6=raidz2 7=raidz3 10=mirror_stripe\n"

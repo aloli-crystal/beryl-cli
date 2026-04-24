@@ -10,19 +10,23 @@ private def sample_disk(name = "sda", size = 1_000_000_000_000_i64)
   )
 end
 
+private def single_zroot(disks, raid = 0)
+  [Beryl::CLI::Scan::PoolSpec.new(name: "zroot", disks: disks, raid: raid, boot: true)]
+end
+
 describe Beryl::CLI::Scan do
   describe ".render_yaml" do
     it "écrit `provider:` hérité du domaine (cas standard)" do
       root = Beryl::Config::Root.load(File.join(FIXTURES, "multi-provider-domain"))
       host = root.resolve("loulou", domain_hint: "aloli.net")
-      yaml = Beryl::CLI::Scan.render_yaml(host, "loulou", [sample_disk], 0)
+      yaml = Beryl::CLI::Scan.render_yaml(host, "loulou", single_zroot([sample_disk]))
       yaml.should contain("provider: ovh")
     end
 
     it "surcharge via provider_override (ex: --provider=scaleway)" do
       root = Beryl::Config::Root.load(File.join(FIXTURES, "multi-provider-domain"))
       host = root.resolve("loulou", domain_hint: "aloli.net")
-      yaml = Beryl::CLI::Scan.render_yaml(host, "loulou", [sample_disk], 0, provider_override: "scaleway")
+      yaml = Beryl::CLI::Scan.render_yaml(host, "loulou", single_zroot([sample_disk]), provider_override: "scaleway")
       yaml.should contain("provider: scaleway")
       yaml.should_not contain("provider: ovh")
     end
@@ -30,25 +34,25 @@ describe Beryl::CLI::Scan do
     it "n'écrit pas `provider:` si aucun niveau n'en déclare et pas d'override" do
       root = Beryl::Config::Root.load(File.join(FIXTURES, "with-defaults-and-env"))
       host = root.resolve("serveur-neuf", domain_hint: "aloli.net")
-      yaml = Beryl::CLI::Scan.render_yaml(host, "serveur-neuf", [sample_disk], 0)
+      yaml = Beryl::CLI::Scan.render_yaml(host, "serveur-neuf", single_zroot([sample_disk]))
       yaml.should_not contain("provider:")
     end
 
     it "override CLI fonctionne même si pas de provider mergé" do
       root = Beryl::Config::Root.load(File.join(FIXTURES, "with-defaults-and-env"))
       host = root.resolve("serveur-neuf", domain_hint: "aloli.net")
-      yaml = Beryl::CLI::Scan.render_yaml(host, "serveur-neuf", [sample_disk], 0, provider_override: "hetzner")
+      yaml = Beryl::CLI::Scan.render_yaml(host, "serveur-neuf", single_zroot([sample_disk]), provider_override: "hetzner")
       yaml.should contain("provider: hetzner")
     end
 
-    it "mode multi-pool : écrit zroot (boot) + zdata (non-boot) avec leurs disques et RAID respectifs" do
+    it "multi-pool : zroot (boot) + zdata (non-boot) avec leurs disques et RAID respectifs" do
       root = Beryl::Config::Root.load(File.join(FIXTURES, "multi-provider-domain"))
       host = root.resolve("loulou", domain_hint: "aloli.net")
       pools = [
         Beryl::CLI::Scan::PoolSpec.new(name: "zroot", disks: [sample_disk("nvme0n1")], raid: 0, boot: true),
         Beryl::CLI::Scan::PoolSpec.new(name: "zdata", disks: [sample_disk("sda"), sample_disk("sdb"), sample_disk("sdc"), sample_disk("sdd")], raid: 10, boot: false),
       ]
-      yaml = Beryl::CLI::Scan.render_yaml(host, "quantas", [] of Beryl::CLI::Scan::Disk, 0, pools: pools)
+      yaml = Beryl::CLI::Scan.render_yaml(host, "quantas", pools)
 
       # zroot en premier, avec boot: true
       yaml.should contain("zroot:")
@@ -67,10 +71,10 @@ describe Beryl::CLI::Scan do
       yaml.scan("boot: true").size.should eq(1)
     end
 
-    it "mode single-pool (rétrocompat) : disks + raid sans pools → zroot implicite" do
+    it "single pool zroot : raid passé dans le PoolSpec est préservé" do
       root = Beryl::Config::Root.load(File.join(FIXTURES, "multi-provider-domain"))
       host = root.resolve("loulou", domain_hint: "aloli.net")
-      yaml = Beryl::CLI::Scan.render_yaml(host, "loulou", [sample_disk("sda"), sample_disk("sdb")], 1)
+      yaml = Beryl::CLI::Scan.render_yaml(host, "loulou", single_zroot([sample_disk("sda"), sample_disk("sdb")], 1))
       yaml.should contain("zroot:")
       yaml.should contain("boot: true")
       yaml.should contain("raid: 1")
