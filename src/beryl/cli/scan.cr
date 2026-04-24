@@ -5,6 +5,7 @@ require "../providers"
 require "ssh"
 require "./credentials"
 require "./dns_setup"
+require "./provider_shortcut"
 
 # Sous-commande `beryl scan <host>` : se connecte au rescue Linux,
 # détecte les disques, propose un YAML pour le fichier host.
@@ -112,6 +113,24 @@ module Beryl::CLI::Scan
     domain_hint ||= parsed[:domain]
 
     root = Beryl::Config::Root.load(config_root)
+
+    # Raccourci UX : `beryl scan aloli/<ID> --provider=<name>`. Même
+    # logique que `beryl rescue` — voir src/beryl/cli/provider_shortcut.cr.
+    if (po = provider_override) && (acct = account_hint)
+      root.env_file.apply_all_to_env(acct, overwrite: true)
+      resolved = Beryl::CLI::ProviderShortcut.resolve(
+        host_name, po,
+        dedibox_factory: -> { Beryl::CLI::Credentials.dedibox_client },
+        scaleway_factory: -> { Beryl::CLI::Credentials.scaleway_client },
+      )
+      if resolved
+        ip, inferred_server_id = resolved
+        log "provider=#{po} id=#{host_name} → IP #{ip} (résolu via API)"
+        host_name = ip
+        server_id_flag ||= inferred_server_id
+      end
+    end
+
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
     host.apply_all_credentials_to_env!
 

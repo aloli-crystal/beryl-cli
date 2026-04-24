@@ -7,6 +7,7 @@ require "../providers"
 require "ssh"
 require "./account_utils"
 require "./credentials"
+require "./provider_shortcut"
 
 # Sous-commande `beryl rescue <host> [options]` : bascule un hôte en
 # rescue via l'API de l'hébergeur (OVH ou Scaleway) puis attend le
@@ -105,9 +106,11 @@ module Beryl::CLI::Rescue
     # que le shortcut construit).
     if (po = provider_override) && (acct = account_hint)
       root.env_file.apply_all_to_env(acct, overwrite: true)
-      resolved = resolve_provider_shortcut(
+      resolved = Beryl::CLI::ProviderShortcut.resolve(
         host_name, po,
-        dedibox_client_factory, scaleway_client_factory,
+        ovh_factory: ovh_client_factory,
+        scaleway_factory: scaleway_client_factory,
+        dedibox_factory: dedibox_client_factory,
       )
       if resolved
         ip, inferred_server_id = resolved
@@ -473,65 +476,6 @@ module Beryl::CLI::Rescue
       stdin: creds.password + "\n" + script,
     )
     log "Dedibox 4/4 : root@#{host.ssh_host} prêt (le wait_for_ssh principal prend le relais)"
-  end
-
-  # Zones Scaleway Elastic Metal à balayer quand on cherche un
-  # serveur par UUID sans savoir sa zone. Liste maintenue à la
-  # main — à compléter quand Scaleway ajoute des régions.
-  SCALEWAY_ZONES = %w[fr-par-1 fr-par-2 fr-par-3 nl-ams-1 nl-ams-2 nl-ams-3 pl-waw-1 pl-waw-2 pl-waw-3]
-
-  # Détecte si `host_name` est un ID provider pur et, si oui, renvoie
-  # `{ip_publique, server_id_string}`. Permet le raccourci
-  # `beryl rescue aloli/186260 --provider=dedibox` ou
-  # `beryl rescue aloli/<uuid> --provider=scaleway` sans avoir à
-  # connaître le reverse DNS temporaire.
-  #
-  # - Dedibox : host_name doit être un entier (ex: `186260`).
-  # - Scaleway : host_name doit être un UUID v4 (8-4-4-4-12 hex).
-  # - Autres providers : retourne `nil` (pas de raccourci supporté).
-  def self.resolve_provider_shortcut(
-    host_name : String,
-    provider : String,
-    dedibox_factory : DediboxClientFactory,
-    scaleway_factory : ScalewayClientFactory,
-  ) : {String, String}?
-    case provider
-    when "dedibox"
-      return nil unless host_name =~ /\A\d+\z/
-      client = dedibox_factory.call
-      info = client.servers.info(host_name.to_i)
-      ip = info.public_ip || raise MissingProviderConfig.new(
-        "Dedibox #{host_name} : aucune IP publique trouvée via l'API"
-      )
-      {ip, host_name}
-    when "scaleway"
-      return nil unless host_name =~ /\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/i
-      client = scaleway_factory.call
-      # On ne sait pas a priori dans quelle zone se trouve le
-      # serveur. Scan séquentiel : dans le pire cas ~9 requêtes
-      # HTTP (quelques centaines de ms total).
-      SCALEWAY_ZONES.each do |zone|
-        begin
-          server = client.baremetal.servers.get(server_id: host_name, zone: zone)
-          ip = server.ips.first?.try(&.address) || next
-          return {ip, host_name}
-        rescue ScalewayApi::NotFound
-          # UUID absent de cette zone, essayer la suivante.
-          next
-        rescue ex : ScalewayApi::ApiError
-          # 501 "unknown service" : zone qui n'a pas encore le
-          # service baremetal activé. On passe aussi.
-          next if ex.http_status == 501
-          raise ex
-        end
-      end
-      raise MissingProviderConfig.new(
-        "Scaleway UUID #{host_name} : introuvable dans les zones connues " \
-        "(#{SCALEWAY_ZONES.join(", ")})"
-      )
-    else
-      nil
-    end
   end
 
   # Par défaut, résolution DNS via `Socket::Addrinfo.resolve`.
