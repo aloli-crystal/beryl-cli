@@ -50,24 +50,31 @@ module Beryl::CLI::Wipe
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
     host.apply_all_credentials_to_env!
 
-    # Fusion --disk et --all-declared : union sans doublon, ordre
-    # déterministe (les --disk explicites d'abord, puis les déclarés
-    # qui n'y sont pas encore).
-    if all_declared
-      declared = host.all_declared_disks
+    # Résolution des disques à wipe, par ordre de priorité :
+    #   1. --disk=PATH explicites (répétables) → union sans doublon
+    #   2. Si rien en flag : les disques déclarés dans
+    #      freebsd.zfs.* du YAML host. C'est le défaut raisonnable
+    #      — le YAML est la source de vérité, et un opérateur qui
+    #      lance `beryl wipe HOST` sans flag veut naturellement
+    #      wiper les disques qu'il a déclarés pour cet host.
+    # `--all-declared` reste accepté pour compat (historiquement
+    # explicite), mais a le même effet que le défaut quand le YAML
+    # en a. Si le YAML n'a rien ET pas de --disk : erreur franche.
+    declared = host.all_declared_disks
+    if target_disks.empty?
       if declared.empty?
-        STDERR.puts "beryl : --all-declared : aucun disque déclaré dans freebsd.zfs.* pour #{host.fqdn}"
-        STDERR.puts "        (soit vous ajoutez les pools dans le YAML, soit vous listez les disques avec --disk)"
+        STDERR.puts "beryl : aucun disque à effacer."
+        STDERR.puts "        Soit passez --disk=/dev/XXX (répétable),"
+        STDERR.puts "        soit déclarez les pools ZFS dans #{host.node.source_path}"
+        STDERR.puts "        (bloc `freebsd.zfs.*` avec `disks: [...]`)."
         return EXIT_USAGE
       end
+      declared.each { |d| target_disks << d }
+    elsif all_declared
+      # --disk ET --all-declared : union des deux.
       declared.each do |d|
         target_disks << d unless target_disks.includes?(d)
       end
-    end
-
-    if target_disks.empty?
-      STDERR.puts "beryl : aucun disque à effacer. Passez --disk=/dev/XXX (répétable) ou --all-declared."
-      return EXIT_USAGE
     end
 
     rescue_conn = SSH::Connection.new(
