@@ -165,6 +165,8 @@ module Beryl::Bootstrap
     getter installed_port : Int32
     getter ovh_client : OvhApi::Client?
     getter ovh_service_name : String?
+    getter dedibox_client : DediboxApi::Client?
+    getter dedibox_server_id : Int32?
     getter users : Array(UserSpec)
     getter packages : Array(String)
     getter sudoers : Array(String)
@@ -193,6 +195,8 @@ module Beryl::Bootstrap
       @installed_port : Int32 = 22,
       @ovh_client : OvhApi::Client? = nil,
       @ovh_service_name : String? = nil,
+      @dedibox_client : DediboxApi::Client? = nil,
+      @dedibox_server_id : Int32? = nil,
       @packages : Array(String) = [] of String,
       @sudoers : Array(String) = [] of String,
       @install_type : String = "distribution_sets",
@@ -474,6 +478,7 @@ module Beryl::Bootstrap
     end
 
     private def reboot_bare_metal : Nil
+      # OVH : API boot_from_disk → reboot hardware OVH sur disque.
       if client = @ovh_client
         if svc = @ovh_service_name
           client.dedicated_servers.boot_from_disk(svc)
@@ -481,6 +486,23 @@ module Beryl::Bootstrap
           return
         end
       end
+      # Dedibox : API boot_normal + reboot(reason). SANS boot_normal,
+      # un simple `reboot -f` fait rebooter le serveur mais Dedibox le
+      # remet en rescue puisque le flag boot_mode côté panel est
+      # toujours `rescue`. Il faut donc explicitement demander boot
+      # disque avant de rebooter.
+      if ddx = @dedibox_client
+        if sid = @dedibox_server_id
+          ddx.servers.boot_normal(sid)
+          ddx.servers.reboot(sid, reason: "beryl post-bootstrap (boot disque)")
+          sleep REBOOT_GRACE_PERIOD
+          return
+        end
+      end
+      # Sans API hébergeur : reboot depuis le rescue Linux. Peut
+      # marcher (selon comment l'hébergeur gère son boot_mode) ou
+      # pas — Dedibox p.ex. reviendrait en rescue sans l'API call
+      # au-dessus.
       @rescue_conn.exec(
         "sync && (reboot -f 2>/dev/null || echo b > /proc/sysrq-trigger)",
         raise_on_error: false,

@@ -213,6 +213,14 @@ module Beryl::CLI::Bootstrap
     if effective_provider == "ovh" && host.ovh_service_name
       ovh_client = Beryl::CLI::Credentials.ovh_client
     end
+    dedibox_client = nil
+    dedibox_sid : Int32? = nil
+    if effective_provider == "dedibox" && (sid_str = host.dedibox_server_id)
+      if sid_int = sid_str.to_i?
+        dedibox_client = Beryl::CLI::Credentials.dedibox_client
+        dedibox_sid = sid_int
+      end
+    end
 
     bootstrap = Beryl::Bootstrap::QemuInRescue.new(
       rescue_conn: rescue_conn,
@@ -233,6 +241,8 @@ module Beryl::CLI::Bootstrap
       installed_port: host.port,
       ovh_client: ovh_client,
       ovh_service_name: host.ovh_service_name,
+      dedibox_client: dedibox_client,
+      dedibox_server_id: dedibox_sid,
       install_type: install_type,
       data_pools: data_pools,
       follow_hint_host_name: "#{host.account_name}/#{host.fqdn}",
