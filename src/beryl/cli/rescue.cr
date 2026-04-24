@@ -427,17 +427,26 @@ module Beryl::CLI::Rescue
     privkey_path = host.identity_file || raise MissingProviderConfig.new(
       "identity_file non résolu pour #{host.fqdn} — déclarez `ovh.ssh_key_name` dans le domaine"
     )
-    # Convention Aloli : la clé publique remplace l'extension `.key`
-    # par `.pub` (ex: `philippe.aloli.fr.key` → `philippe.aloli.fr.pub`).
-    # Fallback : suffixe `.pub` ajouté à la fin si le fichier n'est pas
-    # nommé en `.key` (pour compat avec les conventions non-Aloli).
-    pubkey_path = privkey_path.ends_with?(".key") ? privkey_path.sub(/\.key\z/, ".pub") : "#{privkey_path}.pub"
-    unless File.exists?(pubkey_path)
-      raise MissingProviderConfig.new(
-        "Scaleway pre-check : clé publique absente (#{pubkey_path}). " \
-        "Attendue à côté de la clé privée pour comparaison avec install.ssh_key_ids."
-      )
-    end
+    # Cherche la clé publique parmi plusieurs conventions de nommage.
+    # On teste dans l'ordre et on retient le premier fichier qui existe :
+    #
+    #   1. Convention Aloli `.key` → `.pub` (remplacement)
+    #      philippe.aloli.fr.key   → philippe.aloli.fr.pub
+    #   2. Convention OpenSSH suffixe `.pub` (concaténation)
+    #      id_ed25519              → id_ed25519.pub
+    #      philippe_cle            → philippe_cle.pub
+    #      philippe.aloli.fr.key   → philippe.aloli.fr.key.pub
+    #
+    # Les deux conventions coexistent chez Philippe selon l'origine
+    # de la clé (Aloli vs clés importées standard).
+    candidates = [] of String
+    candidates << privkey_path.sub(/\.key\z/, ".pub") if privkey_path.ends_with?(".key")
+    candidates << "#{privkey_path}.pub"
+    pubkey_path = candidates.find { |p| File.exists?(p) } || raise MissingProviderConfig.new(
+      "Scaleway pre-check : clé publique introuvable. Cherché : #{candidates.join(", ")}. " \
+      "Attendue à côté de la clé privée (convention Aloli `.key` → `.pub`, " \
+      "ou convention OpenSSH suffixe `.pub`)."
+    )
     local_b64 = File.read(pubkey_path).strip.split(/\s+/)[1]? ||
                 raise MissingProviderConfig.new(
                   "Scaleway pre-check : format clé publique invalide dans #{pubkey_path}"
