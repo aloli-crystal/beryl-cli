@@ -283,32 +283,63 @@ module Beryl::CLI::Rescue
     log "Scaleway : serveur #{server.id} passé en status = #{server.status}"
   end
 
+  # Flow Dedibox (4 étapes numérotées dans les logs pour clarté) :
+  #
+  #   0/4 idempotence — si root@host répond déjà avec la clé IAM,
+  #       tout est prêt, on sort (skip complet). Relancer `beryl rescue`
+  #       quand le serveur est déjà dans l'état attendu ne casse rien.
+  #   1/4 prepare_rescue (API Dedibox) — pose `boot_mode=rescue` et
+  #       retourne un password temporaire pour `sudo -S`.
+  #   2/4 reboot (API Dedibox) — redémarre le hardware.
+  #   3/4 attente SSH sd-<id> (rescue Debian booté, clé IAM injectée).
+  #   4/4 promote root — copie la clé IAM dans /root/.ssh/authorized_keys
+  #       et active PermitRootLogin pour que le reste du flow beryl
+  #       (bootstrap, scan…) fonctionne avec `ssh root@host`.
   private def self.trigger_dedibox(host : Beryl::Config::ResolvedHost, factory : DediboxClientFactory, server_id_str : String) : Nil
     server_id = server_id_str.to_i? || raise MissingProviderConfig.new(
       "`dedibox.server_id` doit être un entier pour #{host.fqdn} (reçu : #{server_id_str.inspect})"
     )
+
+    # 0/4 — idempotence : root répond déjà → rien à faire.
+    if dedibox_root_ready?(host)
+      log "Dedibox 0/4 : root@#{host.ssh_host} répond déjà avec la clé IAM. " \
+          "Le serveur est déjà en rescue avec promote fait — skip complet."
+      return
+    end
+
     image = host.provider_field("dedibox", "rescue_image") ||
             Beryl::Providers::Dedibox::DEFAULT_RESCUE_IMAGE
     client = factory.call
-    log "Dedibox : prepare_rescue(#{server_id}, image=#{image})"
+
+    log "Dedibox 1/4 : prepare_rescue(server_id=#{server_id}, image=#{image})"
     creds = client.servers.prepare_rescue(server_id, image)
-    log "Dedibox : credentials rescue — login=#{creds.login} (password fourni par l'API, clé SSH IAM auto-injectée)"
-    log "Dedibox : reboot(#{server_id}) pour basculer sur le rescue"
+    log "Dedibox 1/4 : credentials rescue — login=#{creds.login} (password généré par l'API, clé SSH IAM auto-injectée par Dedibox)"
+
+    log "Dedibox 2/4 : reboot(server_id=#{server_id}, reason=\"beryl rescue\")"
     unless client.servers.reboot(server_id, reason: "beryl rescue")
       raise TaskFailed.new("Dedibox a refusé le reboot pour #{server_id}")
     end
 
-    # Spécificité Dedibox : le rescue Debian est accessible en
-    # `sd-<id>` (groupe admin, sudo requiert password), pas en root
-    # direct comme OVH ou Scaleway. Pour homogénéiser le reste du
-    # flow beryl (bootstrap, scan… qui font tous `ssh root@host`),
-    # on « promeut » l'accès root :
-    #   1. on attend que sd-<id> réponde (clé IAM déjà injectée)
-    #   2. via sudo -S (password = celui retourné par prepare_rescue),
-    #      on copie la clé IAM dans /root/.ssh/authorized_keys et on
-    #      force PermitRootLogin yes dans sshd_config.d
-    # Ensuite `ssh root@host` fonctionne pour le reste du bootstrap.
     promote_dedibox_rescue_to_root(host, server_id, creds)
+  end
+
+  # Teste rapidement si `root@host` répond à un `uname -s`. Utilisé
+  # pour l'idempotence de `trigger_dedibox` : si root est déjà là
+  # (promote fait par un run précédent), inutile de refaire un
+  # rescue complet. Timeout court pour ne pas traîner.
+  private def self.dedibox_root_ready?(host : Beryl::Config::ResolvedHost) : Bool
+    key = host.identity_file
+    return false unless key
+    conn = SSH::Connection.new(
+      host: host.ssh_host,
+      user: "root",
+      port: host.port,
+      identity_file: key,
+    )
+    result = conn.exec("uname -s", raise_on_error: false)
+    result.success? && result.stdout.strip == "Linux"
+  rescue
+    false
   end
 
   # Attend que sd-<id> réponde en SSH (avec la clé IAM Dedibox qui
@@ -328,27 +359,35 @@ module Beryl::CLI::Rescue
       "(pour que beryl trouve la clé locale à passer à `-i`)"
     )
 
-    # Étape 1 — attend que sd-<id> réponde (rescue Debian prêt).
+    # 3/4 — attente que sd-<id> réponde (rescue Debian prêt).
     sd_conn = SSH::Connection.new(
       host: host.ssh_host, user: sd_user, port: host.port, identity_file: key,
     )
     deadline = Time.instant + DEFAULT_SSH_WAIT_TIMEOUT
     Beryl.log_step(
       "beryl rescue",
-      "Dedibox : attente SSH #{sd_user}@#{host.ssh_host} (rescue Debian)",
+      "Dedibox 3/4 : attente SSH #{sd_user}@#{host.ssh_host} (rescue Debian prêt)",
     ) do
+      attempt = 0
       loop do
         raise TaskFailed.new("timeout : rescue Dedibox n'a pas démarré en #{DEFAULT_SSH_WAIT_TIMEOUT.total_minutes.to_i} min") if Time.instant >= deadline
+        attempt += 1
         begin
           result = sd_conn.exec("uname -s", raise_on_error: false)
-          break if result.success? && result.stdout.strip == "Linux"
-        rescue
+          if result.success? && result.stdout.strip == "Linux"
+            break
+          end
+          # Log chaque tentative échouée pour qu'on voie pourquoi
+          # ça traîne (ConnectTimeout=10 déjà posé par le shard ssh).
+          STDERR.puts "\n  [tentative #{attempt}] exit=#{result.exit_code} stderr=#{result.stderr.strip.inspect[0, 120]}"
+        rescue ex
+          STDERR.puts "\n  [tentative #{attempt}] exception: #{ex.class} #{ex.message}"
         end
         sleep SSH_POLL_INTERVAL
       end
     end
 
-    # Étape 2 — promote : copie clé + PermitRootLogin yes.
+    # 4/4 — promote : copie clé + PermitRootLogin yes via sudo -S.
     script = <<-BASH
       set -e
       mkdir -p /root/.ssh
@@ -359,12 +398,12 @@ module Beryl::CLI::Rescue
       echo 'PermitRootLogin yes' > /etc/ssh/sshd_config.d/beryl.conf
       (systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || service ssh reload) >/dev/null 2>&1
     BASH
-    log "Dedibox : promote #{sd_user} → root (copie clé IAM + PermitRootLogin yes)"
+    log "Dedibox 4/4 : promote #{sd_user} → root (copie clé IAM + PermitRootLogin yes via sudo -S)"
     sd_conn.exec(
       "sudo -S -p '' bash -s",
       stdin: creds.password + "\n" + script,
     )
-    log "Dedibox : root@#{host.ssh_host} prêt (le wait_for_ssh principal prend le relais)"
+    log "Dedibox 4/4 : root@#{host.ssh_host} prêt (le wait_for_ssh principal prend le relais)"
   end
 
   # Par défaut, résolution DNS via `Socket::Addrinfo.resolve`.
