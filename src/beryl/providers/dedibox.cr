@@ -63,9 +63,11 @@ module Beryl::Providers
 
     def boot_from_disk(resource_id : String) : String
       id = parse_id(resource_id)
-      client.servers.boot_normal(id)
-      ok = client.servers.reboot(id, reason: "beryl boot-hd")
-      raise "Dedibox a refusé le reboot (server #{id})" unless ok
+      # Helper combo boot_normal + reboot encapsulé côté shard
+      # (dedibox-api 0.1.3+) pour ne pas faire fuiter la sémantique
+      # Dedibox (« sans boot_normal, le reboot reste en rescue »)
+      # dans beryl.
+      raise "Dedibox a refusé le reboot (server #{id})" unless client.servers.reboot_to_disk(id, reason: "beryl boot-hd")
       id.to_s
     end
 

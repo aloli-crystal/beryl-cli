@@ -486,15 +486,13 @@ module Beryl::Bootstrap
           return
         end
       end
-      # Dedibox : API boot_normal + reboot(reason). SANS boot_normal,
-      # un simple `reboot -f` fait rebooter le serveur mais Dedibox le
-      # remet en rescue puisque le flag boot_mode côté panel est
-      # toujours `rescue`. Il faut donc explicitement demander boot
-      # disque avant de rebooter.
+      # Dedibox : helper reboot_to_disk du shard dedibox-api 0.1.3
+      # qui encapsule boot_normal + reboot(reason). La sémantique
+      # « sans boot_normal, le reboot laisse le serveur en rescue »
+      # vit côté shard, pas ici.
       if ddx = @dedibox_client
         if sid = @dedibox_server_id
-          ddx.servers.boot_normal(sid)
-          ddx.servers.reboot(sid, reason: "beryl post-bootstrap (boot disque)")
+          ddx.servers.reboot_to_disk(sid, reason: "beryl post-bootstrap")
           sleep REBOOT_GRACE_PERIOD
           return
         end
