@@ -114,6 +114,31 @@ module Beryl::CLI::ScalewayReinstall
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
     host.apply_all_credentials_to_env!
 
+    # scaleway-reinstall a besoin de lister les clés SSH du projet
+    # (`client.ssh_keys.list`) qui exige un project_id côté client.
+    # Contrairement au simple `rescue`, on ne peut pas s'en passer.
+    # Si l'opérateur n'a pas rempli SCW_DEFAULT_PROJECT_ID lors du
+    # `beryl add-provider scaleway` (champ optionnel à l'époque),
+    # on donne ici un message actionnable.
+    unless (pid = ENV["SCW_DEFAULT_PROJECT_ID"]?) && !pid.empty?
+      STDERR.puts
+      STDERR.puts "beryl : SCW_DEFAULT_PROJECT_ID manquant dans ~/.beryl/.env.yml."
+      STDERR.puts "  `scaleway-reinstall` a besoin de lister les clés SSH du projet,"
+      STDERR.puts "  ce qui requiert un project_id côté API."
+      STDERR.puts
+      STDERR.puts "  Trouvez votre project_id dans la console Scaleway :"
+      STDERR.puts "    https://console.scaleway.com/ → menu utilisateur → Organization → Settings"
+      STDERR.puts "    Le « Default Project ID » est un UUID (format 8-4-4-4-12 hex)."
+      STDERR.puts
+      STDERR.puts "  Ou plus rapide : cliquez sur un projet, l'UUID est dans l'URL"
+      STDERR.puts "  (console.scaleway.com/project/<UUID>/…)."
+      STDERR.puts
+      STDERR.puts "  Puis ajoutez dans ~/.beryl/.env.yml sous `#{host.account_name}.scaleway` :"
+      STDERR.puts "    SCW_DEFAULT_PROJECT_ID: <votre_project_id>"
+      STDERR.puts
+      raise MissingProviderConfig.new("SCW_DEFAULT_PROJECT_ID manquant — voir instructions ci-dessus")
+    end
+
     server_id = server_id_from_shortcut || host.scaleway_server_id || raise MissingProviderConfig.new(
       "scaleway-reinstall nécessite un server_id Scaleway (UUID). " \
       "Déclarez `scaleway.server_id` dans le YAML ou utilisez le chemin " \
