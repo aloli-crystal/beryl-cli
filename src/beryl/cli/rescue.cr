@@ -92,6 +92,31 @@ module Beryl::CLI::Rescue
     domain_hint ||= parsed[:domain]
 
     root = Beryl::Config::Root.load(config_root)
+
+    # Raccourci UX : `beryl rescue aloli/<ID> --provider=<name>`.
+    # Si le host_name est un ID provider pur (entier pour Dedibox,
+    # UUID pour Scaleway), beryl fetch l'IP publique via l'API et
+    # l'utilise comme cible SSH. Plus besoin de connaître le reverse
+    # DNS temporaire du provider ni de passer --server-id séparément.
+    #
+    # L'appel API a besoin des credentials — on charge en ENV les
+    # variables du <société>.<provider> avant, sans passer par un
+    # host résolu (on n'a pas encore le host : c'est précisément ce
+    # que le shortcut construit).
+    if (po = provider_override) && (acct = account_hint)
+      root.env_file.apply_all_to_env(acct, overwrite: true)
+      resolved = resolve_provider_shortcut(
+        host_name, po,
+        dedibox_client_factory, scaleway_client_factory,
+      )
+      if resolved
+        ip, inferred_server_id = resolved
+        log "provider=#{po} id=#{host_name} → IP #{ip} (résolu via API)"
+        host_name = ip
+        server_id_flag ||= inferred_server_id
+      end
+    end
+
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
     host.apply_all_credentials_to_env!
 
@@ -120,8 +145,8 @@ module Beryl::CLI::Rescue
       # prod ou ancien rescue) au lieu du nouveau rescue.
       wait_ovh_task_done(host, task, ovh_client_factory) if wait
     when "scaleway"
-      server_id = host.scaleway_server_id || raise MissingProviderConfig.new(
-        "champ `scaleway.server_id` manquant pour #{host.fqdn}"
+      server_id = server_id_flag || host.scaleway_server_id || raise MissingProviderConfig.new(
+        "server_id Scaleway manquant : ni --server-id, ni `scaleway.server_id` dans le merge pour #{host.fqdn}"
       )
       if dry_run
         log "DRY-RUN : Scaleway → reboot(#{server_id}, boot_type=Rescue)"
@@ -129,7 +154,7 @@ module Beryl::CLI::Rescue
         log "Pour exécuter : #{Beryl.rerun_hint("rescue", args, replace_host: {raw, "#{host.account_name}/#{host.fqdn}"})}"
         return EXIT_OK
       end
-      trigger_scaleway(host, scaleway_client_factory)
+      trigger_scaleway(host, scaleway_client_factory, server_id)
     when "dedibox"
       # Priorité : --server-id CLI > dedibox.server_id du merge.
       # Permet un rescue sans YAML host pré-existant (provisionning
@@ -268,10 +293,7 @@ module Beryl::CLI::Rescue
     end
   end
 
-  private def self.trigger_scaleway(host : Beryl::Config::ResolvedHost, factory : ScalewayClientFactory) : Nil
-    server_id = host.scaleway_server_id || raise MissingProviderConfig.new(
-      "champ `scaleway.server_id` manquant pour #{host.fqdn}"
-    )
+  private def self.trigger_scaleway(host : Beryl::Config::ResolvedHost, factory : ScalewayClientFactory, server_id : String) : Nil
     zone = host.scaleway_zone
     log "Scaleway : reboot(Rescue) sur #{server_id}#{zone ? " (zone #{zone})" : ""}"
     client = factory.call
@@ -451,6 +473,65 @@ module Beryl::CLI::Rescue
       stdin: creds.password + "\n" + script,
     )
     log "Dedibox 4/4 : root@#{host.ssh_host} prêt (le wait_for_ssh principal prend le relais)"
+  end
+
+  # Zones Scaleway Elastic Metal à balayer quand on cherche un
+  # serveur par UUID sans savoir sa zone. Liste maintenue à la
+  # main — à compléter quand Scaleway ajoute des régions.
+  SCALEWAY_ZONES = %w[fr-par-1 fr-par-2 fr-par-3 nl-ams-1 nl-ams-2 nl-ams-3 pl-waw-1 pl-waw-2 pl-waw-3]
+
+  # Détecte si `host_name` est un ID provider pur et, si oui, renvoie
+  # `{ip_publique, server_id_string}`. Permet le raccourci
+  # `beryl rescue aloli/186260 --provider=dedibox` ou
+  # `beryl rescue aloli/<uuid> --provider=scaleway` sans avoir à
+  # connaître le reverse DNS temporaire.
+  #
+  # - Dedibox : host_name doit être un entier (ex: `186260`).
+  # - Scaleway : host_name doit être un UUID v4 (8-4-4-4-12 hex).
+  # - Autres providers : retourne `nil` (pas de raccourci supporté).
+  def self.resolve_provider_shortcut(
+    host_name : String,
+    provider : String,
+    dedibox_factory : DediboxClientFactory,
+    scaleway_factory : ScalewayClientFactory,
+  ) : {String, String}?
+    case provider
+    when "dedibox"
+      return nil unless host_name =~ /\A\d+\z/
+      client = dedibox_factory.call
+      info = client.servers.info(host_name.to_i)
+      ip = info.public_ip || raise MissingProviderConfig.new(
+        "Dedibox #{host_name} : aucune IP publique trouvée via l'API"
+      )
+      {ip, host_name}
+    when "scaleway"
+      return nil unless host_name =~ /\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/i
+      client = scaleway_factory.call
+      # On ne sait pas a priori dans quelle zone se trouve le
+      # serveur. Scan séquentiel : dans le pire cas ~9 requêtes
+      # HTTP (quelques centaines de ms total).
+      SCALEWAY_ZONES.each do |zone|
+        begin
+          server = client.baremetal.servers.get(server_id: host_name, zone: zone)
+          ip = server.ips.first?.try(&.address) || next
+          return {ip, host_name}
+        rescue ScalewayApi::NotFound
+          # UUID absent de cette zone, essayer la suivante.
+          next
+        rescue ex : ScalewayApi::ApiError
+          # 501 "unknown service" : zone qui n'a pas encore le
+          # service baremetal activé. On passe aussi.
+          next if ex.http_status == 501
+          raise ex
+        end
+      end
+      raise MissingProviderConfig.new(
+        "Scaleway UUID #{host_name} : introuvable dans les zones connues " \
+        "(#{SCALEWAY_ZONES.join(", ")})"
+      )
+    else
+      nil
+    end
   end
 
   # Par défaut, résolution DNS via `Socket::Addrinfo.resolve`.
