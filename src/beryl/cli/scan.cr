@@ -986,12 +986,15 @@ module Beryl::CLI::Scan
                  raise "Scaleway UUID #{server_id} : introuvable dans les zones connues"
              end
     scw_zone = server.zone || raise "Scaleway : zone indéterminée pour #{server_id}"
-    ipv4 = server.ips.find { |ip| ip.version == "IPv4" }.try(&.address) ||
-           server.ips.first?.try(&.address) ||
-           raise "aucune IP attachée au serveur Scaleway #{server_id}"
-    ipv6 = server.ips.find { |ip| ip.version == "IPv6" }.try(&.address)
+    ipv4_obj = server.ips.find { |ip| ip.version == "IPv4" } ||
+               server.ips.first? ||
+               raise "aucune IP attachée au serveur Scaleway #{server_id}"
+    ipv6_obj = server.ips.find { |ip| ip.version == "IPv6" }
+    ipv4 = ipv4_obj.address
+    ipv6 = ipv6_obj.try(&.address)
     current_name = server.name || ""
-    current_reverse = server.ips.find { |ip| ip.version == "IPv4" }.try(&.reverse)
+    current_reverse_v4 = ipv4_obj.reverse
+    current_reverse_v6 = ipv6_obj.try(&.reverse)
 
     plan = Beryl::CLI::DnsSetup::Plan.new(
       service_name: server_id,
@@ -1016,10 +1019,17 @@ module Beryl::CLI::Scan
     else
       STDERR.puts "  4. Renommer console Scaleway : #{current_name.empty? ? "(aucun)" : current_name}  →  #{short}"
     end
-    if current_reverse == fqdn
+    if current_reverse_v4 == fqdn
       STDERR.puts "  5. Reverse DNS IPv4 déjà à #{fqdn}, rien à faire"
     else
-      STDERR.puts "  5. Reverse DNS IPv4 : #{current_reverse || "(aucun)"}  →  #{fqdn}"
+      STDERR.puts "  5. Reverse DNS IPv4 : #{current_reverse_v4 || "(aucun)"}  →  #{fqdn}"
+    end
+    if ipv6_obj
+      if current_reverse_v6 == fqdn
+        STDERR.puts "  6. Reverse DNS IPv6 déjà à #{fqdn}, rien à faire"
+      else
+        STDERR.puts "  6. Reverse DNS IPv6 : #{current_reverse_v6 || "(aucun)"}  →  #{fqdn}"
+      end
     end
     STDERR.puts
 
@@ -1043,18 +1053,32 @@ module Beryl::CLI::Scan
     end
     Beryl::CLI::DnsSetup.refresh_zone(ovh, dns_zone, logger)
 
-    # Rename + reverse via un PATCH unique sur l'API Scaleway.
-    # L'update est idempotent côté Scaleway : renvoyer un nom ou un
-    # reverse déjà en place n'est pas une erreur.
+    # Rename + reverse IPv4 via un PATCH global sur l'API Scaleway.
+    # `servers.update(reverse:)` ne s'applique qu'à l'IP primaire
+    # (IPv4). L'update est idempotent côté Scaleway : renvoyer un
+    # nom ou un reverse déjà en place n'est pas une erreur.
     new_name = current_name == short ? nil : short
-    new_reverse = current_reverse == fqdn ? nil : fqdn
-    if new_name || new_reverse
-      log "Scaleway : PATCH server name=#{new_name || "(inchangé)"} reverse=#{new_reverse || "(inchangé)"}"
+    new_reverse_v4 = current_reverse_v4 == fqdn ? nil : fqdn
+    if new_name || new_reverse_v4
+      log "Scaleway : PATCH server name=#{new_name || "(inchangé)"} reverse_v4=#{new_reverse_v4 || "(inchangé)"}"
       scaleway.baremetal.servers.update(
         server_id: server_id,
         zone: scw_zone,
         name: new_name,
-        reverse: new_reverse,
+        reverse: new_reverse_v4,
+      )
+    end
+
+    # Reverse IPv6 via un PATCH par IP (endpoint séparé côté Scaleway,
+    # scaleway-api 0.4.2+). Si pas d'IPv6 ou reverse déjà en place,
+    # on ne fait rien.
+    if ipv6_obj && current_reverse_v6 != fqdn
+      log "Scaleway : PATCH ip #{ipv6_obj.id} reverse_v6=#{fqdn}"
+      scaleway.baremetal.servers.update_ip(
+        server_id: server_id,
+        ip_id: ipv6_obj.id,
+        reverse: fqdn,
+        zone: scw_zone,
       )
     end
 
