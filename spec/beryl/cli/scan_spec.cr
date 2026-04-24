@@ -152,6 +152,14 @@ describe Beryl::CLI::Scan do
         Beryl::CLI::Scan.parse_pool_spec("root:sda:0", [sample_disk])
       end
     end
+
+    it "refuse les dossiers système FreeBSD (via validate_pool_name!)" do
+      %w[etc usr var bin boot tmp home lib sbin].each do |reserved|
+        expect_raises(ArgumentError, /nom réservé/) do
+          Beryl::CLI::Scan.parse_pool_spec("#{reserved}:sda:0", [sample_disk])
+        end
+      end
+    end
   end
 
   describe "PoolSpec.data" do
@@ -180,7 +188,7 @@ describe Beryl::CLI::Scan do
 
   describe ".validate_pool_name!" do
     it "accepte les noms courts conventionnels (sans préfixe z)" do
-      %w[data cache backup logs archive01 my_data].each do |ok|
+      %w[data cache backup logs archive01 my_data save web].each do |ok|
         # doit passer sans raise
         Beryl::CLI::Scan.validate_pool_name!(ok)
       end
@@ -191,6 +199,21 @@ describe Beryl::CLI::Scan do
         expect_raises(ArgumentError, /nom invalide/) do
           Beryl::CLI::Scan.validate_pool_name!(bad)
         end
+      end
+    end
+
+    # Sécurité critique : un pool data dont le nom court correspond
+    # à un dossier FreeBSD de premier niveau écraserait l'OS au
+    # montage. Refus ferme.
+    it "refuse les noms qui écraseraient un dossier système FreeBSD" do
+      # Liste tirée d'un `ls -l /` sur FreeBSD 15.
+      %w[bin boot dev etc home lib libexec media mnt net
+        proc rescue sbin sys tmp usr var zroot].each do |reserved|
+        ex = expect_raises(ArgumentError, /nom réservé/) do
+          Beryl::CLI::Scan.validate_pool_name!(reserved)
+        end
+        ex.message.to_s.should contain("/#{reserved}")
+        ex.message.to_s.should contain("casserait l'OS")
       end
     end
   end

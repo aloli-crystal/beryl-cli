@@ -488,6 +488,23 @@ module Beryl::CLI::Scan
   # en shell ou dans un YAML (espaces, tirets, majuscules…).
   POOL_NAME_RX = /\A[a-z][a-z0-9_]*\z/
 
+  # Noms courts qui, s'ils étaient acceptés, produiraient un pool
+  # `z<nom>` monté sur `/<nom>` — lequel écraserait un dossier
+  # système FreeBSD de premier niveau et casserait l'OS
+  # (bootloader, configuration, binaires, runtime).
+  #
+  # Liste dérivée d'un `ls -l /` sur FreeBSD 15 après install
+  # fraîche. Ajouter ici tout nouveau top-level qui apparaîtrait
+  # dans une version future.
+  #
+  # `root` figure à part (refusé avec un message dédié « réservé
+  # au pool boot `zroot` ») par `ask_pool_short_name` et
+  # `parse_pool_spec`.
+  FREEBSD_RESERVED_MOUNTPOINTS = %w[
+    bin boot dev etc home lib libexec media mnt net
+    proc rescue sbin sys tmp usr var zroot
+  ]
+
   # Boucle interactive « demande / valide » : appelle `ask`, exécute
   # le bloc sur la réponse, re-prompte sur `ArgumentError` avec le
   # message de l'erreur. Permet de garder l'opérateur dans le flow
@@ -544,12 +561,27 @@ module Beryl::CLI::Scan
   # `ArgumentError` avec un message explicite sur quoi l'opérateur
   # aurait dû taper. Utilisé à la fois côté interactif
   # (`ask_pool_short_name`) et côté CLI (`parse_pool_spec`).
+  #
+  # Deux checks :
+  #   1. Format regex (lettre minuscule + [a-z0-9_]*).
+  #   2. Noms réservés qui écraseraient un dossier système FreeBSD
+  #      de premier niveau (/bin, /etc, /usr, /var, /tmp, /boot…)
+  #      et casseraient l'OS. Sécurité : mieux vaut refuser que
+  #      laisser l'opérateur saboter son FreeBSD au prochain boot.
   def self.validate_pool_name!(name : String) : Nil
-    return if name.matches?(POOL_NAME_RX)
-    raise ArgumentError.new(
-      "nom invalide : #{name.inspect} (attendu : commence par une lettre, " \
-      "uniquement minuscules/chiffres/underscore, ex: data, cache, backup01)"
-    )
+    unless name.matches?(POOL_NAME_RX)
+      raise ArgumentError.new(
+        "nom invalide : #{name.inspect} (attendu : commence par une lettre, " \
+        "uniquement minuscules/chiffres/underscore, ex: data, cache, backup01)"
+      )
+    end
+    if FREEBSD_RESERVED_MOUNTPOINTS.includes?(name)
+      raise ArgumentError.new(
+        "nom réservé : #{name.inspect} — écraserait le dossier système FreeBSD `/#{name}` " \
+        "et casserait l'OS. Choisissez un nom libre (ex: data, save, cache, backup). " \
+        "Dossiers réservés : /#{FREEBSD_RESERVED_MOUNTPOINTS.join(", /")}."
+      )
+    end
   end
 
   # Sélection des disques pour un pool donné (`zroot`, `zdata`, …).
