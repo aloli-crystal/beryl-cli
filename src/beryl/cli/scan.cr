@@ -202,7 +202,7 @@ module Beryl::CLI::Scan
       unless args.any? { |a| a.starts_with?("--hostname") || a == "-H" }
         extras << "--hostname=#{short}"
       end
-      STDERR.puts "Pour exécuter : #{Beryl.rerun_hint("scan", args, extras)}"
+      STDERR.puts "Pour exécuter : #{Beryl.rerun_hint("scan", args, extras, replace_host: {raw, "#{host.account_name}/#{host.fqdn}"})}"
       return EXIT_OK
     end
 
@@ -234,7 +234,7 @@ module Beryl::CLI::Scan
       STDERR.puts "--- fin ---"
       STDERR.puts
       STDERR.puts "Pour écrire ce YAML automatiquement à l'emplacement indiqué :"
-      STDERR.puts "  #{rerun_with_write(args, short)}"
+      STDERR.puts "  #{rerun_with_write(args, short, raw, "#{host.account_name}/#{host.fqdn}")}"
     end
     EXIT_OK
   rescue ex : Beryl::Config::Root::HostNotFound
@@ -461,7 +461,12 @@ module Beryl::CLI::Scan
   # en mode suggestion (pas de --write) : même args, mais en ajoutant
   # `--write` et, si l'opérateur n'a pas passé `--hostname`, le short
   # résolu interactivement pour éviter le re-prompt.
-  def self.rerun_with_write(args : Array(String), short : String) : String
+  def self.rerun_with_write(
+    args : Array(String),
+    short : String,
+    raw_host : String? = nil,
+    normalized_host : String? = nil,
+  ) : String
     extras = [] of String
     unless args.any? { |a| a.starts_with?("--hostname") || a == "-H" }
       extras << "--hostname=#{short}"
@@ -472,7 +477,12 @@ module Beryl::CLI::Scan
            }
       extras << "--write"
     end
-    Beryl.rerun_hint("scan", args, extras)
+    replace = if raw_host && normalized_host
+                {raw_host, normalized_host}
+              else
+                nil
+              end
+    Beryl.rerun_hint("scan", args, extras, replace_host: replace)
   end
 
   # Flux --dns : prompt nom + zone, calcule le plan, applique.

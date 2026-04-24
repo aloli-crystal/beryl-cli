@@ -91,7 +91,7 @@ module Beryl::CLI::BootHd
     if dry_run
       log "DRY-RUN : OVHcloud → boot_from_disk(#{service_name})"
       log "DRY-RUN : puis wait_for_ssh(#{host.ssh_host}:#{host.port} as #{user}, timeout #{timeout.total_minutes.to_i}m)" if wait
-      log "Pour exécuter : #{Beryl.rerun_hint("boot-hd", args)}"
+      log "Pour exécuter : #{Beryl.rerun_hint("boot-hd", args, replace_host: {raw.not_nil!, "#{host.account_name}/#{host.fqdn}"})}"
       return EXIT_OK
     end
 

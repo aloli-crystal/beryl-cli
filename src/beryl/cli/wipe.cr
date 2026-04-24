@@ -119,7 +119,7 @@ module Beryl::CLI::Wipe
       puts "─" * 60
       puts wipe_script_multi(target_disks)
       puts "─" * 60
-      puts "Pour exécuter : #{Beryl.rerun_hint("wipe", args)}"
+      puts "Pour exécuter : #{Beryl.rerun_hint("wipe", args, replace_host: {raw.not_nil!, "#{host.account_name}/#{host.fqdn}"})}"
       return EXIT_OK
     end
 

@@ -203,7 +203,7 @@ module Beryl::CLI::Bootstrap
       sudoers.each { |s| STDERR.puts "    - #{s}" }
       STDERR.puts "─" * 60
       STDERR.puts "DRY-RUN : aucune action exécutée."
-      STDERR.puts "Pour exécuter : #{Beryl.rerun_hint("bootstrap", args)}"
+      STDERR.puts "Pour exécuter : #{Beryl.rerun_hint("bootstrap", args, replace_host: {raw, "#{host.account_name}/#{host.fqdn}"})}"
       return EXIT_OK
     end
 

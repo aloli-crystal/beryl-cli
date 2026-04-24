@@ -111,7 +111,7 @@ module Beryl::CLI::Rescue
       if dry_run
         log "DRY-RUN : OVHcloud → prepare_rescue(#{service_name}, ssh_key=#{host.ovh_ssh_key_name || "<auto>"})"
         log "DRY-RUN : puis wait_for_ssh(#{host.ssh_host}:#{host.port} as root, timeout #{timeout.total_minutes.to_i}m)" if wait
-        log "Pour exécuter : #{Beryl.rerun_hint("rescue", args)}"
+        log "Pour exécuter : #{Beryl.rerun_hint("rescue", args, replace_host: {raw, "#{host.account_name}/#{host.fqdn}"})}"
         return EXIT_OK
       end
       task = trigger_ovh(host, ovh_client_factory)
@@ -126,7 +126,7 @@ module Beryl::CLI::Rescue
       if dry_run
         log "DRY-RUN : Scaleway → reboot(#{server_id}, boot_type=Rescue)"
         log "DRY-RUN : puis wait_for_ssh(#{host.ssh_host}:#{host.port} as root, timeout #{timeout.total_minutes.to_i}m)" if wait
-        log "Pour exécuter : #{Beryl.rerun_hint("rescue", args)}"
+        log "Pour exécuter : #{Beryl.rerun_hint("rescue", args, replace_host: {raw, "#{host.account_name}/#{host.fqdn}"})}"
         return EXIT_OK
       end
       trigger_scaleway(host, scaleway_client_factory)
@@ -141,7 +141,7 @@ module Beryl::CLI::Rescue
         log "DRY-RUN : Dedibox → prepare_rescue(#{server_id}, image=debian-12_amd64)"
         log "DRY-RUN : puis reboot(#{server_id}, reason=\"beryl rescue\")"
         log "DRY-RUN : puis wait_for_ssh(#{host.ssh_host}:#{host.port} as root, timeout #{timeout.total_minutes.to_i}m)" if wait
-        log "Pour exécuter : #{Beryl.rerun_hint("rescue", args)}"
+        log "Pour exécuter : #{Beryl.rerun_hint("rescue", args, replace_host: {raw, "#{host.account_name}/#{host.fqdn}"})}"
         return EXIT_OK
       end
       trigger_dedibox(host, dedibox_client_factory, server_id)

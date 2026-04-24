@@ -64,8 +64,21 @@ module Beryl
   #
   # Philippe 23 avril 2026 : option B — zéro automatisme, zéro clic
   # enchaîné, l'utilisateur lit et relance lui-même.
-  def self.rerun_hint(cmd : String, args : Array(String), extras : Array(String) = [] of String) : String
+  def self.rerun_hint(
+    cmd : String,
+    args : Array(String),
+    extras : Array(String) = [] of String,
+    replace_host : {String, String}? = nil,
+  ) : String
     filtered = args.reject { |a| a == "--dry-run" || a == "-n" }
+    # Remplace le positional host par sa forme path-like complète
+    # `<société>/<fqdn>` — utile pour que la suggestion fonctionne
+    # même depuis un autre contexte (autre société avec collision de
+    # nom, inventaire multi-tenants, etc.).
+    if replace = replace_host
+      original, normalized = replace
+      filtered = filtered.map { |a| a == original ? normalized : a }
+    end
     (["beryl", cmd] + filtered + extras).join(" ")
   end
 
