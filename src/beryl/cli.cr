@@ -12,6 +12,7 @@ require "./cli/add_provider"
 require "./cli/add_domain"
 require "./cli/bootstrap"
 require "./cli/follow_install"
+require "./cli/scaleway_reinstall"
 
 # Point d'entrée CLI de beryl.
 #
@@ -72,23 +73,24 @@ module Beryl::CLI
     resolved = resolve_alias(subcommand)
 
     case resolved
-    when nil              then show_usage(global_parser); 1
-    when "help"           then cmd_help(global_parser, config_root, sub_args)
-    when "init"           then Beryl::CLI::Init.run(config_root, sub_args)
-    when "add-provider"   then Beryl::CLI::AddProvider.run(config_root, sub_args)
-    when "add-domain"     then Beryl::CLI::AddDomain.run(config_root, sub_args)
-    when "list-hosts"     then cmd_list_hosts(config_root)
-    when "show"           then cmd_show(config_root, sub_args)
-    when "rescue"         then Beryl::CLI::Rescue.run(config_root, sub_args)
-    when "boot-hd"        then Beryl::CLI::BootHd.run(config_root, sub_args)
-    when "wipe"           then Beryl::CLI::Wipe.run(config_root, sub_args)
-    when "bootstrap"      then Beryl::CLI::Bootstrap.run(config_root, sub_args)
-    when "follow-install" then Beryl::CLI::FollowInstall.run(config_root, sub_args)
-    when "scan"           then Beryl::CLI::Scan.run(config_root, sub_args)
-    when "apply"          then Beryl::CLI::Apply.run(config_root, sub_args)
-    when "prep-rescue"    then Beryl::CLI::PrepRescue.run(sub_args)
-    when "bake-seed"      then Beryl::CLI::BakeSeed.run(sub_args)
-    when "version"        then puts "beryl #{Beryl::VERSION}"; 0
+    when nil                  then show_usage(global_parser); 1
+    when "help"               then cmd_help(global_parser, config_root, sub_args)
+    when "init"               then Beryl::CLI::Init.run(config_root, sub_args)
+    when "add-provider"       then Beryl::CLI::AddProvider.run(config_root, sub_args)
+    when "add-domain"         then Beryl::CLI::AddDomain.run(config_root, sub_args)
+    when "list-hosts"         then cmd_list_hosts(config_root)
+    when "show"               then cmd_show(config_root, sub_args)
+    when "rescue"             then Beryl::CLI::Rescue.run(config_root, sub_args)
+    when "boot-hd"            then Beryl::CLI::BootHd.run(config_root, sub_args)
+    when "wipe"               then Beryl::CLI::Wipe.run(config_root, sub_args)
+    when "bootstrap"          then Beryl::CLI::Bootstrap.run(config_root, sub_args)
+    when "follow-install"     then Beryl::CLI::FollowInstall.run(config_root, sub_args)
+    when "scan"               then Beryl::CLI::Scan.run(config_root, sub_args)
+    when "apply"              then Beryl::CLI::Apply.run(config_root, sub_args)
+    when "prep-rescue"        then Beryl::CLI::PrepRescue.run(sub_args)
+    when "bake-seed"          then Beryl::CLI::BakeSeed.run(sub_args)
+    when "scaleway-reinstall" then Beryl::CLI::ScalewayReinstall.run(config_root, sub_args)
+    when "version"            then puts "beryl #{Beryl::VERSION}"; 0
     else
       STDERR.puts "beryl : sous-commande inconnue : #{subcommand}"
       show_usage(global_parser)

@@ -211,19 +211,29 @@ module Beryl::CLI::Rescue
 
     if wait
       target = Beryl.format_ssh_target(host)
-      log "attente SSH sur #{target} (port #{host.port}, user root, timeout #{timeout.total_minutes.to_i} min)"
+      log "attente SSH sur #{target} (port #{host.port}, timeout #{timeout.total_minutes.to_i} min)"
       # `default_wait_for_ssh` (qui loggue ligne par ligne chaque
       # tentative) prend le relais. Plus de ticker `log_step` ici :
       # sur chouquette terrain, il rendait la main après `[   0s]`
       # sans log final. Une ligne toutes les ~15s est moins élégant
       # mais garantit qu'on voit où la boucle s'arrête.
+      # Le user est ignoré par `default_wait_for_ssh` (test TCP pur) —
+      # le flow provider-specifique (promote etc.) s'occupe ensuite
+      # de la couche applicative.
       ssh_ok = wait_for_ssh.call(host.ssh_host, host.port, "root", timeout, SSH_POLL_INTERVAL)
-      if ssh_ok
-        EXIT_OK
-      else
+      unless ssh_ok
         STDERR.puts "beryl : timeout SSH sur #{target}"
-        EXIT_SSH_FAILED
+        return EXIT_SSH_FAILED
       end
+
+      # Scaleway : promote `rescue` → `root` après wait SSH pour que
+      # le reste du flow beryl (scan, bootstrap) puisse se connecter
+      # en `ssh root@host` comme pour OVH/Dedibox.
+      if provider == "scaleway"
+        promote_scaleway_rescue_to_root(host)
+      end
+
+      EXIT_OK
     else
       log "commande rescue envoyée à l'API ; attente SSH désactivée (--no-wait)"
       EXIT_OK
@@ -326,6 +336,22 @@ module Beryl::CLI::Rescue
     end
   end
 
+  # Flow Scaleway (3 étapes numérotées dans les logs pour clarté).
+  # L'idempotence est gérée en amont par le check générique
+  # `ssh_root_is_linux?` du dispatcher (root prête Linux = déjà OK).
+  #
+  #   1/3 pre-check API : lire `install.ssh_key_ids` du serveur
+  #       Scaleway, récupérer chaque clé publique, comparer avec
+  #       la clé locale par base64. Si absente → erreur explicite
+  #       qui pointe vers `beryl scaleway-reinstall` (l'opération
+  #       officielle Scaleway pour resynchroniser les clés, cf.
+  #       https://www.scaleway.com/en/docs/bare-metal/elastic-metal/how-to/use-rescue-mode/).
+  #       Évite de rebooter un serveur qu'on ne pourra pas
+  #       atteindre ensuite en SSH par clé.
+  #   2/3 reboot API en mode Rescue.
+  #   3/3 le dispatcher attend SSH puis appelle `promote_scaleway_rescue_to_root`
+  #       pour que la suite du flow beryl (scan, bootstrap) marche
+  #       en `root@host` comme pour OVH/Dedibox.
   private def self.trigger_scaleway(
     host : Beryl::Config::ResolvedHost,
     factory : ScalewayClientFactory,
@@ -337,14 +363,122 @@ module Beryl::CLI::Rescue
     # tout neuf via `aloli/<UUID>`, le YAML n'existe pas encore
     # donc `host.scaleway_zone` est nil.
     zone = zone_override || host.scaleway_zone
-    log "Scaleway : reboot(Rescue) sur #{server_id}#{zone ? " (zone #{zone})" : ""}"
     client = factory.call
-    server = client.baremetal.servers.reboot(
+    server = zone ? client.baremetal.servers.get(server_id, zone: zone) : (client.baremetal.servers.find_any_zone(server_id) ||
+                                                                           raise MissingProviderConfig.new(
+                                                                             "Scaleway : UUID #{server_id} introuvable dans les zones connues"
+                                                                           ))
+    resolved_zone = server.zone || raise MissingProviderConfig.new(
+      "Scaleway : zone indéterminée pour le serveur #{server_id}"
+    )
+
+    log "Scaleway 1/3 : pre-check clé SSH (install.ssh_key_ids du serveur)"
+    scaleway_precheck_ssh_key(host, server, client)
+
+    log "Scaleway 2/3 : reboot(Rescue) sur #{server_id} (zone #{resolved_zone})"
+    updated = client.baremetal.servers.reboot(
       server_id: server_id,
-      zone: zone,
+      zone: resolved_zone,
       boot_type: ScalewayApi::Endpoints::Baremetal::BootType::Rescue,
     )
-    log "Scaleway : serveur #{server.id} passé en status = #{server.status}"
+    log "Scaleway 2/3 : serveur #{updated.id} passé en status = #{updated.status}"
+    log "Scaleway 3/3 : le dispatcher attendra SSH puis promouvra `rescue` → `root`"
+  end
+
+  # Vérifie que la clé locale (`host.identity_file`) est présente
+  # dans la liste `install.ssh_key_ids` du serveur Scaleway. Sinon,
+  # refuse de procéder au reboot Rescue et guide vers
+  # `beryl scaleway-reinstall`.
+  #
+  # Cette vérification est nécessaire parce que Scaleway n'injecte
+  # dans le rescue QUE les clés posées à l'install initiale : une
+  # clé ajoutée au projet après coup ne sera pas dans
+  # `/home/rescue/.ssh/authorized_keys` et l'accès SSH échouera.
+  #
+  # Comparaison par la partie base64 de la clé publique (2e champ
+  # `ssh-ed25519 <b64> commentaire`) — les commentaires peuvent
+  # différer, le base64 est stable et unique.
+  private def self.scaleway_precheck_ssh_key(
+    host : Beryl::Config::ResolvedHost,
+    server : ScalewayApi::Endpoints::Baremetal::Server,
+    client : ScalewayApi::Client,
+  ) : Nil
+    install_hash = server.raw["install"]?.try(&.as_h?)
+    ssh_key_ids = install_hash.try(&.[JSON::Any.new("ssh_key_ids")]?).try(&.as_a?).try(&.map(&.as_s))
+
+    unless ssh_key_ids && !ssh_key_ids.empty?
+      raise MissingProviderConfig.new(
+        "Scaleway : le serveur #{server.id} n'a pas de liste `install.ssh_key_ids` — " \
+        "l'install initial n'a pas été faite avec des clés SSH. " \
+        "Lancez `beryl scaleway-reinstall #{host.account_name}/#{host.fqdn}` pour installer avec les clés du projet."
+      )
+    end
+
+    privkey_path = host.identity_file || raise MissingProviderConfig.new(
+      "identity_file non résolu pour #{host.fqdn} — déclarez `ovh.ssh_key_name` dans le domaine"
+    )
+    pubkey_path = privkey_path + ".pub"
+    unless File.exists?(pubkey_path)
+      raise MissingProviderConfig.new(
+        "Scaleway pre-check : clé publique absente (#{pubkey_path}). " \
+        "Attendue à côté de la clé privée pour comparaison avec install.ssh_key_ids."
+      )
+    end
+    local_b64 = File.read(pubkey_path).strip.split(/\s+/)[1]? ||
+                raise MissingProviderConfig.new(
+                  "Scaleway pre-check : format clé publique invalide dans #{pubkey_path}"
+                )
+
+    keys_in_install = ssh_key_ids.map { |id| client.ssh_keys.get(id) }
+    log "Scaleway 1/3 : #{ssh_key_ids.size} clé(s) dans install.ssh_key_ids (" \
+        "#{keys_in_install.map(&.name).join(", ")})"
+
+    present = keys_in_install.any? { |k| k.public_key.split(/\s+/)[1]? == local_b64 }
+    return if present
+
+    STDERR.puts
+    STDERR.puts "beryl : votre clé locale (#{pubkey_path}) n'est PAS dans install.ssh_key_ids du serveur."
+    STDERR.puts "  Clés présentes : #{keys_in_install.map(&.name).join(", ")}"
+    STDERR.puts
+    STDERR.puts "  Scaleway n'injecte dans le rescue QUE les clés posées à l'install initial."
+    STDERR.puts "  Une clé ajoutée au projet ne se propage pas sans refaire un `install`."
+    STDERR.puts
+    STDERR.puts "Résolvez avec :"
+    STDERR.puts "  beryl scaleway-reinstall #{host.account_name}/#{host.fqdn}"
+    STDERR.puts
+    STDERR.puts "  (Appelle POST /servers/{id}/install avec les clés actuelles du projet."
+    STDERR.puts "   ATTENTION : réinstalle l'OS sur le disque — à ne lancer que sur un"
+    STDERR.puts "   serveur neuf ou dont le contenu peut être détruit sans risque.)"
+    raise MissingProviderConfig.new("Scaleway : clé locale absente de install.ssh_key_ids — voir diagnostic ci-dessus")
+  end
+
+  # Promouvoit le rescue Scaleway (user `rescue` avec clé SSH) vers
+  # un accès `root` utilisable par la suite du flow beryl (scan,
+  # bootstrap…). Copie `/home/rescue/.ssh/authorized_keys` dans
+  # `/root/.ssh/authorized_keys` et active `PermitRootLogin yes`.
+  # Équivalent du flow Dedibox (sd-<id> → root), sans le password
+  # sudo puisque Scaleway expose `rescue` comme sudoer sans mot de
+  # passe dans son image rescue.
+  private def self.promote_scaleway_rescue_to_root(host : Beryl::Config::ResolvedHost) : Nil
+    key = host.identity_file || raise MissingProviderConfig.new(
+      "identity_file non résolu pour #{host.fqdn}"
+    )
+    rescue_conn = SSH::Connection.new(
+      host: host.ssh_host, user: "rescue", port: host.port, identity_file: key,
+    )
+    script = <<-BASH
+      set -e
+      sudo mkdir -p /root/.ssh
+      sudo cp /home/rescue/.ssh/authorized_keys /root/.ssh/authorized_keys
+      sudo chown root:root /root/.ssh/authorized_keys
+      sudo chmod 600 /root/.ssh/authorized_keys
+      sudo mkdir -p /etc/ssh/sshd_config.d
+      echo 'PermitRootLogin yes' | sudo tee /etc/ssh/sshd_config.d/beryl.conf >/dev/null
+      (sudo systemctl reload ssh 2>/dev/null || sudo systemctl reload sshd 2>/dev/null || sudo service ssh reload) >/dev/null 2>&1
+    BASH
+    log "Scaleway : promote rescue → root (copie authorized_keys + PermitRootLogin yes)"
+    rescue_conn.exec("bash -s", stdin: script)
+    log "Scaleway : root@#{host.ssh_host} prêt (le flow beryl continue en root)"
   end
 
   # Flow Dedibox (4 étapes numérotées dans les logs pour clarté).
