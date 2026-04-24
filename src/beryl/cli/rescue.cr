@@ -211,10 +211,13 @@ module Beryl::CLI::Rescue
 
     if wait
       target = Beryl.format_ssh_target(host)
-      ssh_ok = Beryl.log_step(
-        "beryl rescue",
-        "attente SSH sur #{target} (port #{host.port}, user root, timeout #{timeout.total_minutes.to_i} min)",
-      ) { wait_for_ssh.call(host.ssh_host, host.port, "root", timeout, SSH_POLL_INTERVAL) }
+      log "attente SSH sur #{target} (port #{host.port}, user root, timeout #{timeout.total_minutes.to_i} min)"
+      # `default_wait_for_ssh` (qui loggue ligne par ligne chaque
+      # tentative) prend le relais. Plus de ticker `log_step` ici :
+      # sur chouquette terrain, il rendait la main après `[   0s]`
+      # sans log final. Une ligne toutes les ~15s est moins élégant
+      # mais garantit qu'on voit où la boucle s'arrête.
+      ssh_ok = wait_for_ssh.call(host.ssh_host, host.port, "root", timeout, SSH_POLL_INTERVAL)
       if ssh_ok
         EXIT_OK
       else
@@ -525,14 +528,36 @@ module Beryl::CLI::Rescue
     false
   end
 
-  # Par défaut, attente SSH par TCP connect + polling.
+  # Attente SSH : une ligne de log par tentative, avec raison de
+  # l'échec (TCP refused / timeout / autre). Pas de ticker animé —
+  # retour terrain chouquette 24 avril 2026 : le ticker du `log_step`
+  # rendait la main immédiatement après `[   0s]` sans log final,
+  # ce qui ressemblait à une exception silencieuse et empêchait de
+  # diagnostiquer. Les lignes explicites sont plus verbeuses (une
+  # toutes les ~15s) mais infaillibles côté debug.
+  #
+  # `user` n'est pas utilisé dans l'impl (on teste uniquement TCP),
+  # mais la signature le garde pour rester injectable de la même
+  # façon entre `rescue` et `boot-hd`.
   def self.default_wait_for_ssh(host : String, port : Int32, user : String, timeout : Time::Span, poll : Time::Span) : Bool
-    deadline = Time.instant + timeout
+    _ = user
+    start = Time.instant
+    deadline = start + timeout
+    attempt = 0
     while Time.instant < deadline
+      attempt += 1
+      elapsed = (Time.instant - start).total_seconds.to_i
       begin
         TCPSocket.new(host, port, connect_timeout: 5.seconds).close
+        log "SSH répond sur #{host}:#{port} après #{elapsed}s (tentative #{attempt})"
         return true
-      rescue
+      rescue ex
+        reason = case ex
+                 when Socket::ConnectError then "TCP refused"
+                 when IO::TimeoutError     then "TCP timeout"
+                 else                           "#{ex.class.name}: #{ex.message}"
+                 end
+        log "tentative #{attempt} à #{elapsed}s : #{reason}, retry dans #{poll.total_seconds.to_i}s"
         sleep poll
       end
     end
