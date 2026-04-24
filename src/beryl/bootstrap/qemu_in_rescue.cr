@@ -294,11 +294,13 @@ module Beryl::Bootstrap
       log_step("5/6 — QEMU + mfsBSD + bsdinstall + post-install no-chroot (typiquement 1-3 min)") do
         @rescue_conn.exec("bash #{Process.quote(RESCUE_RUN_VM_PATH)}")
       end
-      result = log_step("6/6 — reboot bare metal, attente SSH du FreeBSD installé (typiquement 3-7 min)") do
-        reboot_bare_metal
-        wait_for_installed_ssh
-      end
-      result
+      # Étape 6/6 : on sort du `log_step` animé car `wait_for_installed_ssh`
+      # loggue ligne par ligne chaque tentative SSH (exit code / stderr /
+      # exception). Même pattern que `default_wait_for_ssh` dans rescue.cr
+      # — un ticker masque les vrais motifs d'échec.
+      log "6/6 — reboot bare metal, attente SSH du FreeBSD installé (typiquement 3-7 min)"
+      reboot_bare_metal
+      wait_for_installed_ssh
     end
 
     # Rend l'installerconfig minimaliste (préambule seul, pas de chroot).
@@ -537,6 +539,13 @@ module Beryl::Bootstrap
       # pendant le post-install (via `user.ssh_keys` du YAML). Sans ça,
       # `BatchMode=yes` forcé par le shard ssh fait échouer silencieusement
       # l'auth publickey et le polling tourne dans le vide.
+      #
+      # Log par tentative (~30s d'intervalle) : l'ancien code tournait
+      # en silence jusqu'au timeout 10 min sans dire pourquoi SSH
+      # échouait. Terrain chouquette (25 avril 2026) : TCP ouvert,
+      # mais boucle qui continue — impossible de diagnostiquer sans
+      # output. Maintenant, chaque échec affiche le motif (exit code,
+      # stderr, classe d'exception).
       conn = SSH::Connection.new(
         host: @rescue_conn.host,
         user: @installed_user,
@@ -544,19 +553,28 @@ module Beryl::Bootstrap
         identity_file: @rescue_conn.identity_file,
       )
       deadline = Time.instant + SSH_WAIT_TIMEOUT
-      last_error = nil
+      start = Time.instant
+      attempt = 0
       while Time.instant < deadline
+        attempt += 1
+        elapsed = (Time.instant - start).total_seconds.to_i
         begin
           result = conn.exec("uname -s", raise_on_error: false)
           if result.success? && result.stdout.strip == "FreeBSD"
+            log "SSH #{@installed_user}@#{@rescue_conn.host} répond FreeBSD après #{elapsed}s (tentative #{attempt})"
             return conn
           end
+          # Exit != 0 ou stdout inattendu (ex: encore en rescue Linux)
+          stderr_snippet = result.stderr.strip[0, 120]? || ""
+          log "tentative #{attempt} à #{elapsed}s : exit=#{result.exit_code} stdout=#{result.stdout.strip.inspect[0, 60]} stderr=#{stderr_snippet.inspect}"
         rescue ex
-          last_error = ex
+          # Typique : Connection refused (sshd pas encore up), timeout,
+          # Permission denied (clé pas dans authorized_keys).
+          log "tentative #{attempt} à #{elapsed}s : #{ex.class.name}: #{ex.message.try(&.[0, 160])}"
         end
         sleep SSH_POLL_INTERVAL
       end
-      raise "timeout : le FreeBSD installé n'a pas répondu en SSH au bout de #{SSH_WAIT_TIMEOUT.total_minutes.to_i} min (dernière erreur : #{last_error.try(&.message)})"
+      raise "timeout : le FreeBSD installé n'a pas répondu en SSH au bout de #{SSH_WAIT_TIMEOUT.total_minutes.to_i} min (voir log par tentative ci-dessus)"
     end
 
     def self.timestamp : String
