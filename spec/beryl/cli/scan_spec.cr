@@ -11,7 +11,7 @@ private def sample_disk(name = "sda", size = 1_000_000_000_000_i64)
 end
 
 private def single_zroot(disks, raid = 0)
-  [Beryl::CLI::Scan::PoolSpec.new(name: "zroot", disks: disks, raid: raid, boot: true)]
+  [Beryl::CLI::Scan::PoolSpec.zroot(disks, raid)]
 end
 
 describe Beryl::CLI::Scan do
@@ -45,22 +45,24 @@ describe Beryl::CLI::Scan do
       yaml.should contain("provider: hetzner")
     end
 
-    it "multi-pool : zroot (boot) + zdata (non-boot) avec leurs disques et RAID respectifs" do
+    it "multi-pool : zroot (boot) + zdata (data, mountpoint /data) avec leurs disques et RAID respectifs" do
       root = Beryl::Config::Root.load(File.join(FIXTURES, "multi-provider-domain"))
       host = root.resolve("loulou", domain_hint: "aloli.net")
       pools = [
-        Beryl::CLI::Scan::PoolSpec.new(name: "zroot", disks: [sample_disk("nvme0n1")], raid: 0, boot: true),
-        Beryl::CLI::Scan::PoolSpec.new(name: "zdata", disks: [sample_disk("sda"), sample_disk("sdb"), sample_disk("sdc"), sample_disk("sdd")], raid: 10, boot: false),
+        Beryl::CLI::Scan::PoolSpec.zroot([sample_disk("nvme0n1")], 0),
+        Beryl::CLI::Scan::PoolSpec.data("data",
+          [sample_disk("sda"), sample_disk("sdb"), sample_disk("sdc"), sample_disk("sdd")], 10),
       ]
       yaml = Beryl::CLI::Scan.render_yaml(host, "quantas", pools)
 
-      # zroot en premier, avec boot: true
+      # zroot en premier, avec boot: true, pas de mountpoint
       yaml.should contain("zroot:")
       yaml.should contain("boot: true")
       yaml.should contain("/dev/nvme0n1")
 
-      # zdata en second, sans boot, avec RAID 10 et 4 disques
+      # zdata en second, sans boot, avec mountpoint /data, RAID 10, 4 disques
       yaml.should contain("zdata:")
+      yaml.should contain("mountpoint: /data")
       yaml.should contain("raid: 10")
       yaml.should contain("/dev/sda")
       yaml.should contain("/dev/sdb")
@@ -69,6 +71,13 @@ describe Beryl::CLI::Scan do
 
       # `boot: true` ne doit apparaître QUE pour zroot (exactement un pool système)
       yaml.scan("boot: true").size.should eq(1)
+    end
+
+    it "zroot n'a PAS de mountpoint dans le YAML (le root-fs est géré par l'installeur)" do
+      root = Beryl::Config::Root.load(File.join(FIXTURES, "multi-provider-domain"))
+      host = root.resolve("loulou", domain_hint: "aloli.net")
+      yaml = Beryl::CLI::Scan.render_yaml(host, "loulou", single_zroot([sample_disk]))
+      yaml.should_not contain("mountpoint:")
     end
 
     it "single pool zroot : raid passé dans le PoolSpec est préservé" do
@@ -83,10 +92,11 @@ describe Beryl::CLI::Scan do
   end
 
   describe ".parse_pool_spec" do
-    it "parse `zdata:sda,sdb:10` et consomme les disques du pool courant" do
+    it "parse `data:sda,sdb:10` → pool zdata, mountpoint /data, non-boot" do
       candidates = [sample_disk("sda"), sample_disk("sdb"), sample_disk("sdc")]
-      pool = Beryl::CLI::Scan.parse_pool_spec("zdata:sda,sdb:10", candidates)
+      pool = Beryl::CLI::Scan.parse_pool_spec("data:sda,sdb:10", candidates)
       pool.name.should eq("zdata")
+      pool.mountpoint.should eq("/data")
       pool.raid.should eq(10)
       pool.boot.should be_false
       pool.disks.map(&.name).should eq(["sda", "sdb"])
@@ -94,31 +104,31 @@ describe Beryl::CLI::Scan do
 
     it "accepte `all` pour prendre tous les disques restants" do
       candidates = [sample_disk("sda"), sample_disk("sdb"), sample_disk("sdc")]
-      pool = Beryl::CLI::Scan.parse_pool_spec("zdata:all:6", candidates)
+      pool = Beryl::CLI::Scan.parse_pool_spec("data:all:6", candidates)
       pool.disks.map(&.name).should eq(["sda", "sdb", "sdc"])
     end
 
-    it "refuse un format sans 2 `:` (NAME:DISKS:RAID requis)" do
-      expect_raises(ArgumentError, /NAME:DISKS:RAID/) do
-        Beryl::CLI::Scan.parse_pool_spec("zdata:sda", [sample_disk])
+    it "refuse un format sans 2 `:` (SHORTNAME:DISKS:RAID requis)" do
+      expect_raises(ArgumentError, /SHORTNAME:DISKS:RAID/) do
+        Beryl::CLI::Scan.parse_pool_spec("data:sda", [sample_disk])
       end
     end
 
     it "refuse un RAID inconnu (ex: 42)" do
       expect_raises(ArgumentError, /niveau RAID 42/) do
-        Beryl::CLI::Scan.parse_pool_spec("zdata:sda:42", [sample_disk])
+        Beryl::CLI::Scan.parse_pool_spec("data:sda:42", [sample_disk])
       end
     end
 
     it "refuse un RAID non-numérique (ex: abc)" do
       expect_raises(ArgumentError, /RAID invalide : "abc"/) do
-        Beryl::CLI::Scan.parse_pool_spec("zdata:sda:abc", [sample_disk])
+        Beryl::CLI::Scan.parse_pool_spec("data:sda:abc", [sample_disk])
       end
     end
 
     it "refuse un disque qui n'est pas dans les candidates, en listant ceux disponibles" do
       ex = expect_raises(ArgumentError, /disque inconnu : sdz/) do
-        Beryl::CLI::Scan.parse_pool_spec("zdata:sdz:0", [sample_disk("sda"), sample_disk("sdb")])
+        Beryl::CLI::Scan.parse_pool_spec("data:sdz:0", [sample_disk("sda"), sample_disk("sdb")])
       end
       ex.message.to_s.should contain("disques disponibles : sda, sdb")
     end
@@ -129,26 +139,56 @@ describe Beryl::CLI::Scan do
       end
     end
 
-    it "refuse un nom de pool avec des caractères invalides (majuscules, espaces, tirets)" do
-      ["Zroot", "z root", "z-data", "1root", "zroot!"].each do |bad|
-        expect_raises(ArgumentError, /nom de pool invalide/) do
+    it "refuse un nom avec des caractères invalides (majuscules, espaces, tirets, majuscules, préfixe z)" do
+      ["Data", "da ta", "my-data", "1data", "data!"].each do |bad|
+        expect_raises(ArgumentError, /nom invalide/) do
           Beryl::CLI::Scan.parse_pool_spec("#{bad}:sda:0", [sample_disk])
         end
       end
     end
+
+    it "refuse `root` (réservé au pool boot zroot)" do
+      expect_raises(ArgumentError, /`root` est réservé/) do
+        Beryl::CLI::Scan.parse_pool_spec("root:sda:0", [sample_disk])
+      end
+    end
+  end
+
+  describe "PoolSpec.data" do
+    it "construit un pool data avec préfixe z et mountpoint /" do
+      pool = Beryl::CLI::Scan::PoolSpec.data("data", [sample_disk("sda")], 0)
+      pool.name.should eq("zdata")
+      pool.mountpoint.should eq("/data")
+      pool.boot.should be_false
+    end
+
+    it "préserve le nom court tel quel (cache → zcache, /cache)" do
+      pool = Beryl::CLI::Scan::PoolSpec.data("cache", [sample_disk], 0)
+      pool.name.should eq("zcache")
+      pool.mountpoint.should eq("/cache")
+    end
+  end
+
+  describe "PoolSpec.zroot" do
+    it "nom fixe `zroot`, boot: true, mountpoint nil (géré par l'installeur)" do
+      pool = Beryl::CLI::Scan::PoolSpec.zroot([sample_disk], 0)
+      pool.name.should eq("zroot")
+      pool.boot.should be_true
+      pool.mountpoint.should be_nil
+    end
   end
 
   describe ".validate_pool_name!" do
-    it "accepte les noms ZFS conventionnels" do
-      %w[zroot zdata zcache z_data zdata01 zroot2].each do |ok|
+    it "accepte les noms courts conventionnels (sans préfixe z)" do
+      %w[data cache backup logs archive01 my_data].each do |ok|
         # doit passer sans raise
         Beryl::CLI::Scan.validate_pool_name!(ok)
       end
     end
 
     it "refuse majuscules, espaces, tirets, et début par un chiffre" do
-      ["Zroot", "z root", "z-data", "1root", "zroot!", " ", "", "ZROOT"].each do |bad|
-        expect_raises(ArgumentError, /nom de pool invalide/) do
+      ["Data", "my data", "my-data", "1data", "data!", " ", "", "DATA"].each do |bad|
+        expect_raises(ArgumentError, /nom invalide/) do
           Beryl::CLI::Scan.validate_pool_name!(bad)
         end
       end

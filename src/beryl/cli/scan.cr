@@ -71,20 +71,42 @@ module Beryl::CLI::Scan
   class MissingProviderConfig < Exception
   end
 
-  # Un pool ZFS déclaré par l'opérateur : nom, disques alloués,
+  # Un pool ZFS déclaré par l'opérateur : nom ZFS, disques alloués,
   # niveau RAID numérique (0|1|5|6|7|10), et `boot: true` pour
-  # exactement UN pool (le zroot, pool système).
+  # exactement UN pool (le zroot, pool système — `mountpoint` nil).
   #
-  # Plusieurs pools sont supportés — le zroot embarque le système,
-  # et `zdata` / `zcache` / etc. couvrent la capacité de stockage
-  # utile. L'opérateur peut les déclarer interactivement (boucle
-  # « disques restants → nouveau pool ? ») ou via `--pool=…`
-  # répété en ligne de commande.
+  # Convention Aloli pour les pools data : l'opérateur tape un nom
+  # court (`data`, `cache`, `backup`…), beryl en déduit :
+  # - nom ZFS : `z<court>`    (ex: zdata)
+  # - mountpoint : `/<court>` (ex: /data)
+  #
+  # Cette convention élimine le besoin de deux prompts séparés
+  # (nom pool + mountpoint) et aligne le nom ZFS sur le mountpoint
+  # pour un debug plus facile (`zpool list` ↔ `df -h`).
   record PoolSpec,
     name : String,
     disks : Array(Disk),
     raid : Int32,
-    boot : Bool
+    boot : Bool,
+    mountpoint : String? = nil do
+    # Constructeur « pool data » : nom court → pool `z<court>` +
+    # mountpoint `/<court>`, `boot: false`.
+    def self.data(short_name : String, disks : Array(Disk), raid : Int32) : PoolSpec
+      new(
+        name: "z#{short_name}",
+        disks: disks,
+        raid: raid,
+        boot: false,
+        mountpoint: "/#{short_name}",
+      )
+    end
+
+    # Constructeur « pool boot zroot » : nom fixe, pas de mountpoint
+    # (pool système, l'installeur gère le root-fs).
+    def self.zroot(disks : Array(Disk), raid : Int32) : PoolSpec
+      new(name: "zroot", disks: disks, raid: raid, boot: true)
+    end
+  end
 
   def self.run(config_root : String, args : Array(String)) : Int32
     write_auto = false
@@ -277,11 +299,12 @@ module Beryl::CLI::Scan
     remaining = disks.dup
     zroot_disks = pick_disks_for("zroot", remaining, disks_flag, non_interactive)
     zroot_raid = pick_raid_for("zroot", zroot_disks.size, raid_flag, non_interactive)
-    pools = [PoolSpec.new(name: "zroot", disks: zroot_disks, raid: zroot_raid, boot: true)]
+    pools = [PoolSpec.zroot(zroot_disks, zroot_raid)]
     remaining = remaining.reject { |d| zroot_disks.includes?(d) }
 
     if !pool_specs.empty?
       # Mode non-interactif (ou complémentaire) : parse les --pool CLI.
+      # Format : SHORTNAME:DISKS:RAID → pool z<short>, mountpoint /<short>.
       pool_specs.each do |spec|
         parsed = parse_pool_spec(spec, remaining)
         pools << parsed
@@ -289,17 +312,26 @@ module Beryl::CLI::Scan
       end
     elsif !non_interactive
       # Mode interactif : tant qu'il reste des disques, propose un pool.
+      # L'opérateur tape un nom court (`data`, `cache`…) et beryl en
+      # déduit le pool ZFS (`zdata`) + le mountpoint (`/data`).
+      # La convention est rappelée à CHAQUE itération (pas seulement
+      # la première) pour qu'elle reste sous les yeux de l'opérateur.
       while !remaining.empty?
+        STDERR.puts
+        STDERR.puts "Pool de données ZFS additionnel :"
+        STDERR.puts "  Convention Aloli : le nom que vous tapez (ex: data) sera utilisé"
+        STDERR.puts "  pour créer le pool ZFS `zdata` monté sur `/data`. De même pour"
+        STDERR.puts "  `cache` → `zcache` sur `/cache`, `backup` → `zbackup` sur `/backup`."
         STDERR.puts
         STDERR.puts "Disques non affectés à un pool :"
         STDERR.puts disks_table(remaining)
         STDERR.puts
         declared = pools.map(&.name)
-        name = ask_pool_name(declared)
-        break unless name
-        chosen = pick_disks_for(name, remaining, nil, false)
-        raid = pick_raid_for(name, chosen.size, nil, false)
-        pools << PoolSpec.new(name: name, disks: chosen, raid: raid, boot: false)
+        pool_short = ask_pool_short_name(declared)
+        break unless pool_short
+        chosen = pick_disks_for("z#{pool_short}", remaining, nil, false)
+        raid = pick_raid_for("z#{pool_short}", chosen.size, nil, false)
+        pools << PoolSpec.data(pool_short, chosen, raid)
         remaining = remaining.reject { |d| chosen.includes?(d) }
       end
     end
@@ -473,36 +505,50 @@ module Beryl::CLI::Scan
     end
   end
 
-  # Demande un nom de pool à l'opérateur, refuse les noms déjà
-  # déclarés ou les formats invalides. Retourne `nil` si l'opérateur
-  # tape [Entrée] (signal « stop la boucle multi-pool »).
-  private def self.ask_pool_name(already_declared : Array(String)) : String?
+  # Demande un nom court de pool data à l'opérateur (`data`, `cache`,
+  # `backup`…) — beryl préfixe ensuite automatiquement en `z<court>`
+  # et pose le mountpoint `/<court>`. Refuse :
+  #
+  #   - un format invalide (regex `POOL_NAME_RX`)
+  #   - le nom `root` (réservé au pool boot `zroot`)
+  #   - un nom déjà déclaré (comparaison sur le nom ZFS complet `z<court>`)
+  #
+  # Retourne `nil` si l'opérateur tape [Entrée] (signal « stop la
+  # boucle multi-pool »).
+  private def self.ask_pool_short_name(already_declared : Array(String)) : String?
     ask_until_valid(
-      "Nom du pool ZFS à créer (ex: zdata, zcache) ou [Entrée] pour terminer : ",
+      "Nom du point de montage (ex: data → pool zdata + mountpoint /data) ou [Entrée] pour terminer : ",
       default: "",
     ) do |ans|
       stripped = ans.strip
       # Chaîne vide = signal d'arrêt, pas une erreur.
       next nil if stripped.empty?
       validate_pool_name!(stripped)
-      if already_declared.includes?(stripped)
+      if stripped == "root"
         raise ArgumentError.new(
-          "pool #{stripped.inspect} déjà déclaré (choisissez un autre nom, " \
-          "déjà posés : #{already_declared.join(", ")})"
+          "le nom `root` est réservé au pool boot `zroot` — choisissez autre chose " \
+          "(ex: data, cache, backup)"
+        )
+      end
+      full_name = "z#{stripped}"
+      if already_declared.includes?(full_name)
+        raise ArgumentError.new(
+          "pool #{full_name.inspect} déjà déclaré (déjà posés : #{already_declared.join(", ")})"
         )
       end
       stripped
     end
   end
 
-  # Valide le nom d'un pool ZFS. Lève `ArgumentError` avec un message
-  # explicite sur quoi l'opérateur aurait dû taper. Utilisé à la fois
-  # côté interactif (`ask_pool_name`) et côté CLI (`parse_pool_spec`).
+  # Valide le nom court d'un pool ZFS (sans préfixe `z`). Lève
+  # `ArgumentError` avec un message explicite sur quoi l'opérateur
+  # aurait dû taper. Utilisé à la fois côté interactif
+  # (`ask_pool_short_name`) et côté CLI (`parse_pool_spec`).
   def self.validate_pool_name!(name : String) : Nil
     return if name.matches?(POOL_NAME_RX)
     raise ArgumentError.new(
-      "nom de pool invalide : #{name.inspect} (attendu : commence par une lettre, " \
-      "uniquement minuscules/chiffres/underscore, ex: zroot, zdata, zcache01)"
+      "nom invalide : #{name.inspect} (attendu : commence par une lettre, " \
+      "uniquement minuscules/chiffres/underscore, ex: data, cache, backup01)"
     )
   end
 
@@ -605,24 +651,38 @@ module Beryl::CLI::Scan
     n
   end
 
-  # Parse une spec `--pool=NAME:DISKS:RAID` et retourne un `PoolSpec`.
-  # DISKS accepte `sda,sdb` ou `all` (tous les disques restants).
-  # RAID accepte 0|1|5|6|7|10. Toutes les validations lèvent
-  # `ArgumentError` pour remonter un message clair à l'opérateur.
+  # Parse une spec `--pool=SHORTNAME:DISKS:RAID` et retourne un
+  # `PoolSpec` data (pool `z<SHORTNAME>` + mountpoint `/<SHORTNAME>`,
+  # `boot: false`).
+  #
+  # - SHORTNAME : nom court sans préfixe `z` (ex: `data`, `cache`).
+  #   Refuse `root` (réservé au pool boot `zroot`).
+  # - DISKS     : `sda,sdb` ou `all` (tous les disques restants).
+  # - RAID      : 0|1|5|6|7|10.
+  #
+  # Toutes les validations lèvent `ArgumentError` pour remonter un
+  # message clair à l'opérateur.
   def self.parse_pool_spec(spec : String, remaining : Array(Disk)) : PoolSpec
     parts = spec.split(':', 3)
     unless parts.size == 3
       raise ArgumentError.new(
-        "--pool=#{spec.inspect} : format attendu NAME:DISKS:RAID (ex : zdata:sda,sdb,sdc,sdd:10)"
+        "--pool=#{spec.inspect} : format attendu SHORTNAME:DISKS:RAID " \
+        "(ex : data:sda,sdb,sdc,sdd:10 → pool zdata, mountpoint /data)"
       )
     end
-    name, disks_str, raid_str = parts
-    name = name.strip
-    raise ArgumentError.new("--pool=#{spec.inspect} : nom de pool vide") if name.empty?
-    validate_pool_name!(name)
+    short, disks_str, raid_str = parts
+    short = short.strip
+    raise ArgumentError.new("--pool=#{spec.inspect} : nom de pool vide") if short.empty?
+    validate_pool_name!(short)
+    if short == "root"
+      raise ArgumentError.new(
+        "--pool=#{spec.inspect} : `root` est réservé au pool boot `zroot` " \
+        "(utilisez --disks et --raid pour le zroot)"
+      )
+    end
     disks = resolve_disk_selection(remaining, disks_str)
     raid = validate_raid!(raid_str)
-    PoolSpec.new(name: name, disks: disks, raid: raid, boot: false)
+    PoolSpec.data(short, disks, raid)
   end
 
   # Rend le YAML d'un host. Le fichier ne contient QUE ce qui est
@@ -681,6 +741,9 @@ module Beryl::CLI::Scan
       pools.each do |pool|
         io << "    " << pool.name << ":              # nom du pool côté ZFS (`zpool list`)\n"
         io << "      boot: true        # c'est le pool système (exactement un)\n" if pool.boot
+        if mp = pool.mountpoint
+          io << "      mountpoint: " << mp << "   # point de montage FreeBSD\n"
+        end
         io << "      raid: " << pool.raid << "             # 0=stripe 1=mirror 5=raidz 6=raidz2 7=raidz3 10=mirror_stripe\n"
         io << "      disks:\n"
         pool.disks.each { |d| io << "        - " << d.dev_path << "  # " << d.human_size << " " << d.kind << " " << d.model << '\n' }
