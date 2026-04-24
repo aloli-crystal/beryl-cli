@@ -360,10 +360,22 @@ module Beryl::Bootstrap
     # `zpool create`. Vide si aucun pool data. Pour chaque pool :
     #
     #   zpool create -f -R /mnt -m <mountpoint> <nom> <vdev...>
+    #   zpool set cachefile=/mnt/boot/zfs/zpool.cache <nom>
     #
     # `-R /mnt` = altroot : les cache files ZFS écrivent sous /mnt
     # (bon emplacement au reboot bare metal). `-f` car les disques
     # sont neufs, mais `zpool create` chipote parfois sur résidus.
+    #
+    # Le `zpool set cachefile` est INDISPENSABLE : sans lui,
+    # l'export final (`zpool export -a`) retire le pool du cache,
+    # et au reboot bare-metal FreeBSD ne retrouve plus que zroot
+    # dans `/boot/zfs/zpool.cache`. Le pool data existe sur disque
+    # (visible via `zpool import`) mais doit être importé à la main.
+    # Constaté terrain quantas.aloli.net 24 avril 2026.
+    #
+    # Pointer vers `/mnt/boot/zfs/zpool.cache` (le cachefile du
+    # système cible, dans zroot altroot /mnt) garantit qu'au reboot,
+    # le rc.d/zfs du FreeBSD installé importe les deux pools.
     def data_pools_script : String
       return "" if @data_pools.empty?
       lines = [] of String
@@ -373,6 +385,7 @@ module Beryl::Bootstrap
         devices = (vtbd_index...vtbd_index + pool.disks.size).map { |i| "vtbd#{i}" }
         vdev = pool.vdev_spec(devices)
         lines << "zpool create -f -R /mnt -m #{pool.mountpoint} #{pool.name} #{vdev}"
+        lines << "zpool set cachefile=/mnt/boot/zfs/zpool.cache #{pool.name}"
         vtbd_index += pool.disks.size
       end
       lines.join("\n") + "\n"

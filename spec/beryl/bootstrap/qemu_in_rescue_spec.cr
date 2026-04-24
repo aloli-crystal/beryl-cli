@@ -360,6 +360,39 @@ describe Beryl::Bootstrap::QemuInRescue do
       script = make_bootstrap(disks: ["/dev/sda"], data_pools: [dp]).data_pools_script
       script.should contain("zpool create -f -R /mnt -m /data zdata mirror vtbd2 vtbd3 mirror vtbd4 vtbd5")
     end
+
+    # Bug quantas (24 avril 2026) : sans `set cachefile`, le
+    # `zpool export -a` final retirait le pool du cache du zroot et
+    # le pool était orphelin au reboot bare-metal (présent sur disque
+    # mais invisible à `zpool list`, récupérable uniquement via
+    # `sudo zpool import`).
+    it "ajoute `zpool set cachefile=/mnt/boot/zfs/zpool.cache` après chaque create pour survivre au reboot" do
+      dp = Beryl::Bootstrap::DataPoolSpec.new(
+        name: "zdata", raid: 1,
+        disks: ["/dev/sdb", "/dev/sdc"],
+        mountpoint: "/data",
+      )
+      script = make_bootstrap(disks: ["/dev/sda"], data_pools: [dp]).data_pools_script
+      script.should contain("zpool set cachefile=/mnt/boot/zfs/zpool.cache zdata")
+    end
+
+    it "ajoute le set cachefile pour CHAQUE pool data quand il y en a plusieurs" do
+      dp1 = Beryl::Bootstrap::DataPoolSpec.new(
+        name: "zdata", raid: 1,
+        disks: ["/dev/sdc", "/dev/sdd"], mountpoint: "/data",
+      )
+      dp2 = Beryl::Bootstrap::DataPoolSpec.new(
+        name: "zbackup", raid: 0,
+        disks: ["/dev/sde"], mountpoint: "/backup",
+      )
+      script = make_bootstrap(
+        disks: ["/dev/sda", "/dev/sdb"],
+        raid: "mirror",
+        data_pools: [dp1, dp2],
+      ).data_pools_script
+      script.should contain("zpool set cachefile=/mnt/boot/zfs/zpool.cache zdata")
+      script.should contain("zpool set cachefile=/mnt/boot/zfs/zpool.cache zbackup")
+    end
   end
 
   describe "#initialize avec data_pools" do
