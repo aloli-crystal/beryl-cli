@@ -204,10 +204,16 @@ echo "$USERS_TSV" | while IFS='|' read -r UNAME PGROUP SGROUPS USHELL UKEYS; do
   ssh_vm "pw -R /mnt useradd -n $UNAME -d /home/$UNAME -g $PGROUP $GFLAG -m -s $USHELL"
   # Clés SSH
   if [ -n "$UKEYS" ]; then
+    # /mnt/home peut être un dataset ZFS dédié (`zroot/home` monté
+    # sur /mnt/home par `zfs mount -a` étape 4) OU un répertoire du
+    # dataset racine. Dans les deux cas on crée le dossier user, mais
+    # on log le dataset sous-jacent pour diagnostic.
     ssh_vm "mkdir -p /mnt/home/$UNAME/.ssh"
+    # Bug potentiel : ssh dans un pipe while peut consommer le stdin
+    # du pipe. On redirige `< /dev/null` pour isoler.
     echo "$UKEYS" | tr ',' '\n' | while read -r K; do
       [ -z "$K" ] && continue
-      ssh_vm "echo '$K' >> /mnt/home/$UNAME/.ssh/authorized_keys"
+      ssh_vm "echo '$K' >> /mnt/home/$UNAME/.ssh/authorized_keys" < /dev/null
     done
     UID_NEW=$(ssh_vm "pw -R /mnt usershow $UNAME" | cut -d: -f3)
     GID_PG=$(ssh_vm "pw -R /mnt groupshow $PGROUP" | cut -d: -f3)
@@ -216,6 +222,30 @@ echo "$USERS_TSV" | while IFS='|' read -r UNAME PGROUP SGROUPS USHELL UKEYS; do
             chmod 600 /mnt/home/$UNAME/.ssh/authorized_keys"
   fi
 done
+
+# ----------------------------------------------------------------------
+# Étape 5bis — DIAGNOSTIC post-users : log explicite de l'état des
+# homes et authorized_keys pour traquer le bug « admin sans clé SSH »
+# observé sur cookie le 24 avril 2026.
+# ----------------------------------------------------------------------
+echo "[rescue-run-vm] DIAG : état /mnt/home après création users"
+ssh_vm "
+  echo '--- mount | /mnt/home ---'
+  mount | grep /mnt || true
+  echo '--- ls /mnt/home ---'
+  ls -la /mnt/home/ 2>&1 || true
+  echo '--- dataset ZFS pour /mnt/home ---'
+  zfs list -H -o name,mountpoint 2>/dev/null | grep -E '(home|^NAME)' || true
+  echo '--- par user ---'
+  for U in \$(awk -F: '\$3 >= 1000 {print \$1}' /mnt/etc/passwd); do
+    echo \"=== \$U ===\"
+    ls -la /mnt/home/\$U/.ssh/ 2>&1 || echo '(pas de .ssh/)'
+    if [ -f /mnt/home/\$U/.ssh/authorized_keys ]; then
+      echo 'authorized_keys:'
+      sed 's/^/  /' /mnt/home/\$U/.ssh/authorized_keys
+    fi
+  done
+"
 
 if [ -n "$PACKAGES" ]; then
   echo "[rescue-run-vm] pkg -r /mnt install (hors chroot → pas de Capsicum)"
