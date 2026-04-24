@@ -138,6 +138,24 @@ module Beryl::CLI::Rescue
 
     # Résolution du provider : --provider CLI gagne, sinon celui du merge.
     provider = provider_override || host.provider
+
+    # Idempotence cross-provider : si root@host répond déjà en
+    # Linux via la clé locale, c'est que le rescue est déjà en
+    # place — OVH Rescue64pro, Scaleway rescue Ubuntu, ou Dedibox
+    # Debian post-promote exposent tous root+Linux avec la clé
+    # SSH qu'on a. Relancer `beryl rescue` = no-op, on économise
+    # un reboot API et 5-10 min d'attente.
+    #
+    # Si FreeBSD est installé, `uname -s` répond "FreeBSD" donc
+    # on ne skippe pas et on relance bien le rescue.
+    #
+    # Skippé en --dry-run pour que l'opérateur voie quand même
+    # ce qui serait appelé.
+    if !dry_run && provider && ssh_root_is_linux?(host)
+      log "#{provider} : root@#{host.ssh_host} répond déjà en Linux (kernel rescue) — rescue déjà en place, skip."
+      return EXIT_OK
+    end
+
     case provider
     when "ovh"
       # Validation précoce avant le cleanup known_hosts
@@ -326,11 +344,10 @@ module Beryl::CLI::Rescue
     log "Scaleway : serveur #{server.id} passé en status = #{server.status}"
   end
 
-  # Flow Dedibox (4 étapes numérotées dans les logs pour clarté) :
+  # Flow Dedibox (4 étapes numérotées dans les logs pour clarté).
+  # L'idempotence est gérée en amont par le check générique
+  # `ssh_root_is_linux?` du dispatcher.
   #
-  #   0/4 idempotence — si root@host répond déjà avec la clé IAM,
-  #       tout est prêt, on sort (skip complet). Relancer `beryl rescue`
-  #       quand le serveur est déjà dans l'état attendu ne casse rien.
   #   1/4 prepare_rescue (API Dedibox) — pose `boot_mode=rescue` et
   #       retourne un password temporaire pour `sudo -S`.
   #   2/4 reboot (API Dedibox) — redémarre le hardware.
@@ -342,13 +359,6 @@ module Beryl::CLI::Rescue
     server_id = server_id_str.to_i? || raise MissingProviderConfig.new(
       "`dedibox.server_id` doit être un entier pour #{host.fqdn} (reçu : #{server_id_str.inspect})"
     )
-
-    # 0/4 — idempotence : root répond déjà → rien à faire.
-    if dedibox_root_ready?(host)
-      log "Dedibox 0/4 : root@#{host.ssh_host} répond déjà avec la clé IAM. " \
-          "Le serveur est déjà en rescue avec promote fait — skip complet."
-      return
-    end
 
     image = host.provider_field("dedibox", "rescue_image") ||
             Beryl::Providers::Dedibox::DEFAULT_RESCUE_IMAGE
@@ -413,11 +423,19 @@ module Beryl::CLI::Rescue
     end
   end
 
-  # Teste rapidement si `root@host` répond à un `uname -s`. Utilisé
-  # pour l'idempotence de `trigger_dedibox` : si root est déjà là
-  # (promote fait par un run précédent), inutile de refaire un
-  # rescue complet. Timeout court pour ne pas traîner.
-  private def self.dedibox_root_ready?(host : Beryl::Config::ResolvedHost) : Bool
+  # Teste rapidement si `root@host` répond à un `uname -s` qui
+  # retourne "Linux". Utilisé pour l'idempotence :
+  #
+  #   - Dedibox : si la promotion root a déjà été faite (run
+  #     précédent), `ssh root@host uname -s` répond "Linux" → le
+  #     rescue complet est inutile.
+  #   - Scaleway : l'image rescue (Ubuntu) expose root directement
+  #     avec la clé SSH du projet ; même test = même signal.
+  #
+  # Si l'hôte est en FreeBSD (système installé), `uname -s` répond
+  # "FreeBSD" → on ne skippe pas, on relance le reboot Rescue.
+  # Timeout court pour ne pas traîner.
+  private def self.ssh_root_is_linux?(host : Beryl::Config::ResolvedHost) : Bool
     key = host.identity_file
     return false unless key
     conn = SSH::Connection.new(
