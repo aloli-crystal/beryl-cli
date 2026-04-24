@@ -412,7 +412,7 @@ module Beryl::Bootstrap
         raise TargetDiskNotEmpty.new(
           "NOGO : #{disk} porte déjà un pool ZFS importable (#{$1}).\n" \
           "Réinstallez un rescue propre via le panel de l'hébergeur (OVH → Install → Debian),\n" \
-          "ou utilisez `beryl wipe #{@hostname} --disk=#{disk}`.\n" \
+          "ou utilisez `beryl wipe #{@follow_hint_host_name || @hostname}`.\n" \
           "beryl ne wipe JAMAIS un disque existant sans confirmation explicite."
         )
       end
@@ -425,7 +425,7 @@ module Beryl::Bootstrap
         raise TargetDiskNotEmpty.new(
           "NOGO : #{disk} contient des partitions BSD (#{found}).\n" \
           "Réinstallez un rescue propre via le panel de l'hébergeur (OVH → Install → Debian),\n" \
-          "ou utilisez `beryl wipe #{@hostname} --disk=#{disk}`.\n" \
+          "ou utilisez `beryl wipe #{@follow_hint_host_name || @hostname}`.\n" \
           "beryl ne wipe JAMAIS un disque existant sans confirmation explicite."
         )
       end
