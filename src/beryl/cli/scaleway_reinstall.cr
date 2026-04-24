@@ -91,6 +91,11 @@ module Beryl::CLI::ScalewayReinstall
 
     # UX path-like : `aloli/<UUID>` pour resolve d'un serveur non
     # encore déclaré dans le YAML.
+    # On capture aussi `server_id` + `zone` retournés par le shortcut :
+    # quand on démarre d'un UUID sans YAML host, `host.scaleway_*` est
+    # nil, seul le shortcut connaît l'UUID et la zone.
+    server_id_from_shortcut : String? = nil
+    zone_from_shortcut : String? = nil
     if acct = account_hint
       root.env_file.apply_all_to_env(acct, overwrite: true)
       resolved = Beryl::CLI::ProviderShortcut.resolve(
@@ -101,20 +106,22 @@ module Beryl::CLI::ScalewayReinstall
         log "id=#{host_name} → IP #{resolved[:ip]}" \
             "#{resolved[:zone] ? " (zone #{resolved[:zone]})" : ""} (résolu via API)"
         host_name = resolved[:ip]
+        server_id_from_shortcut = resolved[:server_id]
+        zone_from_shortcut = resolved[:zone]
       end
     end
 
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
     host.apply_all_credentials_to_env!
 
-    server_id = host.scaleway_server_id || raise MissingProviderConfig.new(
+    server_id = server_id_from_shortcut || host.scaleway_server_id || raise MissingProviderConfig.new(
       "scaleway-reinstall nécessite un server_id Scaleway (UUID). " \
       "Déclarez `scaleway.server_id` dans le YAML ou utilisez le chemin " \
       "path-like `<account>/<UUID>`."
     )
 
     client = Beryl::CLI::Credentials.scaleway_client
-    zone = host.scaleway_zone
+    zone = zone_from_shortcut || host.scaleway_zone
     server = zone ? client.baremetal.servers.get(server_id, zone: zone) : (client.baremetal.servers.find_any_zone(server_id) ||
                                                                            raise MissingProviderConfig.new("UUID #{server_id} introuvable dans les zones connues"))
     resolved_zone = server.zone || raise MissingProviderConfig.new(
