@@ -5,83 +5,377 @@
 :source-highlighter: rouge
 :icons: font
 
-Outil Crystal de gestion de configuration https://www.freebsd.org[FreeBSD], agentless SSH.
-Provisionne des serveurs FreeBSD 15 depuis une machine locale, puis applique des recettes idempotentes.
+Outil Crystal de provisionnement FreeBSD, agentless SSH, multi-société et multi-fournisseur.
+Bascule un serveur bare-metal OVH, Scaleway ou Dedibox en rescue Linux, installe FreeBSD 15
+via mfsBSD-in-QEMU, puis applique une configuration déclarative à partir d'un arbre YAML.
+
+Version courante : *0.1.41* (24 avril 2026). +
+Dépôt : https://github.com/aloli-crystal/crystal-beryl +
+Licence : MIT (voir section en bas de page).
 
 [NOTE]
 ====
-beryl se place *avant* https://github.com/aloli-crystal/crystal-deploy[crystal-deploy] : il prépare le serveur FreeBSD (OS, users, paquets système, durcissement, alerting).
-crystal-deploy déploie ensuite vos applications Marten ou Kemal dessus.
+beryl se place *avant* https://github.com/aloli-crystal/crystal-deploy[crystal-deploy] :
+il prépare le serveur FreeBSD (OS, users, paquets système, clés SSH, durcissement sshd),
+puis crystal-deploy déploie les applications Marten ou Kemal par-dessus.
 ====
 
-== Pourquoi beryl ?
+== Vue d'ensemble
 
-Les hébergeurs comme OVH, Scaleway ou Hetzner ne proposent pas FreeBSD en installation native.
-La procédure manuelle par KVM ou rescue n'est ni reproductible ni automatisable à l'échelle.
+Les hébergeurs OVH, Scaleway et Online.net/Dedibox ne proposent pas FreeBSD comme image
+native. La procédure manuelle — KVM-over-IP, image ISO custom, bascule à la main en
+rescue — n'est ni reproductible ni automatisable. beryl automatise le cycle complet
+*depuis le poste de l'opérateur* :
 
-beryl automatise le cycle complet :
+. `beryl init <société>` crée l'arborescence `~/.beryl/<société>/` (ADR-014).
+. `beryl add-provider <société>/<provider>` enregistre les credentials API dans
+  `~/.beryl/.env.yml` (chiffrés hors du dépôt).
+. `beryl add-domain <société>/<domaine>` déclare la zone DNS, le fournisseur par
+  défaut, les clés SSH des utilisateurs.
+. `beryl rescue <host>` déclenche l'API hébergeur pour rebooter en rescue Linux,
+  puis attend le retour SSH.
+. `beryl scan <host> --dns --write --hostname=<court>` se connecte au rescue,
+  détecte les disques (lsblk -b -d), pose les records DNS A/AAAA et PTR, et
+  écrit un `<host>.yml` prêt à bootstrapper.
+. `beryl wipe <host>` efface les pools ZFS et partitions résiduels.
+. `beryl bootstrap <host>` lance une VM mfsBSD *dans* le rescue (via QEMU) et
+  installe FreeBSD 15 sur les disques déclarés (ADR-012/013 : post-install hors chroot).
+. `beryl follow-install <host>` suit en direct le `bsdinstall.log` de la VM mfsBSD.
+. `beryl apply <host>` synchronise la config effective (packages, users, clés SSH,
+  sudoers) avec le serveur FreeBSD bootstrappé — travail en cours, pour l'instant
+  limité au cycle bootstrap-only.
 
-. Démarrage sur le Linux de rescue fourni par l'hébergeur.
-. Bascule vers https://mfsbsd.vx.sk/[mfsBSD] via `kexec` (ou `dd` sur disque secondaire).
-. Installation FreeBSD 15 en https://www.freebsd.org/releases/15.0R/announce/[pkgbase] (ou distribution sets en fallback).
-. Application des recettes de configuration via SSH (agentless).
+=== Architecture multi-société (ADR-014)
 
-== Caractéristiques
+La configuration vit dans `~/.beryl/` organisée par société puis par domaine :
 
-* *Agentless* : rien à installer sur le serveur cible, pilotage par SSH depuis votre poste.
-* *Binaire unique* : beryl compile en un seul binaire statique Crystal.
-* *Idempotent* : rejouer une recette ne modifie que ce qui a dérivé.
-* *Parallèle* : 50 serveurs en parallèle via les fibres Crystal.
-* *Convention over configuration* : défauts sensés (Mozilla Modern SSL, sshd durci), tout overridable.
-* *Recettes YAML* : composables, versionnables, partageables.
+[source,text]
+----
+~/.beryl/
+├── _default.yml                 # socle FreeBSD (timezone, users admin/deploy, packages)
+├── .env.yml                     # credentials par société × provider (0600)
+├── aloli/                       # une société
+│   ├── _account.yml             # métadonnées (nom complet, contact)
+│   ├── aloli.net.yml            # un domaine (zone DNS, clés SSH, provider défaut)
+│   ├── aloli.net/
+│   │   ├── loulou.aloli.net.yml # un host
+│   │   └── mail.aloli.net.yml
+│   └── aloli.fr.yml
+└── autre-societe/
+    └── exemple.com.yml
+----
+
+Le *merge* est hiérarchique (plus spécifique gagne) :
+`_default.yml` → `<société>/<domaine>.yml` → `<société>/<domaine>/<host>.yml`.
+
+Toutes les commandes qui prennent un host acceptent une *syntaxe path-like* qui
+reflète l'arborescence : `aloli/loulou.aloli.net`, ou `aloli/loulou` si le domaine
+est sans ambiguïté, ou simplement `loulou` si une seule société est déclarée.
+
+=== Concepts clés
+
+* *Agentless* : rien à installer sur le serveur cible. beryl pilote tout par SSH
+  (shard `crystal-ssh`, isolation complète de `~/.ssh/config`).
+* *Un shard API par fournisseur* — `crystal-api-ovh`, `crystal-api-scaleway`,
+  `crystal-api-dedibox`. Chaque shard est autonome, publié MIT, et testé unitairement.
+* *Identifiants hétérogènes par provider* : texte `service_name` pour OVH,
+  UUID v4 pour Scaleway, entier pour Dedibox. La forme `aloli/<ID>` fonctionne
+  sur les trois : beryl résout l'IP publique via l'API et enchaîne.
+* *Binaire unique Crystal* : `shards build --release` produit `bin/beryl` statique,
+  déployable sans runtime sur n'importe quel poste POSIX.
+
+== Fournisseurs supportés
+
+Trois fournisseurs sont pris en charge en avril 2026, par ordre alphabétique.
+
+=== Dedibox (Online.net)
+
+Dedibox identifie les serveurs par un *entier* (ex : `186260`). Les credentials
+s'enregistrent via `beryl add-provider aloli/dedibox` (API key + secret key
+récupérées sur https://console.online.net/).
+
+Le *rescue Dedibox* est une image Debian 12 préparée par l'API. Particularité
+critique : le user du rescue n'est *pas* `root` mais `sd-<id>` (ex : `sd-186260`).
+Le password est généré par l'API à chaque appel `prepare_rescue`, et la clé SSH
+IAM liée au compte est *injectée automatiquement* dans `/home/sd-<id>/.ssh/authorized_keys`
+par la plateforme. beryl orchestre ensuite une promotion vers `root` pour que le
+reste du flow (scan, bootstrap, apply) fonctionne comme sur OVH.
+
+Le flow `beryl rescue <host>` affiche quatre étapes numérotées :
+
+. *1/4* — `prepare_rescue(server_id, image=debian-12_amd64)` : récupère le login
+  `sd-<id>` et le password temporaire.
+. *2/4* — `reboot(server_id, reason="beryl rescue")`. L'API Dedibox retourne
+  parfois `false` sur ce POST alors que le hardware reboot bien ; beryl loggue
+  un warning et poursuit sur le signal TCP réel.
+. *2b/4* — attente de la chute de sshd (preuve que le hardware a lâché).
+. *3/4* — attente que `sd-<id>@host` réponde (rescue Debian prêt).
+. *4/4* — promote : copie `authorized_keys` dans `/root/.ssh/` et active
+  `PermitRootLogin yes` via `sudo -S` (password envoyé sur stdin, jamais
+  sur la ligne de commande).
+
+*Limitation connue* : l'API Dedibox/Online ne permet pas de poser le *reverse DNS*
+(PTR). `beryl scan --dns` pose bien les records A et AAAA via le fournisseur DNS
+déclaré sur le domaine (OVH en pratique) et renomme le serveur côté console si
+possible, mais le PTR reste à poser manuellement sur https://console.online.net/
+(limitation documentée dans `crystal-api-dedibox`).
+
+Exemple concret, une commande par bloc pour permettre le copier-coller
+individuel :
+
+1. Bascule en rescue Debian via l'API Dedibox (4 étapes numérotées).
++
+[source,console]
+----
+beryl rescue aloli/186260 --provider=dedibox
+----
++
+2. Scan des disques, pose des records A/AAAA, écriture de `cookie.aloli.net.yml`.
++
+[source,console]
+----
+beryl scan aloli/186260 --provider=dedibox --dns --write --hostname=cookie
+----
++
+3. Efface les pools ZFS / partitions résiduels sur les disques déclarés.
++
+[source,console]
+----
+beryl wipe aloli/cookie.aloli.net
+----
++
+4. Installe FreeBSD 15 via mfsBSD-in-QEMU.
++
+[source,console]
+----
+beryl bootstrap aloli/cookie.aloli.net
+----
+
+=== OVH
+
+OVH identifie un serveur dédié par son `service_name` textuel, généralement de
+la forme `ns3156789.ip-51-83-6.eu`. Les credentials s'obtiennent via
+`beryl add-provider aloli/ovh` : beryl guide la création d'un token sur
+https://eu.api.ovh.com/createToken/ puis appelle `POST /auth/credential` pour
+générer une consumer key avec l'ensemble exact des access rules nécessaires.
+
+Le *rescue OVH* est `rescue64-pro`, une image Debian 64 bits. La bascule se fait
+en deux temps côté API :
+
+. `dedicated_servers.prepare_rescue(service_name, ssh_key_name)` pose le boot
+  order sur rescue et retourne une *task* OVH.
+. beryl poll la task jusqu'à son état terminal (`init` → `todo` → `doing` →
+  `done`). Un `log_step` vivant affiche le temps passé dans chaque état, ce
+  qui permet à l'opérateur de voir immédiatement si une transition bloque.
+
+Une fois la task `done`, beryl attend le retour SSH sur `root@host`. La clé SSH
+à injecter dans le rescue doit être déclarée dans le panel OVH ; son label
+(`ssh_key_name`) est ensuite référencé par `ovh.ssh_key_name` dans le YAML
+domaine. Si le compte OVH ne contient *qu'une seule* clé, beryl l'auto-sélectionne
+et loggue l'information.
+
+Exemple concret, une commande par bloc pour permettre le copier-coller
+individuel :
+
+1. Bascule en rescue64-pro via l'API OVH et polling de la task.
++
+[source,console]
+----
+beryl rescue aloli/ns3156789.ip-51-83-6.eu --domain=aloli.net
+----
++
+2. Scan des disques, pose A/AAAA + PTR (IPv4/IPv6), rename panel OVH.
++
+[source,console]
+----
+beryl scan aloli/ns3156789.ip-51-83-6.eu --domain=aloli.net --dns --write --hostname=cookie
+----
++
+3. Efface les pools ZFS / partitions résiduels.
++
+[source,console]
+----
+beryl wipe aloli/cookie.aloli.net
+----
++
+4. Installe FreeBSD 15.
++
+[source,console]
+----
+beryl bootstrap aloli/cookie.aloli.net
+----
++
+5. Dans un second terminal, suit en direct `bsdinstall.log` de la VM mfsBSD.
++
+[source,console]
+----
+beryl follow-install aloli/cookie.aloli.net
+----
+
+Avec `--dns`, `scan` pose A/AAAA vers la zone DNS, PTR via l'API OVH (IPv4 + IPv6)
+et renomme le serveur côté panel (le `service_name` reste, mais le *display name*
+devient le nom court souhaité).
+
+=== Scaleway
+
+Scaleway Elastic Metal identifie les serveurs par *UUID v4* (ex :
+`9783705f-f86f-4bf7-88ad-4c92b920e9ba`), zoné géographiquement (`fr-par-1`,
+`fr-par-2`, `pl-waw-3`…). Les credentials s'enregistrent via
+`beryl add-provider aloli/scaleway` — secret key + project ID, avec la liste
+des permissions IAM à cocher manuellement dans la console (pas d'auto-gen
+côté API Scaleway).
+
+Le *rescue Scaleway* est un Ubuntu live. Trois spécificités critiques à retenir,
+source : https://www.scaleway.com/en/docs/bare-metal/elastic-metal/how-to/use-rescue-mode/ :
+
+. *Le user du rescue est `rescue`*, pas `root`. C'est un sudoer sans mot de
+  passe dans l'image rescue officielle.
+. *Les clés SSH injectées dans le rescue sont UNIQUEMENT celles de
+  `install.ssh_key_ids`*, posées lors de l'install initial du serveur. Ajouter
+  une clé au projet Scaleway *après* création du serveur ne propage rien au
+  rescue : la clé sera absente de `/home/rescue/.ssh/authorized_keys`.
+. *Pour resynchroniser les clés, il faut refaire un install* (opération
+  destructrice). beryl expose cette opération via `beryl scaleway-reinstall <host>`,
+  qui appelle `POST /servers/{id}/install` avec la liste à jour des clés du
+  projet. À n'utiliser que sur un serveur neuf ou dont l'OS peut être perdu.
+
+Pour rendre le flow homogène avec OVH et Dedibox, `beryl rescue` *promeut
+automatiquement* `rescue` → `root` après le retour SSH : copie de
+`/home/rescue/.ssh/authorized_keys` dans `/root/.ssh/`, activation de
+`PermitRootLogin yes` dans `/etc/ssh/sshd_config.d/beryl.conf`, reload de sshd.
+Les commandes suivantes (`scan`, `bootstrap`, `apply`) se connectent alors en
+`root@host` comme ailleurs.
+
+Avant le reboot Rescue, beryl effectue un *pre-check* (étape 1/3 dans les logs) :
+il lit `install.ssh_key_ids` du serveur, récupère chaque clé publique par son
+ID, et compare le base64 avec la clé locale `host.identity_file.pub`. Si la
+clé locale n'est pas dans la liste, beryl refuse de procéder et pointe
+explicitement vers `beryl scaleway-reinstall`.
+
+Exemple concret (chouquette, zone `pl-waw-3`), une commande par bloc pour
+permettre le copier-coller individuel :
+
+1. Pre-check `install.ssh_key_ids` puis bascule en rescue Ubuntu. beryl
+   résout l'IP + la zone via l'API à partir de l'UUID et promeut
+   `rescue` → `root` après le retour SSH.
++
+[source,console]
+----
+beryl rescue aloli/9783705f-f86f-4bf7-88ad-4c92b920e9ba --provider=scaleway
+----
++
+2. À lancer *uniquement* si le pre-check 1/3 a bloqué : resynchronise les
+   clés SSH via l'API officielle. DESTRUCTIF : réinstalle l'OS sur le
+   disque. À n'utiliser que sur un serveur neuf.
++
+[source,console]
+----
+beryl scaleway-reinstall aloli/9783705f-f86f-4bf7-88ad-4c92b920e9ba
+----
++
+3. Scan des disques, A/AAAA, reverse DNS IPv4, rename console Scaleway.
++
+[source,console]
+----
+beryl scan aloli/9783705f-f86f-4bf7-88ad-4c92b920e9ba --provider=scaleway --dns --write --hostname=chouquette
+----
++
+4. Efface les pools ZFS / partitions résiduels.
++
+[source,console]
+----
+beryl wipe aloli/chouquette.aloli.net
+----
++
+5. Installe FreeBSD 15.
++
+[source,console]
+----
+beryl bootstrap aloli/chouquette.aloli.net
+----
 
 == Installation
 
+1. Clone du dépôt.
++
 [source,sh]
 ----
 git clone https://github.com/aloli-crystal/crystal-beryl.git
-cd crystal-beryl
-shards install
+----
++
+2. Récupération des dépendances (shards Aloli + stdlib).
++
+[source,sh]
+----
+cd crystal-beryl && shards install
+----
++
+3. Build du binaire release.
++
+[source,sh]
+----
 shards build --release
 ----
 
-Le binaire `beryl` est produit dans `./bin/beryl`.
+Le binaire `beryl` est produit dans `./bin/beryl`. Aucune dépendance runtime
+hors `libssl` / `libcrypto` présentes par défaut sur macOS et Linux.
 
 == Démarrage rapide
 
-Déclarez votre inventaire dans `inventory.yml` :
-
-[source,yaml]
-----
-defaults:
-  user: root
-  port: 22
-
-hosts:
-  web01.aloli.fr:
-    provider: ovh
-    recipes:
-      - core-system
-      - nginx-crystal-deploy
-----
-
-Puis appliquez :
-
+1. Crée l'arborescence `~/.beryl/aloli/` (prompts interactifs).
++
 [source,sh]
 ----
-beryl apply web01.aloli.fr
-beryl apply --check web01.aloli.fr   # dry-run
-beryl bootstrap web01.aloli.fr       # bascule Linux → FreeBSD
+beryl init aloli
+----
++
+2. Enregistre les credentials OVH dans `~/.beryl/.env.yml`.
++
+[source,sh]
+----
+beryl add-provider aloli/ovh
+----
++
+3. Déclare la zone DNS, le fournisseur par défaut, les clés SSH.
++
+[source,sh]
+----
+beryl add-domain aloli/aloli.net
+----
++
+4. Bascule le serveur en rescue.
++
+[source,sh]
+----
+beryl rescue aloli/cookie.aloli.net
+----
++
+5. Détecte les disques, pose le DNS, écrit le YAML host.
++
+[source,sh]
+----
+beryl scan aloli/cookie.aloli.net --dns --write --hostname=cookie
+----
++
+6. Efface les pools / partitions résiduels.
++
+[source,sh]
+----
+beryl wipe aloli/cookie.aloli.net
+----
++
+7. Installe FreeBSD 15.
++
+[source,sh]
+----
+beryl bootstrap aloli/cookie.aloli.net
 ----
 
-== Statut
-
-Projet en phase initiale (v0.1 — bootstrap end-to-end fonctionnel, en attente de validation sur serveurs réels).
-
-* link:ARCHITECTURE.adoc[ARCHITECTURE.adoc] — décisions techniques et feuille de route.
-* link:TESTING.adoc[TESTING.adoc] — procédure de test local (UTM) et distant (OVH, Scaleway).
-* link:CHANGELOG.adoc[CHANGELOG.adoc] — historique des changements.
+La référence CLI complète (sous-commandes, shorts, flags) est dans
+link:docs/CLI-REFERENCE.adoc[docs/CLI-REFERENCE.adoc]. L'architecture détaillée
+et la feuille de route sont dans link:ARCHITECTURE.adoc[ARCHITECTURE.adoc] et
+link:docs/adr/[docs/adr/].
 
 == Licence
 
-MIT. Voir link:LICENSE[LICENSE].
+MIT © ALOLI sas. Voir link:LICENSE[LICENSE].

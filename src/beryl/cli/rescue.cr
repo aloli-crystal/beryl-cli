@@ -405,13 +405,23 @@ module Beryl::CLI::Rescue
   ) : Nil
     install_hash = server.raw["install"]?.try(&.as_h?)
     ssh_key_ids = install_hash.try(&.[JSON::Any.new("ssh_key_ids")]?).try(&.as_a?).try(&.map(&.as_s))
+    # Suggestion path-like pour la commande de résolution. L'UUID
+    # (`server.id`) est stable et réutilisable, contrairement à
+    # l'IP ou au FQDN qui peuvent changer.
+    suggest_path = "#{host.account_name}/#{server.id}"
 
     unless ssh_key_ids && !ssh_key_ids.empty?
-      raise MissingProviderConfig.new(
-        "Scaleway : le serveur #{server.id} n'a pas de liste `install.ssh_key_ids` — " \
-        "l'install initial n'a pas été faite avec des clés SSH. " \
-        "Lancez `beryl scaleway-reinstall #{host.account_name}/#{host.fqdn}` pour installer avec les clés du projet."
-      )
+      STDERR.puts
+      STDERR.puts "beryl : le serveur Scaleway #{server.id} n'a pas de liste `install.ssh_key_ids`."
+      STDERR.puts "  L'install initial n'a pas été faite avec des clés SSH."
+      STDERR.puts
+      STDERR.puts "Résolvez avec :"
+      STDERR.puts "  beryl scaleway-reinstall #{suggest_path}"
+      STDERR.puts
+      STDERR.puts "  (Appelle POST /servers/{id}/install avec les clés actuelles du projet."
+      STDERR.puts "   ATTENTION : réinstalle l'OS sur le disque — à ne lancer que sur un"
+      STDERR.puts "   serveur neuf ou dont le contenu peut être détruit sans risque.)"
+      raise MissingProviderConfig.new("Scaleway : install.ssh_key_ids absent — voir diagnostic ci-dessus")
     end
 
     privkey_path = host.identity_file || raise MissingProviderConfig.new(
@@ -444,7 +454,7 @@ module Beryl::CLI::Rescue
     STDERR.puts "  Une clé ajoutée au projet ne se propage pas sans refaire un `install`."
     STDERR.puts
     STDERR.puts "Résolvez avec :"
-    STDERR.puts "  beryl scaleway-reinstall #{host.account_name}/#{host.fqdn}"
+    STDERR.puts "  beryl scaleway-reinstall #{suggest_path}"
     STDERR.puts
     STDERR.puts "  (Appelle POST /servers/{id}/install avec les clés actuelles du projet."
     STDERR.puts "   ATTENTION : réinstalle l'OS sur le disque — à ne lancer que sur un"
