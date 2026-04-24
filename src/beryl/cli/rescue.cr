@@ -320,7 +320,46 @@ module Beryl::CLI::Rescue
       raise TaskFailed.new("Dedibox a refusé le reboot pour #{server_id}")
     end
 
+    # Attente « reboot effectif ». L'API Dedibox retourne en quelques
+    # ms (« reboot envoyé »), mais le hardware met 10-30s à tomber
+    # réellement. Pendant ces secondes, le sshd de l'ancien rescue
+    # continue à répondre avec l'ancien password — si on se connecte
+    # maintenant puis qu'on lance sudo -S avec le NOUVEAU password
+    # (issu du prepare_rescue juste avant), sudo refuse. Ça a tourné
+    # en rond sur cookie plusieurs fois.
+    #
+    # Parade : on attend que le TCP 22 devienne injoignable (signe
+    # que le reboot a bien commencé côté hardware), puis l'attente
+    # 3/4 reprendra pour le nouveau rescue.
+    wait_for_ssh_drop(host)
+
     promote_dedibox_rescue_to_root(host, server_id, creds)
+  end
+
+  # Attend que TCP 22 cesse de répondre — preuve que le reboot est
+  # effectivement en cours. Timeout court : si le hardware n'a pas
+  # lâché en 2 min, c'est suspicieux (reboot refusé silencieusement
+  # côté BMC ?), on continue quand même avec les étapes suivantes.
+  private def self.wait_for_ssh_drop(host : Beryl::Config::ResolvedHost) : Nil
+    deadline = Time.instant + 2.minutes
+    Beryl.log_step(
+      "beryl rescue",
+      "Dedibox 2b/4 : attente de la chute de sshd (reboot hardware en cours)",
+    ) do
+      loop do
+        if Time.instant >= deadline
+          STDERR.puts "\n  sshd répond toujours après 2 min, on continue quand même (reboot suspicieux)"
+          break
+        end
+        begin
+          TCPSocket.new(host.ssh_host, host.port, connect_timeout: 3.seconds).close
+          sleep 3.seconds
+        rescue
+          # TCP refusé / timeout → sshd tombé, reboot confirmé.
+          break
+        end
+      end
+    end
   end
 
   # Teste rapidement si `root@host` répond à un `uname -s`. Utilisé
