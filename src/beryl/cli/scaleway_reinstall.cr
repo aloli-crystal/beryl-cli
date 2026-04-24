@@ -136,15 +136,17 @@ module Beryl::CLI::ScalewayReinstall
                         [] of String
     previous_hostname = install_hash.try(&.[JSON::Any.new("hostname")]?).try(&.as_s?)
 
-    # OS à installer : prefix CLI > OS précédent > défaut.
+    # OS à installer : prefix CLI > OS précédent > cascade de défauts.
+    # Si rien ne matche, on affiche la liste des OS disponibles dans
+    # la zone pour que l'opérateur choisisse avec --os-prefix=NAME
+    # au prochain run.
     target_os = if explicit = os_prefix
                   client.baremetal.oses.find_by_name_prefix(explicit, zone: resolved_zone) ||
-                    raise MissingProviderConfig.new("aucun OS Scaleway ne commence par #{explicit.inspect} en zone #{resolved_zone}")
+                    raise_no_os(explicit, resolved_zone, client)
                 elsif prev_id = previous_os_id
                   client.baremetal.oses.get(prev_id, zone: resolved_zone)
                 else
-                  client.baremetal.oses.find_by_name_prefix(DEFAULT_OS_PREFIX, zone: resolved_zone) ||
-                    raise MissingProviderConfig.new("aucun OS Scaleway ne commence par #{DEFAULT_OS_PREFIX.inspect} en zone #{resolved_zone}")
+                  find_default_os(client, resolved_zone)
                 end
 
     # Toutes les clés SSH actuellement dans le projet. C'est bien
@@ -226,6 +228,39 @@ module Beryl::CLI::ScalewayReinstall
   rescue ex
     STDERR.puts "beryl : erreur inattendue — #{ex.class}: #{ex.message}"
     EXIT_API_ERROR
+  end
+
+  # Cascade de défauts pour l'OS à installer : on essaye des
+  # prefixes communs dans l'ordre (Ubuntu LTS puis Debian stable).
+  # Les slugs Scaleway Elastic Metal changent dans le temps (ex:
+  # `ubuntu_noble`, `ubuntu_jammy`, `ubuntu_focal`), et varient
+  # par zone — on teste par prefix pour rester agnostique.
+  private def self.find_default_os(client, zone) : ScalewayApi::Endpoints::Baremetal::Os
+    %w[ubuntu debian].each do |prefix|
+      if os = client.baremetal.oses.find_by_name_prefix(prefix, zone: zone)
+        return os
+      end
+    end
+    raise_no_os("(cascade ubuntu/debian)", zone, client)
+  end
+
+  # Affiche la liste complète des OS disponibles dans la zone pour
+  # que l'opérateur puisse relancer avec `--os-prefix=<slug>`.
+  private def self.raise_no_os(attempted, zone, client) : NoReturn
+    available = client.baremetal.oses.list(zone: zone).map(&.name)
+    STDERR.puts
+    STDERR.puts "beryl : aucun OS Scaleway ne commence par #{attempted.inspect} en zone #{zone}."
+    STDERR.puts
+    if available.empty?
+      STDERR.puts "  Aucun OS listé par l'API dans cette zone (réponse vide)."
+    else
+      STDERR.puts "  OS disponibles dans #{zone} :"
+      available.sort.each { |name| STDERR.puts "    - #{name}" }
+      STDERR.puts
+      STDERR.puts "  Relancez avec --os-prefix=<prefix>, par exemple :"
+      STDERR.puts "    beryl scaleway-reinstall <host> --os-prefix=#{available.first}"
+    end
+    raise MissingProviderConfig.new("aucun OS Scaleway ne commence par #{attempted.inspect} en zone #{zone} — voir liste ci-dessus")
   end
 
   private def self.log(message : String) : Nil
