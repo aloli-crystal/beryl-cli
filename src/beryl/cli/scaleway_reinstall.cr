@@ -137,16 +137,19 @@ module Beryl::CLI::ScalewayReinstall
     previous_hostname = install_hash.try(&.[JSON::Any.new("hostname")]?).try(&.as_s?)
 
     # OS à installer : prefix CLI > OS précédent > cascade de défauts.
-    # Si rien ne matche, on affiche la liste des OS disponibles dans
-    # la zone pour que l'opérateur choisisse avec --os-prefix=NAME
-    # au prochain run.
+    # Matching case-insensitive sur `name` : l'API Scaleway renvoie
+    # des noms capitalisés (`Ubuntu`, `Debian`) alors que les opérateurs
+    # tapent plus volontiers en minuscules. Si rien ne matche, on affiche
+    # la liste pour choisir avec `--os-prefix=<name>` au prochain run.
+    suggest_path = "#{host.account_name}/#{server_id}"
+    oses_in_zone = client.baremetal.oses.list(zone: resolved_zone)
     target_os = if explicit = os_prefix
-                  client.baremetal.oses.find_by_name_prefix(explicit, zone: resolved_zone) ||
-                    raise_no_os(explicit, resolved_zone, client)
+                  find_os_by_prefix(oses_in_zone, explicit) ||
+                    raise_no_os(explicit, resolved_zone, oses_in_zone, suggest_path)
                 elsif prev_id = previous_os_id
                   client.baremetal.oses.get(prev_id, zone: resolved_zone)
                 else
-                  find_default_os(client, resolved_zone)
+                  find_default_os(oses_in_zone, resolved_zone, suggest_path)
                 end
 
     # Toutes les clés SSH actuellement dans le projet. C'est bien
@@ -230,37 +233,105 @@ module Beryl::CLI::ScalewayReinstall
     EXIT_API_ERROR
   end
 
-  # Cascade de défauts pour l'OS à installer : on essaye des
-  # prefixes communs dans l'ordre (Ubuntu LTS puis Debian stable).
-  # Les slugs Scaleway Elastic Metal changent dans le temps (ex:
-  # `ubuntu_noble`, `ubuntu_jammy`, `ubuntu_focal`), et varient
-  # par zone — on teste par prefix pour rester agnostique.
-  private def self.find_default_os(client, zone) : ScalewayApi::Endpoints::Baremetal::Os
-    %w[ubuntu debian].each do |prefix|
-      if os = client.baremetal.oses.find_by_name_prefix(prefix, zone: zone)
+  # Label lisible pour un OS : version si parsée par le shard,
+  # sinon un champ probable du JSON brut (`version_id`, `label`,
+  # `codename`), sinon l'id tronqué. Permet de distinguer plusieurs
+  # entrées d'un même name sans ambiguïté.
+  def self.os_label(os) : String
+    if v = os.version.presence
+      return v
+    end
+    raw = os.raw
+    %w[version_id label codename release].each do |field|
+      if raw[field]?
+        if value = raw[field].as_s?
+          return value if value && !value.empty?
+        end
+      end
+    end
+    # Fallback : id tronqué (8 premiers caractères suffisent pour
+    # distinguer les UUIDs côté opérateur).
+    "id:#{os.id[0, 8]}"
+  end
+
+  # Cherche un OS dont le nom commence par `prefix` (case-insensitive).
+  # Retourne le premier match dans l'ordre de l'API Scaleway (qui
+  # trie généralement par ancienneté croissante — donc « Ubuntu »
+  # retourne souvent une LTS ancienne avant une récente ; utiliser
+  # un nom plus précis si besoin).
+  def self.find_os_by_prefix(oses, prefix)
+    p = prefix.downcase
+    oses.find { |o| o.name.downcase.starts_with?(p) }
+  end
+
+  # Cascade de défauts pour l'OS à installer. Debian d'abord — c'est
+  # l'OS de base dans tout le flow beryl (rescue Dedibox, image
+  # rescue Scaleway/OVH Linux) : on reste cohérent. Ubuntu en
+  # fallback si l'image Debian n'est pas dispo sur la zone. L'OS
+  # installé sera de toute façon écrasé par `beryl bootstrap` qui
+  # installe FreeBSD par-dessus.
+  #
+  # Matching case-insensitive : l'API Scaleway renvoie les noms
+  # capitalisés (`Ubuntu`, `Debian`), les opérateurs tapent plutôt
+  # en minuscules.
+  private def self.find_default_os(oses, zone, suggest_path : String?) : ScalewayApi::Endpoints::Baremetal::Os
+    %w[debian ubuntu].each do |prefix|
+      if os = find_os_by_prefix(oses, prefix)
         return os
       end
     end
-    raise_no_os("(cascade ubuntu/debian)", zone, client)
+    raise_no_os("(cascade debian/ubuntu)", zone, oses, suggest_path)
   end
 
   # Affiche la liste complète des OS disponibles dans la zone pour
-  # que l'opérateur puisse relancer avec `--os-prefix=<slug>`.
-  private def self.raise_no_os(attempted, zone, client) : NoReturn
-    available = client.baremetal.oses.list(zone: zone).map(&.name)
+  # que l'opérateur puisse relancer avec `--os-prefix=<nom>`.
+  #
+  # Les noms sont dédupliqués et les versions groupées sur une
+  # ligne : l'API Scaleway retourne une entrée par (name, version)
+  # et afficher 4 lignes `Debian` d'affilée est illisible. On
+  # regroupe en `Debian    11, 12, 13`.
+  #
+  # La suggestion en bas ne propose un OS que s'il est effectivement
+  # dans la liste (cascade debian > ubuntu > premier de la liste) —
+  # pas de suggestion trompeuse.
+  #
+  # `suggest_path` (optionnel) = path-like `<account>/<UUID>` à
+  # inclure dans la commande suggérée, pour qu'elle soit
+  # immédiatement copiable-collable.
+  private def self.raise_no_os(attempted, zone, oses, suggest_path : String?) : NoReturn
     STDERR.puts
-    STDERR.puts "beryl : aucun OS Scaleway ne commence par #{attempted.inspect} en zone #{zone}."
+    STDERR.puts "beryl : aucun OS Scaleway ne correspond à #{attempted.inspect} en zone #{zone}."
     STDERR.puts
-    if available.empty?
+    if oses.empty?
       STDERR.puts "  Aucun OS listé par l'API dans cette zone (réponse vide)."
     else
       STDERR.puts "  OS disponibles dans #{zone} :"
-      available.sort.each { |name| STDERR.puts "    - #{name}" }
+      # Groupe par name. Pour chaque entrée, on essaie plusieurs
+      # champs possibles pour le différenciateur lisible :
+      #   1. `version` parsé par le shard
+      #   2. un champ `version_id` / `label` / `codename` dans le raw
+      #      (au cas où Scaleway l'ait renommé et que le shard ne le voie pas)
+      #   3. id tronqué (toujours unique, toujours lisible)
+      # Si plusieurs OS ont le même name ET aucun différenciateur,
+      # on les distingue au moins par leur id court.
+      grouped = oses.group_by(&.name)
+      grouped.keys.sort.each do |name|
+        entries = grouped[name]
+        labels = entries.map { |o| os_label(o) }.uniq
+        STDERR.puts "    - #{name.ljust(20)} #{labels.join(", ")}"
+      end
       STDERR.puts
-      STDERR.puts "  Relancez avec --os-prefix=<prefix>, par exemple :"
-      STDERR.puts "    beryl scaleway-reinstall <host> --os-prefix=#{available.first}"
+      # Suggestion : debian si présent, sinon ubuntu, sinon le
+      # premier name trié. Le prefix proposé correspond toujours à
+      # un OS réellement listé ci-dessus.
+      suggested_prefix = %w[debian ubuntu].find { |p|
+        oses.any? { |o| o.name.downcase.starts_with?(p) }
+      } || grouped.keys.sort.first.downcase.split(" ").first
+      target = suggest_path || "<host>"
+      STDERR.puts "  Relancez par exemple avec :"
+      STDERR.puts "    beryl scaleway-reinstall #{target} --os-prefix=#{suggested_prefix}"
     end
-    raise MissingProviderConfig.new("aucun OS Scaleway ne commence par #{attempted.inspect} en zone #{zone} — voir liste ci-dessus")
+    raise MissingProviderConfig.new("aucun OS Scaleway ne correspond à #{attempted.inspect} en zone #{zone} — voir liste ci-dessus")
   end
 
   private def self.log(message : String) : Nil
