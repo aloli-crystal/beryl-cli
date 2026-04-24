@@ -14,7 +14,7 @@ shards:
 
   scaleway-api:
     git: https://github.com/aloli-crystal/crystal-api-scaleway.git
-    version: 0.3.0+git.commit.d659569207bdc8ed3be1593222c9f1f8de638db9
+    version: 0.4.0+git.commit.e166dba71a7dab46b32ae7a31aa8f69b60651b0e
 
   silex:
     git: https://github.com/aloli-crystal/crystal-silex.git
