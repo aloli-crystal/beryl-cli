@@ -297,6 +297,74 @@ module Beryl::CLI::Rescue
     unless client.servers.reboot(server_id, reason: "beryl rescue")
       raise TaskFailed.new("Dedibox a refusé le reboot pour #{server_id}")
     end
+
+    # Spécificité Dedibox : le rescue Debian est accessible en
+    # `sd-<id>` (groupe admin, sudo requiert password), pas en root
+    # direct comme OVH ou Scaleway. Pour homogénéiser le reste du
+    # flow beryl (bootstrap, scan… qui font tous `ssh root@host`),
+    # on « promeut » l'accès root :
+    #   1. on attend que sd-<id> réponde (clé IAM déjà injectée)
+    #   2. via sudo -S (password = celui retourné par prepare_rescue),
+    #      on copie la clé IAM dans /root/.ssh/authorized_keys et on
+    #      force PermitRootLogin yes dans sshd_config.d
+    # Ensuite `ssh root@host` fonctionne pour le reste du bootstrap.
+    promote_dedibox_rescue_to_root(host, server_id, creds)
+  end
+
+  # Attend que sd-<id> réponde en SSH (avec la clé IAM Dedibox qui
+  # a été injectée automatiquement par le rescue), puis exécute en
+  # sudo un petit script qui copie la clé dans /root/.ssh et active
+  # PermitRootLogin yes. Le password sudo est celui renvoyé par
+  # prepare_rescue (transporté sur stdin, pas exposé dans la ligne
+  # de commande).
+  private def self.promote_dedibox_rescue_to_root(
+    host : Beryl::Config::ResolvedHost,
+    server_id : Int32,
+    creds : DediboxApi::Endpoints::RescueCredentials,
+  ) : Nil
+    sd_user = "sd-#{server_id}"
+    key = host.identity_file || raise MissingProviderConfig.new(
+      "identity_file non résolu pour #{host.fqdn} — déclarez `ovh.ssh_key_name` dans le domaine " \
+      "(pour que beryl trouve la clé locale à passer à `-i`)"
+    )
+
+    # Étape 1 — attend que sd-<id> réponde (rescue Debian prêt).
+    sd_conn = SSH::Connection.new(
+      host: host.ssh_host, user: sd_user, port: host.port, identity_file: key,
+    )
+    deadline = Time.instant + DEFAULT_SSH_WAIT_TIMEOUT
+    Beryl.log_step(
+      "beryl rescue",
+      "Dedibox : attente SSH #{sd_user}@#{host.ssh_host} (rescue Debian)",
+    ) do
+      loop do
+        raise TaskFailed.new("timeout : rescue Dedibox n'a pas démarré en #{DEFAULT_SSH_WAIT_TIMEOUT.total_minutes.to_i} min") if Time.instant >= deadline
+        begin
+          result = sd_conn.exec("uname -s", raise_on_error: false)
+          break if result.success? && result.stdout.strip == "Linux"
+        rescue
+        end
+        sleep SSH_POLL_INTERVAL
+      end
+    end
+
+    # Étape 2 — promote : copie clé + PermitRootLogin yes.
+    script = <<-BASH
+      set -e
+      mkdir -p /root/.ssh
+      cp /home/#{sd_user}/.ssh/authorized_keys /root/.ssh/authorized_keys
+      chown root:root /root/.ssh/authorized_keys
+      chmod 600 /root/.ssh/authorized_keys
+      mkdir -p /etc/ssh/sshd_config.d
+      echo 'PermitRootLogin yes' > /etc/ssh/sshd_config.d/beryl.conf
+      (systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || service ssh reload) >/dev/null 2>&1
+    BASH
+    log "Dedibox : promote #{sd_user} → root (copie clé IAM + PermitRootLogin yes)"
+    sd_conn.exec(
+      "sudo -S -p '' bash -s",
+      stdin: creds.password + "\n" + script,
+    )
+    log "Dedibox : root@#{host.ssh_host} prêt (le wait_for_ssh principal prend le relais)"
   end
 
   # Par défaut, résolution DNS via `Socket::Addrinfo.resolve`.
