@@ -285,8 +285,13 @@ module Beryl::Bootstrap
         @rescue_conn.write_file(INSTALLERCFG, render_installerconfig, mode: "0644")
         upload_driver_script
       end
-      hint_follow_bsdinstall
-      log_step("5/6 — QEMU + mfsBSD + bsdinstall + post-install no-chroot (10-25 min)") do
+      # NB : `beryl follow-install <host>` reste disponible pour
+      # suivre bsdinstall en direct depuis un autre terminal. On
+      # ne l'affiche plus en encadré parce qu'en flow nominal
+      # (~90 s), l'opérateur n'a pas le temps d'ouvrir un second
+      # terminal. À garder pour debug nouveau provider ou flow
+      # FreeBSD inhabituel.
+      log_step("5/6 — QEMU + mfsBSD + bsdinstall + post-install no-chroot (typiquement 1-3 min)") do
         @rescue_conn.exec("bash #{Process.quote(RESCUE_RUN_VM_PATH)}")
       end
       result = log_step("6/6 — reboot bare metal, attente SSH du FreeBSD installé") do
