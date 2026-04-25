@@ -6,14 +6,114 @@
 :source-highlighter: rouge
 
 [.lead]
-Document de design pour `beryl apply` (commande 9, en cours de
-conception — 25 avril 2026). À RELIRE puis valider avant de coder.
+Document de design pour `beryl apply` (commande 9). Validé le
+25 avril 2026 après échange Philippe ↔ Claude. Section
+« Décisions actées » en haut du document pour relecture rapide ;
+détails et justifications dans les sections suivantes.
+
+== Décisions actées (25 avril 2026)
+
+[cols="2,3", options="header"]
+|===
+| Point | Décision
+
+| Niveaux d'abstraction
+| *2 niveaux uniformes* : Primitives Crystal natif + Recettes YAML.
+  Toutes les recettes ont le même format, qu'elles soient « atomiques »
+  (peu de `requires:`, beaucoup de `steps:`) ou « agrégat / méta »
+  (beaucoup de `requires:`, peu ou pas de `steps:`).
+
+| Stockage des recettes
+| Dépôt git séparé `aloli-crystal/beryl-recipes`, URL en défaut
+  beryl. L'opérateur peut forker et pointer vers son fork.
+  beryl clone localement dans `~/.beryl/recipes/` au premier
+  `apply`.
+
+| Orchestration par host
+| Dossier `~/.beryl/<société>/<domaine>/<host>/` qui contient les
+  recettes que l'opérateur veut exécuter sur ce host (symlinks
+  vers le dépôt central, ou copies locales modifiées).
+
+| Pas de `apply.yml` central
+| L'orchestration vit dans le dépôt git versionné `~/.beryl/<société>/`.
+  Les recettes du dossier `<host>/` sont autosuffisantes.
+
+| Ordre d'exécution
+| *Tri topologique automatique* à partir du champ `requires:` de
+  chaque recette. Pas de préfixe `01-`, `02-`. L'opérateur balance
+  les recettes en vrac, beryl trie.
+
+| Override par host
+| Si une recette `R.yml` existe dans le dossier `<host>/`, elle
+  prime sur celle du dépôt central. Permet d'adapter une recette
+  à un host particulier sans toucher au dépôt commun.
+
+| Cycles
+| Erreur claire au démarrage de l'apply (compile-time du graphe).
+  Liste des recettes en cycle affichée.
+
+| Idempotence
+| Toujours par lecture d'état réel via SSH avant d'agir. Pas de
+  state file local côté beryl. Le coût d'une lecture est
+  inférieur au coût d'un état désynchronisé.
+
+| Templating
+| Substitution simple `{{ var }}` côté Crystal. Pas de logique
+  conditionnelle (pas Jinja, pas Erb). Si une recette a besoin de
+  logique, c'est une *recette à part entière*, pas un template.
+
+| Rollback
+| Pas de rollback automatique. Stop net sur erreur, log précis,
+  l'opérateur corrige et relance — l'idempotence garantit que les
+  étapes déjà OK sont skippées.
+
+| Tests des recettes
+| Mode `beryl apply --check` (lecture seule, pas de modif). Plus
+  tests Crystal unitaires sur les primitives. Plus, à terme,
+  fixture FreeBSD en jail dans QEMU pour tests d'intégration.
+
+| Désinstallation
+| Hors scope v0. Une recette appliquée laisse une empreinte ; pour
+  annuler, l'opérateur reconstruit le serveur. Cohérent avec la
+  philosophie Aloli « le serveur est jetable ».
+
+| Secrets
+| Réutilisation de `~/.beryl/.env.yml[<société>][<provider>]` (chmod
+  0600). Recettes peuvent référencer `{{ env.OVH_API_TOKEN }}` qui
+  est résolu côté beryl avant SSH. Pas de secret dans le YAML host.
+
+| Reboot post-recette
+| Pas auto. Une recette qui nécessite un reboot logge `« reboot
+  requis »` à la fin. L'opérateur exécute `beryl reboot <host>`
+  (nouvelle commande H3, voir section dédiée).
+
+| Crontab générale
+| Beryl NE gère PAS la crontab générale. Exception : la primitive
+  `cron-entry` existe pour les recettes Aloli (typiquement
+  `freebsd-updates` qui pose son cron quotidien de check). Pour
+  les crons applicatifs (déploiement, migrations) →
+  `crystal-deploy`.
+
+| Mises à jour FreeBSD
+| Pas d'application automatique (risque de casser un service en
+  prod). La recette `freebsd-updates` pose un cron quotidien qui
+  vérifie + envoie un mail si patches dispos. L'humain décide
+  quand appliquer (relance `beryl apply <host>` qui exécute
+  `freebsd-update install`).
+
+| Recettes privées
+| Modèle « taps » à la Homebrew : `beryl recipes-tap add <git_url>`
+  ajoute un dépôt supplémentaire dans `~/.beryl/recipes-taps/<nom>/`.
+  Résolution avec priorité : dossier host > taps > dépôt principal.
+  Permet des recettes privées sans forker le dépôt central.
+|===
 
 == Vision d'ensemble
 
 `beryl apply` est l'étape post-bootstrap : une fois FreeBSD installé
 sur le bare-metal et `ssh root@host` opérationnel, `apply` synchronise
-l'état du serveur avec ce qui est *déclaré* dans son YAML host.
+l'état du serveur avec ce qui est *déclaré* dans le dossier
+d'orchestration de ce host.
 
 `apply` ne cherche pas à remplacer Ansible ou Chef. Il sert le besoin
 Aloli :
@@ -21,159 +121,277 @@ Aloli :
 * configurer un FreeBSD jusqu'à un niveau « prêt à recevoir une
   application Marten / Kemal / Rails » ;
 * être idempotent (relancer `apply` plusieurs fois ne casse rien) ;
-* être lisible (un YAML bien formaté = la doc du serveur) ;
+* être lisible (un dossier de recettes bien nommé = la doc du serveur) ;
 * ne PAS faire le déploiement applicatif (c'est le rôle de
   https://github.com/aloli-crystal/crystal-deploy[crystal-deploy]).
 
-== Architecture en trois niveaux (poupées russes)
+== Architecture en deux niveaux
 
 [source,text]
 ----
-┌─ Niveau 3 : MÉTA-RECETTES (compositions thématiques)
-│              fichiers YAML, exemples : post-install, web-server,
-│              database-server
+┌─ Niveau 2 : RECETTES YAML
+│              fichiers .yml dans `aloli-crystal/beryl-recipes`,
+│              format unique :
+│              - recette atomique = peu de `requires:`, beaucoup de `steps:`
+│              - recette agrégat (« méta ») = beaucoup de `requires:`,
+│                peu ou pas de `steps:`
+│              Beryl traite les deux pareillement — pas de distinction de type.
 │
-├─ Niveau 2 : RECETTES (briques fonctionnelles)
-│              fichiers YAML, exemples : ohmyzsh, ssh-hardening,
-│              ruby, firewall-pf, nginx-passenger, letsencrypt
-│
-└─ Niveau 1 : PRIMITIVES (tâches élémentaires Crystal)
-               classes Crystal idempotentes, exemples :
-               pkg-install, service-enable, file-write,
-               user-create, sysrc-set, sshd-config-set
+└─ Niveau 1 : PRIMITIVES (tâches élémentaires Crystal natif)
+               classes Crystal idempotentes intégrées au binaire
+               beryl, exemples : pkg-install, service-enable,
+               file-write, user-create, sysrc-set, sshd-config-set
 ----
 
-=== Règle de composition
+=== Pourquoi 2 niveaux uniformes
 
-* Une *primitive* est codée en Crystal pur dans le binaire beryl.
-  Pas de YAML, pas de shell, pas d'eval.
-* Une *recette* assemble des primitives ou d'autres recettes.
-* Une *méta-recette* assemble des recettes (ou des primitives).
-* *Une recette ne peut PAS appeler une méta-recette* — sinon on
-  pourrait avoir un 4e niveau implicite. Cette règle garantit
-  qu'on reste à 3 niveaux maximum, peu importe la complexité.
+* Un seul format YAML = un seul mécanisme de parsing, de validation,
+  de résolution.
+* La distinction « méta-recette » vs « recette » était sémantique
+  uniquement — beryl s'en fichait. La supprimer simplifie le mental
+  model sans rien perdre.
+* Une recette qui agrège (`post-install`) reste lisible : son champ
+  `requires:` énumère les briques.
 
-=== Pourquoi pas plus de 3 niveaux
+=== Comment ça reste lisible
 
-* Au-delà, une trace d'erreur devient illisible.
-* Trois niveaux suffisent pour décrire « le serveur web standard
-  Aloli » sans abstraction superflue.
-* On garde la lisibilité du flow : opérateur lit `post-install`,
-  voit `nginx-passenger`, voit `pkg-install`. Trois clics, fini.
+* Une recette atomique est petite (10-30 lignes), focalisée sur un
+  domaine (oh-my-zsh, ssh-hardening, etc.).
+* Une recette agrégat est petite aussi (5-15 lignes), sa valeur est
+  dans le `requires:`.
+* La doc d'une recette agrégat = la liste de `requires:` + la
+  description courte. Pas besoin de lire les `steps:` (qui sont
+  dans les sous-recettes).
 
 == Stockage : dépôt séparé `aloli-crystal/beryl-recipes`
 
 === Pourquoi un dépôt séparé
 
-* Les recettes évoluent indépendamment du binaire beryl (ajout de
-  recettes ne demande pas de bump beryl).
-* Un opérateur extérieur peut forker `beryl-recipes`, modifier les
-  recettes pour son contexte, sans toucher à beryl.
-* Versionning git permet de figer la version des recettes utilisées
-  par un host : `recipes_version: v1.4.0` dans le YAML host.
+* Les recettes évoluent indépendamment du binaire beryl (ajouter
+  une recette ne demande pas de bump beryl).
+* Un opérateur extérieur peut *forker* `beryl-recipes`, modifier
+  les recettes pour son contexte (`https://github.com/<vous>/beryl-recipes`),
+  et pointer beryl vers son fork.
+* Versioning git permet de figer la version utilisée par un
+  parc : `~/.beryl/recipes/` reste sur la branche que vous voulez
+  (production, ou un tag précis).
 
-=== Layout du dépôt
+=== URL en défaut beryl
+
+[source,yaml]
+----
+# ~/.beryl/_default.yml (livré par `beryl init`)
+recipes:
+  repo_url: https://github.com/aloli-crystal/beryl-recipes.git
+  local_path: ~/.beryl/recipes
+  branch: production
+----
+
+L'opérateur surcharge dans son `<société>/_account.yml` ou
+`<domaine>.yml` pour pointer vers son fork.
+
+=== Récupération côté beryl
+
+* Au premier `beryl apply` : si `~/.beryl/recipes/` n'existe pas,
+  beryl `git clone` depuis `recipes.repo_url`.
+* Pas de `git pull` automatique. L'opérateur décide quand mettre
+  à jour : `cd ~/.beryl/recipes && git pull`.
+* Beryl ne fait jamais d'appel HTTP pendant l'`apply` lui-même —
+  tout est lu depuis le filesystem local.
+
+=== Layout du dépôt `beryl-recipes`
 
 [source,text]
 ----
 beryl-recipes/
 ├── README.adoc                  # vue d'ensemble + index des recettes
-├── meta-recipes/
-│   ├── post-install.yml         # tronc commun Aloli
-│   ├── web-server.yml           # nginx + passenger + letsencrypt
-│   ├── database-server.yml      # postgresql + tuning
-│   └── …
-├── recipes/
-│   ├── ohmyzsh.yml
-│   ├── freebsd-updates.yml
-│   ├── firewall-pf.yml
+├── recipes/                     # toutes les recettes (atomiques + agrégats)
+│   ├── post-install.yml         # recette agrégat
+│   ├── web-server.yml           # recette agrégat
+│   ├── database-server.yml      # recette agrégat
+│   ├── freebsd-updates.yml      # recette atomique
+│   ├── firewall-pf.yml          # recette atomique
 │   ├── ssh-hardening.yml
+│   ├── ohmyzsh.yml
 │   ├── ruby.yml
 │   ├── nginx-passenger.yml
 │   ├── nginx-hardening.yml
 │   ├── letsencrypt.yml
 │   └── …
 └── tests/                        # fixtures + tests d'intégration
-    └── (à définir, peut-être FreeBSD jail dans QEMU)
+    └── (à définir, FreeBSD jail dans QEMU)
 ----
 
-=== Récupération côté beryl
+Pas de séparation `meta-recipes/` vs `recipes/`. Tout dans
+`recipes/`, format YAML uniforme.
 
-* Par défaut : beryl clone `aloli-crystal/beryl-recipes` dans
-  `~/.beryl/recipes/` au premier `apply`.
-* Override : `~/.beryl/recipes/` est un dossier custom (clone d'un
-  fork, ou dossier maintenu à la main).
-* Beryl lit en priorité le dossier local, jamais d'appel HTTP en
-  cours d'`apply`.
+== Orchestration par host : le dossier `<host>/`
 
-== Format YAML
+=== Structure
 
-=== Méta-recette
+[source,text]
+----
+~/.beryl/aloli/aloli.net/
+├── quantas.yml                       # config bootstrap (zfs, packages, users)
+└── quantas/                          # dossier d'orchestration apply
+    ├── post-install.yml              # symlink → ../../../recipes/recipes/post-install.yml
+    └── ohmyzsh.yml                   # COPIE locale modifiée pour ce host
+----
+
+* `quantas.yml` (fichier) : inchangé, c'est la config bootstrap.
+* `quantas/` (dossier) : ce qui s'applique à `quantas` au moment
+  du `beryl apply quantas`.
+
+=== Cas typique : un seul symlink
+
+```
+quantas/
+└── post-install.yml -> ../../../recipes/recipes/post-install.yml
+```
+
+Beryl lit `post-install.yml`, voit ses `requires:`, va chercher
+chaque dépendance — et les dépendances de ces dépendances — dans
+le dépôt central, résout l'ordre topologique, exécute.
+
+=== Cas avec override : copie locale
+
+```
+quantas/
+├── post-install.yml -> ../../../recipes/recipes/post-install.yml
+└── ohmyzsh.yml                   # COPIE locale (pas un symlink)
+```
+
+L'opérateur fait :
+
+[source,sh]
+----
+cd ~/.beryl/aloli/aloli.net/quantas
+cp ../../../recipes/recipes/ohmyzsh.yml ./ohmyzsh.yml
+vim ohmyzsh.yml                  # adapte (ex: liste des users, .zshrc spécifique)
+----
+
+Beryl, en résolvant `post-install.yml` qui requires `ohmyzsh`,
+cherche d'abord dans `quantas/` → trouve la copie locale → l'utilise.
+Les autres `requires:` (freebsd-updates, ssh-hardening, etc.)
+viennent du dépôt central.
+
+=== Règle de priorité
+
+```
+Pour chaque recette R référencée (directement dans le dossier ou
+via requires:), beryl cherche R.yml :
+  1. dans ~/.beryl/<société>/<domaine>/<host>/         ← priorité (override)
+  2. sinon dans ~/.beryl/recipes/recipes/              ← défaut (dépôt central)
+  3. sinon erreur : recette R introuvable
+```
+
+== Format YAML d'une recette
+
+=== Format unique
 
 [source,yaml]
 ----
-meta_recipe: post-install
-description: Post-install Aloli standard pour FreeBSD
-recipes:
-  - freebsd-updates                 # appel sans paramètre
-  - firewall-pf
-  - ssh-hardening
-  - ohmyzsh:                        # appel avec paramètres
-      users: [admin, deploy]
-  - ruby:
-      version: latest               # résolu au moment de l'apply
-  - pkg-install:                    # primitive aussi appelable depuis méta
-      packages: [tmux, htop, neovim]
-  - nginx-passenger
-  - nginx-hardening
-  # - letsencrypt:                  # commenté = optionnel
-  #     domain: aloli.net
-----
-
-=== Recette
-
-[source,yaml]
-----
-recipe: ohmyzsh
+recipe: ohmyzsh                       # nom = nom du fichier sans .yml
 description: Installe oh-my-zsh dans le shell des users listés
-parameters:
+
+requires:                             # autres recettes à exécuter avant
+  - freebsd-updates                   # facultatif si pas de prérequis
+
+parameters:                           # paramètres typés, optionnels
   users:
     type: array
     required: true
     items: string
     description: Liste des users qui doivent avoir oh-my-zsh
-depends_on:
-  - pkg-install                     # garantit l'ordre d'exécution
+  shell_path:
+    type: string
+    default: /usr/local/bin/zsh
 
-steps:
+steps:                                # liste de primitives ou autres recettes appelées
   - pkg-install:
       packages: [zsh, git, curl]
-  - ohmyzsh-clone:                  # primitive dédiée (clone idempotent)
+  - ohmyzsh-clone:
       users: "{{ users }}"
-  - shell-set:                      # primitive (chsh idempotent)
+  - shell-set:
       users: "{{ users }}"
-      shell: /usr/local/bin/zsh
+      shell: "{{ shell_path }}"
 ----
 
-=== Référencement dans le YAML host
+=== Recette agrégat (« méta »)
+
+Même format, juste plein de `requires:` et pas (ou peu) de `steps:` :
 
 [source,yaml]
 ----
-# ~/.beryl/aloli/aloli.net/quantas.yml
-freebsd:
-  hostname: quantas
-  zfs: { ... }
-  packages: [...]    # bootstrap-time, déjà existant
-  users: [...]      # bootstrap-time, déjà existant
+recipe: post-install
+description: Post-install Aloli standard pour FreeBSD
 
-# Section nouvelle : ce qui s'applique au post-bootstrap
-apply:
-  - post-install:
-      ohmyzsh:
-        users: [admin]
-      ruby:
-        version: "3.4.x"        # override le défaut "latest" de la méta
+requires:
+  - freebsd-updates
+  - firewall-pf
+  - ssh-hardening
+  - ohmyzsh
+  - ruby
+  - pkg-install-extras
+  - nginx-passenger
+  - nginx-hardening
+
+# pas de steps : tout est dans les requires
 ----
+
+=== Paramètres dans les copies locales
+
+Une recette globale peut avoir des paramètres requis sans défaut.
+La copie locale dans le dossier host les fixe via le bloc
+`arguments:` :
+
+[source,yaml]
+----
+# ~/.beryl/aloli/aloli.net/quantas/ohmyzsh.yml (copie locale)
+recipe: ohmyzsh
+description: oh-my-zsh pour les users de quantas
+
+arguments:                            # NEW : valeurs concrètes pour ce host
+  users: [admin, deploy]
+  shell_path: /usr/local/bin/zsh
+
+requires:
+  - freebsd-updates
+
+steps:
+  - pkg-install: { packages: [zsh, git, curl] }
+  - ohmyzsh-clone: { users: "{{ users }}" }
+  - shell-set: { users: "{{ users }}", shell: "{{ shell_path }}" }
+----
+
+* `parameters:` (déclaration) reste côté recette globale.
+* `arguments:` (valeurs concrètes) est ajouté côté copie locale.
+* Quand un symlink suffit (paramètres avec défauts ou paramètres
+  optionnels), pas besoin de `arguments:`.
+
+== Mécanisme `beryl apply <host>`
+
+. *Scan* du dossier `<host>/` → liste des recettes que l'opérateur
+  a demandées explicitement.
+. *Résolution* récursive des `requires:` :
++
+.. Pour chaque `requires: R`, cherche `R.yml` d'abord dans `<host>/`
+   (override), sinon dans `~/.beryl/recipes/recipes/`.
+.. Si introuvable → erreur claire (« recette `R` requise par `<X>`
+   est introuvable. Symlinkez-la dans `<host>/` ou ajoutez-la au
+   dépôt central. »).
+.. Récursif jusqu'à fermeture transitive.
+. *Tri topologique* du graphe.
+. *Détection de cycle* → erreur claire avec liste des recettes en
+  boucle.
+. *Exécution* dans l'ordre résolu :
++
+.. Pour chaque recette, beryl déroule ses `steps:`.
+.. Chaque step est soit une primitive Crystal, soit une autre
+   recette (qui aura déjà été exécutée par dépendance, ou qui
+   devra l'être avant — détecté à la résolution).
+.. Idempotence : chaque primitive vérifie l'état SSH avant d'agir.
+. *Reporting final* : « 23 étapes : 18 skipped, 5 applied, 0 failed ».
 
 == Primitives — jeu minimum proposé pour la v0
 
@@ -232,93 +450,50 @@ Une dizaine bien faites couvrent 80 % du besoin Aloli. Reste extensible.
 | Diff de la crontab existante
 |===
 
-== Loups identifiés et choix par défaut pour v0
-
-[cols="2,3,4", options="header"]
-|===
-| Loup | Question | Choix par défaut
-
-| Idempotence
-| Comment savoir qu'une étape a déjà été appliquée ?
-| Toujours *vérifier l'état réel* via SSH avant d'agir (lecture du système). Pas de state file. Le coût d'une lecture est inférieur au coût d'un état désynchronisé.
-
-| Version `latest`
-| Que veut dire « latest » pour Ruby, nginx, etc. ?
-| Au moment de l'apply, beryl interroge `pkg search -e <pkg>` pour résoudre la dernière version stable du repo FreeBSD courant. La version résolue est *loggée explicitement* : `« ruby latest → 3.4.1 résolu le 25/04 »`. L'opérateur peut figer : `version: "3.4.1"` (exact) ou `version: "3.4.x"` (range mineur).
-
-| Ordering / dépendances
-| Si `ohmyzsh` est appelé avant `pkg-install [zsh]` ?
-| Les recettes déclarent leurs dépendances dans `depends_on:`. beryl trie topologiquement avant exécution. Cycle = erreur compilée (refus avant la moindre action).
-
-| Tests
-| Comment tester une recette sans serveur vivant ?
-| Mode `beryl apply --check` : lecture seule, vérifie la cohérence sans modifier. Plus tests Crystal unitaires sur les primitives. Plus, à terme, fixture FreeBSD en jail dans QEMU pour les tests d'intégration de bout en bout.
-
-| Templating
-| Variables interpolées dans `file-template` ?
-| Crystal `String#sub` avec regex `\{\{ \w+ \}\}`. Pas de logique conditionnelle (pas Jinja, pas Erb). Si une recette a besoin de logique, c'est une *recette* à part entière, pas un template.
-
-| Rollback
-| Et si une recette échoue à mi-parcours ?
-| Stop net, log précis de l'étape échouée et de l'erreur. *Pas de rollback automatique* (trop fragile, et casserait l'idempotence). L'opérateur corrige le YAML / l'état du serveur, relance — l'idempotence garantit que les étapes déjà OK sont skippées.
-
-| Désinstallation
-| Comment retirer une recette déjà appliquée ?
-| Hors scope v0. Une recette appliquée laisse une empreinte sur le serveur ; pour annuler il faut soit ré-appliquer une recette « inverse », soit reconstruire le serveur. Cohérent avec la philosophie Aloli : *le serveur est jetable*, on bootstrap un neuf.
-
-| Secrets
-| Comment passer un secret (ex: token) sans qu'il soit dans le YAML host versionné ?
-| Réutilisation de `~/.beryl/.env.yml[<société>][<provider>]` (déjà chmod 0600). Les recettes peuvent référencer `{{ env.OVH_API_TOKEN }}` qui est résolu côté beryl avant SSH. Pas de secret dans le YAML host.
-
-| Reporting
-| Comment voir ce qui a été modifié à un apply ?
-| Chaque primitive log `applied`, `skipped` (déjà OK), ou `failed`. Numérotation `9.X` (la commande 9 = apply) selon la convention beryl. Résumé final : « 23 étapes : 18 skipped, 5 applied, 0 failed ».
-|===
-
-== Plan d'attaque proposé
+== Plan d'attaque
 
 === Phase 1 — preuve de concept (2-3 jours)
 
-. Créer le dépôt `aloli-crystal/beryl-recipes` vide avec README et
-  layout (dossiers `meta-recipes/`, `recipes/`).
+. Créer le dépôt `aloli-crystal/beryl-recipes` (vide, README structurel,
+  layout `recipes/`).
 . Côté beryl : module `Beryl::Apply` avec une primitive `pkg-install`
   codée en Crystal natif + tests unitaires.
-. Première recette `freebsd-updates.yml` qui appelle 2-3 primitives,
-  prouve le mécanisme YAML → Crystal.
-. Méta-recette `post-install.yml` minimale (2-3 recettes) — prouve le
-  chaînage à 3 niveaux.
+. Mécanisme de résolution `requires:` (récursive + tri topologique +
+  détection cycle + override par dossier host).
+. Première recette `freebsd-updates.yml` qui appelle 1-2 primitives.
+. Une recette agrégat `post-install.yml` minimale (3-4 requires) — preuve
+  du chaînage.
 
 À ce point, on a :
 
 * Une mécanique vérifiée bout en bout sur un host de test.
-* Une convention claire pour ajouter des primitives et recettes.
+* Une convention claire pour ajouter des primitives et des recettes.
 * Pas encore de couverture fonctionnelle complète.
 
 === Phase 2 — couverture des primitives (~1 semaine)
 
-* Compléter le jeu de primitives listé en section 5.
+* Compléter le jeu de primitives listé en section 7.
 * Une PR par primitive, chaque PR autonome avec tests.
-* Tests `beryl apply --check` sur quantas (déjà bootstrappé).
+* Tests `beryl apply --check` sur quantas (déjà bootstrapé).
 
 === Phase 3 — enrichissement des recettes
 
 * Recettes Aloli (ohmyzsh, ssh-hardening, ruby, nginx-passenger,
   letsencrypt) une à une.
-* Chaque recette = PR séparée sur `beryl-recipes`, peut-être un
-  CHANGELOG simple.
-* Méta-recette `post-install` enrichie au fil de l'eau.
+* Chaque recette = PR séparée sur `beryl-recipes`, avec CHANGELOG simple.
+* La recette agrégat `post-install` enrichie au fil de l'eau.
 
-=== Phase 4 — versionning des recettes
+=== Phase 4 — versioning des recettes
 
 * Tag `v1.0.0` sur `beryl-recipes` quand le tronc commun est rodé.
 * `beryl apply` peut figer la version : `recipes_version: v1.0.0`
   dans le YAML host. Permet aux serveurs anciens de garder leurs
   recettes connues même si le dépôt principal évolue.
 
-== Méta-recette `post-install` cible (vision)
+== Recette agrégat `post-install` cible (vision)
 
-Liste des recettes que `post-install` orchestrera, dans l'ordre voulu
-par Philippe (refs au message terrain 25 avril 2026) :
+Liste des recettes que `post-install` orchestrera, dans l'ordre
+voulu (calculé par tri topologique des `requires:`) :
 
 [cols="1,3,3", options="header"]
 |===
@@ -326,7 +501,13 @@ par Philippe (refs au message terrain 25 avril 2026) :
 
 | 1
 | `freebsd-updates`
-| `freebsd-update fetch install` + `pkg upgrade -y`. Idempotent par nature (skip si déjà à jour).
+| Pose un *cron quotidien* qui exécute `freebsd-update cron`
+  (téléchargement des patches, pas d'install) et envoie un *mail*
+  à `notify_email` si des updates sont disponibles. Pas
+  d'`install` auto. L'opérateur, prévenu, relance
+  `beryl apply <host>` quand il décide d'appliquer — la même
+  recette détecte alors les patches et fait `freebsd-update install`
+  + `pkg upgrade -y` (idempotent : skip si déjà à jour).
 
 | 2
 | `firewall-pf`
@@ -342,11 +523,17 @@ par Philippe (refs au message terrain 25 avril 2026) :
 
 | 5
 | `ruby`
-| Version : `latest` par défaut, override possible. Installe via `pkg install ruby34` (ou détecte la version la plus récente dispo).
+| Version : `latest` par défaut, override possible. Installe via
+  `pkg install ruby34` (ou détecte la version la plus récente
+  dispo). *Paramètre `for_users`* : `"all"` (system-wide,
+  accessible à tous les users — défaut) OU une liste d'users
+  (ex `[deploy]`) → installe pkg system + configure
+  `.ruby-version` pour ces users uniquement (utile si plusieurs
+  versions cohabitent).
 
 | 6
-| `pkg-install` (extras)
-| Liste de softs spécifique au host : `[tmux, htop, neovim, …]`. Appelée comme primitive depuis la méta-recette.
+| `pkg-install-extras`
+| Liste de softs spécifique au host : `[tmux, htop, neovim, …]`. Recette agrégat custom par host (typiquement copie locale).
 
 | 7
 | `nginx-passenger`
@@ -361,19 +548,43 @@ par Philippe (refs au message terrain 25 avril 2026) :
 | Optionnel. `pkg install py311-certbot` + DNS challenge ou HTTP challenge selon disponibilité du port 80.
 |===
 
-== Questions ouvertes (à trancher avec Philippe)
+== Nouvelle commande `beryl reboot` (H3)
+
+`beryl reboot <host>` déclenche un *reboot SSH propre* du serveur
+en production : `ssh root@host shutdown -r now` puis attente du
+retour SSH (avec le log par tentative habituel, étape `H3.1`).
+
+* *Pas d'appel API hébergeur* — le serveur est sur le disque, pas
+  en rescue. On lui dit juste de redémarrer.
+* *Idempotence* : si le serveur ne répond pas en SSH au moment de
+  l'appel, beryl tente quand même le reboot avec un timeout.
+* *Usage typique* : après une recette qui a posé un kernel update
+  (`freebsd-updates` ayant fait `freebsd-update install` avec
+  patches kernel), beryl logge `« H3 reboot requis : exécutez
+  beryl reboot <host> »` à la fin de l'apply.
+
+Référentiel des helpers maintenu :
+
+[cols="1,3,3", options="header"]
+|===
+| # | Commande | Rôle
+
+| H1 | `beryl scaleway-reinstall` | Resync clés SSH Scaleway via re-install
+| H2 | `beryl boot-hd` | Force un reboot vers le disque (sortie de rescue manuelle)
+| H3 | `beryl reboot` | Reboot SSH propre du serveur en prod (sans toucher au boot mode)
+|===
+
+== Questions ouvertes (à trancher quand on attaquera)
 
 . *Pf default policy* : block-all sortant + allow-list explicite, ou
   allow-all sortant + block-list ? La 1re est plus sûre mais casse
   les déploiements (apt, git, curl, … doivent être whitelistés).
 . *letsencrypt automatisé* : DNS challenge via OVH/Scaleway DNS API
   (qu'on a déjà câblé) ou HTTP challenge classique ?
-. *Reboot après une recette* : certaines recettes (kernel, firmware)
-  nécessitent un reboot. Le déclenche-t-on automatiquement, ou on
-  log « reboot requis » et on laisse l'opérateur décider ?
-. *Recettes utilisateur (non-Aloli)* : où et comment les déclarer ?
-  Dossier dans `~/.beryl/recipes-local/` avec priorité plus haute
-  que `~/.beryl/recipes/` (qui vient du dépôt) ?
+. *Modèle « taps »* : à formaliser. Implémentation `beryl
+  recipes-tap add/remove/list`, ordre de résolution multi-taps
+  (alphabétique ? ordre d'ajout ?), gestion des conflits si deux
+  taps définissent la même recette.
 
 == Licence et organisation
 
@@ -381,8 +592,7 @@ par Philippe (refs au message terrain 25 avril 2026) :
   reste de l'écosystème beryl).
 * Convention de commit en français (cohérent avec les autres dépôts
   Aloli).
-* Branche par défaut `production`, ajout de `development` après v1.0.0
-  (cohérent avec la feedback `feedback_branch_convention`).
+* Branche par défaut `production`, ajout de `development` après v1.0.0.
 
 == Pour mémoire — points NON couverts par `beryl apply`
 
