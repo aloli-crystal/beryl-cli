@@ -1,4 +1,5 @@
 require "option_parser"
+require "scaleway-api/scaleway_api"
 require "../config"
 require "../providers"
 require "./account_utils"
@@ -118,10 +119,94 @@ module Beryl::CLI::AddProvider
     )
     return EXIT_ABORTED unless success
 
+    # Hook Scaleway : auto-découverte du `SCW_DEFAULT_PROJECT_ID` via
+    # l'API à partir de `SCW_SECRET_KEY` + `SCW_DEFAULT_ORGANIZATION_ID`
+    # collectés ci-dessus. Évite à l'opérateur d'aller fouiller la
+    # console pour le copier-coller.
+    if provider.name == "scaleway"
+      autodiscover_scaleway_project_id(account, env_file, env_path, non_interactive)
+    end
+
     STDERR.puts "[beryl add-provider] 2 Credentials posés dans #{env_path}[#{account}][#{provider.name}]."
     EXIT_OK
   rescue ex : Beryl::CLI::AccountUtils::Aborted
     STDERR.puts "beryl : abandon"
     EXIT_ABORTED
+  end
+
+  # Auto-découverte du `SCW_DEFAULT_PROJECT_ID` à partir de
+  # `SCW_SECRET_KEY` + `SCW_DEFAULT_ORGANIZATION_ID` collectés.
+  # Appelle `client.projects.list(organization_id)` :
+  #
+  #   - 1 seul projet (cas commun, projet `default` à l'inscription)
+  #     → auto-sélectionné, l'opérateur ne tape rien.
+  #   - Plusieurs projets → prompt interactif (ou skip en
+  #     `--non-interactive`, l'opérateur devra l'ajouter manuellement
+  #     plus tard).
+  #
+  # Si la découverte échoue (réseau, mauvais credentials, etc.),
+  # warning seulement : on n'invalide pas l'add-provider entier
+  # parce que les autres credentials sont OK et l'opérateur peut
+  # toujours ajouter `SCW_DEFAULT_PROJECT_ID` à la main dans
+  # `.env.yml`.
+  private def self.autodiscover_scaleway_project_id(
+    account : String,
+    env_file : Beryl::Config::EnvFile,
+    env_path : String,
+    non_interactive : Bool,
+  ) : Nil
+    creds = env_file.for_account_provider(account, "scaleway")
+    secret_key = creds["SCW_SECRET_KEY"]?
+    org_id = creds["SCW_DEFAULT_ORGANIZATION_ID"]?
+    existing_pid = creds["SCW_DEFAULT_PROJECT_ID"]?
+
+    return unless secret_key && org_id
+    return if existing_pid && !existing_pid.empty?
+
+    STDERR.puts "[beryl add-provider] 2 Scaleway : auto-découverte du project_id via API (organization_id=#{org_id})..."
+    client = ScalewayApi::Client.new(secret_key: secret_key)
+    projects = begin
+      client.projects.list(organization_id: org_id)
+    rescue ex
+      STDERR.puts "[beryl add-provider] 2 Scaleway : auto-découverte échouée (#{ex.class.name}: #{ex.message.try(&.[0, 120])})"
+      STDERR.puts "[beryl add-provider] 2 Scaleway : ajoutez SCW_DEFAULT_PROJECT_ID manuellement dans #{env_path} sous [#{account}][scaleway]."
+      return
+    end
+
+    if projects.empty?
+      STDERR.puts "[beryl add-provider] 2 Scaleway : aucun projet trouvé pour cette organisation (étrange — vérifiez SCW_DEFAULT_ORGANIZATION_ID)."
+      return
+    end
+
+    chosen = if projects.size == 1
+               p = projects.first
+               STDERR.puts "[beryl add-provider] 2 Scaleway : 1 seul projet, auto-sélectionné : #{p.name} (#{p.id})"
+               p
+             elsif non_interactive
+               STDERR.puts "[beryl add-provider] 2 Scaleway : #{projects.size} projets disponibles, mais --non-interactive → ajoutez SCW_DEFAULT_PROJECT_ID manuellement dans .env.yml :"
+               projects.each { |p| STDERR.puts "  - #{p.name.ljust(20)} #{p.id}#{p.default? ? " (default)" : ""}" }
+               return
+             else
+               STDERR.puts "[beryl add-provider] 2 Scaleway : #{projects.size} projets disponibles :"
+               projects.each_with_index do |p, i|
+                 STDERR.puts "  #{i + 1}. #{p.name.ljust(20)} #{p.id}#{p.default? ? " (default)" : ""}"
+               end
+               loop do
+                 ans = Beryl::CLI::AccountUtils.ask("Lequel utiliser ? (numéro ou ID) :", "1")
+                 idx = ans.to_i?
+                 if idx && idx >= 1 && idx <= projects.size
+                   break projects[idx - 1]
+                 end
+                 by_id = projects.find { |p| p.id == ans }
+                 break by_id if by_id
+                 STDERR.puts "  réponse invalide, recommencez."
+               end
+             end
+
+    return unless chosen.is_a?(ScalewayApi::Endpoints::Project)
+    creds["SCW_DEFAULT_PROJECT_ID"] = chosen.id
+    env_file.set_account_provider(account, "scaleway", creds)
+    env_file.save
+    STDERR.puts "[beryl add-provider] 2 Scaleway : SCW_DEFAULT_PROJECT_ID=#{chosen.id} ajouté à #{env_path}."
   end
 end

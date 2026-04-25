@@ -77,21 +77,25 @@ describe Beryl::Providers::Scaleway do
   end
 
   describe "#credentials_env_vars" do
-    it "liste ACCESS_KEY + SECRET_KEY + PROJECT_ID requis, ZONE optionnelle" do
+    it "liste ACCESS_KEY + SECRET_KEY + ORGANIZATION_ID requis, PROJECT_ID + ZONE optionnels" do
       # La console Scaleway affiche deux champs lors de la création
       # d'une API key : ID de la clé d'accès + Clé secrète. Beryl
       # stocke les deux pour traçabilité (même si SCW_SECRET_KEY est
       # la seule actuellement utilisée pour l'authentification API).
       #
-      # SCW_DEFAULT_PROJECT_ID rendu obligatoire le 25 avril 2026
-      # (terrain chouquette) : plusieurs opérations beryl en ont
-      # besoin (`scaleway-reinstall`, `ssh_keys.list`…). Mieux vaut
-      # le collecter à `beryl add-provider` que planter plus tard.
+      # Évolution 25 avril 2026 (scaleway-api 0.5.0 + beryl 0.1.64) :
+      # SCW_DEFAULT_PROJECT_ID redevient optionnel — beryl
+      # l'auto-découvre via l'API à partir de SCW_SECRET_KEY +
+      # SCW_DEFAULT_ORGANIZATION_ID (qui devient obligatoire à la
+      # place). L'organization_id est plus simple à trouver dans la
+      # console que le project_id et permet de lister les projets
+      # via `client.projects.list`.
       vars = Beryl::Providers::Scaleway.new.credentials_env_vars
       vars.reject(&.optional).map(&.name).sort.should eq(
-        ["SCW_ACCESS_KEY", "SCW_DEFAULT_PROJECT_ID", "SCW_SECRET_KEY"])
+        ["SCW_ACCESS_KEY", "SCW_DEFAULT_ORGANIZATION_ID", "SCW_SECRET_KEY"])
       optional = vars.select(&.optional).map(&.name)
       optional.should contain("SCW_DEFAULT_ZONE")
+      optional.should contain("SCW_DEFAULT_PROJECT_ID")
     end
   end
 

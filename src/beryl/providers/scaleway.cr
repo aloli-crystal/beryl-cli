@@ -133,27 +133,32 @@ module Beryl::Providers
           description: "Clé secrète (UUID, affichée UNE FOIS lors de la création dans la console)",
           secret: true,
         ),
+        # Organization ID : exigé pour l'auto-découverte du project_id
+        # (`/account/v3/projects?organization_id=<UUID>`). Plus simple à
+        # trouver dans la console que le project_id : c'est le premier
+        # UUID affiché en haut à gauche, dans le menu utilisateur, après
+        # « Organization ». L'org_id est aussi visible dans toutes les
+        # URL de la console (`/o/<UUID>/...`).
+        Beryl::EnvVarSpec.new(
+          name: "SCW_DEFAULT_ORGANIZATION_ID",
+          description: "UUID de l'organisation — Console → menu utilisateur (haut droite) → Organization → ID",
+        ),
         Beryl::EnvVarSpec.new(
           name: "SCW_DEFAULT_ZONE",
           description: "Zone par défaut (fr-par-1, fr-par-2, nl-ams-1, pl-waw-1…)",
           optional: true,
           default: "fr-par-2",
         ),
-        # Project ID obligatoire : toutes les opérations qui listent
-        # des ressources (ssh_keys.list, servers.list, reinstall…)
-        # l'exigent côté API. Avant, marqué optionnel — terrain
-        # chouquette 25 avril 2026, `beryl scaleway-reinstall` plantait
-        # en « project_id manquant ». Mieux vaut le collecter dès
-        # `beryl add-provider`.
-        #
-        # Où le trouver : Console Scaleway → menu grille (haut gauche) →
-        # Projects dashboard → cliquer sur « Default » (ou le projet voulu) →
-        # onglet Settings → Project ID (UUID).
-        # Ou plus rapide : l'UUID est dans l'URL quand vous êtes sur un
-        # projet (console.scaleway.com/project/<UUID>/…).
+        # Project ID : optionnel à add-provider — beryl appelle l'API
+        # `projects.list(organization_id)` après collecte des autres
+        # credentials et le résout automatiquement (1 seul projet :
+        # auto-sélection, plusieurs : prompt). Stocké dans `.env.yml`
+        # quand résolu, pour éviter le coût d'un appel API à chaque
+        # commande beryl.
         Beryl::EnvVarSpec.new(
           name: "SCW_DEFAULT_PROJECT_ID",
-          description: "UUID du projet — Console → grille (haut gauche) → Projects → Default → Settings → Project ID",
+          description: "UUID du projet (auto-détecté à add-provider via l'organization_id)",
+          optional: true,
         ),
       ]
     end
