@@ -120,7 +120,7 @@ module Beryl::CLI::Rescue
         dedibox_factory: dedibox_client_factory,
       )
       if resolved
-        log "provider=#{po} id=#{host_name} → IP #{resolved[:ip]}" \
+        log "4.0 #{po} : id=#{host_name} → IP #{resolved[:ip]}" \
             "#{resolved[:zone] ? " (zone #{resolved[:zone]})" : ""} (résolu via API)"
         host_name = resolved[:ip]
         server_id_flag ||= resolved[:server_id]
@@ -152,7 +152,7 @@ module Beryl::CLI::Rescue
     # Skippé en --dry-run pour que l'opérateur voie quand même
     # ce qui serait appelé.
     if !dry_run && provider && ssh_root_is_linux?(host)
-      log "#{provider} : root@#{host.ssh_host} répond déjà en Linux (kernel rescue) — rescue déjà en place, skip."
+      log "4.0 #{provider} : root@#{host.ssh_host} répond déjà en Linux (kernel rescue) — rescue déjà en place, skip."
       return EXIT_OK
     end
 
@@ -163,8 +163,8 @@ module Beryl::CLI::Rescue
         "champ `ovh.service_name` manquant pour #{host.fqdn}"
       )
       if dry_run
-        log "DRY-RUN : OVHcloud → prepare_rescue(#{service_name}, ssh_key=#{host.ovh_ssh_key_name || "<auto>"})"
-        log "DRY-RUN : puis wait_for_ssh(#{host.ssh_host}:#{host.port} as root, timeout #{timeout.total_minutes.to_i}m)" if wait
+        log "4 DRY-RUN : OVHcloud → prepare_rescue(#{service_name}, ssh_key=#{host.ovh_ssh_key_name || "<auto>"})"
+        log "4 DRY-RUN : puis wait_for_ssh(#{host.ssh_host}:#{host.port} as root, timeout #{timeout.total_minutes.to_i}m)" if wait
         log "Pour exécuter : #{Beryl.rerun_hint("rescue", args, replace_host: {raw, "#{host.account_name}/#{host.fqdn}"})}"
         return EXIT_OK
       end
@@ -179,8 +179,8 @@ module Beryl::CLI::Rescue
       )
       dry_zone = scaleway_zone_override || host.scaleway_zone
       if dry_run
-        log "DRY-RUN : Scaleway → reboot(#{server_id}#{dry_zone ? ", zone=#{dry_zone}" : ""}, boot_type=Rescue)"
-        log "DRY-RUN : puis wait_for_ssh(#{host.ssh_host}:#{host.port} as root, timeout #{timeout.total_minutes.to_i}m)" if wait
+        log "4 DRY-RUN : Scaleway → reboot(#{server_id}#{dry_zone ? ", zone=#{dry_zone}" : ""}, boot_type=Rescue)"
+        log "4 DRY-RUN : puis wait_for_ssh(#{host.ssh_host}:#{host.port} as root, timeout #{timeout.total_minutes.to_i}m)" if wait
         log "Pour exécuter : #{Beryl.rerun_hint("rescue", args, replace_host: {raw, "#{host.account_name}/#{host.fqdn}"})}"
         return EXIT_OK
       end
@@ -193,9 +193,9 @@ module Beryl::CLI::Rescue
         "server_id Dedibox manquant : ni --server-id, ni `dedibox.server_id` dans le merge pour #{host.fqdn}"
       )
       if dry_run
-        log "DRY-RUN : Dedibox → prepare_rescue(#{server_id}, image=debian-12_amd64)"
-        log "DRY-RUN : puis reboot(#{server_id}, reason=\"beryl rescue\")"
-        log "DRY-RUN : puis wait_for_ssh(#{host.ssh_host}:#{host.port} as root, timeout #{timeout.total_minutes.to_i}m)" if wait
+        log "4 DRY-RUN : Dedibox → prepare_rescue(#{server_id}, image=debian-12_amd64)"
+        log "4 DRY-RUN : puis reboot(#{server_id}, reason=\"beryl rescue\")"
+        log "4 DRY-RUN : puis wait_for_ssh(#{host.ssh_host}:#{host.port} as root, timeout #{timeout.total_minutes.to_i}m)" if wait
         log "Pour exécuter : #{Beryl.rerun_hint("rescue", args, replace_host: {raw, "#{host.account_name}/#{host.fqdn}"})}"
         return EXIT_OK
       end
@@ -211,7 +211,8 @@ module Beryl::CLI::Rescue
 
     if wait
       target = Beryl.format_ssh_target(host)
-      log "attente SSH sur #{target} (port #{host.port}, timeout #{timeout.total_minutes.to_i} min)"
+      log "4.3 #{provider} : attente SSH sur #{target} (port #{host.port}, timeout #{timeout.total_minutes.to_i} min)"
+      @@step_prefix = "4.3 #{provider} : "
       # `default_wait_for_ssh` (qui loggue ligne par ligne chaque
       # tentative) prend le relais. Plus de ticker `log_step` ici :
       # sur chouquette terrain, il rendait la main après `[   0s]`
@@ -221,6 +222,7 @@ module Beryl::CLI::Rescue
       # le flow provider-specifique (promote etc.) s'occupe ensuite
       # de la couche applicative.
       ssh_ok = wait_for_ssh.call(host.ssh_host, host.port, "root", timeout, SSH_POLL_INTERVAL)
+      @@step_prefix = ""
       unless ssh_ok
         STDERR.puts "beryl : timeout SSH sur #{target}"
         return EXIT_SSH_FAILED
@@ -235,7 +237,7 @@ module Beryl::CLI::Rescue
 
       EXIT_OK
     else
-      log "commande rescue envoyée à l'API ; attente SSH désactivée (--no-wait)"
+      log "4 #{provider} : commande rescue envoyée à l'API ; attente SSH désactivée (--no-wait)"
       EXIT_OK
     end
   rescue ex : Beryl::Config::Root::HostNotFound
@@ -276,7 +278,7 @@ module Beryl::CLI::Rescue
     )
     client = factory.call
     ssh_key_name = host.ovh_ssh_key_name || auto_select_ovh_ssh_key(client, host)
-    log "OVH : prepare_rescue pour #{service_name} (clé : #{ssh_key_name})"
+    log "4.1 OVH : prepare_rescue pour #{service_name} (clé : #{ssh_key_name})"
     client.dedicated_servers.prepare_rescue(service_name: service_name, ssh_key_name: ssh_key_name)
   end
 
@@ -328,10 +330,10 @@ module Beryl::CLI::Rescue
     names = client.ssh_keys.list
     raise MissingProviderConfig.new("aucune clé SSH OVH dans le compte (configurez `ovh.ssh_key_name` dans #{host.domain.source_path})") if names.empty?
     if names.size == 1
-      log "OVH : clé SSH auto-sélectionnée (seule du compte) : #{names.first}"
+      log "4.1 OVH : clé SSH auto-sélectionnée (seule du compte) : #{names.first}"
       names.first
     else
-      log "OVH : plusieurs clés SSH, utilise #{names.first} (pour choisir explicitement, déclarez `ovh.ssh_key_name`)"
+      log "4.1 OVH : plusieurs clés SSH, utilise #{names.first} (pour choisir explicitement, déclarez `ovh.ssh_key_name`)"
       names.first
     end
   end
@@ -372,16 +374,16 @@ module Beryl::CLI::Rescue
       "Scaleway : zone indéterminée pour le serveur #{server_id}"
     )
 
-    log "Scaleway 1/3 : pre-check clé SSH (install.ssh_key_ids du serveur)"
+    log "4.1 Scaleway : pre-check clé SSH (install.ssh_key_ids du serveur)"
     scaleway_precheck_ssh_key(host, server, client)
 
-    log "Scaleway 2/3 : reboot(Rescue) sur #{server_id} (zone #{resolved_zone})"
+    log "4.2 Scaleway : reboot(Rescue) sur #{server_id} (zone #{resolved_zone})"
     updated = client.baremetal.servers.reboot(
       server_id: server_id,
       zone: resolved_zone,
       boot_type: ScalewayApi::Endpoints::Baremetal::BootType::Rescue,
     )
-    log "Scaleway 2/3 : serveur #{updated.id} passé en status = #{updated.status}"
+    log "4.2 Scaleway : serveur #{updated.id} passé en status = #{updated.status}"
 
     # Attente de la chute du sshd ancien : sans ça, le `wait_for_ssh`
     # principal trouve immédiatement le sshd actuel (qui répond
@@ -389,9 +391,11 @@ module Beryl::CLI::Rescue
     # le promote `rescue → root` est appliqué sur ce sshd-là, juste
     # avant qu'il tombe — résultat : la modif est perdue.
     # Pattern repris du flow Dedibox (`wait_for_ssh_drop` 2b/4).
-    log "Scaleway 2b/3 : attente de la chute du sshd actuel (preuve que le hardware reboot)"
+    log "4.2b Scaleway : attente de la chute du sshd actuel (preuve que le hardware reboot)"
+    @@step_prefix = "4.2b Scaleway : "
     wait_for_ssh_drop(host)
-    log "Scaleway 3/3 : sshd tombé, le dispatcher va maintenant attendre SSH puis promouvra `rescue` → `root`"
+    @@step_prefix = ""
+    log "4.3 Scaleway : sshd tombé, le dispatcher va maintenant attendre SSH puis promouvra `rescue` → `root`"
   end
 
   # Vérifie que la clé locale (`host.identity_file`) est présente
@@ -462,7 +466,7 @@ module Beryl::CLI::Rescue
                 )
 
     keys_in_install = ssh_key_ids.map { |id| client.ssh_keys.get(id) }
-    log "Scaleway 1/3 : #{ssh_key_ids.size} clé(s) dans install.ssh_key_ids (" \
+    log "4.1 Scaleway : #{ssh_key_ids.size} clé(s) dans install.ssh_key_ids (" \
         "#{keys_in_install.map(&.name).join(", ")})"
 
     present = keys_in_install.any? { |k| k.public_key.split(/\s+/)[1]? == local_b64 }
@@ -508,9 +512,9 @@ module Beryl::CLI::Rescue
       echo 'PermitRootLogin yes' | sudo tee /etc/ssh/sshd_config.d/beryl.conf >/dev/null
       (sudo systemctl reload ssh 2>/dev/null || sudo systemctl reload sshd 2>/dev/null || sudo service ssh reload) >/dev/null 2>&1
     BASH
-    log "Scaleway : promote rescue → root (copie authorized_keys + PermitRootLogin yes)"
+    log "4.4 Scaleway : promote rescue → root (copie authorized_keys + PermitRootLogin yes)"
     rescue_conn.exec("bash -s", stdin: script)
-    log "Scaleway : root@#{host.ssh_host} prêt (le flow beryl continue en root)"
+    log "4.4 Scaleway : root@#{host.ssh_host} prêt (le flow beryl continue en root)"
   end
 
   # Flow Dedibox (4 étapes numérotées dans les logs pour clarté).
@@ -536,11 +540,11 @@ module Beryl::CLI::Rescue
             DediboxApi::Endpoints::Servers::DEFAULT_RESCUE_IMAGE
     client = factory.call
 
-    log "Dedibox 1/4 : prepare_rescue(server_id=#{server_id}, image=#{image})"
+    log "4.1 Dedibox : prepare_rescue(server_id=#{server_id}, image=#{image})"
     creds = client.servers.prepare_rescue(server_id, image)
-    log "Dedibox 1/4 : credentials rescue — login=#{creds.login} (password généré par l'API, clé SSH IAM auto-injectée par Dedibox)"
+    log "4.1 Dedibox : credentials rescue — login=#{creds.login} (password généré par l'API, clé SSH IAM auto-injectée par Dedibox)"
 
-    log "Dedibox 2/4 : reboot(server_id=#{server_id}, reason=\"beryl rescue\")"
+    log "4.2 Dedibox : reboot(server_id=#{server_id}, reason=\"beryl rescue\")"
     # L'API Dedibox retourne parfois `false` (« reboot refusé »)
     # alors que le reboot a bien été déclenché côté hardware
     # (constaté terrain : last_reboot côté API change malgré la
@@ -564,7 +568,9 @@ module Beryl::CLI::Rescue
     # Parade : on attend que le TCP 22 devienne injoignable (signe
     # que le reboot a bien commencé côté hardware), puis l'attente
     # 3/4 reprendra pour le nouveau rescue.
+    @@step_prefix = "4.2b Dedibox : "
     wait_for_ssh_drop(host)
+    @@step_prefix = ""
 
     promote_dedibox_rescue_to_root(host, server_id, creds)
   end
@@ -575,10 +581,11 @@ module Beryl::CLI::Rescue
   # côté BMC ?), on continue quand même avec les étapes suivantes.
   private def self.wait_for_ssh_drop(host : Beryl::Config::ResolvedHost) : Nil
     deadline = Time.instant + 2.minutes
-    Beryl.log_step(
-      "beryl rescue",
-      "Dedibox 2b/4 : attente de la chute de sshd (reboot hardware en cours)",
-    ) do
+    # Le label du log_step est dynamique : `@@step_prefix` (positionné
+    # par l'appelant Scaleway/Dedibox avant l'appel) précise lequel.
+    # Sans préfixe, fallback générique pour OVH ou tests unitaires.
+    label = @@step_prefix.empty? ? "4.2b : attente de la chute de sshd (reboot hardware en cours)" : "#{@@step_prefix}attente de la chute de sshd (reboot hardware en cours)"
+    Beryl.log_step("beryl rescue", label) do
       loop do
         if Time.instant >= deadline
           STDERR.puts "\n  sshd répond toujours après 2 min, on continue quand même (reboot suspicieux)"
@@ -646,7 +653,7 @@ module Beryl::CLI::Rescue
     deadline = Time.instant + DEFAULT_SSH_WAIT_TIMEOUT
     Beryl.log_step(
       "beryl rescue",
-      "Dedibox 3/4 : attente SSH #{sd_user}@#{host.ssh_host} (rescue Debian prêt)",
+      "4.3 Dedibox : attente SSH #{sd_user}@#{host.ssh_host} (rescue Debian prêt)",
     ) do
       attempt = 0
       loop do
@@ -678,12 +685,12 @@ module Beryl::CLI::Rescue
       echo 'PermitRootLogin yes' > /etc/ssh/sshd_config.d/beryl.conf
       (systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || service ssh reload) >/dev/null 2>&1
     BASH
-    log "Dedibox 4/4 : promote #{sd_user} → root (copie clé IAM + PermitRootLogin yes via sudo -S)"
+    log "4.4 Dedibox : promote #{sd_user} → root (copie clé IAM + PermitRootLogin yes via sudo -S)"
     sd_conn.exec(
       "sudo -S -p '' bash -s",
       stdin: creds.password + "\n" + script,
     )
-    log "Dedibox 4/4 : root@#{host.ssh_host} prêt (le wait_for_ssh principal prend le relais)"
+    log "4.4 Dedibox : root@#{host.ssh_host} prêt (le wait_for_ssh principal prend le relais)"
   end
 
   # Par défaut, résolution DNS via `Socket::Addrinfo.resolve`.
@@ -693,6 +700,15 @@ module Beryl::CLI::Rescue
   rescue
     false
   end
+
+  # Préfixe inséré au début des logs des helpers internes
+  # (`default_wait_for_ssh`, `wait_for_ssh_drop`). Posé par `run()`
+  # avant l'appel et remis à vide après — permet de partager la
+  # numérotation de l'étape en cours sans casser la signature
+  # injectable du proc `wait_for_ssh`.
+  #
+  # Format attendu : `"4.3 Scaleway : "` (avec espace final).
+  @@step_prefix : String = ""
 
   # Attente SSH : une ligne de log par tentative, avec raison de
   # l'échec (TCP refused / timeout / autre). Pas de ticker animé —
@@ -715,7 +731,7 @@ module Beryl::CLI::Rescue
       elapsed = (Time.instant - start).total_seconds.to_i
       begin
         TCPSocket.new(host, port, connect_timeout: 5.seconds).close
-        log "SSH répond sur #{host}:#{port} après #{elapsed}s (tentative #{attempt})"
+        log "#{@@step_prefix}SSH répond sur #{host}:#{port} après #{elapsed}s (tentative #{attempt})"
         return true
       rescue ex
         reason = case ex
@@ -723,7 +739,7 @@ module Beryl::CLI::Rescue
                  when IO::TimeoutError     then "TCP timeout"
                  else                           "#{ex.class.name}: #{ex.message}"
                  end
-        log "tentative #{attempt} à #{elapsed}s : #{reason}, retry dans #{poll.total_seconds.to_i}s"
+        log "#{@@step_prefix}tentative #{attempt} à #{elapsed}s : #{reason}, retry dans #{poll.total_seconds.to_i}s"
         sleep poll
       end
     end
