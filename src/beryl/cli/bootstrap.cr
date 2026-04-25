@@ -221,6 +221,20 @@ module Beryl::CLI::Bootstrap
         dedibox_sid = sid_int
       end
     end
+    # Scaleway : nécessaire pour `reboot_bare_metal` post-bootstrap.
+    # Sans le client + server_id + zone, le reboot tombe dans le
+    # fallback `reboot -f` côté rescue Linux qui ne change pas le
+    # boot_type API → le serveur revient en rescue Ubuntu au lieu
+    # de booter sur le FreeBSD installé. Constaté terrain chouquette
+    # 25 avril 2026.
+    scaleway_client = nil
+    scaleway_sid : String? = nil
+    scaleway_zone : String? = nil
+    if effective_provider == "scaleway" && (sid_str = host.scaleway_server_id)
+      scaleway_client = Beryl::CLI::Credentials.scaleway_client
+      scaleway_sid = sid_str
+      scaleway_zone = host.scaleway_zone
+    end
 
     bootstrap = Beryl::Bootstrap::QemuInRescue.new(
       rescue_conn: rescue_conn,
@@ -243,6 +257,9 @@ module Beryl::CLI::Bootstrap
       ovh_service_name: host.ovh_service_name,
       dedibox_client: dedibox_client,
       dedibox_server_id: dedibox_sid,
+      scaleway_client: scaleway_client,
+      scaleway_server_id: scaleway_sid,
+      scaleway_zone: scaleway_zone,
       install_type: install_type,
       data_pools: data_pools,
       follow_hint_host_name: "#{host.account_name}/#{host.fqdn}",

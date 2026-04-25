@@ -197,6 +197,9 @@ module Beryl::Bootstrap
       @ovh_service_name : String? = nil,
       @dedibox_client : DediboxApi::Client? = nil,
       @dedibox_server_id : Int32? = nil,
+      @scaleway_client : ScalewayApi::Client? = nil,
+      @scaleway_server_id : String? = nil,
+      @scaleway_zone : String? = nil,
       @packages : Array(String) = [] of String,
       @sudoers : Array(String) = [] of String,
       @install_type : String = "distribution_sets",
@@ -513,6 +516,24 @@ module Beryl::Bootstrap
       if ddx = @dedibox_client
         if sid = @dedibox_server_id
           ddx.servers.reboot_to_disk(sid, reason: "beryl post-bootstrap")
+          sleep REBOOT_GRACE_PERIOD
+          return
+        end
+      end
+      # Scaleway : `reboot(boot_type=Normal)` change le boot_type
+      # API ET déclenche le reboot. Sans cet appel, le serveur
+      # redémarre mais Scaleway le réamorce en rescue (boot_type
+      # encore `rescue` depuis `beryl rescue`). Constaté terrain
+      # chouquette 25 avril 2026 : sans cette branche, l'étape 6/6
+      # tournait indéfiniment en pollant un rescue Ubuntu qui
+      # répondait `Linux` au lieu du FreeBSD attendu.
+      if scw = @scaleway_client
+        if sid = @scaleway_server_id
+          scw.baremetal.servers.reboot(
+            server_id: sid,
+            zone: @scaleway_zone,
+            boot_type: ScalewayApi::Endpoints::Baremetal::BootType::Normal,
+          )
           sleep REBOOT_GRACE_PERIOD
           return
         end

@@ -382,7 +382,16 @@ module Beryl::CLI::Rescue
       boot_type: ScalewayApi::Endpoints::Baremetal::BootType::Rescue,
     )
     log "Scaleway 2/3 : serveur #{updated.id} passé en status = #{updated.status}"
-    log "Scaleway 3/3 : le dispatcher attendra SSH puis promouvra `rescue` → `root`"
+
+    # Attente de la chute du sshd ancien : sans ça, le `wait_for_ssh`
+    # principal trouve immédiatement le sshd actuel (qui répond
+    # encore tant que le reboot n'a pas effectivement coupé), puis
+    # le promote `rescue → root` est appliqué sur ce sshd-là, juste
+    # avant qu'il tombe — résultat : la modif est perdue.
+    # Pattern repris du flow Dedibox (`wait_for_ssh_drop` 2b/4).
+    log "Scaleway 2b/3 : attente de la chute du sshd actuel (preuve que le hardware reboot)"
+    wait_for_ssh_drop(host)
+    log "Scaleway 3/3 : sshd tombé, le dispatcher va maintenant attendre SSH puis promouvra `rescue` → `root`"
   end
 
   # Vérifie que la clé locale (`host.identity_file`) est présente
