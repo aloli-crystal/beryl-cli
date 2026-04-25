@@ -268,6 +268,110 @@ Les deux modèles sont du bare metal au sens strict — un seul locataire sur le
 | OVHcloud, Scaleway, Ikoula
 |===
 
+== Compatibilité beryl
+
+beryl provisionne un FreeBSD bare metal en orchestrant trois opérations
+côté API hébergeur :
+
+. Bascule du serveur en *rescue Linux* (Debian/Ubuntu, peu importe).
+. *Reboot vers le disque* après l'installation FreeBSD (sinon le serveur
+  reboot en rescue).
+. *Gestion des clés SSH* (idéalement injection dynamique au rescue ;
+  acceptable si figées à l'install initial avec la possibilité de relancer
+  un install via API).
+
+Trois providers sont câblés et testés terrain (24-25 avril 2026) :
+
+[cols="2,1,3,3", options="header"]
+|===
+| Hébergeur | Statut | Forces | Limitations beryl
+
+| *OVHcloud*
+| ✅ Validé
+| API rescue + boot-disk + SSH keys dynamiques. Tâches asynchrones pollables. UX la plus naturelle des trois.
+| `service_name` textuel à mémoriser ; rescue task parfois lent (5-10 min).
+
+| *Scaleway Elastic Metal*
+| ✅ Validé (avec réserves)
+| API REST très complète, reverse DNS IPv4/IPv6 par API, install par UUID.
+| User rescue = `rescue` (pas root) → besoin d'un promote. Clés figées à `install.ssh_key_ids` initial → `beryl scaleway-reinstall` nécessaire si la clé n'a pas été cochée à la création. `boot_type` API à passer en `Normal` au reboot bare-metal sinon le serveur revient en rescue.
+
+| *Dedibox / Online.net*
+| ✅ Validé
+| API simple Bearer, IAM keys auto-injectées en rescue.
+| Reverse DNS NON exposé par API (panel uniquement). User rescue = `sd-<id>` → besoin d'un promote sudo. `prepare_rescue` + `reboot` sont deux étapes distinctes (helpers shard).
+|===
+
+=== Hébergeurs à investiguer pour la prochaine itération beryl
+
+Listés par compatibilité présumée (API-first → vers panel-only), avec
+ticket d'entrée :
+
+[cols="2,1,2,4", options="header"]
+|===
+| Hébergeur | API-first | Ticket | Notes pour intégration beryl
+
+| *PhoenixNAP* (Bare Metal Cloud)
+| ⭐⭐⭐
+| Horaire
+| Cible naturelle pour beryl : API-first, Terraform/Ansible/Pulumi déjà câblés, facturation horaire (test peu coûteux). Alternative explicite à Equinix Metal qui ferme. À chiffrer côté Aloli.
+
+| *Cherry Servers*
+| ⭐⭐⭐
+| Horaire/mensuel
+| REST API + Terraform/Pulumi/CLI. Lituanie, donc UE. API jeune mais documentation propre.
+
+| *Latitude.sh* (ex-Maxihost)
+| ⭐⭐⭐
+| Mensuel
+| Provisioning « en quelques secondes ». BR/USA, datacenters Europe disponibles.
+
+| *Hetzner Robot* (dédiés classiques)
+| ⭐⭐
+| Mensuel + setup
+| Robot Webservice (XML-RPC façon SOAP-light), API distincte du Cloud (RESTful). À traiter comme provider à part entière, pas trivial. Server Auction pour réduire le coût de tests.
+
+| *Vultr Bare Metal*
+| ⭐⭐
+| Horaire
+| API REST v2 mature, SDK officiels. Mais offre orientée `*.metal` cloud-style — à vérifier si rescue par API.
+
+| *Outscale*
+| ⭐
+| Mensuel ou réservation
+| Compatible AWS EC2 (FCU) + OpenStack ; le « Dedicated Cloud » est un single-tenant cloud, pas du vrai baremetal au sens des trois ci-dessus. Qualifié SecNumCloud, intéressant pour des clients OIV/OSE mais hors flow beryl actuel.
+
+| *Ikoula*
+| ⭐
+| Mensuel
+| API extranet « plus limitée que les leaders ». Demander la liste exhaustive des endpoints `wsds/` (rescue, boot-disk, ssh-keys) avant intégration. Acteur historique français, intéressant pour la souveraineté.
+
+| *PulseHeberg* / *Hopus*
+| ?
+| Mensuel
+| Petits acteurs français, offres nichées. À évaluer manuellement (présence d'API publique, niveau d'automatisation).
+
+| *AWS `*.metal`* / *Azure* / *GCP* / *OCI*
+| ⭐⭐⭐
+| Horaire (cher)
+| API très complète mais coût d'un baremetal cloud-public significatif (souvent plusieurs €/heure). Hors cible Aloli (privilégier la souveraineté FR/EU et le rapport coût-perf).
+|===
+
+=== Recommandation d'ordre d'intégration
+
+. *PhoenixNAP* d'abord : facturation horaire = test peu coûteux,
+  API-first donc le moins de friction côté code beryl, et la fenêtre
+  Equinix Metal qui ferme nous donne une visibilité naturelle.
+. *Cherry Servers* ensuite : Europe (Lituanie), API moderne, similaire à
+  PhoenixNAP en termes d'effort d'intégration.
+. *Hetzner Robot* en parallèle : très demandé en Europe (rapport
+  qualité/prix), mais l'API XML-RPC légère demande un shard Crystal
+  dédié plus complexe que les REST des autres.
+. *Latitude.sh* / *Vultr Bare Metal* : nice-to-have, marché plus
+  international.
+. *Outscale* / *Ikoula* / *PulseHeberg* / *Hopus* : selon la demande
+  client / la souveraineté requise. Pas prioritaire.
+
 == Sources et vérification
 
 Pour vérifier la présence effective d'une API chez un prestataire, cherchez sur son site :
