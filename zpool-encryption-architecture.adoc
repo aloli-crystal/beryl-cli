@@ -1,0 +1,594 @@
+= beryl — chiffrement des zpools data
+:toc: left
+:toclevels: 3
+:sectnums:
+:icons: font
+:source-highlighter: rouge
+
+[.lead]
+Document de design pour le chiffrement ZFS des pools data dans
+beryl. Rédigé le 25 avril 2026 après échange Philippe ↔ Claude.
+À RELIRE puis valider avant de coder.
+
+== Décisions pré-validées (à confirmer)
+
+[cols="2,3", options="header"]
+|===
+| Point | Choix proposé
+
+| Périmètre du chiffrement
+| *Pools data uniquement* (`zsave`, `zdata`, etc.). Le pool boot
+  `zroot` reste *clair*. Cohérent avec un parc administré à
+  distance sans IPMI/KVM accessible (cas OVH après reboot
+  électrique).
+
+| Mécanisme cryptographique
+| *ZFS native encryption* (FreeBSD 12+). `keyformat=raw` (32
+  bytes binaires aléatoires), `keylocation=prompt` au niveau du
+  pool — la clé est fournie via stdin par beryl au moment du
+  `zfs load-key`.
+
+| Modèle d'unlock
+| *« SSH unlock manuel »* après chaque reboot. Pas de keyfile sur
+  le serveur. La clé reste sur le poste opérateur, transmise via
+  SSH au moment de l'unlock. Élimine le besoin d'IPMI/KVM, garde
+  la protection contre le vol de disque ET le vol de serveur.
+
+| Stockage de la clé côté opérateur
+| Fichier local `~/.beryl/<société>/<domaine>/<host>.key`, chmod
+  0400. v1 simple. v2 (cf.
+  `project_beryl_secrets_vault.md`) : tag `!keychain` pour pointer
+  vers Keychain macOS / pass / Vault.
+
+| Génération de la clé
+| Au moment du `beryl bootstrap`, beryl génère 32 bytes aléatoires
+  côté opérateur (`/dev/random` du poste), JAMAIS côté serveur. La
+  clé arrive sur le serveur uniquement le temps du `zpool create`
+  via SSH stdin, puis n'est plus persistée.
+
+| Pas de keyfile sur le serveur
+| `keylocation=prompt` au lieu de `file:///etc/zfs/<pool>.key`.
+  Si quelqu'un vole le serveur entier, il n'a pas la clé.
+
+| YAML
+| `freebsd.zfs.<pool>.encryption: true` (booléen simple, défaut
+  `false`). Pas de paramètre fin en v0 — le mode SSH unlock est
+  le seul.
+
+| Format YAML extensible
+| Si on ajoute plus tard `auto_unlock` ou un autre mode, le format
+  passera à `encryption: { type: native, mode: ssh_unlock }` —
+  rétrocompatible avec `encryption: true` qui sera l'équivalent
+  du défaut.
+
+| Nouvelles commandes beryl
+| *Extension de H3 `beryl reboot`* : flag `--hard` qui passe par
+  l'API hébergeur (équivalent bouton power physique en remote)
+  au lieu de SSH soft. Fonctionne même quand le serveur est
+  freezé / sshd ne répond plus. Auto-unlock orchestré dans la
+  foulée si le YAML host déclare des pools chiffrés.
+  +
+  *H4 `beryl unlock <host>`* : pour les cas où le serveur a
+  rebooté tout seul (panne, intervention hébergeur) et que vous
+  voulez juste réouvrir les datasets sans rebooter.
+  +
+  *H5 `beryl status <host>`* : affiche l'état des pools (montés /
+  démontés / absents) et des services. Utile après reboot pour
+  voir ce qui demande un unlock.
+
+| Engagement client
+| Aloli vend le chiffrement à ses clients. Donc le modèle doit
+  protéger contre les 4 cas suivants : vol d'un disque seul (RMA),
+  vol du serveur entier, saisie judiciaire/administrative, copie
+  de disque par un technicien hébergeur véreux. Le keyfile local
+  sur zroot clair ne protège QUE le 1er cas — il est exclu pour
+  défendabilité commerciale. Le modèle SSH unlock (clé sur poste
+  opérateur, jamais sur serveur) protège les 4 cas.
+
+| Restart des services après unlock
+| Automatique. La recette qui définit un service (nginx, postgresql,
+  etc.) déclare ses dépendances aux datasets via la clé YAML
+  `requires_dataset:`. `beryl unlock` charge la clé, monte le
+  dataset, puis restart les services qui le requéraient. Si un
+  service ne déclare pas de dépendance, il n'est pas touché.
+|===
+
+== Vision
+
+ZFS native encryption permet de chiffrer un dataset (ou un pool
+entier) avec une clé. Sans la clé, les données sur disque sont
+illisibles. ZFS gère :
+
+* Chiffrement AES-256-GCM ou AES-256-CCM par défaut.
+* Une clé par dataset (ou héritée du pool / d'un dataset parent).
+* Snapshots, send/recv compatibles avec encryption (la clé voyage
+  ou reste, selon les options).
+
+Le défi côté opérateur n'est pas la cryptographie — c'est la
+*gestion de la clé* :
+
+* Où vit-elle ?
+* Comment arrive-t-elle au système au boot ?
+* Qui peut y accéder ?
+
+== Le besoin réel
+
+Le besoin dicte tout. Trois besoins possibles, traitements
+différents :
+
+[cols="3,3,3", options="header"]
+|===
+| Besoin | Adversaire | Solution
+
+| *Protection légale / RGPD / fin de vie disque*
+| Personne malveillante : un disque jeté en déchetterie, retourné
+  en SAV, donné à un employé sortant.
+| Keyfile local sur zroot clair suffit. Boot transparent. Pas
+  d'intervention humaine. *Faible niveau de menace.*
+
+| *Vol physique*
+| Personne malveillante : un cambrioleur dans le datacenter, un
+  technicien hébergeur véreux, une saisie judiciaire ou
+  administrative.
+| Keyfile local NE SUFFIT PAS (sur le même disque). Il faut TPM,
+  prompt console au boot, unlock SSH après boot, ou secrets
+  manager distant. *Haut niveau de menace.*
+
+| *Les deux*
+| Tous les ci-dessus.
+| Le plus exigeant des deux. En pratique : SSH unlock + clé sur
+  poste opérateur (notre choix).
+|===
+
+*Hypothèse retenue pour beryl* : *les deux*. C'est le compromis
+le plus élevé qu'on puisse atteindre sans IPMI/KVM ni infra
+secrets manager.
+
+== Le modèle « SSH unlock manuel après reboot »
+
+=== Flow normal (reboot kernel update programmé)
+
+. L'opérateur déclenche un reboot : `beryl reboot quantas` (H3)
+. Le serveur reboote et boote sur `zroot` clair (boot automatique,
+  pas d'intervention)
+. `sshd` démarre normalement
+. Les pools data ne sont *pas* importés (clé pas dispo)
+. Les services applicatifs qui en dépendent ne démarrent *pas*
+. L'opérateur lance : `beryl unlock aloli/quantas.aloli.net` (H4)
+. beryl :
++
+.. Lit `~/.beryl/aloli/aloli.net/quantas.key` (chmod 0400)
+.. Ouvre une connexion SSH `root@quantas`
+.. Exécute `zpool import -N -R / zsave` (importe sans monter)
+.. Pipe la clé via stdin : `zfs load-key zsave`
+.. Monte les datasets : `zfs mount -a -l`
+.. Redémarre les services qui déclaraient `requires_dataset:` sur
+   un dataset du pool
+
+. Sortie : « 1 pool unlocké, 4 datasets montés, 2 services
+  redémarrés (nginx, postgresql) »
+
+=== Flow récupération (serveur freezé, kernel panic, sshd ne répond plus)
+
+C'est *le* cas critique chez OVH : pas d'IPMI/KVM accessible
+après reboot électrique, mais le serveur est en sucette.
+
+. L'opérateur lance UNE commande sur son poste :
++
+[source,sh]
+----
+beryl reboot --hard aloli/quantas.aloli.net
+----
+
+. beryl orchestre tout :
++
+.. *Test SSH préalable* : si le serveur répond, tente un soft
+   reboot d'abord (poli) ; sinon, va direct au hard.
+.. *API hébergeur — power cycle* : `client.reset.execute` (Hetzner
+   `type=hw`), `boot_from_disk` (OVH), `reboot_to_disk` (Dedibox),
+   `reboot(boot_type=Normal)` (Scaleway). Équivalent du bouton
+   power physique. Marche TOUJOURS, ne dépend pas de l'état du
+   système.
+.. *Attente de la chute SSH* (`wait_for_ssh_drop`, étape déjà
+   existante dans le flow rescue Scaleway/Dedibox) : preuve que
+   le hardware a effectivement tombé.
+.. *Attente du retour SSH* (`default_wait_for_ssh`, 3-7 min
+   typique) avec log par tentative comme pour le rescue.
+.. *Auto-unlock si pools chiffrés déclarés* dans le YAML host :
++
+. Lit `~/.beryl/aloli/aloli.net/quantas.key` (chmod 0400) sur
+  votre poste.
+. Pour chaque pool data chiffré :
+   * `zpool import -N -R / <pool>` (sans monter)
+   * `zfs load-key <pool>` avec la clé sur stdin SSH
+   * `zfs mount -a -l <pool>`
+. *Restart des services dépendants* (déclarés via `requires_dataset:`
+   dans les recettes apply) : nginx, postgresql, etc.
+. *Sortie finale* :
++
+[source]
+----
+quantas remis en route en 6 min 12 s
+- 1 reset hard hébergeur
+- 2 pools data unlockés (zsave, zlogs)
+- 4 datasets montés (zsave/web, zsave/db, zlogs/system, zlogs/audit)
+- 3 services redémarrés (nginx, postgresql, syslog-ng)
+----
+
+. L'opérateur reprend sa journée.
+
+NOTE: Pas besoin de notification monitoring « le serveur est de
+nouveau actif » — `beryl reboot --hard` rend la main quand tout
+est OK ou échoue avec un message clair. C'est la commande qui
+porte l'attente, pas un service tiers.
+
+=== Flow incident (reboot subi : panne hardware, intervention OVH sans votre intervention)
+
+. Monitoring détecte une indisponibilité, prévient l'opérateur
+. L'opérateur teste : `ssh root@quantas` répond → le serveur est up
+. `beryl status aloli/quantas.aloli.net` (H5) affiche :
++
+[source]
+----
+Pools :
+  zroot   ONLINE   monté
+  zsave   ABSENT   (pool non importé — chiffré, clé non chargée)
+
+Services :
+  nginx        : down (requires_dataset zsave/web)
+  postgresql   : down (requires_dataset zsave/postgres)
+  ssh          : up
+----
+
+. L'opérateur lance `beryl unlock aloli/quantas.aloli.net` → tout
+  revient en ligne
+. Si l'opérateur n'est pas dispo : son binôme a aussi la clé sur
+  son poste (cf. partage de clé, section 11)
+
+=== Restart automatique des services dépendants
+
+Une recette qui définit un service déclare son dépendance via
+`requires_dataset:` :
+
+[source,yaml]
+----
+# beryl-recipes/recipes/nginx-passenger.yml
+recipe: nginx-passenger
+description: nginx avec mod_passenger
+requires:
+  - pkg-install-extras
+
+requires_dataset:                 # NEW : déclaration de dépendance dataset
+  - zsave/web                      # nginx ne démarre que si /save/web est monté
+
+steps:
+  - pkg-install: { packages: [nginx, ruby-passenger] }
+  - service-enable: { name: nginx }
+  - file-template:
+      path: /usr/local/etc/nginx/nginx.conf
+      content: ...
+----
+
+`beryl apply` configure le service en mode « delayed start » : il
+ne démarre pas si le dataset n'est pas monté. `beryl unlock` voit
+la dépendance et redémarre `nginx` après avoir monté `zsave/web`.
+
+NOTE: Ce mécanisme est COUPLÉ avec `beryl apply`. C'est cohérent —
+la dépendance d'un service à un dataset est une info applicative,
+elle vit dans la recette du service.
+
+== Format YAML
+
+=== Au niveau du pool (config bootstrap)
+
+[source,yaml]
+----
+# ~/.beryl/aloli/aloli.net/quantas.yml
+freebsd:
+  hostname: quantas
+  zfs:
+    zroot:                          # pool boot — toujours clair
+      boot: true
+      raid: 0
+      disks: [/dev/nvme0n1]
+    zsave:
+      mountpoint: /save
+      raid: 10
+      disks: [/dev/sda, /dev/sdb, /dev/sdc, /dev/sdd]
+      encryption: true              # NEW, défaut: false
+----
+
+=== Forme étendue (réservée à v2)
+
+Si on veut ajouter d'autres modes plus tard, le format passera à :
+
+[source,yaml]
+----
+zsave:
+  encryption:
+    type: native                    # ZFS native (alternative future : geli)
+    mode: ssh_unlock                # défaut. Alternatives : keyfile_local, vault, prompt_console
+    # paramètres spécifiques au mode :
+    # - ssh_unlock : aucun
+    # - keyfile_local : keyfile_path: /etc/zfs/{name}.key
+    # - vault : vault_path, vault_role
+    # - prompt_console : aucun (l'opérateur saisit au boot via console série)
+----
+
+`encryption: true` (booléen) reste équivalent au défaut
+`{type: native, mode: ssh_unlock}`. Rétrocompatible.
+
+== Génération et stockage de la clé
+
+=== Au bootstrap
+
+. beryl génère 32 bytes aléatoires *côté opérateur* :
++
+[source,crystal]
+----
+key = Random::Secure.random_bytes(32)
+----
+
+. La clé est écrite localement avant le bootstrap :
++
+[source]
+----
+~/.beryl/aloli/aloli.net/quantas.key (chmod 0400, 0700 le dossier)
+----
+
+. Pendant le bootstrap (script mfsBSD-in-QEMU), la clé est passée
+  via SSH stdin pour le `zpool create` :
++
+[source,sh]
+----
+echo -n "<key_binary_32_bytes>" | zpool create -f -R /mnt \
+  -O encryption=on -O keyformat=raw -O keylocation=prompt \
+  -m /save zsave mirror vtbd2 vtbd3 mirror vtbd4 vtbd5
+----
+
+. La clé n'est *jamais persistée sur le serveur*. Le pool est
+  ensuite exporté proprement (`zpool export zsave`) avant le
+  reboot bare-metal.
+
+. *Pour le pool data* : pas de `zpool set cachefile` côté serveur
+  (contrairement aux pools clairs) — le cachefile contiendrait la
+  référence du pool importable, ce qui n'est pas un problème de
+  sécurité, mais ça impose un `zpool import` au prochain unlock
+  ce qui est plus lent. *À voir au moment de coder.*
+
+=== Au reboot (sans IPMI)
+
+. Le serveur boote sur zroot clair, sshd démarre.
+. `zsave` n'est *pas importé automatiquement* (cachefile vide
+  pour ce pool, ou pool exporté).
+. L'opérateur lance `beryl unlock` qui :
++
+.. Lit `~/.beryl/aloli/aloli.net/quantas.key` localement.
+.. Ouvre SSH `root@quantas`.
+.. Pour chaque pool data chiffré (vu dans le YAML host) :
+   * `zpool import -N -R / zsave` (sans monter, sans charger la clé)
+   * `cat | ssh root@host zfs load-key zsave` (clé sur stdin)
+   * `zfs mount -a -l zsave` (monte tous les datasets de zsave)
+.. Restart les services qui déclaraient `requires_dataset` sur
+   un dataset du pool.
+
+== Sauvegarde et partage de la clé
+
+C'est *la* zone à risque : si l'opérateur perd la clé, les données
+sont perdues. ZFS native encryption ne permet PAS de récupérer une
+clé à partir des données.
+
+=== v0 — sauvegarde manuelle par l'opérateur
+
+* L'opérateur copie son dossier `~/.beryl/<société>/<domaine>/`
+  sur un disque externe / un cloud chiffré (iCloud avec
+  end-to-end, Mega, Tresorit, etc.).
+* La copie inclut tous les `*.key` chmod 0400.
+* Recommandé : 2 copies dans des lieux différents (pas de single
+  point of failure).
+
+=== v0 — partage avec un binôme
+
+Si deux opérateurs doivent pouvoir gérer le serveur :
+
+* Copier `~/.beryl/<société>/<domaine>/<host>.key` sur le poste
+  du binôme via canal sécurisé (Signal, AirDrop chiffré, clé USB
+  remise en main propre).
+* Le binôme range dans son propre `~/.beryl/<société>/<domaine>/`.
+
+NOTE: Ce n'est pas idéal — chaque copie de la clé est un point
+d'attaque. v1 ou v2, on remplace par un secrets manager partagé
+(cf. `project_beryl_secrets_vault.md`).
+
+=== v2 — Keychain / Vault
+
+Quand `project_beryl_secrets_vault.md` sera implémenté :
+
+[source,yaml]
+----
+# ~/.beryl/aloli/aloli.net/quantas.key.ref
+backend: keychain
+service: beryl-aloli-quantas-zsave
+account: zfs-key
+----
+
+ou
+
+[source,yaml]
+----
+backend: vault
+path: secret/beryl/aloli/quantas/zsave
+----
+
+beryl résout le `.key.ref` au runtime, récupère la clé du backend,
+l'envoie au serveur. Plus de fichier `.key` brut sur le poste.
+
+== Workflow opérateur (résumé)
+
+[cols="1,3,3", options="header"]
+|===
+| # | Étape | Notes
+
+| 1
+| `beryl bootstrap aloli/quantas.aloli.net`
+| Crée la clé localement, chiffre le pool data au passage. La clé
+  reste sur votre poste.
+
+| 2
+| Le serveur boote, vous accédez aux datasets via `beryl unlock`.
+| Première fois : `beryl unlock aloli/quantas.aloli.net`. Datasets
+  montés, services démarrés.
+
+| 3
+| Vie normale du serveur.
+| Les pools data restent montés tant que vous ne rebootez pas. Pas
+  d'intervention nécessaire.
+
+| 4
+| Reboot programmé (kernel update) : `beryl reboot quantas`.
+| Le serveur revient en ligne. Auto-unlock + restart services en
+  fin de la commande. ~5-10 min total.
+
+| 5
+| Serveur freezé, sshd ne répond plus :
+  `beryl reboot --hard quantas`.
+| Power cycle via API hébergeur (pas besoin d'IPMI/KVM), poll
+  retour SSH, auto-unlock, restart services. UNE commande, vous
+  reprenez votre journée.
+
+| 6
+| Reboot subi sans votre intervention (panne, intervention
+  hébergeur) : monitoring vous prévient.
+| `beryl status` pour voir l'état, puis `beryl unlock` (sans
+  reboot) pour rouvrir les datasets.
+
+| 7
+| Sauvegarde régulière de la clé.
+| Hebdomadaire : copie de `~/.beryl/<société>/` sur cloud
+  chiffré + disque externe.
+
+| 8
+| Partage avec un binôme si nécessaire.
+| Copie de la clé via canal sécurisé. À remplacer par Keychain /
+  Vault dans une v2.
+|===
+
+== Limites de cette approche
+
+. *Disponibilité dépend de l'opérateur.* Si vous êtes en vacances
+  et le serveur reboote, les datasets data restent down jusqu'à
+  votre retour ou celui du binôme.
++
+*Mitigation* : binôme avec la clé. v2 : secrets manager partagé
+qui peut être consulté par n'importe quel opérateur autorisé.
+
+. *Fenêtre d'attaque entre `unlock` et reboot suivant.* Pendant
+  que le pool est monté, un attaquant qui a un accès root peut
+  lire la clé en RAM (`zfs get keylocation`, dump mémoire, etc.).
++
+*Mitigation* : c'est inhérent à tout système chiffré. Le chiffrement
+ne protège que les données *au repos*. Pour la prod active, ce
+sont les ACL système et le firewall qui protègent.
+
+. *Si l'opérateur perd la clé* : données perdues, pas de récupération
+  possible. Le risque humain est réel.
++
+*Mitigation* : sauvegarde rigoureuse, partage avec binôme,
+  procédure interne Aloli.
+
+. *Pas de chiffrement du zroot.* Si quelqu'un vole le serveur, il
+  a accès au système d'exploitation, à la config, aux logs (qui
+  peuvent contenir des données métier). Mais pas aux datasets data.
++
+*Mitigation* : ne pas mettre de données sensibles dans `/var/log`,
+  `/etc`, `/home/admin`, etc. — tout ce qui est sensible doit
+  vivre dans `/save`, `/data`, `/<dataset chiffré>`.
+
+. *Pas de protection contre attaque chaîne d'approvisionnement.*
+  Si un attaquant remplace un disque dur dans le serveur (man-in-the-middle
+  hardware), il peut potentiellement intercepter la clé au prochain
+  reboot.
++
+*Mitigation* : hors scope. Concerne &lt; 0,1 % des cas réels chez
+  un hébergeur de confiance.
+
+== Plan d'attaque
+
+=== Phase 1 — preuve de concept (~3-4 jours)
+
+. *Côté beryl* :
++
+.. `Beryl::Bootstrap::QemuInRescue` génère la clé localement, la
+   passe au script mfsBSD via SSH stdin (pas via `beryl bootstrap`
+   args qui seraient logguées). `data_pools_script` adapté pour
+   créer les pools chiffrés avec `keyformat=raw -O keylocation=prompt`.
+.. Stockage de la clé en local : `~/.beryl/<société>/<domaine>/<host>.key`,
+   chmod 0400, 0700 le dossier parent.
+.. Commande `beryl unlock <host>` (H4) : lit la clé locale, ouvre
+   SSH, charge la clé via stdin, monte les datasets.
+. *Côté beryl-recipes* (phase apply) :
++
+.. Pas de modification des recettes existantes — `requires_dataset:`
+   sera ajouté quand on aura les recettes nginx, postgresql, etc.
+. *Test terrain sur un host de test* : un quantas2 OVH avec un
+   second pool chiffré.
+
+=== Phase 2 — confort (~1 semaine)
+
+* Commande `beryl status <host>` (H5) — état des pools / services.
+* Restart auto des services après unlock (couplage `requires_dataset`
+  côté recettes).
+* Documentation README + addition d'une section dédiée dans le
+  README beryl principal.
+
+=== Phase 3 — secrets vault
+
+Dépend de l'avancement de `project_beryl_secrets_vault.md`. Quand
+le tag `!keychain` est implémenté côté beryl, `unlock` peut résoudre
+la clé via Keychain au lieu de fichier en clair.
+
+== Questions ouvertes
+
+. *Pas de cachefile pour les pools data chiffrés ?* Si on les met
+  dans le cachefile, ils sont visibles dans `zpool list` après
+  reboot mais avec status `UNAVAIL` (clé pas chargée). Plus
+  informatif, mais expose plus d'infos. Si on les sort du
+  cachefile, `zpool list` ne les voit pas du tout — il faut
+  `zpool import` au moment du unlock. Décision : à voir au
+  moment du code.
+. *Cohabitation avec la primitive `zpool set cachefile=` du flow
+  apply existant* (commit 0.1.50 chez beryl). Pour les pools
+  data NON chiffrés, le cachefile reste utile (boot auto).
+  Pour les chiffrés, on adapte. Un test à blanc montrera le
+  comportement attendu.
+. *Faut-il une commande `beryl rotate-key <host> <pool>` pour
+  changer la clé ?* ZFS supporte `zfs change-key`. Hors scope v0
+  ou pas ?
+. *Sauvegarde automatique de la clé sur cloud chiffré ?* Tentant
+  mais ouvre une boîte de Pandore (où, quel chiffrement, qui a
+  accès). Hors scope v0, l'opérateur sauvegarde manuellement.
+. *Si l'opérateur fait `beryl unlock` plusieurs fois alors que
+  le pool est déjà unlocké* : pas d'erreur, juste un log « déjà
+  monté, rien à faire ». Idempotence cohérente avec le reste de
+  beryl.
+
+== Pour mémoire — points NON couverts par cette feature
+
+* Chiffrement du `zroot` (incompatible parc à distance sans IPMI).
+* TPM (support FreeBSD partiel, hardware non garanti).
+* Tang/Clevis (support FreeBSD limité, infra réseau auxiliaire).
+* Authentification multi-facteur sur la clé (TOTP, hardware key).
+  À voir avec le futur secrets vault.
+* Audit log centralisé des accès aux clés. Idem.
+
+== Liens
+
+* https://klarasystems.com/articles/openzfs-native-encryption/[Klara
+  Systems — OpenZFS native encryption] — référence technique.
+* https://wiki.freebsd.org/ZFS/EncryptedRoot[FreeBSD wiki — ZFS
+  encrypted root] — pour mémoire, on n'utilise PAS ce pattern
+  (root chiffré demande IPMI).
+* `apply-recipes-architecture.adoc` — docs `beryl apply` (couplage
+  via `requires_dataset:` dans les recettes).
+* `project_beryl_secrets_vault.md` (note mémoire) — sera lié à la
+  v2 du chiffrement quand le vault sera implémenté.
