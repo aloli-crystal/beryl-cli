@@ -147,7 +147,7 @@ module Beryl::CLI::AddDomain
     )
 
     File.write(domain_yml, content)
-    STDERR.puts "[beryl add-domain] #{domain_yml} créé."
+    STDERR.puts "[beryl add-domain] 3 #{domain_yml} créé."
     STDERR.puts
     STDERR.puts "Prochaines étapes :"
     STDERR.puts "  beryl rescue <host> --account=#{account} --domain=#{domain_name}"
@@ -172,11 +172,11 @@ module Beryl::CLI::AddDomain
       STDERR.puts "        Aucun n'a la capability :dns dans ce build."
       nil
     when 1
-      STDERR.puts "[beryl add-domain] DNS provider (auto) : #{dns_capable.first}"
+      STDERR.puts "[beryl add-domain] 3 DNS provider (auto) : #{dns_capable.first}"
       dns_capable.first
     else
       return dns_capable.first if non_interactive
-      STDERR.puts "[beryl add-domain] Gestionnaires DNS disponibles :"
+      STDERR.puts "[beryl add-domain] 3 Gestionnaires DNS disponibles :"
       dns_capable.each_with_index { |p, i| STDERR.puts "  #{i + 1}. #{p}" }
       ans = Beryl::CLI::AccountUtils.ask("Lequel gère la zone ? [1] :", "1")
       idx = (ans.to_i? || 1).clamp(1, dns_capable.size) - 1
@@ -193,13 +193,13 @@ module Beryl::CLI::AddDomain
     return nil if compute_capable.empty?
     # S'il y a un seul compute-capable, auto.
     if compute_capable.size == 1
-      STDERR.puts "[beryl add-domain] Compute provider (auto) : #{compute_capable.first}"
+      STDERR.puts "[beryl add-domain] 3 Compute provider (auto) : #{compute_capable.first}"
       return compute_capable.first
     end
     # Plusieurs : propose le dns_provider en défaut si lui aussi compute-capable
     default = compute_capable.includes?(dns_provider) ? dns_provider : compute_capable.first
     return default if non_interactive
-    STDERR.puts "[beryl add-domain] Hébergeurs disponibles :"
+    STDERR.puts "[beryl add-domain] 3 Hébergeurs disponibles :"
     compute_capable.each_with_index do |p, i|
       marker = p == default ? " (défaut)" : ""
       STDERR.puts "  #{i + 1}. #{p}#{marker}"
@@ -250,18 +250,18 @@ module Beryl::CLI::AddDomain
                auto = matches.select { |m| !m[:local].nil? }
                case auto.size
                when 1
-                 STDERR.puts "[beryl add-domain] Clé #{provider.name} : #{auto.first[:remote].name} ↔ #{auto.first[:local]}"
+                 STDERR.puts "[beryl add-domain] 3 Clé #{provider.name} : #{auto.first[:remote].name} ↔ #{auto.first[:local]}"
                  auto.first
                when 0
                  raise Beryl::CLI::AccountUtils::Aborted.new if non_interactive
-                 STDERR.puts "[beryl add-domain] Aucun ~/.ssh/*.pub ne correspond. Clés #{provider.display_name} :"
+                 STDERR.puts "[beryl add-domain] 3 Aucun ~/.ssh/*.pub ne correspond. Clés #{provider.display_name} :"
                  remote_keys.each_with_index { |k, i| STDERR.puts "  #{i + 1}. #{k.name}" }
                  ans = Beryl::CLI::AccountUtils.ask("Laquelle utiliser ? :", "1")
                  idx = (ans.to_i? || 1).clamp(1, remote_keys.size) - 1
                  {remote: remote_keys[idx], local: nil.as(String?)}
                else
                  raise Beryl::CLI::AccountUtils::Aborted.new if non_interactive
-                 STDERR.puts "[beryl add-domain] Plusieurs correspondances :"
+                 STDERR.puts "[beryl add-domain] 3 Plusieurs correspondances :"
                  auto.each_with_index { |m, i| STDERR.puts "  #{i + 1}. #{m[:remote].name} ↔ #{File.basename(m[:local].not_nil!)}" }
                  ans = Beryl::CLI::AccountUtils.ask("Laquelle utiliser ? :", "1")
                  idx = (ans.to_i? || 1).clamp(1, auto.size) - 1

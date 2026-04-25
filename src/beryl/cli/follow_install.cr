@@ -60,8 +60,8 @@ module Beryl::CLI::FollowInstall
     conn = host.connection
     ssh_args = conn.ssh_args(vm_cmd)
 
-    log "connexion au rescue #{Beryl.format_ssh_target(host)} puis tunnel vers VM mfsBSD (port #{Beryl::Bootstrap::QemuInRescue::VM_SSH_PORT})..."
-    log "Ctrl-C pour arrêter."
+    log "8 connexion au rescue #{Beryl.format_ssh_target(host)} puis tunnel vers VM mfsBSD (port #{Beryl::Bootstrap::QemuInRescue::VM_SSH_PORT})..."
+    log "8 Ctrl-C pour arrêter."
     log ""
 
     status = Process.run(

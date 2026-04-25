@@ -91,14 +91,14 @@ module Beryl::CLI::Init
 
     Dir.mkdir_p(account_dir)
     STDERR.puts
-    STDERR.puts "[beryl init] Dossier créé : #{account_dir}"
+    STDERR.puts "[beryl init] 1 Dossier créé : #{account_dir}"
 
     # Étape 2 : socle _default.yml si absent
     defaults_path = File.join(config_root, "_default.yml")
     unless File.exists?(defaults_path)
       File.write(defaults_path, default_yaml_content)
       STDERR.puts
-      STDERR.puts "[beryl init] _default.yml créé (socle FreeBSD)."
+      STDERR.puts "[beryl init] 1 _default.yml créé (socle FreeBSD)."
     end
 
     # Étape 3 : _account.yml (métadonnées optionnelles)
@@ -138,11 +138,11 @@ module Beryl::CLI::Init
       remaining = implemented.reject { |p| already.includes?(p.name) }
 
       if remaining.empty?
-        STDERR.puts "[beryl init] Tous les fournisseurs disponibles sont déjà configurés pour `#{account}`."
+        STDERR.puts "[beryl init] 1 Tous les fournisseurs disponibles sont déjà configurés pour `#{account}`."
         break
       end
 
-      STDERR.puts "[beryl init] Fournisseurs disponibles pour `#{account}` :"
+      STDERR.puts "[beryl init] 1 Fournisseurs disponibles pour `#{account}` :"
       remaining.each_with_index do |p, i|
         STDERR.puts "  #{i + 1}. #{p.name.ljust(12)} (#{p.display_name}) — capabilities : #{p.capabilities.map(&.to_s).sort.join(", ")}"
       end
@@ -176,7 +176,7 @@ module Beryl::CLI::Init
     end
 
     STDERR.puts
-    STDERR.puts "[beryl init] Configuration initiale de `#{account}` terminée."
+    STDERR.puts "[beryl init] 1 Configuration initiale de `#{account}` terminée."
     EXIT_OK
   end
 
@@ -197,7 +197,7 @@ module Beryl::CLI::Init
       io << "name: " << display_name << '\n'
     end
     File.write(path, content)
-    STDERR.puts "[beryl init] _account.yml créé dans #{File.basename(File.dirname(path))}/."
+    STDERR.puts "[beryl init] 1 _account.yml créé dans #{File.basename(File.dirname(path))}/."
   end
 
   # Socle FreeBSD standard (admin + deploy avec shells appropriés,

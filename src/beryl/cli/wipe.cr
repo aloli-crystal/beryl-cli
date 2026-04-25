@@ -141,7 +141,7 @@ module Beryl::CLI::Wipe
     end
 
     puts
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl wipe] destruction sur #{target_disks.join(", ")}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl wipe] 6 destruction sur #{target_disks.join(", ")}"
     rescue_conn.exec(wipe_script_multi(target_disks))
 
     puts
@@ -152,7 +152,7 @@ module Beryl::CLI::Wipe
     after_pool = rescue_conn.exec("zpool import 2>&1", raise_on_error: false).stdout.strip
     puts after_pool.empty? ? "Aucun pool ZFS importable." : after_pool
 
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl wipe] terminé"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl wipe] 6 terminé"
     EXIT_OK
   rescue ex : Beryl::Config::Root::HostNotFound
     STDERR.puts "beryl : #{ex.message}"

@@ -89,14 +89,14 @@ module Beryl::CLI::BootHd
     end
 
     if dry_run
-      log "DRY-RUN : OVHcloud → boot_from_disk(#{service_name})"
-      log "DRY-RUN : puis wait_for_ssh(#{host.ssh_host}:#{host.port} as #{user}, timeout #{timeout.total_minutes.to_i}m)" if wait
-      log "Pour exécuter : #{Beryl.rerun_hint("boot-hd", args, replace_host: {raw.not_nil!, "#{host.account_name}/#{host.fqdn}"})}"
+      log "H2 DRY-RUN : OVHcloud → boot_from_disk(#{service_name})"
+      log "H2 DRY-RUN : puis wait_for_ssh(#{host.ssh_host}:#{host.port} as #{user}, timeout #{timeout.total_minutes.to_i}m)" if wait
+      log "H2 Pour exécuter : #{Beryl.rerun_hint("boot-hd", args, replace_host: {raw.not_nil!, "#{host.account_name}/#{host.fqdn}"})}"
       return EXIT_OK
     end
 
     client = ovh_client_factory.call
-    log "OVH : boot_from_disk pour #{service_name}"
+    log "H2.1 OVH : boot_from_disk pour #{service_name}"
     task = client.dedicated_servers.boot_from_disk(service_name)
 
     if wait
@@ -116,7 +116,7 @@ module Beryl::CLI::BootHd
         EXIT_SSH_FAILED
       end
     else
-      log "commande boot-hd envoyée ; attente SSH désactivée (--no-wait)"
+      log "H2 commande boot-hd envoyée ; attente SSH désactivée (--no-wait)"
       EXIT_OK
     end
   rescue ex : Beryl::Config::Root::HostNotFound

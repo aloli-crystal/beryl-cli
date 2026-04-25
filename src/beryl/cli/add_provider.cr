@@ -107,7 +107,7 @@ module Beryl::CLI::AddProvider
     Dir.mkdir_p(account_dir)
     env_file = Beryl::Config::EnvFile.load(env_path)
 
-    STDERR.puts "[beryl add-provider] Ajout de #{provider.display_name} pour la société `#{account}`"
+    STDERR.puts "[beryl add-provider] 2 Ajout de #{provider.display_name} pour la société `#{account}`"
     success = Beryl::CLI::AccountUtils.ensure_credentials(
       provider: provider,
       account: account,
@@ -118,7 +118,7 @@ module Beryl::CLI::AddProvider
     )
     return EXIT_ABORTED unless success
 
-    STDERR.puts "[beryl add-provider] Credentials posés dans #{env_path}[#{account}][#{provider.name}]."
+    STDERR.puts "[beryl add-provider] 2 Credentials posés dans #{env_path}[#{account}][#{provider.name}]."
     EXIT_OK
   rescue ex : Beryl::CLI::AccountUtils::Aborted
     STDERR.puts "beryl : abandon"
