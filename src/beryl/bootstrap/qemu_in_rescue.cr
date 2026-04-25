@@ -279,11 +279,11 @@ module Beryl::Bootstrap
     end
 
     def run : SSH::Connection
-      log_step("1/6 — vérifie que le rescue tourne bien sous Linux") { verify_linux_rescue }
-      log_step("1b — NOGO si BSD déjà en place sur #{all_qemu_disks.join(", ")}") { check_target_disks_no_bsd }
-      log_step("2/6 — installe qemu-system-x86, ovmf, sshpass et curl côté rescue") { install_packages }
-      log_step("3/6 — télécharge l'image mfsBSD SE #{@mfsbsd_version} si nécessaire") { download_mfsbsd_if_needed }
-      log_step("4/6 — dépose installerconfig + driver shell sur le rescue") do
+      log_step("7.1 vérifie que le rescue tourne bien sous Linux") { verify_linux_rescue }
+      log_step("7.1b NOGO si BSD déjà en place sur #{all_qemu_disks.join(", ")}") { check_target_disks_no_bsd }
+      log_step("7.2 installe qemu-system-x86, ovmf, sshpass et curl côté rescue") { install_packages }
+      log_step("7.3 télécharge l'image mfsBSD SE #{@mfsbsd_version} si nécessaire") { download_mfsbsd_if_needed }
+      log_step("7.4 dépose installerconfig + driver shell sur le rescue") do
         prepare_ovmf_vars
         @rescue_conn.write_file(INSTALLERCFG, render_installerconfig, mode: "0644")
         upload_driver_script
@@ -294,14 +294,14 @@ module Beryl::Bootstrap
       # (~90 s), l'opérateur n'a pas le temps d'ouvrir un second
       # terminal. À garder pour debug nouveau provider ou flow
       # FreeBSD inhabituel.
-      log_step("5/6 — QEMU + mfsBSD + bsdinstall + post-install no-chroot (typiquement 1-3 min)") do
+      log_step("7.5 QEMU + mfsBSD + bsdinstall + post-install no-chroot (typiquement 1-3 min)") do
         @rescue_conn.exec("bash #{Process.quote(RESCUE_RUN_VM_PATH)}")
       end
       # Étape 6/6 : on sort du `log_step` animé car `wait_for_installed_ssh`
       # loggue ligne par ligne chaque tentative SSH (exit code / stderr /
       # exception). Même pattern que `default_wait_for_ssh` dans rescue.cr
       # — un ticker masque les vrais motifs d'échec.
-      log "6/6 — reboot bare metal, attente SSH du FreeBSD installé (typiquement 3-7 min)"
+      log "7.6 reboot bare metal, attente SSH du FreeBSD installé (typiquement 3-7 min)"
       reboot_bare_metal
       wait_for_installed_ssh
     end
@@ -582,16 +582,16 @@ module Beryl::Bootstrap
         begin
           result = conn.exec("uname -s", raise_on_error: false)
           if result.success? && result.stdout.strip == "FreeBSD"
-            log "SSH #{@installed_user}@#{@rescue_conn.host} répond FreeBSD après #{elapsed}s (tentative #{attempt})"
+            log "7.6 SSH #{@installed_user}@#{@rescue_conn.host} répond FreeBSD après #{elapsed}s (tentative #{attempt})"
             return conn
           end
           # Exit != 0 ou stdout inattendu (ex: encore en rescue Linux)
           stderr_snippet = result.stderr.strip[0, 120]? || ""
-          log "tentative #{attempt} à #{elapsed}s : exit=#{result.exit_code} stdout=#{result.stdout.strip.inspect[0, 60]} stderr=#{stderr_snippet.inspect}"
+          log "7.6 tentative #{attempt} à #{elapsed}s : exit=#{result.exit_code} stdout=#{result.stdout.strip.inspect[0, 60]} stderr=#{stderr_snippet.inspect}"
         rescue ex
           # Typique : Connection refused (sshd pas encore up), timeout,
           # Permission denied (clé pas dans authorized_keys).
-          log "tentative #{attempt} à #{elapsed}s : #{ex.class.name}: #{ex.message.try(&.[0, 160])}"
+          log "7.6 tentative #{attempt} à #{elapsed}s : #{ex.class.name}: #{ex.message.try(&.[0, 160])}"
         end
         sleep SSH_POLL_INTERVAL
       end

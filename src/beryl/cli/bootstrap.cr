@@ -81,7 +81,7 @@ module Beryl::CLI::Bootstrap
         mfsbsd_version = info.version
         abi = info.abi
         resolved_iso_url ||= info.image_url
-        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] mfsBSD SE détectée : #{info.version} (#{info.image_url})"
+        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] 7.0 mfsBSD SE détectée : #{info.version} (#{info.image_url})"
       rescue ex : Beryl::Bootstrap::MfsBSDRelease::DetectionFailed
         STDERR.puts "beryl : impossible de détecter la dernière version mfsBSD SE — #{ex.message}"
         STDERR.puts "        Passez --freebsd-version=X.Y pour forcer une version."
@@ -118,7 +118,7 @@ module Beryl::CLI::Bootstrap
     Beryl::CLI::Precheck.report(host, precheck)
     unless precheck.ok
       if force
-        STDERR.puts "[beryl bootstrap] --force : précheck ignoré. PROCÉDEZ AVEC PRUDENCE."
+        STDERR.puts "[beryl bootstrap] 7 --force : précheck ignoré. PROCÉDEZ AVEC PRUDENCE."
       else
         STDERR.puts
         STDERR.puts "beryl : précheck échoué. Corrigez la config ou utilisez --force."
@@ -171,8 +171,8 @@ module Beryl::CLI::Bootstrap
     installed_user = users.first.name
 
     all_disks = disks + data_pools.flat_map(&.disks)
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] cible : #{Beryl.format_ssh_target(host)} disques : #{all_disks.join(", ")}"
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] FreeBSD #{freebsd_version} — users : #{users.map(&.name).join(", ")} — pools data : #{data_pools.size}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] 7 cible : #{Beryl.format_ssh_target(host)} disques : #{all_disks.join(", ")}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] 7 FreeBSD #{freebsd_version} — users : #{users.map(&.name).join(", ")} — pools data : #{data_pools.size}"
 
     if dry_run
       STDERR.puts
@@ -266,7 +266,7 @@ module Beryl::CLI::Bootstrap
     )
     bootstrap.run
 
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] terminé pour #{host.fqdn}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] 7 terminé pour #{host.fqdn}"
     EXIT_OK
   rescue ex : Beryl::Config::Root::HostNotFound
     STDERR.puts "beryl : #{ex.message}"
