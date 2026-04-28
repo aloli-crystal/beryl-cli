@@ -60,9 +60,27 @@ Toutes ses `requires:` sont dans le dépôt central.
 
 === Commande tapée
 
+Trois formes équivalentes, du plus explicite au plus court :
+
 ```
-beryl apply aloli/quantas.aloli.net
+beryl apply aloli/quantas.aloli.net      # explicite : société + FQDN
+beryl apply quantas.aloli.net            # FQDN seul, beryl déduit la société
+beryl apply quantas                      # nom court, beryl déduit le reste si unique
 ```
+
+* La forme explicite `<société>/<fqdn>` lève toute ambiguïté
+  (utile dans les scripts ou quand plusieurs sociétés partagent
+  un même domaine).
+* La forme `<fqdn>` (ex: `quantas.aloli.net`) marche dès qu'un
+  seul domaine `aloli.net` existe dans l'inventaire ; sinon
+  beryl demande de préciser via `--account=<société>`.
+* La forme courte `<nom>` (ex: `quantas`) marche dès que le nom
+  est unique parmi tous les hosts de toutes les sociétés. Si
+  ambiguïté, beryl liste les candidats et demande à préciser.
+
+La résolution est gérée par `Beryl::Config::Root#resolve` (voir
+`src/beryl/config/root.cr`) : l'utilisateur tape ce qui est le
+plus naturel selon son contexte, beryl trouve.
 
 === Sortie attendue (dry-run AVANT, exécution APRÈS)
 
@@ -115,14 +133,46 @@ Bilan : 28 étapes — 19 skipped, 9 applied, 0 failed (durée 4 min 12 s)
 Q1.1 : *À la première exécution, sans `--dry-run`, doit-on exécuter
 directement ou afficher le plan + demander confirmation ?*
 
-Cohérent avec le reste de beryl (rescue, bootstrap : pas de
-confirmation). On exécute. Si Philippe veut voir avant, il tape
-`--dry-run` ou son alias `-n`.
+*Décision (Philippe, 28 avril 2026)* : on exécute. Cohérent avec
+rescue, bootstrap, unlock, reboot, status, tang-enroll qui
+exécutent tous sans confirmation. Pour voir avant : `--dry-run`
+ou son alias `-n`.
 
-Q1.2 : *Comment beryl fait pour le `freebsd-update fetch install`
-qui DEMANDE des prompts interactifs (pager `less` sur le diff de
-config) ?* Réponse probable : `PAGER=cat freebsd-update --not-running-from-cron fetch install`.
-À tester.
+Q1.2 : *Comment beryl gère `freebsd-update install` qui peut être
+interactif (pager `less` sur le diff de config) ?*
+
+*Décision (Philippe, 28 avril 2026)* : approche en 3 niveaux,
+prudente — l'humain valide avant d'automatiser.
+
+. *Niveau 1 — cron quotidien (posé par la recette `freebsd-updates`)* :
++
+....
+@daily  root  freebsd-update cron
+....
++
+Le cron télécharge les patches en arrière-plan et envoie un mail
+à root quand des updates sont disponibles. *Pas d'install*. Voir
+https://docs.freebsd.org/en/books/handbook/cutting-edge/[FreeBSD
+Handbook § Cutting Edge].
+
+. *Niveau 2 — première install à la main* : sur un host fraîchement
+bootstrapé, l'opérateur SSH dessus et fait `freebsd-update install`
+manuellement la première fois. Il vérifie que les diffs de config
+proposés (sshd_config, sysctl…) ne cassent rien sur cette config.
+Une fois la confiance établie pour CETTE version FreeBSD sur CE
+host, on passe au niveau 3.
+
+. *Niveau 3 — automatisation par beryl* : l'opérateur active dans
+le YAML host le flag `freebsd_updates.auto_install: true`. Au
+prochain `beryl apply <host>`, la recette détecte qu'il y a des
+patches en attente (présence de `/var/db/freebsd-update/...`) et
+exécute `PAGER=cat freebsd-update --not-running-from-cron install`
+sans intervention. *Le mail du niveau 1 reste actif* — l'opérateur
+sait toujours qu'une mise à jour s'est faite.
+
+Conséquence pour la recette `freebsd-updates` (à intégrer dans
+`apply-recipes-architecture.adoc` § « Recette agrégat post-install
+cible ») : ajout du paramètre `auto_install: bool` (défaut `false`).
 
 == Scénario 2 — Re-`apply` (idempotence)
 
@@ -133,8 +183,12 @@ Rien n'a changé entre-temps.
 
 === Commande
 
+Trois formes équivalentes (cf. 2.4 pour la sémantique complète) :
+
 ```
-beryl apply quantas
+beryl apply aloli/quantas.aloli.net      # explicite : société + FQDN
+beryl apply quantas.aloli.net            # FQDN seul
+beryl apply quantas                      # nom court (si unique)
 ```
 
 === Sortie attendue
@@ -151,10 +205,15 @@ Bilan : 28 étapes — 28 skipped, 0 applied, 0 failed (durée 12 s)
 === Question de design
 
 Q2.1 : *Faut-il un cache local côté Mac pour éviter de relire
-l'état SSH si on a appliqué il y a 5 minutes ?* — non, pas en v0.
-SSH lit vite, et un cache se périme silencieusement (le serveur
-peut avoir été modifié à la main entre deux apply). Pertinent
-plus tard si la latence devient un problème.
+l'état SSH si on a appliqué il y a 5 minutes ?*
+
+*Décision (Philippe, 28 avril 2026)* : *NON, jamais*. L'utilisateur
+est seul maître de ses commandes — pas de cache silencieux qui
+masquerait l'état réel du serveur. Une commande `apply` lit toujours
+l'état SSH au moment où elle s'exécute. Le multiplexage SSH
+(`ControlMaster`, ajouté à `crystal-ssh` v0.2.0 le 28 avril 2026)
+règle déjà le coût des handshakes ; pas besoin de cache applicatif
+au-dessus.
 
 == Scénario 3 — Override d'une recette pour un host particulier
 
@@ -333,16 +392,23 @@ Tout passe normalement.
 === Question de design
 
 Q5.1 : *Beryl unlock doit-il enchaîner automatiquement avec apply ?*
-Non, deux commandes distinctes. `unlock` ne fait que monter les
-datasets ; les services applicatifs configurés par `apply` se
-réveillent par leur propre flow (`requires_dataset` côté apply
-les redémarre quand monté).
+
+*Décision (Philippe, 28 avril 2026)* : *NON*. Deux commandes
+distinctes, l'utilisateur est seul maître de ses commandes (cf.
+Q2.1). `unlock` monte les datasets, point final. Pas de chaînage
+implicite vers `apply`. Si l'opérateur veut les deux d'affilée, il
+les tape lui-même : `beryl unlock host && beryl apply host`.
 
 Q5.2 : *Et si les datasets `requires_dataset` ne sont même pas
-déclarés dans le YAML host ?* (ex: la recette demande `zsave/web`
-mais `quantas.yml` ne déclare pas `zsave`). Erreur explicite à
-la résolution : « recette nginx-passenger requires_dataset
-zsave/web mais zsave n'est pas déclaré dans quantas.yml ».
+déclarés dans le YAML host ?*
+
+*Décision (Philippe, 28 avril 2026)* : *NON, pas de logique
+spéciale en v0*. Pas de mécanisme `requires_dataset` à câbler.
+Si une recette dépend d'un dataset chiffré qui n'est pas déclaré,
+elle échouera naturellement côté SSH au moment de poser ses
+fichiers (pas d'erreur ésotérique à la résolution beryl). Cohérent
+avec la philosophie « rustique » : laisser FreeBSD remonter les
+vraies erreurs, pas les double-checker côté beryl.
 
 == Scénario 6 — Ajout d'une recette custom (tap)
 
@@ -448,10 +514,60 @@ propre agrégat. La recette existe, elle est obligatoirement
 dans `post-install`.
 
 Q7.2 : *Quand une clé est SUPPRIMÉE du YAML, est-elle retirée du
-serveur ?* Oui, sinon on accumule des clés zombies. La primitive
-`user-update-keys` doit faire un *set* (pas un append). Avertir
-clairement à la première implémentation pour ne pas couper l'accès
-de l'opérateur courant par accident.
+serveur ?*
+
+*Décision (Philippe, 28 avril 2026)* : oui, mais avec une
+distinction importante entre *deux catégories de clés* :
+
+[cols="1,3", options="header"]
+|===
+| Catégorie | Sémantique
+
+| *Clés admin (admin-sys)*
+| Présentes sur *tous les hosts* (au minimum sur le user `admin`).
+  Ce sont les clés qui permettent à beryl de se connecter et de
+  gérer les users — y compris ajouter/supprimer d'autres clés. La
+  source de vérité, et ce qu'on doit toujours pouvoir reprendre.
+
+| *Clés deploy (et autres applicatives)*
+| Présentes uniquement sur les hosts qui en ont besoin (typiquement
+  un user `deploy` sur les serveurs d'apps). Cycle de vie distinct
+  des clés admin (rotation à la fin d'une mission développeur,
+  changement de canal de déploiement, etc.).
+|===
+
+La primitive `user-update-keys` fait un *set* (pas un append) côté
+serveur, mais la sémantique du *set* est par-user :
+
+* `admin.ssh_keys` du YAML → `~admin/.ssh/authorized_keys`. Set
+  exact des clés admin.
+* `deploy.ssh_keys` du YAML → `~deploy/.ssh/authorized_keys`. Set
+  exact des clés deploy.
+
+Si une clé X est dans `admin` mais pas dans `deploy`, X reste sur
+admin et n'apparaît pas sur deploy. Ils ne se contaminent pas.
+
+*Procédure de rotation des clés (à formaliser)* — point ouvert
+soulevé par Philippe le 28 avril 2026 :
+
+. Ajouter la nouvelle clé dans le YAML domaine (pour admin)
+  ou dans le YAML host (pour deploy) en parallèle de l'ancienne.
+. Lancer `beryl apply` sur tous les hosts concernés. La nouvelle
+  clé est déployée, l'ancienne reste active (les deux cohabitent).
+. Vérifier que la nouvelle clé fonctionne (au moins une commande
+  SSH avec la nouvelle clé).
+. Retirer l'ancienne du YAML.
+. Lancer `beryl apply`. L'ancienne est retirée.
+
+*Garde-fou* : `user-update-keys` doit refuser de supprimer LA
+clé qui sert actuellement à beryl pour se connecter (lecture de
+`SSH_AUTH_SOCK` ou de l'`identity_file` configuré, comparaison à
+la liste de clés à retirer). Sinon = se couper la branche sur
+laquelle on est assis. À implémenter dans la primitive.
+
+*À documenter* : section dédiée « Rotation des clés SSH » dans
+`apply-recipes-architecture.adoc` (à venir lorsqu'on cablera
+`user-update-keys`).
 
 == Scénario 8 — Reboot après une recette qui le demande
 
@@ -482,7 +598,12 @@ Pour rebooter quand vous voulez :
   beryl reboot --hard quantas  # power cycle si serveur freezé
 ```
 
-. Code de sortie 0 (l'apply a réussi). Le reboot reste explicite.
+. Code de sortie 0 (l'apply a réussi). **Le reboot est *proposé*
+   à l'utilisateur, jamais effectué automatiquement.** Décision
+   énoncée par Philippe le 28 avril 2026 : le reboot doit toujours
+   être un acte volontaire de l'opérateur, beryl ne peut pas
+   prendre cette responsabilité à sa place (un reboot non
+   intentionnel sur un serveur prod = perte de service).
 
 === Question de design
 
@@ -492,9 +613,13 @@ par la primitive sur le serveur (`/var/run/beryl-reboot-required`),
 qu'apply lit en fin de course. Effacé par le prochain `beryl reboot`
 réussi.
 
-Q8.2 : *Faut-il proposer `beryl apply --auto-reboot` ?* — Non.
-Cohérent avec le principe « pas de défauts silencieux ». L'opérateur
-veut explicitement choisir quand rebooter.
+Q8.2 : *Faut-il proposer `beryl apply --auto-reboot` ?*
+
+*Décision (Philippe, 28 avril 2026)* : *NON, pas de flag
+auto-reboot, jamais*. Cohérent avec « pas de défauts silencieux »
+et avec le principe « l'utilisateur est seul maître de ses
+commandes ». Le reboot est *toujours* proposé, *jamais* effectué
+automatiquement.
 
 == Scénario 9 — Notification email d'une recette
 
@@ -675,9 +800,28 @@ Beryl :
 Q11.1 : *Quelle granularité pour la limite parallélisme ?* Probablement
 `--parallel=N` avec défaut 1 (séquentiel, évite les surprises).
 
-Q11.2 : *Comment gérer les groupes de hosts ?* Soit via la convention
-existante `<société>/<domaine>/<groupe>/<host>` qui groupe déjà côté
-filesystem, soit via un fichier `groups.yml` dédié. Hors scope v0.
+Q11.2 : *Comment gérer les groupes de hosts ?*
+
+*Décision (Philippe, 28 avril 2026)* : *la gestion des groupes est
+déjà dans beryl, rien à ajouter en plus*. La convention
+`<société>/<domaine>/<groupe>/<host>` est en place côté filesystem
+(`Beryl::Config::Group` + `Beryl::Config::Domain.groups`), et la
+résolution `Beryl::Config::Root#resolve` sait déjà trouver les
+hosts par groupe.
+
+*Formes pour `beryl apply <groupe>`* (à câbler quand on attaquera
+le multi-host) :
+
+```
+beryl apply société/mon_groupe         # explicite
+beryl apply mon_groupe                 # si le nom de groupe est unique
+```
+
+Pas besoin de fichier `groups.yml` dédié, pas besoin de flag
+`--group=`. La résolution naturelle du nom (host vs groupe) se
+fait par lecture de l'inventaire — si le nom matche un groupe,
+beryl déroule sur tous les hosts du groupe ; sinon il essaye
+de matcher un host individuel.
 
 == Scénario 12 — Création d'une recette par fork (tap public)
 
@@ -750,23 +894,23 @@ mature.
 
 | Q1.1 | apply sans flag = exécute ou affiche le plan ? | Exécute (cohérent rescue/bootstrap). `--dry-run` pour le plan.
 | Q1.2 | freebsd-update interactif (pager less) ? | `PAGER=cat` + `--not-running-from-cron`. Tester.
-| Q2.1 | Cache local de l'état SSH ? | Non en v0. Trivial à ajouter v1 si besoin.
+| Q2.1 | Cache local de l'état SSH ? | *NON jamais* (Philippe 28 avril). Utilisateur seul maître de ses commandes.
 | Q3.1 | Hash de la copie locale loggué pour diff ? | Optionnel v0, utile v1.
 | Q4.1 | `--continue-on-error` ? | Non par défaut. Erreur = stop.
 | Q4.2 | Restauration d'état d'avant ? | Non. ZFS snapshot manuel = responsabilité opérateur.
-| Q5.1 | unlock enchaîné dans apply ? | Non, deux commandes.
-| Q5.2 | requires_dataset pointant vers un pool inexistant ? | Erreur claire à la résolution.
+| Q5.1 | unlock enchaîné dans apply ? | *NON* (Philippe 28 avril). Deux commandes distinctes, pas de chaînage implicite.
+| Q5.2 | requires_dataset pointant vers un pool inexistant ? | *NON, pas de mécanisme requires_dataset* (Philippe 28 avril). FreeBSD remontera l'erreur naturellement.
 | Q6.1 | Tap appliqué par défaut sur tous hosts ? | Non, symlink explicite par host.
 | Q6.2 | Tap inaccessible (git down) ? | Utilise clone local. Update = commande explicite.
 | Q7.1 | users-sync = recette ou implicite ? | Recette, mais incluse par défaut dans post-install.
-| Q7.2 | Suppression d'une clé du YAML = retrait sur serveur ? | Oui (set, pas append). Avertir clairement à l'impl.
+| Q7.2 | Suppression d'une clé du YAML = retrait sur serveur ? | Oui (set, pas append). 2 catégories distinctes : *clés admin* (partout, source de vérité) et *clés deploy* (par-host). Procédure de rotation à formaliser. Garde-fou : refus de supprimer la clé en cours d'usage.
 | Q8.1 | Marqueur reboot_required transmis comment ? | Fichier sentinelle sur le serveur.
-| Q8.2 | `--auto-reboot` ? | Non. Reboot toujours explicite.
+| Q8.2 | `--auto-reboot` ? | *NON jamais* (Philippe 28 avril). Reboot toujours *proposé*, jamais effectué auto.
 | Q9.1 | Templating riche (Jinja-like) ? | Non v0. Si conditionnel = primitive Crystal dédiée.
 | Q9.2 | Sendmail config pour notifications ? | Recette `smarthost-relay` future, hors scope v0.
 | Q10.1 | `when:` au niveau step ? | Non v0. Deux recettes séparées si comportement radicalement différent.
 | Q11.1 | `--parallel=N` ? | Hors scope v0. Défaut séquentiel.
-| Q11.2 | Groupes de hosts ? | Hors scope v0.
+| Q11.2 | Groupes de hosts ? | *Déjà supportés* par la convention `<société>/<domaine>/<groupe>/<host>` côté config. Formes `beryl apply société/groupe` ou `beryl apply groupe`. Pas de fichier `groups.yml` ni de flag `--group`.
 | Q12.1 | Plusieurs sources de recettes ? | Oui, c'est le mécanisme tap.
 | Q12.2 | Mise à jour auto du dépôt central ? | Non. `beryl recipes update` explicite.
 | Q13.1 | Tests CI des recettes ? | Hors scope v0. Jail FreeBSD locale plus tard.

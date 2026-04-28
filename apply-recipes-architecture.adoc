@@ -11,6 +11,23 @@ Document de design pour `beryl apply` (commande 9). Validé le
 « Décisions actées » en haut du document pour relecture rapide ;
 détails et justifications dans les sections suivantes.
 
+L'orchestration par host (dossier `~/.beryl/<société>/<domaine>/<host>/`)
+est destinée à vivre dans un *dépôt git privé*, partagé entre les
+admin-sys d'une même société. Cela donne :
+
+* la traçabilité des changements (qui a ajouté quelle recette à
+  quel host, quand) ;
+* la reprise en main par un binôme en l'absence de l'opérateur
+  principal — il clone le dépôt et peut lancer `beryl apply`
+  immédiatement ;
+* le découplage poste opérateur ↔ infrastructure (le poste se
+  remplace, le dépôt git survit).
+
+Ce dépôt est *distinct* du dépôt public `aloli-crystal/beryl-recipes`
+(qui contient les recettes réutilisables) : ici il s'agit de
+*l'orchestration* propre à votre infrastructure, qui n'a pas vocation
+à être publiée.
+
 == Décisions actées (25 avril 2026)
 
 [cols="2,3", options="header"]
@@ -35,8 +52,9 @@ détails et justifications dans les sections suivantes.
   vers le dépôt central, ou copies locales modifiées).
 
 | Pas de `apply.yml` central
-| L'orchestration vit dans le dépôt git versionné `~/.beryl/<société>/`.
-  Les recettes du dossier `<host>/` sont autosuffisantes.
+| L'orchestration vit dans le *dépôt git privé* `~/.beryl/<société>/`,
+  partagé entre admin-sys de la société. Les recettes du dossier
+  `<host>/` sont autosuffisantes.
 
 | Ordre d'exécution
 | *Tri topologique automatique* à partir du champ `requires:` de
