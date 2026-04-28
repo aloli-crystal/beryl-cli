@@ -1,0 +1,639 @@
+= crystal-clevis-zfs — spécifications v0.1
+:author: Philippe Nénert
+:revdate: 27 avril 2026
+:revnumber: 0.1
+:lang: fr
+:toc: left
+:toclevels: 3
+:icons: font
+:sectnums:
+:source-highlighter: rouge
+
+[.lead]
+Spécifications du shard Crystal `crystal-clevis-zfs` : client Tang
++ pilotage ZFS native encryption sur FreeBSD. Remplace
+`crystal-clevis-geli` (déprécié, voir
+`boot-and-mount-plan.adoc` § « Pivot GELI → ZFS native »).
+
+À lire après `boot-and-mount-plan.adoc` (Option I retenue, ZFS
+native sur datasets chiffrés enfants de zroot).
+
+[NOTE]
+.Note de synchronisation 27 avril 2026 (soir)
+====
+Les exemples de noms de datasets dans ce document utilisent
+`zroot/zsys`, `zroot/zdata`, `zroot/zsave` héritées d'une révision
+antérieure. La nomenclature *définitive* est documentée dans
+`boot-and-mount-plan.adoc` rev 0.3 :
+
+* `zroot/zhome` (`/home`)
+* `zroot/zopt` (`/opt`)
+* `zroot/zusrlocaletc` (`/usr/local/etc`)
+* `zroot/zlog` (`/var/log`, *clair compressé*, pas chiffré)
+* `zsave` (pool séparé sur HDD, optionnel)
+
+**Le shard `crystal-clevis-zfs` est agnostique au nom du dataset**
+— il prend juste un argument `--dataset <pool/path>`. Les exemples
+ci-dessous restent corrects fonctionnellement. La synchro complète
+des noms dans ce doc sera faite quand le shard sera livré et
+fonctionnel.
+====
+
+== Origine du document
+
+Document écrit le 27 avril 2026 pour permettre à Philippe d'écrire
+le shard de son côté. Spécifications définitives v0.1 — les
+extensions v0.2 (SSS multi-Tang) sont mentionnées mais hors scope
+v0.1.
+
+Tout est repris de l'analyse comparative GELI vs ZFS native (voir
+historique de discussion dans `boot-and-mount-plan.adoc` §
+« Révision 0.2 ») et du shard existant `crystal-clevis-geli` v0.1
+(`crystal-clevis-geli-handoff.adoc`) dont 80 % du code est
+réutilisable tel quel.
+
+== Périmètre du shard
+
+=== Ce que `crystal-clevis-zfs` v0.1 fait
+
+. *CLI* avec sous-commandes `bind`, `unlock`, `version`.
+. *Bind* : génère ou consomme une clé hex 256 bits, l'enroule
+  via Tang (échange McCallum-Relyea), stocke le JWE résultant
+  localement, configure ZFS pour utiliser cette clé.
+. *Unlock* : récupère la clé via Tang à partir du JWE stocké,
+  l'injecte dans ZFS (`zfs load-key`), monte les datasets enfants.
+. *rc.d* : déverrouillage automatique au boot après `NETWORKING`,
+  avant `mountcritremote`.
+. *API Crystal* exposée pour intégration dans beryl.
+
+=== Ce que `crystal-clevis-zfs` v0.1 ne fait PAS
+
+. *Threshold N-of-M (SSS)* : un seul Tang par dataset en v0.1.
+  Voir v0.2 ci-dessous.
+. *Chiffrement de pool entier* : on chiffre des *datasets*
+  (`zroot/zsys`, `zroot/zdata`, `zroot/zsave`), pas le pool
+  `zroot` complet (Option I du `boot-and-mount-plan.adoc`).
+. *Rotation des clés Tang serveur* : `tangd-rotate-keys` sur le
+  serveur Tang reste manuel ; le shard ne fournit pas de
+  `rebind` automatisé en v0.1.
+. *Support GELI* : explicitement retiré.
+  Si quelqu'un veut Tang+GELI, utilise `crystal-clevis-geli`.
+
+== Ce qui se réutilise du shard `crystal-clevis-geli` v0.1
+
+[cols="2,3,1", options="header"]
+|===
+| Composant | Réutilisation | %
+
+| `crystal-jose` v0.1.0 (lib JOSE/JWE/JWK)
+| Inchangé. Dépendance directe.
+| 100 %
+
+| Module `TangClient` (échange McCallum-Relyea, bind, recover)
+| Inchangé. Le protocole Tang est totalement indépendant de la
+  destination de la clé (GELI ou ZFS, peu importe).
+| 100 %
+
+| Tests d'interop avec `latchset/jose`
+| Inchangés.
+| 100 %
+
+| Hiérarchie d'exceptions, parsing CLI, logs
+| Inchangés (à part les noms de sous-commandes et les arguments).
+| ~80 %
+
+| Module `Geli` (init/attach/detach)
+| *Supprimé*. Remplacé par module `Zfs` (load-key, change-key,
+  create chiffré).
+| 0 %
+
+| Stockage du JWE
+| Format conservé (un fichier JWE par "unité chiffrée"), mais
+  l'unité passe de `device` à `dataset`.
+| ~70 %
+
+| Script `rc.d`
+| À ré-écrire pour appeler `zpool import` + `zfs load-key` au
+  lieu de `geli attach`.
+| 0 %
+|===
+
+**Effort estimé** : 3-4 jours en partant du repo
+`crystal-clevis-geli`, fork puis adaptation.
+
+== Architecture
+
+=== Vue d'ensemble
+
+```
+┌──────────────────────────────────────────────────┐
+│  crystal-clevis-zfs                              │
+│                                                  │
+│  ┌────────────────┐    ┌───────────────────────┐ │
+│  │ TangClient     │    │ Zfs                   │ │
+│  │ (réutilisé)    │    │ (NOUVEAU module)      │ │
+│  │                │    │                       │ │
+│  │ - bind(key)    │    │ - create_encrypted    │ │
+│  │   → JWE        │    │ - load_key(stdin)     │ │
+│  │ - recover(JWE) │    │ - change_key          │ │
+│  │   → key        │    │ - mount_datasets      │ │
+│  └────────┬───────┘    └───────────┬───────────┘ │
+│           │                        │             │
+│           ▼                        ▼             │
+│  Réseau (Tang HTTP)         Process zfs(8)       │
+└──────────────────────────────────────────────────┘
+```
+
+=== Flux de bind
+
+```
+opérateur                                  Tang
+  │
+  │ 1. crystal-clevis-zfs bind --init --dataset zroot/zsys --tang URL
+  │
+  ▼
+KEY = openssl rand 32 (côté Crystal, Random::Secure.random_bytes(32))
+  │
+  ├─────── McCallum-Relyea ECDH ─────────────────────►
+  │                                                    │
+  ◄────────── advertised JWK + jwe.protected ──────────┤
+  │
+  ▼
+JWE assemblé localement (clé encapsulée)
+  │
+  ▼
+Écriture du JWE : /var/db/crystal-clevis-zfs/zroot__zsys.jwe (mode 0600)
+  │
+  ▼
+Pousser KEY à ZFS :
+  echo -n KEY | zfs create \
+     -o encryption=on -o keyformat=hex -o keylocation=prompt \
+     -o compression=lz4 -o atime=off -o mountpoint=none \
+     zroot/zsys
+  │
+  ▼
+KEY effacée de la mémoire (Crystal GC + scrub)
+```
+
+=== Flux d'unlock
+
+```
+crystal-clevis-zfs unlock --dataset zroot/zsys
+  │
+  ▼
+Lecture JWE : /var/db/crystal-clevis-zfs/zroot__zsys.jwe
+  │
+  ├─────── McCallum-Relyea ECDH ─────────────────────►  Tang
+  │                                                    │
+  ◄────────── recovered shared secret ─────────────────┤
+  │
+  ▼
+KEY décapsulée (= la même qu'au bind)
+  │
+  ▼
+Pousser KEY à ZFS :
+  echo -n KEY | zfs load-key zroot/zsys
+  │
+  ▼
+zfs mount -a -l (monte les datasets enfants : zroot/zsys/usrlocaletc, etc.)
+  │
+  ▼
+KEY effacée de la mémoire
+```
+
+== API CLI
+
+=== Sous-commande `bind`
+
+[source,shell]
+----
+crystal-clevis-zfs bind \
+  --dataset <pool/path>         \
+  --tang <url>                  \
+  [--init | --use-existing-key] \
+  [--key-store <dir>]           \
+  [--keyformat hex|raw]         \
+  [--compression lz4|zstd-3|off] \
+  [--mountpoint <path>|none]
+----
+
+Options :
+
+[cols="2,3", options="header"]
+|===
+| Option | Sémantique
+
+| `--dataset <pool/path>`
+| Dataset ZFS cible (ex: `zroot/zsys`). Doit être absent du
+  système au moment de `--init`. Ses enfants seront créés ensuite
+  par l'opérateur ou par beryl.
+
+| `--tang <url>`
+| URL d'un serveur Tang accessible (ex:
+  `http://tang-nas.local:8888`). En v0.1, *exactement une* URL.
+  En v0.2 (SSS), répétable.
+
+| `--init`
+| Génère une clé 256 bits aléatoire, l'enrole via Tang, crée le
+  dataset chiffré. Ne peut pas être combiné avec
+  `--use-existing-key`.
+
+| `--use-existing-key`
+| Le dataset existe déjà avec un `keystatus` valide. Le shard
+  lit la clé via `zfs get keylocation` puis l'enrole via Tang
+  (cas migration depuis Option C `mode: ssh_unlock` vers
+  `mode: tang`).
+
+| `--key-store <dir>`
+| Dossier où ranger les JWE. Défaut :
+  `/var/db/crystal-clevis-zfs/`. Mode 0700.
+
+| `--keyformat hex\|raw`
+| Format ZFS de la clé. Défaut : `hex` (cohérent avec beryl
+  Option C). `raw` pour interop avec d'autres outils.
+
+| `--compression lz4\|zstd-3\|off`
+| Compression à activer sur le dataset. Défaut : `lz4` (compromis
+  perf/ratio). `zstd-3` pour ratio max sur logs/JSON. `off` pour
+  données déjà compressées (vidéos, archives).
+
+| `--mountpoint <path>\|none`
+| Mountpoint ZFS du dataset. Défaut : `none` (le parent ne se
+  monte pas, seuls les enfants).
+|===
+
+Exemples :
+
+[source,shell]
+----
+# Bootstrap initial : dataset zroot/zsys créé chiffré et enrolé
+crystal-clevis-zfs bind --init \
+  --dataset zroot/zsys \
+  --tang http://tang-nas.local:8888
+
+# Migration d'un dataset Option C ssh_unlock vers Option D tang
+crystal-clevis-zfs bind --use-existing-key \
+  --dataset zroot/zdata \
+  --tang http://tang-nas.local:8888
+----
+
+=== Sous-commande `unlock`
+
+[source,shell]
+----
+crystal-clevis-zfs unlock \
+  --dataset <pool/path> \
+  [--key-store <dir>]   \
+  [--no-mount]
+----
+
+Options :
+
+[cols="2,3", options="header"]
+|===
+| Option | Sémantique
+
+| `--dataset <pool/path>`
+| Dataset à déverrouiller.
+
+| `--key-store <dir>`
+| Idem `bind`.
+
+| `--no-mount`
+| Charge la clé mais ne fait pas `zfs mount -a -l`. Utile pour
+  débogage ou si le mount est piloté ailleurs.
+|===
+
+Exemple :
+
+[source,shell]
+----
+crystal-clevis-zfs unlock --dataset zroot/zsys
+# → Charge la clé, monte zroot/zsys/usrlocaletc, varlog, varspool
+----
+
+=== Sous-commande `version`
+
+[source,shell]
+----
+crystal-clevis-zfs version
+# → crystal-clevis-zfs 0.1.0 (Crystal x.y.z, FreeBSD x.y)
+----
+
+== API Crystal
+
+=== Module principal
+
+[source,crystal]
+----
+require "crystal-clevis-zfs"
+
+# Bind d'un nouveau dataset chiffré
+tang = CrystalClevisZfs::TangClient.new("http://tang-nas.local:8888")
+key  = CrystalClevisZfs::Zfs.random_key_hex   # 64 chars hex
+jwe  = tang.bind(key)                         # ECDH-ES local
+File.write("/var/db/crystal-clevis-zfs/zroot__zsys.jwe", jwe, perm: 0o600)
+
+CrystalClevisZfs::Zfs.create_encrypted(
+  dataset: "zroot/zsys",
+  key_hex: key,
+  compression: "lz4",
+  mountpoint: "none",
+)
+
+# Plus tard, au boot :
+jwe       = File.read("/var/db/crystal-clevis-zfs/zroot__zsys.jwe")
+recovered = tang.recover(jwe)                 # Tang dance
+CrystalClevisZfs::Zfs.load_key("zroot/zsys", key_hex: recovered)
+CrystalClevisZfs::Zfs.mount_recursive("zroot/zsys")
+----
+
+=== Module `Zfs`
+
+[source,crystal]
+----
+module CrystalClevisZfs::Zfs
+  # Génère 32 bytes aléatoires en hex (64 chars)
+  def self.random_key_hex : String
+
+  # Crée un dataset chiffré avec keyformat=hex, keylocation=prompt
+  # La clé est passée à `zfs create` via stdin (jamais en argv)
+  def self.create_encrypted(
+    dataset    : String,
+    key_hex    : String,
+    compression : String = "lz4",
+    mountpoint : String? = "none",
+    extra_props : Hash(String, String) = {} of String => String,
+  ) : Nil
+
+  # Charge la clé d'un dataset chiffré existant
+  # (équivalent : echo -n key | zfs load-key dataset)
+  def self.load_key(dataset : String, key_hex : String) : Nil
+
+  # Idempotent : retourne true si la clé est déjà chargée
+  def self.key_loaded?(dataset : String) : Bool
+
+  # Monte les datasets enfants d'un parent chiffré (zfs mount -a -l)
+  def self.mount_recursive(parent : String) : Nil
+
+  # Change la clé d'un dataset chiffré (zfs change-key)
+  # Utilisé pour la rotation
+  def self.change_key(dataset : String, new_key_hex : String) : Nil
+
+  # Vrai si le dataset existe et son keystatus est available ou unavailable
+  def self.encrypted?(dataset : String) : Bool
+end
+----
+
+=== Module `TangClient` (réutilisé tel quel depuis `crystal-clevis-geli`)
+
+[source,crystal]
+----
+module CrystalClevisZfs
+  class TangClient
+    def initialize(@url : String)
+
+    # Enrole une clé : retourne le JWE qui permettra de la récupérer
+    def bind(key_hex : String) : String
+
+    # Récupère la clé encapsulée dans un JWE
+    def recover(jwe : String) : String
+
+    # Récupère le JWK public du serveur Tang (debug)
+    def advertise : JSON::Any
+  end
+end
+----
+
+== Format de stockage du JWE
+
+Un fichier par dataset. Chemin canonique :
+
+```
+<key_store>/<dataset_aplati>.jwe
+```
+
+Avec `<dataset_aplati>` = le nom du dataset où les `/` sont
+remplacés par `__` (double underscore, pour éviter les conflits
+avec un nom de dataset qui contiendrait un `_` simple).
+
+Exemples :
+
+| Dataset | Fichier JWE |
+|---|---|
+| `zroot/zsys` | `/var/db/crystal-clevis-zfs/zroot__zsys.jwe` |
+| `zroot/zdata` | `/var/db/crystal-clevis-zfs/zroot__zdata.jwe` |
+| `tank/vault/secrets` | `/var/db/crystal-clevis-zfs/tank__vault__secrets.jwe` |
+
+Permissions :
+
+* Dossier `<key_store>` : `0700 root:wheel`.
+* Fichiers `*.jwe` : `0600 root:wheel`.
+
+NOTE: Le JWE *ne contient pas la clé en clair*. Il contient
+l'enveloppe McCallum-Relyea qui, combinée à la coopération du
+serveur Tang, permet de reconstituer la clé. Si Tang est
+inaccessible, le JWE seul est inutilisable. Si quelqu'un vole
+le JWE *et* compromet le serveur Tang, alors la clé est
+reconstituable — d'où l'intérêt du SSS multi-Tang en v0.2.
+
+== Discipline de la clé en mémoire
+
+Règles non-négociables :
+
+. *Jamais en argument de commande shell* (visible dans `ps`).
+. *Jamais dans une variable d'environnement transmise à un
+  sous-processus* (sauf preuve formelle d'isolation).
+. *Toujours via stdin* du processus qui en a besoin (`zfs create`,
+  `zfs load-key`, `zfs change-key`).
+. *Effacement actif après usage* : la chaîne Crystal qui contient
+  la clé doit être écrasée (zero-fill) avant que le GC ne la
+  ramasse. Implémentation Crystal :
++
+[source,crystal]
+----
+def self.scrub_string(s : String) : Nil
+  # Crystal n'expose pas mlock/munlock standard. On peut au moins
+  # marquer la mémoire avec des zéros pour limiter le risque que
+  # la clé persiste en heap après usage.
+  ptr = s.to_unsafe
+  ptr.clear(s.bytesize)
+end
+----
++
+ATTENTION: `String` Crystal est immutable et string interning
+peut conserver la clé. Préférer `Bytes` pour les manipulations
+de clé, et passer en hex au dernier moment.
+. *Pas de log de la clé*. Logs explicites : « clé reçue (64
+  chars) », pas la clé elle-même.
+. *Pas de fichier intermédiaire sur disque persistant*. Si un
+  pipe est inutilisable (cas exotique), utiliser `tmpfs` :
++
+[source,crystal]
+----
+# Si vraiment besoin d'un fichier (ex: zfs n'accepte que
+# keylocation=file:// pour certaines opérations), le créer dans
+# /var/run (tmpfs sur FreeBSD), permissions 0600, et le supprimer
+# IMMÉDIATEMENT après usage avec File.delete.
+----
+
+== Script `rc.d`
+
+À installer dans `/usr/local/etc/rc.d/crystal-clevis-zfs`.
+
+[source,shell]
+----
+#!/bin/sh
+#
+# PROVIDE: crystal_clevis_zfs
+# REQUIRE: NETWORKING
+# BEFORE: mountcritremote
+# KEYWORD: shutdown
+#
+# rc.conf entries :
+#   crystal_clevis_zfs_enable="YES"
+#   crystal_clevis_zfs_datasets="zroot/zsys zroot/zdata zroot/zsave"
+
+. /etc/rc.subr
+
+name="crystal_clevis_zfs"
+rcvar="crystal_clevis_zfs_enable"
+load_rc_config "$name"
+
+: ${crystal_clevis_zfs_enable:="NO"}
+: ${crystal_clevis_zfs_datasets:=""}
+
+start_cmd="${name}_start"
+stop_cmd="${name}_stop"
+
+crystal_clevis_zfs_start()
+{
+    if [ -z "${crystal_clevis_zfs_datasets}" ]; then
+        echo "crystal-clevis-zfs : aucun dataset déclaré (rc.conf)"
+        return 0
+    fi
+    for ds in ${crystal_clevis_zfs_datasets}; do
+        echo "crystal-clevis-zfs : unlock ${ds}"
+        if ! /usr/local/sbin/crystal-clevis-zfs unlock --dataset "${ds}"; then
+            echo "crystal-clevis-zfs : ÉCHEC sur ${ds}" >&2
+            return 1
+        fi
+    done
+}
+
+crystal_clevis_zfs_stop()
+{
+    # Pas de unmount au stop : le shutdown FreeBSD s'en charge
+    # via mountcritremote.
+    return 0
+}
+
+run_rc_command "$1"
+----
+
+== Tests requis
+
+=== Tests unitaires
+
+. *Module `Zfs`* :
+.. `random_key_hex` produit 64 chars hex distincts à chaque appel.
+.. `create_encrypted` appelle `zfs create` avec les bons arguments
+   et passe la clé via stdin (vérifié par mock du Process).
+.. `load_key` appelle `zfs load-key` avec la clé via stdin.
+.. `key_loaded?` retourne le bon booléen selon le `keystatus`.
+.. Erreur explicite si dataset absent, pool absent, etc.
+. *Module `TangClient`* (déjà testé dans crystal-clevis-geli) :
+.. `bind`/`recover` fonctionnent en aller-retour avec un Tang
+   local.
+.. Robustesse aux erreurs HTTP (Tang down, 4xx, 5xx).
+
+=== Tests d'interop
+
+. *Avec `latchset/jose`* (binaire Red Hat) : un JWE produit par
+  `crystal-clevis-zfs` doit être lisible par `jose`, et
+  inversement.
+. *PAS d'interop avec `clevis encrypt sss`* en v0.1 (single Tang
+  uniquement). En v0.2 : tester qu'un JWE produit par
+  `clevis encrypt sss` est lisible par `crystal-clevis-zfs`.
+
+=== Tests end-to-end (en VM FreeBSD)
+
+. Banc de test similaire au `prod-crystal/qemu/` actuel
+  (8 scripts shell, 2 VMs FreeBSD aarch64) :
+.. `pkg install -y tang` + `tangd-keygen` + service Tang.
+.. `crystal-clevis-zfs bind --init` contre Tang local sur un
+   dataset `zroot/zsys` neuf.
+.. Vérifier `keystatus available` après bind.
+.. `crystal-clevis-zfs unlock` après `zfs unload-key`.
+.. Reboot complet de la VM avec `rc.d` activé. Vérifier
+   automount des datasets.
+.. Test compression : créer un fichier de 1 GB de zéros dans
+   `zroot/zsys/varlog`, vérifier que `zfs list` montre une
+   taille compressée < 100 MB.
+
+== v0.2 — SSS multi-Tang (hors scope v0.1)
+
+À écrire après v0.1 livrée et stabilisée. Reprend strictement
+l'approche de `crystal-clevis-geli` v0.2 documentée dans son
+handoff (module `Sss` ~150 lignes, extension de `bind` et
+`recover` pour itérer sur N Tangs avec un threshold K).
+
+API CLI v0.2 :
+
+[source,shell]
+----
+crystal-clevis-zfs bind --init \
+  --dataset zroot/zdata \
+  --tang http://tang-nas.local:8888 \
+  --tang http://tang-ovh.example:8888 \
+  --tang http://tang-scaleway.example:8888 \
+  --threshold 2
+----
+
+Garantie : un attaquant doit compromettre 2 Tangs sur 3 pour
+reconstituer la clé. Le serveur tolère 1 Tang en panne au boot.
+
+== Migration depuis `crystal-clevis-geli`
+
+Pour les utilisateurs (probablement personne en dehors d'Aloli)
+qui auraient déjà déployé `crystal-clevis-geli` v0.1 :
+
+. Décommissionner les vdevs GELI un par un.
+. Sur le pool ZFS, créer le dataset chiffré équivalent
+  (`zfs create -o encryption=on ...`).
+. Copier les données du device GELI vers le dataset chiffré
+  (`zfs send -w` ou `rsync`).
+. Pointer les services applicatifs vers le nouveau mountpoint.
+. `geli detach` puis suppression du `provider` / partition.
+
+Cette migration n'est pas urgente côté Aloli : les serveurs
+existants en chiffrement total + KVM passent directement à
+Option I + ZFS native au prochain re-bootstrap (cf.
+`zpool-encryption-architecture.adoc`).
+
+== Limites connues v0.1
+
+* *Single Tang* : SPOF. v0.2 SSS résout.
+* *Datasets chiffrés enfants uniquement* : on ne chiffre pas le
+  pool entier. Si besoin de chiffrer le pool root, voir Option II
+  du `boot-and-mount-plan.adoc`.
+* *Clé en mémoire pendant l'unlock* : inhérent à tout système
+  chiffré. Mitigation : scrub actif après usage.
+* *Pas d'isolation tang-par-environnement* : un seul Tang peut
+  servir prod et staging. Pour séparer, utiliser des Tangs
+  distincts par environnement (recommandation Aloli).
+* *Tang HTTP clair* par défaut : la crypto JOSE protège, mais
+  on peut ajouter un reverse-proxy TLS si une politique d'audit
+  l'exige.
+
+== Liens
+
+* `boot-and-mount-plan.adoc` § Option I — schéma de partitionnement
+  cible et plan de montage qui consomme ce shard.
+* `crystal-clevis-geli-handoff.adoc` — handoff de l'ancêtre GELI
+  (historique uniquement, déprécié).
+* https://github.com/aloli-crystal/crystal-jose — lib JOSE pure
+  Crystal, dépendance directe.
+* https://www.freebsd.org/cgi/man.cgi?zfsprops(7) — documentation
+  des propriétés ZFS native encryption (`encryption`, `keyformat`,
+  `keylocation`, `keystatus`, `encryptionroot`).

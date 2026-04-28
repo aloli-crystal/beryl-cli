@@ -141,17 +141,57 @@ module Beryl::CLI::Bootstrap
     # Pools data : créés post-install via `zpool create` dans la VM
     # mfsBSD qui tourne encore. Chaque pool data se voit attribué un
     # segment contigu de vtbd* QEMU après les disques du pool boot.
+    #
+    # Si un pool data déclare `encryption: true`, on génère une clé
+    # 256 bits localement (côté opérateur, dans `~/.beryl/<société>/
+    # <domaine>/<host>.key`) AVANT de lancer le bootstrap. Si une clé
+    # existe déjà à ce chemin, on la réutilise (cas d'un re-bootstrap
+    # explicite après wipe — mais ATTENTION, les datasets de l'ancien
+    # pool deviennent illisibles si la clé a été régénérée entre-temps).
     data_pools = host.data_zpools.map do |pool|
       mp = pool.mountpoint
       if mp.nil? || mp.empty?
         STDERR.puts "beryl : pool data `#{pool.name}` sans mountpoint (ajoutez `mountpoint: /xxx`)."
         return EXIT_USAGE
       end
+      key_hex : String? = nil
+      if (enc = pool.encryption)
+        # Au bootstrap, on génère TOUJOURS une clé locale, même si le
+        # mode final est `tang`. Raison : le `zpool create -O encryption=on`
+        # se fait depuis la VM mfsBSD-in-QEMU pendant le bootstrap, où
+        # Tang peut ne pas être joignable (ou pas encore configuré).
+        # On crée donc le pool en mode `ssh_unlock` au bootstrap, et
+        # l'opérateur basculera vers `tang` plus tard via `beryl
+        # tang-enroll <host>` (T2, à venir) qui appelle
+        # `crystal-clevis-zfs bind --use-existing-key` côté serveur.
+        key_path = Beryl::Encryption.key_path(
+          config_root, host.account_name, host.domain_name, host.short_name
+        )
+        if Beryl::Encryption.exists?(key_path)
+          key_hex = Beryl::Encryption.read(key_path)
+          STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] " \
+                      "7 clé existante réutilisée : #{key_path}"
+        else
+          key_hex = Beryl::Encryption.write_new(key_path)
+          STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] " \
+                      "7 clé générée et stockée : #{key_path} (chmod 0400, 256 bits hex)"
+          STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] " \
+                      "7 ⚠ pensez à sauvegarder ce fichier (Time Machine + iCloud) — " \
+                      "perdre la clé = perdre les données du pool #{pool.name}"
+        end
+        if enc.tang?
+          STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] " \
+                      "7 mode tang demandé pour #{pool.name} : pool créé en ssh_unlock pour le bootstrap. " \
+                      "Lancez `beryl tang-enroll #{host.account_name}/#{host.fqdn}` " \
+                      "après le 1er reboot pour basculer vers Tang."
+        end
+      end
       Beryl::Bootstrap::DataPoolSpec.new(
         name: pool.name,
         raid: pool.raid,
         disks: pool.disks,
         mountpoint: mp,
+        encryption_key_hex: key_hex,
       )
     end
     timezone = host.freebsd_string("timezone") || "Europe/Paris"
@@ -188,7 +228,12 @@ module Beryl::CLI::Bootstrap
         STDERR.puts "  pools data  :"
         data_pools.each do |dp|
           mode = Beryl::Config::Zpool.zfs_mode(dp.raid)
-          STDERR.puts "    - #{dp.name} (RAID #{dp.raid}/#{mode}) → #{dp.mountpoint} sur #{dp.disks.join(", ")}"
+          # Note : le tag est posé selon DataPoolSpec#encrypted? qui
+          # ne connaît que la présence d'une clé hex au bootstrap.
+          # Le mode final (ssh_unlock vs tang) vit côté Pool, déjà
+          # affiché par les logs précédents.
+          enc_tag = dp.encrypted? ? " [chiffré]" : ""
+          STDERR.puts "    - #{dp.name} (RAID #{dp.raid}/#{mode})#{enc_tag} → #{dp.mountpoint} sur #{dp.disks.join(", ")}"
         end
       end
       STDERR.puts "  swap        : #{swap_gb} Go"

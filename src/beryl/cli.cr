@@ -13,6 +13,10 @@ require "./cli/add_domain"
 require "./cli/bootstrap"
 require "./cli/follow_install"
 require "./cli/scaleway_reinstall"
+require "./cli/unlock"
+require "./cli/reboot"
+require "./cli/status"
+require "./cli/tang_enroll"
 
 # Point d'entrée CLI de beryl.
 #
@@ -90,6 +94,10 @@ module Beryl::CLI
     when "prep-rescue"        then Beryl::CLI::PrepRescue.run(sub_args)
     when "bake-seed"          then Beryl::CLI::BakeSeed.run(sub_args)
     when "scaleway-reinstall" then Beryl::CLI::ScalewayReinstall.run(config_root, sub_args)
+    when "unlock"             then Beryl::CLI::Unlock.run(config_root, sub_args)
+    when "reboot"             then Beryl::CLI::Reboot.run(config_root, sub_args)
+    when "status"             then Beryl::CLI::Status.run(config_root, sub_args)
+    when "tang-enroll"        then Beryl::CLI::TangEnroll.run(config_root, sub_args)
     when "version"            then puts "beryl #{Beryl::VERSION}"; 0
     else
       STDERR.puts "beryl : sous-commande inconnue : #{subcommand}"
@@ -117,6 +125,10 @@ module Beryl::CLI
     "a"  => "apply",
     "pr" => "prep-rescue",
     "bs" => "bake-seed",
+    "u"  => "unlock",
+    "rb" => "reboot",
+    "st" => "status",
+    "te" => "tang-enroll",
     "v"  => "version",
   }
 
@@ -164,6 +176,10 @@ module Beryl::CLI
     when "apply"          then Beryl::CLI::Apply.run(config_root, ["--help"])
     when "prep-rescue"    then Beryl::CLI::PrepRescue.run(["--help"])
     when "bake-seed"      then Beryl::CLI::BakeSeed.run(["--help"])
+    when "unlock"         then Beryl::CLI::Unlock.run(config_root, ["--help"])
+    when "reboot"         then Beryl::CLI::Reboot.run(config_root, ["--help"])
+    when "status"         then Beryl::CLI::Status.run(config_root, ["--help"])
+    when "tang-enroll"    then Beryl::CLI::TangEnroll.run(config_root, ["--help"])
     when "version"
       puts "USAGE : beryl version"
       puts
@@ -199,6 +215,10 @@ module Beryl::CLI
       apply         [a]     Synchronise packages/users/clés SSH
       prep-rescue   [pr]    HTTP local pour préparer un rescue Debian
       bake-seed     [bs]    cloud-init seed.img pour Ubuntu Server live
+      unlock        [u]     Déverrouille les pools chiffrés (clé locale → SSH)
+      reboot        [rb]    Reboot d'un host (--soft via SSH ou --hard via API)
+      status        [st]    État pools / services chiffrés d'un host
+      tang-enroll   [te]    Enrôle les pools chiffrés via Tang (Option D)
       version       [v]     Affiche la version
 
     Host : FQDN (ex: rails01.aloli.net), nom court, ou identifiant hébergeur

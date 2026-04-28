@@ -45,17 +45,35 @@ module Beryl::Bootstrap
   # ailleurs dans beryl. Contrairement au pool boot (où 10 n'est pas
   # câblé côté bsdinstall), tous les niveaux RAID sont supportés ici
   # via un `zpool create` natif.
+  #
+  # `encryption_key_hex` : si non-nil, le pool est créé avec ZFS native
+  # encryption (`-O encryption=on -O keyformat=hex -O keylocation=prompt`).
+  # La chaîne est 64 chars hex. Au moment du `zpool create`, la clé est
+  # poussée sur stdin du processus distant (jamais en argument shell),
+  # puis le pool est exporté avant le reboot bare-metal — la clé ne
+  # persiste pas sur le serveur. L'opérateur la rechargera avec
+  # `beryl unlock` après chaque reboot.
   record DataPoolSpec,
     name : String,
     raid : Int32,
     disks : Array(String),
-    mountpoint : String do
+    mountpoint : String,
+    encryption_key_hex : String? = nil do
     def validate! : Nil
       raise ArgumentError.new("pool data : name vide") if name.empty?
       raise ArgumentError.new("pool data #{name} : disks vide") if disks.empty?
       raise ArgumentError.new("pool data #{name} : mountpoint vide") if mountpoint.empty?
       # Contraintes RAID (min disques, parité RAID 10…)
       Beryl::Config::Zpool.validate!(raid, disks.size)
+      if k = encryption_key_hex
+        unless k.size == 64 && k.each_char.all? { |c| c.in?('0'..'9') || c.in?('a'..'f') || c.in?('A'..'F') }
+          raise ArgumentError.new("pool data #{name} : encryption_key_hex doit être 64 chars hex (reçu : #{k.size})")
+        end
+      end
+    end
+
+    def encrypted? : Bool
+      !encryption_key_hex.nil?
     end
 
     # Rend le fragment `vdev` d'un `zpool create` à partir de la liste
@@ -386,6 +404,23 @@ module Beryl::Bootstrap
     # Pointer vers `/mnt/boot/zfs/zpool.cache` (le cachefile du
     # système cible, dans zroot altroot /mnt) garantit qu'au reboot,
     # le rc.d/zfs du FreeBSD installé importe les deux pools.
+    #
+    # *Pools chiffrés* : si `encryption_key_hex` est posé, on génère :
+    #
+    #   - Un bloc `{ ... }` qui décode la clé base64 dans une variable
+    #     locale `KEY` (jamais en argument de commande).
+    #   - `zpool create -O encryption=on -O keyformat=hex -O keylocation=prompt …`
+    #     avec la clé fournie sur stdin.
+    #   - `unset KEY` pour libérer la mémoire shell après l'usage.
+    #   - PAS de `zpool set cachefile` : on EXCLUT le pool chiffré du
+    #     cache pour qu'au reboot bare-metal, FreeBSD ne tente pas
+    #     d'importer un pool dont la clé n'est pas chargée. L'opérateur
+    #     fera `beryl unlock` (qui appelle `zpool import` + `zfs load-key`).
+    #     Voir `zpool-encryption-architecture.adoc` § « Au bootstrap ».
+    #
+    # Le script complet est ensuite encodé en base64 et exécuté côté VM
+    # via `bash -c "$(echo ... | base64 -d)"` — la clé hex n'apparaît
+    # jamais dans la ligne de commande.
     def data_pools_script : String
       return "" if @data_pools.empty?
       lines = [] of String
@@ -394,8 +429,29 @@ module Beryl::Bootstrap
       @data_pools.each do |pool|
         devices = (vtbd_index...vtbd_index + pool.disks.size).map { |i| "vtbd#{i}" }
         vdev = pool.vdev_spec(devices)
-        lines << "zpool create -f -R /mnt -m #{pool.mountpoint} #{pool.name} #{vdev}"
-        lines << "zpool set cachefile=/mnt/boot/zfs/zpool.cache #{pool.name}"
+        if key_hex = pool.encryption_key_hex
+          # Clé hex en base64 (les 64 chars hex eux-mêmes ne contiennent
+          # pas de caractère spécial, mais on garde l'encodage pour
+          # rester homogène avec le reste du script et être robuste à
+          # tout éventuel trailing whitespace / quoting shell).
+          key_b64 = Base64.strict_encode(key_hex)
+          lines << "{"
+          lines << "  KEY=$(echo '#{key_b64}' | base64 -d)"
+          lines << "  printf '%s' \"$KEY\" | zpool create -f " \
+                   "-O encryption=on -O keyformat=hex -O keylocation=prompt " \
+                   "-R /mnt -m #{pool.mountpoint} #{pool.name} #{vdev}"
+          lines << "  unset KEY"
+          lines << "}"
+          # Pas de cachefile : pool chiffré → import manuel via beryl unlock.
+          # Export propre pour que le pool ne soit pas en état importé
+          # au moment du poweroff de la VM (sinon la clé persiste en RAM
+          # de la VM et serait imprimée dans serial.log si crash).
+          lines << "zfs unmount #{pool.name} 2>/dev/null || true"
+          lines << "zpool export #{pool.name}"
+        else
+          lines << "zpool create -f -R /mnt -m #{pool.mountpoint} #{pool.name} #{vdev}"
+          lines << "zpool set cachefile=/mnt/boot/zfs/zpool.cache #{pool.name}"
+        end
         vtbd_index += pool.disks.size
       end
       lines.join("\n") + "\n"

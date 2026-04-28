@@ -1,0 +1,420 @@
+= beryl ↔ crystal-clevis-zfs — handoff d'intégration
+:author: Philippe Nénert
+:revdate: 27 avril 2026
+:revnumber: 0.3
+:lang: fr
+:toc: left
+:toclevels: 3
+:icons: font
+:sectnums:
+:source-highlighter: rouge
+
+[.lead]
+Document de transmission pour l'intégration de
+`crystal-clevis-zfs` dans `crystal-beryl`. Décrit ce que fait
+aujourd'hui le shard (**v0.1 livré**, single-Tang) et la liste
+précise des tâches côté `beryl` pour brancher la fonctionnalité
+dans le mode `tang` du format YAML évoqué dans
+`zpool-encryption-architecture.adoc` § Option D.
+
+NOTE: Révision 0.3 (27 avril 2026) — pivot **GELI → ZFS native
+encryption**. L'ancêtre `crystal-clevis-geli` v0.2 reste fonctionnel
+mais est déprécié pour le pattern Aloli (FreeBSD + ZFS). Voir
+`boot-and-mount-plan.adoc` § « Pivot GELI → ZFS native » et
+`crystal-clevis-zfs-specs.adoc` pour les justifications détaillées.
+
+== TL;DR
+
+[cols="1,3", options="header"]
+|===
+| Quoi | Où en est-on ?
+
+| **Tang server (FreeBSD)**
+| Disponible en `pkg install tang`. Guide d'install :
+  link:../TANG-DEPLOIEMENT.adoc[TANG-DEPLOIEMENT.adoc] (à la
+  racine prod-crystal/).
+
+| **`crystal-jose`** (lib JOSE pure Crystal)
+| **v0.1.0 publié** sur https://github.com/aloli-crystal/crystal-jose
+  Tag `v0.1.0`. 60 tests + 10 tests d'interop avec `latchset/jose`.
+
+| **`crystal-clevis-zfs`** (client Tang + ZFS native encryption)
+| **v0.1.0 publié** sur https://github.com/aloli-crystal/crystal-clevis-zfs
+  Tag `v0.1.0`. 47 tests internes (avec mock `zfs(8)` en script
+  shell). **Test e2e VM à programmer.**
+
+| **`crystal-clevis-geli`** (ancêtre, GELI au lieu de ZFS native)
+| Toujours disponible (`v0.2.0` publié), mais **déprécié** pour le
+  pattern Aloli. Reste utilisable pour cas Tang+UFS ou Tang+ext4
+  hors écosystème ZFS.
+
+| **SSS — multi-Tang threshold N-of-M**
+| Code interne **présent et testé** dans `crystal-clevis-zfs`
+  (réutilisé depuis `crystal-clevis-geli` v0.2). Surface CLI
+  exposée en v0.2.
+
+| **`--use-existing-key`** dans `bind`
+| Réservé pour la **migration depuis `mode: ssh_unlock`** (Option C
+  beryl) vers `mode: tang`. Pas implémenté en v0.1, prévu en v0.2.
+|===
+
+== État de l'art côté shard `crystal-clevis-zfs` (v0.1)
+
+=== Ce que le shard fait
+
+* CLI `crystal-clevis-zfs` avec sous-commandes :
++
+[source,shell]
+----
+crystal-clevis-zfs bind --init \
+    --dataset zroot/zsys --tang URL \
+    [--keyformat hex] [--compression lz4|zstd-3|off] \
+    [--mountpoint PATH|none] [--key-store DIR]
+
+crystal-clevis-zfs unlock --dataset zroot/zsys [--no-mount] [--key-store DIR]
+
+crystal-clevis-zfs version
+----
+
+* Format de stockage du JWE : un fichier par dataset dans
+  `/var/db/crystal-clevis-zfs/<pool>__<path>.jwe` (mode 600), avec
+  les `/` du nom de dataset remplacés par `__`. Exemples :
+  `zroot__zsys.jwe`, `tank__vault__secrets.jwe`.
+
+* Script `rc.d` standard FreeBSD livré avec le repo
+  (`etc/rc.d/crystal-clevis-zfs`) : déverrouillage automatique au
+  boot après `NETWORKING`, avant `mountcritremote`.
+
+* API Crystal exposée :
++
+[source,crystal]
+----
+require "crystal-clevis-zfs"
+
+# Bind initial : on crée un dataset chiffré et on enrôle la clé via Tang
+tang = CrystalClevisZfs::TangClient.new("http://tang.example.com:8888")
+key  = CrystalClevisZfs::Zfs.random_key_hex   # 64 chars hex (256 bits)
+jwe  = tang.bind(key)                         # ECDH-ES local
+File.write("/var/db/crystal-clevis-zfs/zroot__zsys.jwe", jwe, perm: 0o600)
+
+CrystalClevisZfs::Zfs.create_encrypted(
+  dataset: "zroot/zsys",
+  key_hex: key,
+  compression: "lz4",
+  mountpoint: "none",
+)
+
+# Plus tard, au boot :
+jwe       = File.read("/var/db/crystal-clevis-zfs/zroot__zsys.jwe")
+recovered = String.new(tang.recover(jwe))     # Tang dance
+CrystalClevisZfs::Zfs.load_key("zroot/zsys", recovered)
+CrystalClevisZfs::Zfs.mount_recursive("zroot/zsys")
+----
+
+* Crypto : ECDH-ES (P-256/P-384/P-521) + A256GCM via OpenSSL
+  bindings Crystal. Interopérabilité validée avec
+  `latchset/jose` (binaire de référence Red Hat). Pour SSS :
+  Shamir sur GF(p) avec safe prime 256 bits, interpolation
+  Lagrange. Format JWE compatible Clevis (`pin: sss`).
+
+* **Discipline clé** : la clé n'apparaît jamais en argv ni en env,
+  est passée à `zfs(8)` via stdin uniquement, puis scrubbée
+  (overwrite zéros) avant d'être rendue au GC.
+
+=== Ce que le shard ne fait pas (v0.1)
+
+. **Pas de chiffrement de pool entier**. On chiffre des datasets
+  enfants (`zroot/zsys`, `zroot/zdata`, `zroot/zsave`), pas le
+  pool root entier (cohérent avec l'Option I du
+  `boot-and-mount-plan.adoc`).
+. **Pas de gestion de la rotation des clés Tang serveur** : si
+  vous lancez `tangd-rotate-keys`, il faut re-`bind` chaque
+  dataset contre les nouvelles clés. À industrialiser plus tard.
+. **Pas d'interop testée avec `clevis decrypt sss`** : le format
+  est conforme à Clevis mais le déchiffrement par leur démon
+  Linux n'a pas été testé.
+. **Pas de surface CLI multi-Tang** en v0.1 (le code interne SSS
+  est prêt). Arrive en v0.2.
+. **Pas de `--use-existing-key`** : on ne peut pas, en v0.1,
+  enrôler la clé d'un dataset déjà chiffré (cas migration depuis
+  Option C `ssh_unlock`). Arrive en v0.2.
+
+=== Ce qui reste à valider end-to-end
+
+Le banc QEMU 2 VMs FreeBSD 15 aarch64 utilisé pour
+`crystal-clevis-geli` (8 scripts shell dans `prod-crystal/qemu/`)
+n'a **pas encore été refait** pour `crystal-clevis-zfs`. À
+programmer : adapter le script de test pour créer un dataset
+chiffré + reboot, ou attendre l'intégration directe dans beryl.
+
+== Tâches côté `crystal-beryl`
+
+Toutes les tâches ci-dessous sont **à faire**. Aucune n'est
+amorcée côté beryl à ce jour.
+
+NOTE: La conf beryl vit dans `~/.beryl/` côté opérateur (cf.
+mémoire `reference_beryl_config_location.md`). Migration prévue
+à terme vers un dépôt git chiffré. Tout schéma YAML proposé
+ici est destiné à `~/.beryl/<...>`.
+
+=== T1 — Recette d'installation Tang (côté serveur Tang)
+
+Crée une recette beryl pour installer + configurer un serveur Tang
+sur un host FreeBSD :
+
+. `pkg install -y tang`
+. Génération des clés via `tangd-keygen /var/db/tang`
+. `sysrc tangd_enable=YES tangd_jwkdir=/var/db/tang tangd_port=8888`
+. Configuration `pf` : autoriser uniquement les IPs des serveurs
+  cibles vers le port Tang
+. `service tangd start`
+. **Sauvegarde** des clés `/var/db/tang/*.jwk` dans le coffre
+  `crystal-secrets` (cf. CRYSTAL-SECRETS-SPECS.adoc) — sinon perte
+  des clés Tang = ré-enrôlement de tous les clients
+. Test de fumée : `curl -fs http://localhost:8888/adv`
+
+Modèle YAML, à placer dans `~/.beryl/<…>` :
+
+[source,yaml]
+----
+hosts:
+  tang-nas:
+    role: tang-server
+    tang:
+      port: 8888
+      allowed_clients:
+        - 10.0.0.0/24      # subnet du datacenter principal
+      keys_backup: secrets://tang/tang-nas-keys.tar.age
+----
+
+=== T2 — Recette d'installation `crystal-clevis-zfs` (côté client ZFS)
+
+Sur chaque serveur dont les datasets sont à chiffrer :
+
+. `pkg install -y crystal shards git`
+. `git clone https://github.com/aloli-crystal/crystal-clevis-zfs`
+  (à terme : packager en pkg FreeBSD ; voir T6)
+. `crystal build src/cli.cr -o /usr/local/sbin/crystal-clevis-zfs --release`
+. `install -m 0755 etc/rc.d/crystal-clevis-zfs /usr/local/etc/rc.d/`
+. `sysrc crystal_clevis_zfs_enable="YES"`
+. `sysrc crystal_clevis_zfs_datasets="zroot/zsys zroot/zdata zroot/zsave"`
+
+NOTE: Plus besoin de `kldload geom_eli` ni de
+`geom_eli_load="YES"` dans `/boot/loader.conf` puisqu'on n'utilise
+plus GELI (sauf pour le swap, qui reste sur `geli onetime` —
+géré par le pkg `tang` natif via `swap_geli` standard).
+
+=== T3 — Format YAML `mode: tang` dans la config `beryl`
+
+Étendre le format YAML du dataset pour accepter `mode: tang` en
+plus de `mode: ssh_unlock` (cf.
+`zpool-encryption-architecture.adoc` § Option D).
+
+Schéma proposé :
+
+[source,yaml]
+----
+zsys:
+  encryption:
+    type: zfs-native            # désormais le seul type retenu (cf.
+                                # boot-and-mount-plan.adoc)
+    mode: tang
+    tang:
+      urls:
+        - http://tang-nas.local:8888
+      threshold: 1              # v0.1 : single-Tang. v0.2 : multi.
+    compression: lz4
+    keyformat: hex
+    mountpoint: none
+
+zdata:
+  encryption:
+    type: zfs-native
+    mode: tang
+    tang:
+      urls:
+        - http://tang-nas.local:8888
+        - http://tang-ovh.example:8888
+        - http://tang-scaleway.example:8888
+      threshold: 2              # v0.2 : K=2/N=3
+    compression: zstd-3         # ratio max sur logs/JSON
+    keyformat: hex
+    mountpoint: none
+
+zsave:
+  encryption:
+    type: zfs-native
+    mode: tang
+    tang:
+      urls:
+        - http://tang-nas.local:8888
+        - http://tang-ovh.example:8888
+        - http://tang-scaleway.example:8888
+      threshold: 3              # v0.2 : K=3/N=3, strict
+    compression: lz4            # backups déjà gros
+    keyformat: hex
+    mountpoint: none
+----
+
+Validation à faire dans beryl :
+
+* `threshold ≤ len(urls)` ;
+* `len(urls) >= 1` ;
+* `threshold >= 1` ;
+* `keyformat` doit valoir `hex` (la v0.1 du shard ne supporte que
+  ce format ; `raw` arrive plus tard si besoin) ;
+* `compression` parmi `lz4`, `zstd-3`, `off`.
+
+=== T4 — Bootstrap d'un nouveau serveur (`beryl provision`)
+
+Au moment du provisionnement initial :
+
+. Créer le pool `zroot` (ZFS, non chiffré).
+. Pour chaque dataset chiffré déclaré (zsys, zdata, zsave…) :
+.. Appeler `crystal-clevis-zfs bind --init --dataset <name>
+   --tang <url>`. Le shard crée le dataset avec
+   `encryption=on, keyformat=hex, keylocation=prompt`.
+.. Vérifier le bind : présence du JWE + tester `unlock`
+   immédiatement pour échouer-tôt si Tang n'est pas joignable.
+. Créer les datasets enfants (héritent automatiquement de la clé
+  du parent) avec leurs mountpoints.
+. Configurer `rc.conf` :
+  `crystal_clevis_zfs_devices="zroot/zsys zroot/zdata zroot/zsave"`.
+
+=== T5 — Reboot procedure (déjà couvert par rc.d)
+
+Aucune action humaine. Le rc.d livré avec le shard fait tout. Côté
+beryl, la responsabilité est juste d'avoir bien posé le rc.conf
+au provisionnement.
+
+À ajouter dans `beryl reboot` (commande utilisateur) : un check
+post-reboot que `service crystal-clevis-zfs status` annonce
+`keystatus=available` pour tous les datasets. Sinon l'utilisateur
+est prévenu et peut basculer sur la procédure de récupération
+manuelle (R4 du papier d'archi).
+
+=== T6 — (optionnel) packager en port/pkg FreeBSD
+
+Pour ne plus avoir à compiler sur chaque serveur : créer un port
+FreeBSD `security/crystal-clevis-zfs` et publier les binaires
+dans le repo pkg Aloli (s'il en existe un, sinon utiliser un repo
+tiers). Permet `pkg install -y crystal-clevis-zfs`.
+
+Estimation : ~1 jour. Pas urgent mais réduit la surface de beryl
+à terme.
+
+=== T7 — Migration depuis `mode: ssh_unlock` (Option C)
+
+Pour les serveurs déjà déployés en Option C avec une clé sur le
+poste opérateur, le passage à `mode: tang` se fait via :
+
+. Activer le shard sur le serveur cible (T2).
+. **Quand `--use-existing-key` sera implémenté en v0.2** : appeler
+  `crystal-clevis-zfs bind --use-existing-key --dataset
+  <name> --tang <url>`. Le shard lit la clé via
+  `zfs get keylocation`, l'enrôle dans Tang, écrit le JWE.
+. Modifier la conf beryl pour basculer le dataset de
+  `mode: ssh_unlock` à `mode: tang`.
+. `service crystal-clevis-zfs start` au prochain reboot suffit.
+
+En attendant v0.2 : `crystal-clevis-zfs` n'expose pas
+`--use-existing-key`. Workaround manuel : récupérer la clé
+existante (`zfs get -H -o value keylocation`) puis
+`zfs change-key` avec le résultat de `bind --init` sur un dataset
+neuf, puis basculer.
+
+=== T8 — Rotation programmée des clés Tang
+
+Quand `crystal-secrets` sera disponible (autre chantier), prévoir
+une recette beryl :
+
+. `tangd-rotate-keys -d /var/db/tang` sur chaque serveur Tang.
+. Sauvegarder les nouvelles clés dans `crystal-secrets`.
+. Pour chaque client ZFS : `crystal-clevis-zfs rebind --dataset …`
+  (à coder en v0.3 si besoin, ou bien `bind --use-existing-key`
+  contre le nouveau Tang).
+. Une fois tous les clients ré-enrôlés, supprimer les anciennes
+  clés `.old.jwk` côté serveurs Tang.
+
+À industrialiser après v0.2 (SSS + use-existing-key) et après
+crystal-secrets v0.1.
+
+=== T9 — Tests d'intégration
+
+Au moins :
+
+* **Test bootstrap** : `beryl provision` sur un nouveau serveur,
+  vérifier qu'au reboot tous les datasets chiffrés sont attachés
+  automatiquement avec `keystatus=available`.
+* **Test panne d'un Tang** (v0.2 SSS) : couper 1 Tang sur 3
+  (K=2/N=3), vérifier que le boot continue.
+* **Test panne de K Tangs** : couper K Tangs simultanément,
+  vérifier que beryl bascule explicitement en mode dégradé manuel
+  (R4 du papier).
+* **Test rotation Tang** : rotation des clés serveur, vérifier que
+  les clients existants continuent à booter (clés `.old.jwk`
+  servies en parallèle), puis que le `rebind` les bascule sur les
+  nouvelles.
+* **Test compression** : créer 1 GiB de données compressibles
+  dans `zroot/zdata/postgres`, vérifier que `zfs list -o name,used,
+  logicalused` montre un ratio significatif (> 2× pour des logs
+  ou du JSON).
+
+== Position de l'Option D vs Option C dans le doc parent
+
+`zpool-encryption-architecture.adoc` retient **Option C** (clé sur
+poste opérateur, `beryl unlock` manuel via SSH après reboot) en v0.
+
+Avec `crystal-clevis-zfs` disponible, **l'Option D devient
+techniquement réalisable**. La transition prévue :
+
+. **v0** (déjà fait) : Option C, `mode: ssh_unlock`.
+. **v1 (cette feature)** : ajouter `mode: tang` au format YAML.
+  Cohabitation des deux modes possible (un dataset en `ssh_unlock`,
+  un autre en `tang`).
+. **v2 (plus tard)** : si Option D fait ses preuves opérationnellement,
+  basculer plus de pools en `mode: tang` par défaut.
+
+L'option C reste pertinente pour :
+
+* Les serveurs qui n'ont pas de connectivité réseau au boot vers
+  des Tangs (cas de bootstrap ou réseau down).
+* Les opérateurs qui préfèrent garder un humain dans la boucle pour
+  des serveurs critiques.
+
+== Limites connues qui impactent beryl
+
+* **Clés Tang serveur = secret critique** : si vous perdez les clés
+  Tang d'un serveur, **tous les clients enrôlés contre lui** doivent
+  être ré-enrôlés. La sauvegarde dans `crystal-secrets` est
+  **non-négociable**.
+* **Pas d'isolation tang-par-environnement en v0.1** : un seul Tang
+  peut servir prod et staging. Pour séparer, utiliser des Tangs
+  distincts par environnement.
+* **Tang HTTP clair** par défaut (port 8888 sur HTTP). Pas un
+  problème de sécurité (la crypto JOSE protège), mais on peut
+  ajouter un reverse-proxy nginx/caddy en TLS pour passer une
+  politique d'audit interne.
+* **Taille de clé plafonnée à 256 bits** (limite intrinsèque AES,
+  pas du shard) : c'est l'état de l'art ; aller au-delà n'a pas
+  de sens algorithmique pour ZFS native encryption.
+
+== Liens
+
+* Spec parent : `prod-crystal/CRYSTAL-SECRETS-SPECS.adoc`.
+* Plan partitionnement et montage :
+  `crystal-beryl/boot-and-mount-plan.adoc`.
+* Spec détaillée du shard :
+  `crystal-beryl/crystal-clevis-zfs-specs.adoc`.
+* Décisions chiffrement beryl :
+  `crystal-beryl/zpool-encryption-architecture.adoc`.
+* Guide install Tang :
+  `prod-crystal/TANG-DEPLOIEMENT.adoc`.
+* Repo `crystal-jose` v0.1 :
+  https://github.com/aloli-crystal/crystal-jose
+* Repo `crystal-clevis-zfs` v0.1 :
+  https://github.com/aloli-crystal/crystal-clevis-zfs
+* Repo `crystal-clevis-geli` v0.2 (déprécié) :
+  https://github.com/aloli-crystal/crystal-clevis-geli
+* Banc de test QEMU (à adapter pour ZFS) :
+  `prod-crystal/qemu/` (8 scripts shell + README).

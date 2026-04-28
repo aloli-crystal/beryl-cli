@@ -1,0 +1,581 @@
+= beryl — plan de partitionnement et de montage
+:author: Philippe Nénert
+:revdate: 27 avril 2026
+:revnumber: 0.3
+:lang: fr
+:toc: left
+:toclevels: 3
+:icons: font
+:sectnums:
+:source-highlighter: rouge
+
+[.lead]
+Plan de partitionnement et de montage des serveurs FreeBSD pour
+beryl. Deux profils côté beryl (`standard` et `custom`), deux
+options d'architecture du chiffrement (Option I retenue v0,
+Option II évolution moyenne).
+
+[NOTE]
+.Historique des révisions
+====
+* *0.1* (27 avril 2026) — première version, GELI sous ZFS.
+* *0.2* (27 avril 2026) — pivot GELI → ZFS native pour les
+  données ; GELI conservé uniquement pour le swap (`geli onetime`,
+  raison technique : éviter le deadlock zvol-swap, pas continuité
+  GELI).
+* *0.3* (27 avril 2026) — finalisation : profils `standard` /
+  `custom`, dataset `zlog` clair compressé pour `/var/log`,
+  séparation 2 profils matériels (1-2 SSD seuls vs 1-2 SSD + 1-4 HDD).
+====
+
+À lire après `zpool-encryption-architecture.adoc` (Options A/B/C/D)
+et avant `crystal-clevis-zfs-specs.adoc` (intégration Tang).
+
+== Option I — Pattern ad hoc (retenue v0)
+
+=== Principe
+
+* **`zroot`** : un seul pool ZFS, sur la grosse partition
+  `freebsd-zfs` des SSD système.
+* **Datasets clairs** : `/`, `/usr`, `/var`, `/tmp`. Système
+  FreeBSD vanille (binaires publics, pas de fuite défendable).
+  Aussi `/var/log` (`zlog`) en clair mais *compressé*
+  pour gain de place sans contrainte de boot.
+* **Datasets chiffrés** : `zhome` (`/home`), `zopt` (`/opt`),
+  `zusrlocaletc` (`/usr/local/etc`). Tout ce qui est métier ou
+  contient des secrets vit là.
+* L'OS est en clair, **mais aucun secret applicatif ne l'est** :
+  configs `pkg`/ports vivent sous `/usr/local/etc/` (chiffré),
+  données services dans `/home/<service>/` (chiffré), apps
+  Aloli `crystal-deploy` dans `/home/<app>/` (chiffré).
+
+=== Schéma de partitionnement
+
+[source]
+----
+GPT layout (UEFI) — un disque (à répliquer en RAID 0 sur 2 SSD)
+┌────────────────────────────────────────────────────────────────┐
+│  p1   freebsd-boot         512 KB    boot loader (gptzfsboot)  │
+│  p2   efi                  260 MB    FAT32, /boot/efi          │
+│       (BOOTAA64.EFI ou BOOTX64.EFI selon arch)                 │
+│                                                                │
+│  p3   freebsd-swap         4-16 GB   geli onetime              │
+│       (clé aléatoire à chaque boot, pas de Tang)               │
+│                                                                │
+│  p4   freebsd-zfs          le reste  zpool zroot               │
+│       (UN SEUL pool, datasets clairs ET chiffrés cohabitent)   │
+└────────────────────────────────────────────────────────────────┘
+----
+
+[NOTE]
+.Pourquoi `geli onetime` pour le swap (et pas ZFS) ?
+====
+Raison technique, pas continuité GELI : le swap-sur-zvol
+(`zfs create -V ... zroot/swap`) est *déconseillé sur FreeBSD*
+à cause d'un risque de **deadlock sous pression mémoire**.
+
+Quand FreeBSD veut écrire dans le swap parce qu'il manque de
+RAM, et que le swap est sur un zvol, ZFS doit allouer de la
+mémoire pour écrire (cache ARC, structures internes) — mais il
+n'y a plus de RAM. → kernel panic ou freeze complet.
+
+Le FreeBSD Handbook recommande explicitement contre swap-sur-zvol.
+`geli onetime` est l'idiome FreeBSD natif pour le swap chiffré
+depuis 2005, sans ce risque. Clé aléatoire à chaque boot, jetée
+à l'arrêt — équivalent fonctionnel à ce qu'on voudrait avec ZFS.
+====
+
+== Profils côté beryl
+
+=== Profil `standard`
+
+Le preset retenu pour 95 % des hosts. L'opérateur déclare juste :
+
+[source,yaml]
+----
+freebsd:
+  zfs:
+    zroot:
+      boot: true
+      raid: 0
+      disks: [/dev/nvme0n1, /dev/nvme1n1]
+      profile: standard
+      encryption:
+        mode: ssh_unlock              # ou: tang
+----
+
+Et beryl pose automatiquement :
+
+[cols="2,2,1,2", options="header"]
+|===
+| Dataset | Mountpoint | Chiffré ? | Compression
+
+| `zroot/ROOT/default`
+| `/`
+| non
+| lz4
+
+| `zroot/usr`
+| `/usr`
+| non
+| lz4
+
+| `zroot/var`
+| `/var`
+| non
+| lz4
+
+| `zroot/zlog`
+| `/var/log`
+| **non**
+| **zstd-3**
+
+| `zroot/tmp`
+| `/tmp`
+| non
+| lz4
+
+| `zroot/zhome`
+| `/home`
+| **OUI**
+| lz4
+
+| `zroot/zopt`
+| `/opt`
+| **OUI**
+| lz4
+
+| `zroot/zusrlocaletc`
+| `/usr/local/etc`
+| **OUI**
+| zstd-3
+|===
+
+*Trois datasets chiffrés, une clé partagée* (héritage d'un
+`encryptionroot` commun, par exemple `zroot/encrypted` invisible).
+Un seul `beryl unlock` ou un seul `crystal-clevis-zfs unlock` les
+ouvre tous.
+
+*Un dataset clair compressé* : `zroot/zlog` pour `/var/log`.
+Pas de chiffrement (boot précoce avant `syslogd`, complexité
+inutile pour des logs système basiques), mais compression
+zstd-3 → ratio 6-10× sur les logs nginx/postgres typiques.
+
+=== Profil `custom`
+
+Pour les cas atypiques (recherche, archivage, configuration
+sur-mesure). L'opérateur déclare TOUT explicitement, beryl ne
+pose aucun défaut :
+
+[source,yaml]
+----
+freebsd:
+  zfs:
+    zroot:
+      boot: true
+      raid: 0
+      disks: [/dev/nvme0n1]
+      profile: custom
+      datasets:
+        - { mountpoint: /, dataset: zroot/ROOT/default }
+        - { mountpoint: /usr, dataset: zroot/usr }
+        - { mountpoint: /var, dataset: zroot/var }
+        - { mountpoint: /tmp, dataset: zroot/tmp }
+        - mountpoint: /var/log
+          dataset: zroot/zlog
+          compression: zstd-3
+        - mountpoint: /home
+          dataset: zroot/zhome
+          encryption:
+            mode: ssh_unlock
+            compression: lz4
+        - mountpoint: /opt
+          dataset: zroot/zopt
+          encryption:
+            mode: tang                # cohabitation possible
+            tang:
+              urls: [http://tang.local:8888]
+              threshold: 1
+            compression: lz4
+----
+
+NOTE: Volontairement *pas* de niveau intermédiaire « profil +
+override ». Si vous voulez diverger d'`standard`, vous passez en
+`custom` et vous déclarez tout. Ça force la clarté au prix d'un
+peu de verbosité.
+
+== Profils matériels
+
+=== Profil 1 — Serveur 1-2 SSD seulement (95 % des cas)
+
+```
+zroot (sur SSD, RAID 0 stripe)
+├── CLAIRS               /, /usr, /var, /tmp
+├── zroot/zlog           /var/log    (clair, compressé zstd-3)
+├── zroot/zhome          /home       (chiffré)
+├── zroot/zopt           /opt        (chiffré)
+└── zroot/zusrlocaletc   /usr/local/etc (chiffré)
+```
+
+YAML : un seul pool `zroot` avec `profile: standard`.
+
+=== Profil 2 — Serveur 1-2 SSD + 1-4 HDD
+
+```
+zroot (sur SSD, RAID 0 stripe)        ← idem profil 1
+└── (mêmes datasets clairs et chiffrés)
+
+zsave (sur HDD, RAID adapté au nombre)
+└── zsave              /save        (chiffré, compression zstd-3)
+```
+
+Niveau RAID du pool `zsave` adapté au nombre de HDD :
+
+[cols="1,3", options="header"]
+|===
+| # HDD | RAID typique
+| 1 | 0 (stripe single, pas de redondance)
+| 2 | 1 (mirror, redondance forte)
+| 3 | 5 (raidz, capacité - 1)
+| 4 | 10 (stripe of mirrors, perf + redondance)
+|===
+
+YAML pour le profil 2 :
+
+[source,yaml]
+----
+freebsd:
+  zfs:
+    zroot:                            # SSD système
+      boot: true
+      raid: 0
+      disks: [/dev/nvme0n1, /dev/nvme1n1]
+      profile: standard
+      encryption:
+        mode: ssh_unlock
+
+    zsave:                            # HDD données (optionnel)
+      boot: false
+      raid: 10
+      disks: [/dev/sda, /dev/sdb, /dev/sdc, /dev/sdd]
+      profile: custom
+      datasets:
+        - mountpoint: /save
+          dataset: zsave
+          encryption:
+            mode: ssh_unlock
+            compression: zstd-3
+----
+
+NOTE: Deux pools physiquement distincts (SSD vs HDD) = chaque
+pool a son propre niveau de RAID au moment du `zpool create`.
+Un POOL ZFS doit avoir des vdevs homogènes — on ne mélange pas
+SSD et HDD dans le même pool, ni RAID 0 et RAID 10 (perte d'un
+vdev = perte du pool entier).
+
+== Mécanisme de chiffrement (ZFS native, pas GELI)
+
+Au bootstrap :
+
+. `zpool create zroot ...` crée le pool en clair.
+. Création du dataset parent chiffré (`zroot/encrypted`,
+  invisible, sert juste de `encryptionroot`) :
++
+[source,shell]
+----
+KEY=$(openssl rand -hex 32)              # 64 chars hex
+
+echo -n "$KEY" | zfs create \
+  -o encryption=on \
+  -o keyformat=hex \
+  -o keylocation=prompt \
+  -o mountpoint=none \
+  zroot/encrypted
+----
+
+. Création des datasets enfants (héritent de la clé) :
++
+[source,shell]
+----
+zfs create -o mountpoint=/home          -o compression=lz4   zroot/encrypted/zhome
+zfs create -o mountpoint=/opt           -o compression=lz4   zroot/encrypted/zopt
+zfs create -o mountpoint=/usr/local/etc -o compression=zstd-3 zroot/encrypted/zusrlocaletc
+----
+
+. Note : on peut renommer/aliaser pour avoir des noms plats si
+  préféré (`zfs rename zroot/encrypted/zhome zroot/zhome` après
+  création) ; le `encryptionroot` reste celui d'origine.
+
+NOTE: ZFS native encryption supporte `keyformat=raw` (32 bytes
+binaires), `hex` (64 chars hex) ou `passphrase` (chaîne dérivée
+PBKDF2). Aloli utilise *hex* pour la lisibilité côté opérateur
+(`cat ~/.beryl/<host>.key` produit une chaîne lisible) et la
+robustesse au transport via stdin SSH.
+
+== Plan de montage par phase de boot
+
+[source]
+----
+PHASE 0 — UEFI/loader
+  loader.efi (sur ESP) lit /boot/loader.conf de zroot
+  Charge kernel et modules : zfs, drivers réseau
+
+PHASE 1 — kernel + early init
+  zpool import zroot
+  Mount /, /usr, /var, /var/log, /tmp (datasets non chiffrés)
+  rc.d/* commencent
+  Activation swap chiffré (geli onetime sur p3)
+  syslogd démarre (logs vers /var/log = clair, dispo)
+
+PHASE 2 — NETWORKING (rc.d)
+  Configuration interfaces, routes, résolution DNS
+  Tang doit être joignable à la fin de cette phase (si mode tang)
+
+PHASE 3a — beryl unlock (si mode ssh_unlock)
+  L'opérateur lance, depuis son poste :
+    beryl unlock <host>
+  La clé voyage via stdin SSH, zfs load-key zroot/encrypted,
+  zfs mount -a -l → datasets chiffrés montés
+
+PHASE 3b — crystal-clevis-zfs (si mode tang, rc.d après NETWORKING)
+  Pour chaque dataset chiffré dans /etc/rc.conf :
+    crystal-clevis-zfs unlock --dataset zroot/encrypted
+  Récupération clé via Tang, zfs load-key, zfs mount -a -l.
+  Aucune intervention humaine.
+
+PHASE 4 — mountcritremote
+  Datasets chiffrés montés (que par Phase 3a OU Phase 3b)
+
+PHASE 5 — DAEMON
+  Postgres démarre (lit /home/<myapp>/db ou /home/postgres = chiffré)
+  Apps crystal-deploy démarrent (configs sur /usr/local/etc/* = chiffré)
+  Logs applicatifs sensibles s'écrivent dans /home/<app>/log/ = chiffré
+----
+
+== Configuration `/etc/rc.conf` (cible)
+
+=== Mode `ssh_unlock` (sans Tang)
+
+[source,shell]
+----
+hostname="myhost.aloli.fr"
+ifconfig_em0="DHCP"
+
+# Swap chiffré geli onetime
+geli_swap_flags="-a hmac/sha256 -l 256 -s 4096 -d"
+
+# Pas de crystal-clevis-zfs : l'opérateur fera `beryl unlock`
+# depuis son poste, après que sshd soit prêt.
+
+# Services applicatifs
+postgresql_enable="YES"
+# ...
+----
+
+=== Mode `tang` (auto-unlock au boot)
+
+[source,shell]
+----
+hostname="myhost.aloli.fr"
+ifconfig_em0="DHCP"
+
+# Swap chiffré geli onetime
+geli_swap_flags="-a hmac/sha256 -l 256 -s 4096 -d"
+
+# crystal-clevis-zfs : déverrouillage automatique au boot
+crystal_clevis_zfs_enable="YES"
+crystal_clevis_zfs_datasets="zroot/encrypted"
+
+# Services applicatifs
+postgresql_enable="YES"
+# ...
+----
+
+== Cohabitation `ssh_unlock` + `tang` (mixte par dataset)
+
+Dans le profil `custom`, chaque dataset chiffré peut avoir son
+propre `mode`. Exemple : un host où `/home` est en `tang`
+(auto-unlock) et `/save` est en `ssh_unlock` (humain dans la
+boucle pour les backups très sensibles) :
+
+[source,yaml]
+----
+zroot:
+  profile: custom
+  datasets:
+    # ... datasets clairs ...
+    - mountpoint: /home
+      dataset: zroot/zhome
+      encryption: { mode: tang, tang: {...}, compression: lz4 }
+
+zsave:
+  profile: custom
+  datasets:
+    - mountpoint: /save
+      dataset: zsave
+      encryption: { mode: ssh_unlock, compression: zstd-3 }
+----
+
+Au boot, le rc.d `crystal-clevis-zfs` ouvre `zroot/zhome`
+automatiquement. L'opérateur ouvre `zsave` manuellement avec
+`beryl unlock`.
+
+== Variantes de provisionnement
+
+=== Variante A — `mode: ssh_unlock`
+
+L'opérateur garde la clé sur son poste
+(`~/.beryl/<société>/<domaine>/<host>.key`, chmod 0400). Pas de
+Tang. Au boot :
+
+. Le serveur boote, sshd démarre, datasets chiffrés non montés.
+. L'opérateur lance `beryl unlock <host>` depuis son Mac.
+. La clé voyage via stdin SSH, `zfs load-key` la charge.
+. Datasets montés, services applicatifs démarrent.
+
+Code beryl déjà livré (25 avril 2026), à adapter au format YAML
+enrichi.
+
+=== Variante B — `mode: tang`
+
+`crystal-clevis-zfs` (en cours de développement par Philippe) au
+démarrage du `rc.d`. Le serveur interroge Tang sur le réseau,
+dérive sa clé, charge dans ZFS, auto-monte. Aucune intervention
+opérateur.
+
+Pré-requis : `crystal-clevis-zfs` v0.1 livré (single Tang) ou
+v0.2 SSS multi-Tang (recommandé pour prod).
+
+=== Variante C — Mixte (cf. § Cohabitation ci-dessus)
+
+Choix par dataset. Cohabitation pleine.
+
+== Option II — Two-stage FreeBSD (chemin A, en évolution moyenne)
+
+NOTE: Cette option n'est **pas** retenue pour la v0 mais
+documentée pour mémoire. Estimation : 2-3 semaines de plomberie
+beryl quand le besoin sera prouvé.
+
+=== Principe
+
+Tout chiffrer y compris `/`, `/etc`, `/usr`, `/var`, en deux
+phases :
+
+. **Stage 1 : mini-FreeBSD** sur partition non chiffrée (~512 MB).
+  Contient juste le kernel, les modules nécessaires (`zfs`,
+  drivers NIC), `/sbin/`, `/lib/`, et le binaire
+  `crystal-clevis-zfs`.
+. **Stage 2 : vrai système** dans un pool ZFS chiffré au niveau
+  pool entier. Atteint via `reboot -r /newroot` natif FreeBSD.
+
+=== Schéma de partitionnement
+
+[source]
+----
+GPT layout (UEFI, two-stage)
+┌────────────────────────────────────────────────────────────────┐
+│  p1   freebsd-boot         512 KB    boot loader               │
+│  p2   efi                  260 MB    FAT32, /boot/efi          │
+│  p3   freebsd-ufs          512 MB    miniroot, non chiffré     │
+│       /boot/kernel + /sbin + crystal-clevis-zfs + rc.d minimal │
+│  p4   freebsd-swap         4-16 GB   geli onetime              │
+│  p5   freebsd-zfs          le reste  zpool zroot CHIFFRÉ ENTIER│
+└────────────────────────────────────────────────────────────────┘
+----
+
+=== Plan de montage two-stage
+
+[source]
+----
+STAGE 1 (boot depuis miniroot)
+  loader.efi → /boot/kernel/kernel
+  init lance rc.d minimal :
+    1. NETWORKING (DHCP)
+    2. crystal-clevis-zfs unlock-pool zroot   ← récupère clé Tang
+    3. zpool import -R /newroot zroot
+    4. zfs mount zroot/ROOT/default           (sur /newroot)
+    5. reboot -r /newroot                     ← le pivot magique
+
+STAGE 2 (vrai système)
+  init redémarre depuis /newroot
+  Tout est chiffré, y compris /, /etc, /usr, /var
+  rc.d standard tourne, services démarrent normalement
+----
+
+=== Coût opérationnel additionnel
+
+* **Synchronisation kernel** : `freebsd-update` doit pousser le
+  kernel sur la miniroot (p3), pas sur le vault. Recette beryl à
+  écrire.
+* **Backup miniroot** : SPOF d'amorçage à protéger.
+* **Reboot plus long** : ~5-15 secondes supplémentaires.
+* **Debug initial** : `dmesg` du stage 1 perdus au pivot.
+
+== Comparaison opérationnelle
+
+[cols="2,2,2", options="header"]
+|===
+| Aspect | Option I (ad hoc, v0) | Option II (two-stage)
+
+| Couverture chiffrement
+| `/home`, `/opt`, `/usr/local/etc`. OS et `/etc` en clair.
+| Tout chiffré sauf miniroot 512 MB et ESP.
+
+| Modèle de menace couvert
+| Vol disque éteint, RMA, fin de vie. **Suffisant pour ISO 27001.**
+| Idem + reverse-engineering du runtime sur disque saisi.
+
+| Complexité
+| Faible. Aucun chantier custom, juste pkg + datasets ZFS native.
+| Moyenne. Plomberie beryl pour le pivot et la sync kernel.
+
+| Boot time
+| ~10-30 s standard FreeBSD.
+| ~+5-15 s (stage 1).
+
+| Update kernel
+| Standard `freebsd-update`.
+| Synchronisation manuelle ou automatisée vers miniroot.
+
+| Resilience
+| Backup ZFS standard (`zfs send -w` chiffré).
+| Backup miniroot séparé en plus.
+
+| Effort dev (beryl)
+| Inclus dans l'intégration `crystal-clevis-zfs`.
+| ~2-3 semaines additionnelles (recette provision+lifecycle).
+
+| Compression sur datasets chiffrés
+| **OUI** (compression ZFS s'applique avant chiffrement).
+| **OUI** (idem, sur tout le système).
+
+| Rotation de clé
+| `zfs change-key zroot/encrypted` (toutes branches en même temps).
+| Rotation pool entier.
+|===
+
+== Décision
+
+**v0 (maintenant)** : Option I (pattern ad hoc, ZFS native,
+profils `standard` et `custom`).
+
+**Évolution moyenne** : Option II quand le besoin sera prouvé
+(politique d'audit serrée, exigence client explicite, ou
+incident matériel marquant).
+
+Aucune des deux n'écrit de code kernel ni ne modifie le loader
+FreeBSD. Le « chemin B » (loader patché Tang-aware en C) reste
+**hors scope définitif** sauf sponsoring externe.
+
+== Liens
+
+* `zpool-encryption-architecture.adoc` — décisions Options A/B/C/D
+  (le présent document précise Options C et A).
+* `crystal-clevis-zfs-specs.adoc` — spécifications du shard
+  `crystal-clevis-zfs`.
+* `crystal-clevis-geli-handoff.adoc` — handoff GELI initial,
+  *historique uniquement* (le shard est déprécié).
+* `prod-crystal/CRYSTAL-SECRETS-SPECS.adoc` — papier d'archi parent.
+* `prod-crystal/TANG-DEPLOIEMENT.adoc` — guide install Tang FreeBSD.
+* Repo `crystal-clevis-zfs` (en cours) : https://github.com/aloli-crystal/crystal-clevis-zfs
+* Repo `crystal-clevis-geli` (en cours de dépréciation) : https://github.com/aloli-crystal/crystal-clevis-geli

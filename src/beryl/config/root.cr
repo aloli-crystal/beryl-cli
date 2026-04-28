@@ -592,8 +592,16 @@ module Beryl::Config
           raid: (h[YAML::Any.new("raid")]?.try(&.as_i?) || 0),
           disks: (h[YAML::Any.new("disks")]?.try(&.as_a?).try(&.compact_map(&.as_s?)) || [] of String),
           mountpoint: h[YAML::Any.new("mountpoint")]?.try(&.as_s?),
+          encryption: parse_encryption(h[YAML::Any.new("encryption")]?, name),
         )
       end
+    end
+
+    # Délégation à la factory `EncryptionConfig.from_yaml` —
+    # historique : ce parser vivait inline dans `zpools` ; extrait
+    # côté struct pour permettre les tests unitaires sans fixture.
+    private def parse_encryption(any : YAML::Any?, pool_name : String) : Beryl::Config::EncryptionConfig?
+      Beryl::Config::EncryptionConfig.from_yaml(any, pool_name)
     end
 
     def boot_zpool : Beryl::Config::Pool

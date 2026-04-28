@@ -10,6 +10,300 @@ Document de design pour le chiffrement ZFS des pools data dans
 beryl. Rédigé le 25 avril 2026 après échange Philippe ↔ Claude.
 À RELIRE puis valider avant de coder.
 
+[NOTE]
+.Note de synchronisation 27 avril 2026 (soir)
+====
+Plusieurs sections de ce document mentionnent encore les noms
+*provisoires* `zsys`, `zdata`, `zsave` ou la contrainte « 1 disque
+= 1 pool ». Ces éléments ont été *raffinés* dans
+`boot-and-mount-plan.adoc` rev 0.3 (source canonique pour la v0) :
+
+* Nomenclature définitive : `zroot/zhome`, `zroot/zopt`,
+  `zroot/zusrlocaletc`, `zroot/zlog` (clair compressé), et pool
+  séparé `zsave` (optionnel) sur HDD.
+* Profils côté beryl : `standard` (preset) et `custom` (déclaration
+  explicite).
+* Swap : `geli onetime` conservé (raison technique, voir doc
+  boot-and-mount-plan).
+
+La synchro complète des exemples YAML de ce doc sera faite quand
+beryl supportera le format avec profils. Les *décisions*
+architecturales (Options A/B/C/D, retenue C+D combinée par dataset)
+restent valides telles quelles.
+====
+
+== Positionnement commercial Aloli
+
+Discours tenu aux clients par Philippe :
+
+. *« Les disques sont chiffrés. »* (engagement par principe)
+. *Si le serveur est volé* : il ne peut pas être redémarré, et
+  la lecture des fichiers en raw (lecture brute des plateaux
+  hors machine) doit être illisible.
+. *Lors du rendu du serveur au fournisseur* (fin de vie matériel,
+  remplacement, RMA, résiliation) : les disques doivent être
+  illisibles.
+. *Le RAID 0 (stripe ZFS) complique sérieusement la récupération
+  de données* : un disque seul ne contient qu'une fraction des
+  blocs, l'attaquant doit reconstituer tous les disques.
+
+Cette feature beryl doit *défendre ce discours sur le terrain*.
+Pas plus, pas moins.
+
+NOTE: Le RAID 0 est une décision orthogonale au chiffrement
+(`feedback_raid_strategy_rails.md`). Les deux se cumulent :
+sans la clé ET sans tous les disques, la donnée est inaccessible.
+
+== Options évaluées (échange du 25 avril)
+
+Trois architectures envisagées, classées par complexité
+décroissante :
+
+[cols="1,3,3,3,2", options="header"]
+|===
+| # | Option | Idée | Couvre le discours commercial ? | Complexité
+
+| A
+| *Two-stage FreeBSD*
+| Petite partition non chiffrée hébergeant un mini-FreeBSD
+  (équivalent dropbear-in-initramfs Linux). Boot dessus, SSH
+  démarre, opérateur déclenche unlock du « vrai » FreeBSD chiffré
+  qui prend ensuite le relais (kexec-style ou pivot).
+| OUI — système d'exploitation principal entièrement chiffré.
+| *Élevée* : maintenance double, pivot après unlock complexe,
+  bootloader custom, refactor beryl significatif. Pas de
+  précédent FreeBSD bien documenté.
+
+| B
+| *zroot minimal clair + datasets système chiffrés*
+| `zroot` ne contient que le système de base FreeBSD
+  (`/bin`, `/sbin`, `/lib`, `/boot`, kernel — ~300 Mo de binaires
+  publics). `/etc`, `/home`, `/var`, `/usr/local`, `/save` vivent
+  dans des datasets chiffrés (`zsystem`, `zsave`).
+| OUI — toutes les données spécifiques au serveur (config, logs,
+  home, données métier) sont chiffrées.
+| *Moyenne* : ordre de boot délicat. `sshd` a besoin de
+  `/etc/ssh/` → `/etc` doit être déchiffré avant que SSH démarre.
+  Donc on retombe sur la nécessité d'un unlock console (IPMI/KVM)
+  ou d'un mini-SSH non chiffré pour piloter l'unlock — c'est
+  l'option A déguisée.
+
+| C
+| *zroot clair complet + datasets data chiffrés*
+| `zroot` contient un FreeBSD standard non chiffré (système +
+  config + binaires). `zsave`, `zdata` (datasets data) sont
+  chiffrés. La clé reste sur le poste opérateur, transmise via
+  SSH après reboot (modèle décrit dans le reste de ce document).
+| OUI — les données client / métier vivent dans `zsave` qui est
+  chiffré. La lecture raw donne accès au système FreeBSD (public,
+  pas une fuite) mais pas aux données client.
+| *Faible* : aucune modification du flow boot, juste l'ajout du
+  `keyformat=raw -O keylocation=prompt` au `zpool create` et
+  d'une commande `beryl unlock`. Compatible IPMI absent (sshd
+  démarre sans la clé).
+|===
+
+=== Pourquoi l'Option C est retenue
+
+. *Couvre le discours commercial à 100 %* :
++
+* « Lecture raw illisible » → les datasets data sont chiffrés,
+  donc illisibles bloc par bloc. Le système FreeBSD est public
+  (n'importe qui peut télécharger l'ISO), aucune fuite.
+* « Retour fournisseur illisible » → RAID 0 + chiffrement des
+  datasets data = un disque seul, sans la clé, c'est du bruit
+  cryptographique non reconstituable.
+* Le `zroot` clair contient `/etc/ssh/sshd_config`, `/etc/rc.conf`,
+  `/etc/master.passwd` (hashes seulement), pas de données client.
+  Pas de fuite défendable contre le discours commercial.
+. *Compatible avec la contrainte « pas d'IPMI/KVM »* : sshd
+  démarre normalement après reboot, l'opérateur lance `beryl
+  unlock` à distance pour rouvrir les datasets. C'est *exactement*
+  le scénario qu'OVH après reboot électrique impose.
+. *Simple* : un seul changement par rapport au flow beryl actuel
+  (ajout du `encryption=on` au `zpool create` data + commande
+  `beryl unlock`). Pas de refactor du bootstrap, pas de bootloader
+  custom, pas de double maintenance.
+. *Évolutif* : si plus tard le besoin commercial monte d'un cran
+  (« tout le système doit être chiffré »), on bascule vers
+  l'Option A (two-stage) — qui se construit *au-dessus* de C
+  (le mini-FreeBSD est un zroot clair, le vrai est l'équivalent
+  zsave chiffré). Pas de gâchis.
+
+=== Pourquoi pas l'Option B
+
+L'Option B (datasets système chiffrés type `zsystem`) semble être
+un compromis élégant entre A et C, mais elle pose un problème
+fondamental : *l'ordre de boot*.
+
+* `sshd` a besoin de `/etc/ssh/sshd_config` et des clés serveur
+  dans `/etc/ssh/ssh_host_*` → `/etc` doit être déchiffré avant
+  que sshd démarre.
+* Si `/etc` est dans un dataset chiffré, il faut un mécanisme
+  pour le déchiffrer *avant* sshd → soit prompt console (IPMI),
+  soit un mini-FreeBSD intermédiaire (= Option A déguisée).
+
+Donc B converge soit vers A (complexe), soit vers C (mais en
+pire : on ajoute la complexité du chiffrement de `/etc` sans
+gagner par rapport au discours commercial qui est déjà couvert
+par C).
+
+=== Évolution future possible vers l'Option A
+
+Si Aloli vend un jour un *« chiffrement total »* qui exige que
+même le système soit chiffré, on bascule vers Option A :
+
+. Une partition `bootmini` (≤ 2 Go) avec un FreeBSD minimal :
+  juste sshd + Crystal binary `beryl-unlock-agent`.
+. Le reste du disque : `zroot` chiffré + `zsave` chiffré.
+. Au boot : `bootmini` démarre, sshd dispo, opérateur SSH
+  + `beryl unlock` → l'agent déverrouille `zroot` puis pivot
+  via `kenv vfs.root.mountfrom` + reboot warm (ou kexec
+  équivalent FreeBSD).
+. Maintenance : `bootmini` reste figé (binaire stable Crystal),
+  pas de double-FreeBSD à patcher.
+
+Cette évolution est documentée pour mémoire mais *hors scope v0*.
+
+=== Option D — Tang/ZFS native (disponible, intégration à câbler)
+
+Tang est un serveur HTTP qui participe à un échange
+*McCallum-Relyea* (variante Diffie-Hellman) avec un client
+Clevis. Au boot, si le serveur peut joindre Tang sur le réseau,
+il dérive sa clé de déchiffrement *sans* qu'aucun secret partagé
+n'ait jamais transité. Si le serveur est volé et hors du réseau
+Tang, la clé ne peut plus être reconstruite → données illisibles.
+
+*Avantage majeur* : auto-unlock au boot, pas d'intervention
+opérateur (ni KVM, ni `beryl unlock`).
+
+[IMPORTANT]
+.Mise à jour 27 avril 2026 — pivot GELI → ZFS native
+====
+Une première version de l'Option D s'appuyait sur GELI sous ZFS
+(`crystal-clevis-geli` v0.1.0 publié). Après analyse comparative,
+*pivot vers ZFS native encryption* :
+
+* *Performance* : ZFS native gagne sur les workloads compressibles
+  (logs, BDD, JSON, code) — typiquement 2-5× moins de données
+  chiffrées grâce à la compression ZFS qui s'applique *avant* le
+  chiffrement. Avec GELI, ZFS voit du bruit cryptographique et la
+  compression devient inutile.
+* *Simplicité du boot* : un seul pool `zroot`, datasets chiffrés
+  enfants. Plus de partitionnement complexe, plus de couche bloc
+  intermédiaire.
+* *Snapshots* : `zfs send -w` permet d'exporter les snapshots
+  *chiffrés tels quels* → backups off-site sans clé.
+* *Cohérence avec le code beryl du 25 avril* : Option C codée en
+  ZFS native déjà → Option D ajoute juste Tang comme source de clé
+  alternative au lieu de réécrire la couche de chiffrement.
+
+Le shard `crystal-clevis-geli` (v0.1.0) est *déprécié au profit
+de `crystal-clevis-zfs`* (à écrire — voir
+`crystal-clevis-zfs-specs.adoc`). Archivage différé après
+livraison du successeur.
+
+Pré-requis FreeBSD :
+
+* `tang` packagé : `pkg install -y tang`.
+* `crystal-jose` v0.1.0 (lib JOSE pure Crystal Aloli) — réutilisé
+  tel quel.
+* `crystal-clevis-zfs` v0.1 — à écrire (~3-4 jours en repartant
+  du shard GELI).
+====
+
+*Choix architectural retenu* : ZFS native encryption au niveau
+*dataset* (pas pool entier), avec datasets chiffrés enfants de
+`zroot` (`zroot/zsys`, `zroot/zdata`, `zroot/zsave`). Voir
+`boot-and-mount-plan.adoc` § Option I pour le schéma complet.
+
+Format YAML cible :
+
+[source,yaml]
+----
+zsys:
+  encryption:
+    type: native                    # ZFS native encryption (uniquement)
+    mode: tang
+    tang:
+      urls:
+        - http://tang-nas.local:8888
+        - http://tang-ovh.example:8888
+        - http://tang-scaleway.example:8888
+      threshold: 2                  # K dans Shamir (v0.2 SSS)
+----
+
+*Cohabitation Option C et Option D* : un host peut avoir plusieurs
+datasets chiffrés, chacun avec son propre mode. Exemple : un
+dataset `zroot/zsys` en `mode: tang` (auto-unlock au boot), un
+dataset `zroot/zsave` en `mode: ssh_unlock` (clé sur poste
+opérateur, gardé pour des données très sensibles). Les deux modes
+vivent dans le même beryl, sans exclusion.
+
+*Limite v0.1 du shard `crystal-clevis-zfs`* (à venir) : un seul
+Tang par dataset (SPOF inacceptable en prod). v0.2 SSS (threshold
+N-of-M) est nécessaire pour un usage prod. En attendant, beryl
+doit *rejeter explicitement* les configs avec plusieurs URLs
+jusqu'à v0.2 publié.
+
+== Décisions actées (validées le 25 avril 2026)
+
+. *Option C retenue* — zroot clair + datasets data chiffrés
+  (`zsave`, `zdata`, etc.) + clé sur poste opérateur, transmise
+  via SSH au moment du `beryl unlock`. Couvre le discours
+  commercial Aloli sans dépendre d'IPMI/KVM.
+. *Stockage de la clé sur le poste opérateur* :
++
+* *v0* : fichier `~/.beryl/<société>/<domaine>/<host>.key`
+  (chmod 0400). Démarrage rapide.
+* *v1 (cible)* : référence Keychain macOS via tag YAML
+  `!keychain` (cf. `project_beryl_secrets_vault.md`). Philippe
+  travaille en parallèle sur un petit programme qui interroge
+  le Keychain pour fournir la clé à beryl.
+. *Résilience opérateur* :
++
+* *Backup automatique de la clé* via Time Machine (le dossier
+  `~/.beryl/` est inclus dans la sauvegarde système) — pas de
+  procédure manuelle.
+* *Synchronisation multi-machines* via iCloud Keychain quand
+  les clés vivent dans le Keychain (v1) — Philippe peut
+  intervenir depuis un autre Mac sans copie manuelle.
+* *Partage avec un binôme* : binôme connecté à un Apple ID
+  partagé (équipe Aloli) hérite des clés via iCloud Keychain.
+. *Tang/ZFS native (Option D)* : *spécifié*, intégration à câbler
+  après livraison de `crystal-clevis-zfs` v0.1. Pivot acté
+  27 avril 2026 (abandon de GELI au profit de ZFS native — voir
+  `boot-and-mount-plan.adoc` § « Pivot GELI → ZFS native » pour
+  la justification : compression possible, boot simplifié,
+  cohérence avec le code beryl 25 avril). Specs dans
+  `crystal-clevis-zfs-specs.adoc`. Le shard `crystal-clevis-geli`
+  v0.1.0 est en cours de dépréciation — archivage après livraison
+  du successeur. v0.2 SSS (multi-Tang threshold) requise avant
+  bascule prod par défaut.
+
+. *Cohabitation Option C + Option D, validée 27 avril 2026* :
+  *choix par pool*, pas par host. `beryl unlock` reste utile pour :
++
+.. les hosts qui n'utilisent que l'Option C (clé sur poste opérateur, ZFS native) ;
+.. les hosts mixtes (un pool en mode `tang`, un autre en mode `ssh_unlock`) ;
+.. les opérateurs qui préfèrent garder un humain dans la boucle pour des
+   serveurs critiques même quand Tang est disponible.
+
+. *Vocabulaire commercial Aloli, validé 27 avril 2026* : on dit
+  *« données chiffrées »* (et plus *« disques chiffrés »*). Le système
+  d'exploitation FreeBSD reste clair sur le `zroot` ; les données
+  client (datasets data) sont chiffrées et illisibles sans la clé.
+  Cohérent avec le vrai périmètre technique du chiffrement Aloli ;
+  évite la fausse promesse « tout est chiffré » quand le `zroot` ne
+  l'est pas. Philippe revoit son discours dans ce sens.
+
+. *Migration des serveurs Aloli existants en chiffrement total + KVM* :
+  *aucune migration en place*. Ces serveurs continuent à fonctionner
+  tels quels jusqu'à leur prochain re-bootstrap (kernel update,
+  déménagement DC, fin de cycle hardware). Au prochain re-bootstrap,
+  bascule vers Option C ou D — gain net : plus besoin de KVM pour
+  rebooter.
+
 == Décisions pré-validées (à confirmer)
 
 [cols="2,3", options="header"]
@@ -142,7 +436,8 @@ différents :
 
 *Hypothèse retenue pour beryl* : *les deux*. C'est le compromis
 le plus élevé qu'on puisse atteindre sans IPMI/KVM ni infra
-secrets manager.
+secrets manager — et c'est suffisant pour défendre le discours
+commercial Aloli (cf. section « Positionnement commercial »).
 
 == Le modèle « SSH unlock manuel après reboot »
 
@@ -317,6 +612,117 @@ zsave:
 
 `encryption: true` (booléen) reste équivalent au défaut
 `{type: native, mode: ssh_unlock}`. Rétrocompatible.
+
+== Contraintes matérielles : 2 pools = 2 jeux de disques
+
+Le modèle « zroot clair + zdata chiffré » impose au minimum *deux
+pools ZFS distincts*. Le code beryl actuel applique une règle
+stricte (validation côté `Beryl::Bootstrap::QemuInRescue`,
+ligne 226-232 du fichier `qemu_in_rescue.cr`) :
+
+[quote]
+*un disque physique ne peut appartenir qu'à un seul pool*. Tout
+disque déclaré dans `zroot.disks` ne peut pas figurer dans
+`zdata.disks` et inversement.
+
+Cette contrainte vient de la simplicité du flow `bsdinstall` +
+`zpool create` : `bsdinstall` prend chaque disque comme un disque
+entier (création GPT, partitions `efiboot0`/`swap0`/`zfs0` qui
+remplissent le disque), et `zpool create` post-install fait pareil
+sur les disques data. Pas de partitionnement fin actuellement.
+
+=== Trois cas typiques selon la config matérielle du serveur
+
+[cols="1,3,3,2", options="header"]
+|===
+| Cas | Hardware typique | Config beryl | Statut
+
+| *Cas 1* — 2 disques séparés
+| Serveur OVH 2× NVMe identiques (ou 2× SSD).
+| `zroot.disks: [/dev/sda]` + `zdata.disks: [/dev/sdb]`. Chaque pool
+  a un seul disque (pas de RAID 0).
+| *Marche tel quel*. Acceptable si la perf single-disk suffit.
+
+| *Cas 2* — 4+ disques (système séparé du stockage)
+| Serveur OVH HG/Pro : 2× NVMe pour l'OS + 2× HDD/SSD pour le
+  stockage. Ou serveur custom où l'opérateur choisit la
+  répartition.
+| `zroot.disks: [/dev/nvme0, /dev/nvme1]` (RAID 0 sur 2) +
+  `zdata.disks: [/dev/sda, /dev/sdb]` (RAID 0 sur 2). Chaque pool
+  garde son RAID 0.
+| *Marche tel quel*. Idéal côté beryl, perf max.
+
+| *Cas 3* — 2 disques mais on veut RAID 0 partout
+| Serveur 2× NVMe, on veut stripe les DEUX pools sur les DEUX
+  disques (gain : zroot ET zdata bénéficient de la perf agrégée).
+| Demande de partitionner chaque disque : `disk1p4 + disk2p4` →
+  zroot, `disk1p5 + disk2p5` → zdata. Le YAML aurait
+  `zroot.disks: [/dev/sda4, /dev/sdb4]` +
+  `zdata.disks: [/dev/sda5, /dev/sdb5]`.
+| *NE MARCHE PAS aujourd'hui*. Demande un patch du flow bootstrap
+  (~1-2 jours).
+|===
+
+=== Patch nécessaire pour le Cas 3 (futur, pas en v0)
+
+Pour supporter le Cas 3, il faudrait :
+
+. Ajouter un champ `freebsd.partitioning: custom` (ou similaire)
+  qui dit « beryl prend la main sur le partitionnement, ne laisse
+  pas bsdinstall partitionner tout le disque ».
+. Que `bsdinstall` n'utilise qu'une partition `freebsd-zfs0` de
+  N Go (taille déclarée par l'opérateur, ex: `zroot_size_gb: 50`).
+. Qu'après l'install, beryl crée une 2e partition (`gpart add -t
+  freebsd-zfs`) sur chaque disque pour le pool data.
+. Que `zpool create zdata` utilise les partitions résultantes
+  (`disk1p5 disk2p5`) au lieu des disques entiers.
+. Que la contrainte « 1 disque = 1 pool » soit affinée en « 1
+  partition = 1 pool » (les disques peuvent être communs).
+
+C'est faisable mais ce n'est pas en v0. Si Aloli a beaucoup de
+serveurs en Cas 3, prioriser ce patch ; sinon on vit sans.
+
+=== Config typique Aloli (validée 27 avril 2026)
+
+Philippe a confirmé la config matérielle de référence pour les
+serveurs Aloli :
+
+* *Système* : 1 ou 2 SSD en RAID 0 → `zroot` boot:true raid:0.
+* *Sauvegarde / données client* : 1 à 4 disques selon le serveur,
+  niveau RAID adapté au nombre :
++
+[cols="1,3,2", options="header"]
+|===
+| # disques data | RAID typique | Pool beryl
+| 1 | RAID 0 (single, pas de redondance) | `zdata` raid:0 disks:[1] encryption:true
+| 2 | RAID 1 (mirror, redondance forte) | `zdata` raid:1 disks:[2] encryption:true
+| 3 | RAID 5 (raidz, capacité - 1 disque) | `zdata` raid:5 disks:[3] encryption:true
+| 4 | RAID 10 (stripe of mirrors, perf + redondance) | `zdata` raid:10 disks:[4] encryption:true
+|===
+
+*Cette config tombe entièrement dans le Cas 2 ci-dessus* (jeux de
+disques disjoints entre système et données) → *aucun patch beryl
+n'est nécessaire pour activer le chiffrement Aloli*. Le code livré
+le 25 avril 2026 (Option C, ZFS native) marche tel quel.
+
+=== Serveurs Aloli actuellement en chiffrement total + KVM
+
+Avant cette feature, Philippe chiffrait *l'entièreté du disque*
+(zroot + zdata) à la main, avec saisie de passphrase au boot via
+KVM/IPMI. Pattern « Option A » (chiffrement total) du présent
+document.
+
+*Pas de migration en place possible* : passer ces serveurs en
+Option C/D demande de re-bootstrap, donc une réinstallation
+complète. Plan suggéré :
+
+. Ces serveurs continuent à fonctionner tels quels jusqu'à leur
+  prochain reboot prévu (kernel update, déménagement DC, fin de
+  cycle hardware).
+. Au moment d'un re-bootstrap, on bascule vers Option C ou D.
+. Le discours commercial reste le même (« données client
+  chiffrées, illisibles au retour fournisseur »), avec en plus
+  l'opérabilité retrouvée (plus besoin de KVM pour rebooter).
 
 == Génération et stockage de la clé
 
@@ -576,10 +982,12 @@ la clé via Keychain au lieu de fichier en clair.
 
 * Chiffrement du `zroot` (incompatible parc à distance sans IPMI).
 * TPM (support FreeBSD partiel, hardware non garanti).
-* Tang/Clevis (support FreeBSD limité, infra réseau auxiliaire).
 * Authentification multi-facteur sur la clé (TOTP, hardware key).
   À voir avec le futur secrets vault.
 * Audit log centralisé des accès aux clés. Idem.
+
+NOTE: *Tang/GELI* n'est plus dans cette liste depuis le 27 avril
+2026 — voir Option D ci-dessus et `crystal-clevis-geli-handoff.adoc`.
 
 == Liens
 
@@ -590,5 +998,8 @@ la clé via Keychain au lieu de fichier en clair.
   (root chiffré demande IPMI).
 * `apply-recipes-architecture.adoc` — docs `beryl apply` (couplage
   via `requires_dataset:` dans les recettes).
+* `crystal-clevis-geli-handoff.adoc` — handoff d'intégration Tang/GELI
+  (Option D) ; détaille l'état des shards `crystal-jose` v0.1.0 et
+  `crystal-clevis-geli` v0.1.0 + 8 tâches T1-T8 côté beryl.
 * `project_beryl_secrets_vault.md` (note mémoire) — sera lié à la
   v2 du chiffrement quand le vault sera implémenté.

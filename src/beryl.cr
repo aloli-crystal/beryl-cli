@@ -4,6 +4,7 @@ require "./beryl/i18n"
 require "./beryl/config"
 require "./beryl/bootstrap"
 require "./beryl/providers"
+require "./beryl/encryption"
 
 module Beryl
   # Largeur cible en caractères pour aligner le compteur `[NNNs]` en fin
