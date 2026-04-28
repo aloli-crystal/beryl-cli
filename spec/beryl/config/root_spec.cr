@@ -165,6 +165,15 @@ describe Beryl::Config::ResolvedHost do
     rh.ssh_host_is_provider_name?.should be_false
   end
 
+  it "respecte `ssh_host:` explicite du YAML (override prime sur tout)" do
+    rh = Beryl::Config::Root.load(fixture("ssh-host-override")).resolve("clientvm")
+    rh.ssh_host.should eq("127.0.0.1")
+    rh.ssh_host_is_provider_name?.should be_true
+    rh.connection.host.should eq("127.0.0.1")
+    rh.connection.port.should eq(2223)
+    rh.connection.user.should eq("root")
+  end
+
   it "expose les accesseurs freebsd (hostname, disks, timezone)" do
     rh = Beryl::Config::Root.load(fixture("with-defaults-and-env")).resolve(
       "quelconque", domain_hint: "aloli.net")

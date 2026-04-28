@@ -525,10 +525,25 @@ module Beryl::Config
       @merged[YAML::Any.new("os")]?.try(&.as_s?) || "freebsd"
     end
 
-    # Hostname effectif pour SSH. Pour OVH avec service_name déclaré,
-    # on privilégie le FQDN OVH (toujours résoluble). Sinon le FQDN
-    # logique.
+    # Hostname effectif pour SSH.
+    #
+    # Ordre de résolution :
+    #
+    #   1. `ssh_host:` explicite dans le YAML mergé. Prime sur tout.
+    #      Cas d'usage : test local (`ssh_host: 127.0.0.1`), VPN
+    #      avec FQDN interne distinct du DNS public, alias DNS
+    #      provider qu'on veut figer.
+    #   2. Si provider OVH avec `ovh.service_name` : on privilégie
+    #      le FQDN OVH (toujours résoluble en DNS public).
+    #   3. Sinon le FQDN logique (`<short_name>.<domaine>`).
+    #
+    # Avant cette correction (bug détecté 28 avril 2026 par les tests
+    # QEMU), `ssh_host:` du YAML était silencieusement ignoré sauf
+    # pour OVH — incohérent et bloquant pour tester en local.
     def ssh_host : String
+      if explicit = @merged[YAML::Any.new("ssh_host")]?.try(&.as_s?)
+        return explicit
+      end
       if provider == "ovh" && (sn = ovh_service_name)
         return sn
       end
