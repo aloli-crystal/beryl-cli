@@ -327,9 +327,9 @@ ticket d'entrée :
 | Provisioning « en quelques secondes ». BR/USA, datacenters Europe disponibles.
 
 | *Hetzner Robot* (dédiés classiques)
-| ⭐⭐
+| NOGO Aloli
 | Mensuel + setup
-| Robot Webservice (XML-RPC façon SOAP-light), API distincte du Cloud (RESTful). À traiter comme provider à part entière, pas trivial. Server Auction pour réduire le coût de tests.
+| Robot Webservice = REST/JSON (la rumeur XML-RPC est fausse, vérifié 25 avril 2026 ; le shard `crystal-api-hetzner` parle JSON proprement). API utilisable, mais *Hetzner exige une copie de pièce d'identité à l'inscription* (vérifié 26 avril 2026) — politique disproportionnée pour de la location bare-metal, refusée par Aloli. Le shard `crystal-api-hetzner` reste publié pour la communauté Crystal qui voudrait l'utiliser.
 
 | *Vultr Bare Metal*
 | ⭐⭐
@@ -364,9 +364,12 @@ ticket d'entrée :
   Equinix Metal qui ferme nous donne une visibilité naturelle.
 . *Cherry Servers* ensuite : Europe (Lituanie), API moderne, similaire à
   PhoenixNAP en termes d'effort d'intégration.
-. *Hetzner Robot* en parallèle : très demandé en Europe (rapport
-  qualité/prix), mais l'API XML-RPC légère demande un shard Crystal
-  dédié plus complexe que les REST des autres.
+. *Hetzner Robot* : *écarté pour Aloli* — Hetzner réclame une
+  copie de pièce d'identité à l'inscription (vérifié 26 avril 2026),
+  contrainte refusée par Aloli pour de la location bare-metal. Le
+  shard `crystal-api-hetzner` (REST/JSON, MIT) reste disponible pour
+  la communauté Crystal qui voudrait l'utiliser. Toujours pertinent
+  comme cible technique pour qui n'a pas ce souci.
 . *Latitude.sh* / *Vultr Bare Metal* : nice-to-have, marché plus
   international.
 . *Outscale* / *Ikoula* / *PulseHeberg* / *Hopus* : selon la demande

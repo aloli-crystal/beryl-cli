@@ -1,0 +1,792 @@
+= beryl apply — scénarios opérateur
+:toc: left
+:toclevels: 3
+:sectnums:
+:icons: font
+:source-highlighter: rouge
+
+[.lead]
+Catalogue de scénarios concrets pour valider le design de
+`beryl apply` (cf. `apply-recipes-architecture.adoc`) avant
+implémentation. Chaque scénario décrit *ce que l'opérateur veut
+faire*, *les commandes qu'il tape*, et *ce que beryl doit produire*.
+
+Objectif : repérer les trous du design en se mettant à la place
+de l'opérateur, pas du code. Les scénarios qui « ne tiennent
+pas » révèlent une décision à prendre.
+
+== Conventions du document
+
+* `quantas` = un host fictif Aloli, FQDN `quantas.aloli.net`, OVH,
+  FreeBSD 15, déjà bootstrapé.
+* `cookie` = idem côté Dedibox.
+* `chouquette` = idem côté Scaleway.
+* L'opérateur tape ses commandes depuis son Mac, dans
+  `~/.beryl/aloli/aloli.net/`.
+* Convention path-like : `aloli/quantas.aloli.net` ou simplement
+  `quantas` quand il n'y a pas d'ambiguïté.
+
+== Scénario 1 — Premier `apply` sur un host fraîchement bootstrapé
+
+=== Contexte
+
+Philippe vient de terminer `beryl bootstrap aloli/quantas.aloli.net`.
+Le serveur tourne sous FreeBSD 15 vanille avec le user `admin` et
+les clés SSH déclarées dans le YAML host. Aucune configuration
+applicative n'a encore été déposée.
+
+=== Ce que veut faire Philippe
+
+Appliquer le standard Aloli post-install :
+
+* Mettre à jour FreeBSD (`freebsd-update`).
+* Activer le firewall pf avec un set de règles minimales.
+* Durcir sshd (PermitRootLogin no, PasswordAuthentication no, etc.).
+* Installer oh-my-zsh pour les users `admin` et `deploy`.
+* Installer Ruby (build chain pour Passenger/Bundler).
+* nginx + mod_passenger.
+
+=== Préparation côté Mac
+
+```
+cd ~/.beryl/aloli/aloli.net
+mkdir quantas
+cd quantas
+ln -s ../../../recipes/recipes/post-install.yml .
+```
+
+Une seule recette pointée : `post-install.yml`, l'agrégat Aloli.
+Toutes ses `requires:` sont dans le dépôt central.
+
+=== Commande tapée
+
+```
+beryl apply aloli/quantas.aloli.net
+```
+
+=== Sortie attendue (dry-run AVANT, exécution APRÈS)
+
+Beryl :
+
+. Lit `quantas/` → trouve `post-install.yml` (symlink).
+. Résout récursivement les `requires:` :
+  - `post-install` → `freebsd-updates`, `firewall-pf`,
+    `ssh-hardening`, `ohmyzsh`, `ruby`, `pkg-install-extras`,
+    `nginx-passenger`, `nginx-hardening`.
+  - Chaque sous-recette résolue depuis le dépôt central.
+. Tri topologique → ordre déterministe.
+. Affiche le plan :
++
+```
+Plan d'exécution sur quantas.aloli.net (8 recettes, ~28 étapes) :
+  1. freebsd-updates       (3 étapes)
+  2. firewall-pf            (4 étapes)
+  3. ssh-hardening          (3 étapes)
+  4. ohmyzsh                (5 étapes)
+  5. ruby                   (4 étapes)
+  6. pkg-install-extras     (1 étape)
+  7. nginx-passenger        (5 étapes)
+  8. nginx-hardening        (3 étapes)
+```
+
+. *Sans flag explicite*, beryl exécute (cohérent avec le reste de
+  beryl : pas de dry-run par défaut). Pour voir le plan sans
+  agir : `beryl apply --dry-run`.
+
+. Exécute, log par recette :
++
+```
+[14h12m04] [beryl apply] freebsd-updates 1/8 (3 steps)
+[14h12m04] [beryl apply]   pkg-install: déjà installé (skip) [skipped]
+[14h12m04] [beryl apply]   sysrc-set: zfs_enable=YES (déjà posé) [skipped]
+[14h12m05] [beryl apply]   freebsd-update fetch + install [applied, 27 patchs]
+[14h12m32] [beryl apply] firewall-pf 2/8 (4 steps)
+...
+```
+
+. Reporting final :
++
+```
+Bilan : 28 étapes — 19 skipped, 9 applied, 0 failed (durée 4 min 12 s)
+```
+
+=== Question de design soulevée
+
+Q1.1 : *À la première exécution, sans `--dry-run`, doit-on exécuter
+directement ou afficher le plan + demander confirmation ?*
+
+Cohérent avec le reste de beryl (rescue, bootstrap : pas de
+confirmation). On exécute. Si Philippe veut voir avant, il tape
+`--dry-run` ou son alias `-n`.
+
+Q1.2 : *Comment beryl fait pour le `freebsd-update fetch install`
+qui DEMANDE des prompts interactifs (pager `less` sur le diff de
+config) ?* Réponse probable : `PAGER=cat freebsd-update --not-running-from-cron fetch install`.
+À tester.
+
+== Scénario 2 — Re-`apply` (idempotence)
+
+=== Contexte
+
+Philippe relance `beryl apply quantas` une heure après le scénario 1.
+Rien n'a changé entre-temps.
+
+=== Commande
+
+```
+beryl apply quantas
+```
+
+=== Sortie attendue
+
+```
+Bilan : 28 étapes — 28 skipped, 0 applied, 0 failed (durée 12 s)
+```
+
+* Toutes les étapes lues côté SSH avant d'agir → tout est déjà
+  conforme → tout skip.
+* Durée courte : juste les lectures SSH (12s pour 28 étapes ≈
+  ~400ms par étape, dominée par la latence SSH).
+
+=== Question de design
+
+Q2.1 : *Faut-il un cache local côté Mac pour éviter de relire
+l'état SSH si on a appliqué il y a 5 minutes ?* — non, pas en v0.
+SSH lit vite, et un cache se périme silencieusement (le serveur
+peut avoir été modifié à la main entre deux apply). Pertinent
+plus tard si la latence devient un problème.
+
+== Scénario 3 — Override d'une recette pour un host particulier
+
+=== Contexte
+
+Philippe veut installer `oh-my-zsh` SEULEMENT pour `admin` sur
+`quantas`, pas pour `deploy` (ce host n'a jamais de session
+interactive en `deploy`). La recette globale `ohmyzsh.yml`
+prend une liste `users:` qu'il faut surcharger.
+
+=== Commande de préparation
+
+```
+cd ~/.beryl/aloli/aloli.net/quantas
+cp ../../../recipes/recipes/ohmyzsh.yml ./ohmyzsh.yml
+vim ohmyzsh.yml
+```
+
+Le fichier copié devient :
+
+[source,yaml]
+----
+# ~/.beryl/aloli/aloli.net/quantas/ohmyzsh.yml
+recipe: ohmyzsh
+description: oh-my-zsh pour admin uniquement (quantas-spécifique)
+
+arguments:
+  users: [admin]                  # surcharge la recette globale
+
+requires:
+  - freebsd-updates
+
+steps:
+  - pkg-install: { packages: [zsh, git, curl] }
+  - ohmyzsh-clone: { users: "{{ users }}" }
+  - shell-set: { users: "{{ users }}", shell: /usr/local/bin/zsh }
+----
+
+=== Commande tapée
+
+```
+beryl apply quantas
+```
+
+=== Sortie attendue
+
+Beryl résout `post-install` → cherche `ohmyzsh.yml` → *trouve la
+copie locale en priorité* → l'utilise. Les autres recettes
+viennent du dépôt central.
+
+```
+[14h44m12] [beryl apply] ohmyzsh 4/8 (3 steps) [override local]
+[14h44m12] [beryl apply]   pkg-install zsh git curl [skipped]
+[14h44m13] [beryl apply]   ohmyzsh-clone admin [applied]
+[14h44m14] [beryl apply]   shell-set admin /usr/local/bin/zsh [applied]
+```
+
+* La mention `[override local]` indique à l'opérateur qu'il
+  utilise une copie, pas le central. Aide au diagnostic plus
+  tard si le comportement diffère.
+
+=== Question de design
+
+Q3.1 : *Le hash de la copie locale est-il loggué pour qu'on puisse
+diff plus tard avec le central ?* Optionnel v0, utile v1 quand on
+fera `beryl recipes diff <host>` pour voir les divergences.
+
+== Scénario 4 — Une recette échoue, état partiel
+
+=== Contexte
+
+Sur `quantas`, l'application de `nginx-passenger` plante : le port
+`pkg install nginx` échoue parce qu'un autre `pkg` tourne en arrière-plan
+(verrou `/var/db/pkg/local.sqlite-journal`).
+
+=== Sortie attendue
+
+Beryl exécute jusqu'à l'échec, *s'arrête*, et reporte clairement :
+
+```
+[14h12m04] [beryl apply] freebsd-updates 1/8 [applied]
+[14h12m32] [beryl apply] firewall-pf 2/8 [applied]
+[14h13m01] [beryl apply] ssh-hardening 3/8 [applied]
+[14h13m20] [beryl apply] ohmyzsh 4/8 [applied]
+[14h13m45] [beryl apply] ruby 5/8 [applied]
+[14h14m02] [beryl apply] pkg-install-extras 6/8 [applied]
+[14h14m15] [beryl apply] nginx-passenger 7/8 (5 steps)
+[14h14m15] [beryl apply]   pkg-install nginx [FAILED]
+                          → pkg: cannot acquire lock on /var/db/pkg
+                          → autre processus pkg actif (PID 4521)
+
+ÉCHEC après 6/8 recettes appliquées.
+Bilan partiel : 19 étapes — 12 skipped, 7 applied, 1 failed.
+État du serveur : partiellement converged (ssh hardening posé,
+nginx absent).
+
+Pour reprendre après résolution :
+  beryl apply quantas
+  (les 6 recettes déjà appliquées seront skip car idempotentes)
+```
+
+* Beryl ne tente pas les recettes 8/8 (`nginx-hardening`).
+* Code de sortie != 0.
+* Le serveur reste dans un état *valide partiel* : `ssh-hardening`
+  est posé, nginx n'est pas installé, mais rien n'est cassé.
+
+=== Question de design
+
+Q4.1 : *Faut-il un flag `--continue-on-error` pour pousser les
+recettes restantes ?* Plutôt non par défaut : une recette qui
+échoue laisse souvent un état que les suivantes voudront utiliser
+(ex: `nginx-passenger` raté → `nginx-hardening` ne peut rien
+faire). Mieux vaut s'arrêter, corriger, relancer.
+
+Q4.2 : *Beryl doit-il restaurer l'état d'avant ?* Non. Les
+primitives sont idempotentes en avant, pas en arrière. Restauration
+= responsabilité opérateur (ZFS snapshot avant `apply` si critique).
+
+== Scénario 5 — Recette avec `requires_dataset` (couplage chiffrement)
+
+=== Contexte
+
+`quantas` a un pool `zsave` chiffré (mounté sur `/save`). La
+recette `nginx-passenger` déclare :
+
+[source,yaml]
+----
+requires_dataset:
+  - zsave/web                     # /save/web doit être monté
+----
+
+L'opérateur reboote le serveur. `zsave` reste verrouillé tant
+qu'il n'a pas lancé `beryl unlock`.
+
+=== Cas A — `apply` sur serveur dont `zsave` n'est PAS unlocké
+
+```
+beryl apply quantas
+```
+
+Beryl :
+
+. Lit l'état des datasets via SSH avant d'exécuter.
+. Voit que `zsave/web` n'est pas monté (clé non chargée).
+. Refuse d'appliquer les recettes qui le requièrent et liste
+  ce qui est bloqué :
++
+```
+beryl : 2 recette(s) bloquée(s) par des datasets non disponibles :
+  - nginx-passenger requires_dataset zsave/web (non monté)
+  - postgresql requires_dataset zsave/postgres (non monté)
+
+Le pool zsave est chiffré et non déverrouillé.
+
+Solution :
+  beryl unlock quantas
+  beryl apply quantas
+```
+
+. Code de sortie != 0.
+. Les recettes *qui ne dépendent pas* de datasets verrouillés
+  sont quand même appliquées (`freebsd-updates`, `ssh-hardening`,
+  etc.). On ne bloque pas tout pour autant.
+
+=== Cas B — `apply` après `beryl unlock`
+
+L'opérateur fait :
+
+```
+beryl unlock quantas
+beryl apply quantas
+```
+
+Tout passe normalement.
+
+=== Question de design
+
+Q5.1 : *Beryl unlock doit-il enchaîner automatiquement avec apply ?*
+Non, deux commandes distinctes. `unlock` ne fait que monter les
+datasets ; les services applicatifs configurés par `apply` se
+réveillent par leur propre flow (`requires_dataset` côté apply
+les redémarre quand monté).
+
+Q5.2 : *Et si les datasets `requires_dataset` ne sont même pas
+déclarés dans le YAML host ?* (ex: la recette demande `zsave/web`
+mais `quantas.yml` ne déclare pas `zsave`). Erreur explicite à
+la résolution : « recette nginx-passenger requires_dataset
+zsave/web mais zsave n'est pas déclaré dans quantas.yml ».
+
+== Scénario 6 — Ajout d'une recette custom (tap)
+
+=== Contexte
+
+Aloli a une recette interne `aloli-monitoring` qui pousse une
+config spéciale Prometheus node_exporter vers le push-gateway
+interne. Cette recette n'a aucun sens dans le dépôt public — on
+la met dans un *tap*.
+
+=== Préparation initiale (une fois)
+
+```
+beryl recipes-tap add https://git.aloli.fr/private-recipes.git
+```
+
+Beryl clone dans `~/.beryl/recipes-taps/private-recipes/`. La
+recette `aloli-monitoring.yml` y vit, comme dans le dépôt central
+mais avec priorité plus haute (entre `<host>/` et `recipes/`).
+
+=== Préparation par host
+
+```
+cd ~/.beryl/aloli/aloli.net/quantas
+ln -s ../../../recipes-taps/private-recipes/recipes/aloli-monitoring.yml .
+```
+
+Ou plus simple, le YAML host la liste explicitement (mais à
+définir, voir Q6.1).
+
+=== Question de design
+
+Q6.1 : *Le `tap` est-il appliqué par défaut sur tous les hosts,
+ou il faut symlinker explicitement chaque recette tap dans le
+dossier host ?*
+
+Réponse proposée : *symlink explicite par host*. Cohérent avec
+le principe « rien d'implicite ». Un tap = un dépôt de recettes
+disponibles, pas un dépôt de recettes appliquées.
+
+Q6.2 : *Et si le tap est down (git inaccessible) au moment du
+apply ?* Beryl utilise le clone local existant (pas de fetch
+forcé). `beryl recipes-tap update` est une commande explicite.
+
+== Scénario 7 — Modification d'un user (ajout/suppression de clé SSH)
+
+=== Contexte
+
+Philippe veut ajouter la clé SSH d'un nouveau collaborateur (Pierre)
+sur le user `admin` de tous les hosts d'`aloli.net`.
+
+=== Voie 1 — modification dans `aloli.net.yml` (domaine)
+
+Comme c'est une clé qui doit être sur tous les serveurs Aloli, la
+clé Pierre est ajoutée à `freebsd.users[admin].ssh_keys` du fichier
+domaine `~/.beryl/aloli/aloli.net.yml`.
+
+```
+vim ~/.beryl/aloli/aloli.net.yml
+# ajoute pierre.aloli.fr.pub à freebsd.users[name=admin].ssh_keys
+```
+
+=== Commande tapée
+
+```
+beryl apply quantas
+beryl apply cookie
+beryl apply chouquette
+```
+
+ou (futur) :
+
+```
+beryl apply --all-domain=aloli.net
+```
+
+=== Sortie attendue (par host)
+
+Beryl résout les recettes appliquées. La recette `users-sync`
+(implicite ? explicite ?) lit les users du merge et synchronise
+`~/.ssh/authorized_keys` :
+
+```
+[15h22m11] [beryl apply] users-sync (1 step)
+[15h22m11] [beryl apply]   user-update-keys admin [applied, +1 clé pierre.aloli.fr]
+```
+
+=== Question de design
+
+Q7.1 : *La synchronisation des users + clés SSH est-elle une recette
+ou un mécanisme implicite de `beryl apply` ?*
+
+Argument *recette* : cohérent avec le reste, pas de magie, on peut
+choisir de l'appliquer ou pas.
+
+Argument *implicite* : c'est tellement central (sans ça, l'opérateur
+peut perdre son accès SSH) qu'on ne devrait pas pouvoir l'oublier.
+
+*Décision proposée* : recette `users-sync` *appelée par défaut*
+dans la recette agrégat `post-install`. Si quelqu'un veut un
+host sans synchronisation des users (cas exotique), il fait son
+propre agrégat. La recette existe, elle est obligatoirement
+dans `post-install`.
+
+Q7.2 : *Quand une clé est SUPPRIMÉE du YAML, est-elle retirée du
+serveur ?* Oui, sinon on accumule des clés zombies. La primitive
+`user-update-keys` doit faire un *set* (pas un append). Avertir
+clairement à la première implémentation pour ne pas couper l'accès
+de l'opérateur courant par accident.
+
+== Scénario 8 — Reboot après une recette qui le demande
+
+=== Contexte
+
+`freebsd-update install` pose un nouveau kernel. Le système doit
+rebooter pour qu'il soit actif.
+
+=== Comportement attendu
+
+D'après le doc de design (et votre commentaire 25 avril 2026 :
+« je pense qu'il faut laisser à l'utilisateur le choix du reboot ») :
+
+. La recette `freebsd-updates` ne reboote PAS automatiquement.
+. Elle pose un *marqueur* lisible côté apply : `reboot_required: true`
+  au sortir de la recette.
+. À la fin de `beryl apply`, si au moins une recette a posé le
+  marqueur, beryl affiche :
++
+```
+Bilan : 28 étapes — 19 skipped, 8 applied, 0 failed (durée 4 min 12 s)
+
+⚠ 1 recette demande un reboot :
+  - freebsd-updates (nouveau kernel installé, prendra effet au prochain reboot)
+
+Pour rebooter quand vous voulez :
+  beryl reboot quantas         # SSH soft reboot
+  beryl reboot --hard quantas  # power cycle si serveur freezé
+```
+
+. Code de sortie 0 (l'apply a réussi). Le reboot reste explicite.
+
+=== Question de design
+
+Q8.1 : *Le marqueur `reboot_required` se transmet comment de la
+primitive vers beryl ?* Probablement un fichier de marqueur posé
+par la primitive sur le serveur (`/var/run/beryl-reboot-required`),
+qu'apply lit en fin de course. Effacé par le prochain `beryl reboot`
+réussi.
+
+Q8.2 : *Faut-il proposer `beryl apply --auto-reboot` ?* — Non.
+Cohérent avec le principe « pas de défauts silencieux ». L'opérateur
+veut explicitement choisir quand rebooter.
+
+== Scénario 9 — Notification email d'une recette
+
+=== Contexte
+
+Votre commentaire (25 avril 2026) : « En 8.1, FreeBSD update,
+il manque l'envoi de courriels lorsqu'il y a une mise à jour
+à faire. »
+
+=== Approche proposée
+
+Une primitive `email-notify` envoie un mail via le `sendmail` local
+du serveur (FreeBSD a sendmail par défaut, configurable pour
+tunneler vers un MTA externe).
+
+La recette `freebsd-updates` peut déclarer :
+
+[source,yaml]
+----
+recipe: freebsd-updates
+description: Patches de sécurité FreeBSD
+
+parameters:
+  notify_email:
+    type: string
+    default: admin@aloli.fr
+  notify_when:
+    type: string
+    default: updates_available    # ou: always, never
+
+steps:
+  - freebsd-update-fetch:
+      register: fetch_result
+  - email-notify:
+      to: "{{ notify_email }}"
+      subject: "FreeBSD updates available on {{ inventory_hostname }}"
+      body: "{{ fetch_result.summary }}"
+      condition: "{{ fetch_result.has_updates }}"
+  - freebsd-update-install:
+      condition: "{{ fetch_result.has_updates }}"
+----
+
+=== Question de design
+
+Q9.1 : *Faut-il un système de templating Jinja-like (`{{ }}`) ou
+juste interpoler les paramètres simples ?*
+
+Le doc de design dit « interpolation simple `{{ var }}` ». Les
+*conditions* (`condition:`) et *registres* (`register:`) sont au
+niveau au-dessus.
+
+*Décision proposée* : v0 = interpolation simple paramètre seule.
+Pas de `condition:`, pas de `register:`. Les recettes complexes
+(`freebsd-updates avec notification`) seront codées comme une
+seule primitive Crystal `freebsd-update` qui gère elle-même la
+détection + notification + install.
+
+Le pattern : *si une logique commence à demander des
+conditionnelles dans le YAML, c'est qu'elle mérite d'être une
+primitive Crystal*.
+
+Q9.2 : *Configuration du sendmail pour qu'il sorte vraiment* sur
+un Aloli typique. À documenter dans une recette dédiée
+`smarthost-relay` ou similaire (qui pose `/etc/mail/aliases`,
+`/etc/mail/sendmail.cf`, etc.). Hors scope v0.
+
+== Scénario 10 — Installation de Ruby pour TOUS les users vs un seul
+
+=== Contexte
+
+Votre commentaire (25 avril 2026) : « En 8.5, ruby, prévoir
+d'installer Ruby pour tout le monde, ou uniquement pour un
+utilisateur. »
+
+=== Modélisation YAML
+
+[source,yaml]
+----
+# recipes/ruby.yml (dépôt central)
+recipe: ruby
+description: Installe Ruby (build chain + rubygems)
+
+parameters:
+  install_for:
+    type: string
+    default: system               # "system" | "users"
+    description: |
+      "system" = pkg install ruby + bundler en global (/usr/local/bin)
+      "users"  = chruby + ruby-install pour chaque user listé
+  users:
+    type: array
+    items: string
+    default: []
+    description: Liste des users (utilisé seulement si install_for=users)
+  version:
+    type: string
+    default: "3.3"
+
+steps:
+  - pkg-install: { packages: [ruby, ruby-bundler, gmake], when: "{{ install_for == 'system' }}" }
+  - chruby-install: { users: "{{ users }}", version: "{{ version }}", when: "{{ install_for == 'users' }}" }
+----
+
+=== Cas A — Ruby system-wide (par défaut)
+
+Symlink simple, pas de copie locale :
+
+```
+quantas/post-install.yml -> ../../../recipes/recipes/post-install.yml
+```
+
+Ruby installé en global via `pkg`. Disponible pour tous.
+
+=== Cas B — Ruby par user (ex: serveur dédié à un dev)
+
+Copie locale :
+
+[source,yaml]
+----
+# ~/.beryl/aloli/aloli.net/cookie/ruby.yml
+recipe: ruby
+description: Ruby chruby pour les devs sur cookie
+
+arguments:
+  install_for: users
+  users: [philippe, alice]
+  version: "3.3"
+
+requires:
+  - freebsd-updates
+----
+
+=== Question de design
+
+Q10.1 : *Le `when:` au niveau d'un step est-il dans le scope v0
+ou v1 ?*
+
+Cohérent avec Q9.1 : si une recette a deux modes radicalement
+différents (system vs user), c'est probablement *deux recettes*
+distinctes : `ruby-system` et `ruby-chruby`. La recette agrégat
+`post-install` requires l'une OU l'autre.
+
+*Décision proposée* : v0, deux recettes séparées. Pas de `when:`
+dans les steps. `when:` apparaît si v1 le demande.
+
+== Scénario 11 — Apply sur plusieurs hosts en parallèle
+
+=== Contexte
+
+Aloli a 10 serveurs. Une faille critique vient de sortir, il faut
+pousser le patch sur tous.
+
+=== Commande proposée (futur, hors v0)
+
+```
+beryl apply --parallel=4 aloli/aloli.net/*
+```
+
+ou par groupe :
+
+```
+beryl apply --group=web aloli
+```
+
+=== Comportement attendu
+
+Beryl :
+
+. Charge la liste des hosts à traiter.
+. Lance jusqu'à 4 `beryl apply` en parallèle (un par host, fork ou
+  fiber Crystal).
+. Chaque host log avec son préfixe : `[quantas]`, `[cookie]`, etc.
+. Un échec sur un host n'arrête pas les autres (chacun est isolé).
+. Bilan global à la fin : `8/10 OK, 2/10 failed (cookie, chouquette)`.
+
+=== Question de design
+
+Q11.1 : *Quelle granularité pour la limite parallélisme ?* Probablement
+`--parallel=N` avec défaut 1 (séquentiel, évite les surprises).
+
+Q11.2 : *Comment gérer les groupes de hosts ?* Soit via la convention
+existante `<société>/<domaine>/<groupe>/<host>` qui groupe déjà côté
+filesystem, soit via un fichier `groups.yml` dédié. Hors scope v0.
+
+== Scénario 12 — Création d'une recette par fork (tap public)
+
+=== Contexte
+
+Un utilisateur tiers veut beryl mais sa convention est différente
+d'Aloli (par ex: il déploie en `prod` avec FreeBSD 13 et veut une
+recette pour son `nginx-bunch-of-stuff`).
+
+=== Workflow utilisateur
+
+. Fork de `aloli-crystal/beryl-recipes` sur son GitHub.
+. Ajoute `recipes/his-nginx-bunch.yml`.
+. Pointe son beryl vers son fork via `~/.beryl/_default.yml` :
++
+[source,yaml]
+----
+recipes:
+  repo_url: https://github.com/his-org/his-recipes.git
+  branch: production
+----
+. Tape `beryl apply quantas`. Beryl utilise sa version, pas la
+  publique.
+
+=== Question de design
+
+Q12.1 : *Doit-on supporter plusieurs sources de recettes en même
+temps ?* OUI, c'est précisément le sens du mécanisme `taps`. Le
+fork complet n'est utile que pour quelqu'un qui veut REMPLACER
+le tronc commun, ce qui est rare.
+
+Q12.2 : *Quid de la mise à jour automatique du dépôt central ?*
+Pas de pull silencieux. `beryl recipes update` est une commande
+explicite. Les serveurs en prod ne se modifient pas tout seuls
+parce qu'Aloli a publié une nouvelle version.
+
+== Scénario 13 — Ajout d'une recette par PR au dépôt central
+
+=== Contexte
+
+Un membre de la communauté Crystal veut contribuer une recette
+`postgresql-tuning` au dépôt `beryl-recipes`.
+
+=== Workflow contributeur
+
+. Fork de `aloli-crystal/beryl-recipes`.
+. Branche `feat/postgresql-tuning` depuis `production`.
+. Ajoute `recipes/postgresql-tuning.yml` + un test simple dans
+  `tests/`.
+. PR vers `production` avec :
+  - description du besoin métier
+  - quel(s) FreeBSD testé
+  - exemple d'usage en commentaire si non trivial
+. Aloli relit, valide critères du README (FreeBSD-natif, générique,
+  idempotent, documenté).
+. Merge → tag mineur (`v1.0.x`).
+
+=== Question de design
+
+Q13.1 : *Comment Aloli teste une recette en CI sans serveur FreeBSD
+permanent ?* Voir doc de design : « tests dans une jail FreeBSD
+locale ». Hors scope v0, à câbler quand le repository sera plus
+mature.
+
+== Synthèse — points à trancher avant de coder
+
+[cols="1,3,3", options="header"]
+|===
+| # | Question | Décision proposée
+
+| Q1.1 | apply sans flag = exécute ou affiche le plan ? | Exécute (cohérent rescue/bootstrap). `--dry-run` pour le plan.
+| Q1.2 | freebsd-update interactif (pager less) ? | `PAGER=cat` + `--not-running-from-cron`. Tester.
+| Q2.1 | Cache local de l'état SSH ? | Non en v0. Trivial à ajouter v1 si besoin.
+| Q3.1 | Hash de la copie locale loggué pour diff ? | Optionnel v0, utile v1.
+| Q4.1 | `--continue-on-error` ? | Non par défaut. Erreur = stop.
+| Q4.2 | Restauration d'état d'avant ? | Non. ZFS snapshot manuel = responsabilité opérateur.
+| Q5.1 | unlock enchaîné dans apply ? | Non, deux commandes.
+| Q5.2 | requires_dataset pointant vers un pool inexistant ? | Erreur claire à la résolution.
+| Q6.1 | Tap appliqué par défaut sur tous hosts ? | Non, symlink explicite par host.
+| Q6.2 | Tap inaccessible (git down) ? | Utilise clone local. Update = commande explicite.
+| Q7.1 | users-sync = recette ou implicite ? | Recette, mais incluse par défaut dans post-install.
+| Q7.2 | Suppression d'une clé du YAML = retrait sur serveur ? | Oui (set, pas append). Avertir clairement à l'impl.
+| Q8.1 | Marqueur reboot_required transmis comment ? | Fichier sentinelle sur le serveur.
+| Q8.2 | `--auto-reboot` ? | Non. Reboot toujours explicite.
+| Q9.1 | Templating riche (Jinja-like) ? | Non v0. Si conditionnel = primitive Crystal dédiée.
+| Q9.2 | Sendmail config pour notifications ? | Recette `smarthost-relay` future, hors scope v0.
+| Q10.1 | `when:` au niveau step ? | Non v0. Deux recettes séparées si comportement radicalement différent.
+| Q11.1 | `--parallel=N` ? | Hors scope v0. Défaut séquentiel.
+| Q11.2 | Groupes de hosts ? | Hors scope v0.
+| Q12.1 | Plusieurs sources de recettes ? | Oui, c'est le mécanisme tap.
+| Q12.2 | Mise à jour auto du dépôt central ? | Non. `beryl recipes update` explicite.
+| Q13.1 | Tests CI des recettes ? | Hors scope v0. Jail FreeBSD locale plus tard.
+|===
+
+== Prochaines étapes après validation des scénarios
+
+. Valider/amender les décisions Q1-Q13 ci-dessus.
+. Démarrer la *Phase 1 PoC* du doc de design : `pkg-install` codée +
+  `freebsd-updates.yml` + `post-install.yml` minimal.
+. Test terrain sur quantas (ou autre OVH) — mesure des temps réels.
+. Ajuster ce document avec les surprises terrain.
+. Continuer Phase 2 : reste des primitives (`service-enable`,
+  `sysrc-set`, `file-template`, `user-create`, `user-update-keys`,
+  `sshd-config-set`, `pf-rule`, `cron-entry`).
+. Ajouter les recettes Aloli une par une dans `beryl-recipes`.
+
+== Liens
+
+* `apply-recipes-architecture.adoc` — doc de design détaillé.
+* `zpool-encryption-architecture.adoc` — couplage `requires_dataset`
+  côté chiffrement (scénario 5).
+* https://github.com/aloli-crystal/beryl-recipes — dépôt des recettes.
