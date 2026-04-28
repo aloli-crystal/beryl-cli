@@ -168,7 +168,8 @@ describe Beryl::Config::ResolvedHost do
   it "respecte `ssh_host:` explicite du YAML (override prime sur tout)" do
     rh = Beryl::Config::Root.load(fixture("ssh-host-override")).resolve("clientvm")
     rh.ssh_host.should eq("127.0.0.1")
-    rh.ssh_host_is_provider_name?.should be_true
+    rh.ssh_host_explicit?.should be_true
+    rh.ssh_host_is_provider_name?.should be_false
     rh.connection.host.should eq("127.0.0.1")
     rh.connection.port.should eq(2223)
     rh.connection.user.should eq("root")

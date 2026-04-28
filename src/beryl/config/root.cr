@@ -537,9 +537,9 @@ module Beryl::Config
     #      le FQDN OVH (toujours résoluble en DNS public).
     #   3. Sinon le FQDN logique (`<short_name>.<domaine>`).
     #
-    # Avant cette correction (bug détecté 28 avril 2026 par les tests
-    # QEMU), `ssh_host:` du YAML était silencieusement ignoré sauf
-    # pour OVH — incohérent et bloquant pour tester en local.
+    # Avant le fix du 28 avril 2026 (commit 3b19dfb), `ssh_host:` du
+    # YAML était silencieusement ignoré sauf pour OVH — incohérent et
+    # bloquant pour tester en local.
     def ssh_host : String
       if explicit = @merged[YAML::Any.new("ssh_host")]?.try(&.as_s?)
         return explicit
@@ -550,9 +550,26 @@ module Beryl::Config
       fqdn
     end
 
-    # Vrai si ssh_host ≠ fqdn (on utilise le nom hébergeur, pas le
-    # nom custom).
+    # Vrai si l'opérateur a déclaré explicitement `ssh_host:` dans
+    # un YAML du merge. Distingue le cas « override YAML » du cas
+    # « nom de host hébergeur dérivé ». Utilisé par
+    # `Beryl.format_ssh_target` pour produire un libellé sémantiquement
+    # juste : « fqdn (via 127.0.0.1) » plutôt que « fqdn (= 127.0.0.1
+    # côté local) » qui prêterait à confusion (« local » n'est pas un
+    # provider hébergeur).
+    def ssh_host_explicit? : Bool
+      !@merged[YAML::Any.new("ssh_host")]?.try(&.as_s?).nil?
+    end
+
+    # Vrai si `ssh_host` provient d'un *provider hébergeur*
+    # (typiquement OVH avec `ovh.service_name`) et diffère du FQDN
+    # logique. Distingue ce cas du cas « override YAML » couvert
+    # par `ssh_host_explicit?`. Si l'opérateur a posé un
+    # `ssh_host:` YAML, ce flag est faux même si la valeur diffère
+    # du FQDN — la responsabilité est à l'opérateur, pas au
+    # provider.
     def ssh_host_is_provider_name? : Bool
+      return false if ssh_host_explicit?
       ssh_host != fqdn
     end
 

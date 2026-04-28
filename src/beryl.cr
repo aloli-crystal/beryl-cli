@@ -46,12 +46,27 @@ module Beryl
     needed > 0 ? " " * needed : ""
   end
 
-  # Formate une cible SSH pour les logs de façon uniforme :
-  # `rails01.aloli.net` seul quand le nom SSH == FQDN,
-  # `rails01.aloli.net (= ns1234.ip-... côté ovh)` sinon.
+  # Formate une cible SSH pour les logs de façon uniforme. Trois cas :
+  #
+  # * Pas de divergence entre fqdn et ssh_host :
+  #     `rails01.aloli.net`
+  #
+  # * Provider hébergeur qui impose un nom différent (typiquement OVH
+  #   `ovh.service_name`). On annonce le couple « FQDN logique côté
+  #   provider » :
+  #     `rails01.aloli.net (= ns1234.ip-51-83-6.eu côté ovh)`
+  #
+  # * Override `ssh_host:` explicite côté YAML — l'opérateur a posé
+  #   une valeur (test local, VPN, alias DNS interne). Pas de
+  #   mention de provider, qui serait sémantiquement faux pour
+  #   `provider: local` ou un provider sans notion de nom
+  #   hébergeur :
+  #     `clientvm.test (via 127.0.0.1)`
   def self.format_ssh_target(host : Beryl::Config::ResolvedHost) : String
     if host.ssh_host_is_provider_name?
       "#{host.fqdn} (= #{host.ssh_host} côté #{host.provider})"
+    elsif host.ssh_host_explicit? && host.ssh_host != host.fqdn
+      "#{host.fqdn} (via #{host.ssh_host})"
     else
       host.fqdn
     end
