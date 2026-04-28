@@ -16,8 +16,20 @@ adaptateur côté beryl.
 
 == Pré-requis
 
-Le banc QEMU shard doit être démarré et provisionné. Concrètement,
-côté `prod-crystal/qemu/` :
+Le banc QEMU shard doit être démarré et provisionné. Deux options :
+
+=== Option rapide — wrapper `start-bench.sh`
+
+[source,shell]
+----
+~/prod-crystal/crystal-beryl/qemu/start-bench.sh
+----
+
+Enchaîne automatiquement les 7 scripts du shard. Idempotent.
+Ajoutez `--skip-fetch` pour sauter le download de l'image
+(utile si elle est déjà en cache).
+
+=== Option manuelle — un par un côté shard
 
 [source,shell]
 ----
@@ -31,7 +43,7 @@ cd ~/prod-crystal/qemu
 ./22-promote-root-on-client.sh
 ----
 
-Ce qui démarre :
+=== Ce qui est démarré
 
 * VM `tang` (port SSH 2222) avec 3 instances Tang sur 8888/8889/8890.
 * VM `client` (port SSH 2223) avec :
@@ -41,6 +53,14 @@ Ce qui démarre :
 ** root SSH activé via la clé du banc (le script 22 fait ce
    travail, indispensable pour beryl qui ne wrap pas ses commandes
    en `sudo`).
+
+=== Pour arrêter
+
+[source,shell]
+----
+~/prod-crystal/crystal-beryl/qemu/stop-bench.sh         # stoppe proprement
+~/prod-crystal/crystal-beryl/qemu/stop-bench.sh --wipe  # stoppe + supprime les disques (reset complet)
+----
 
 == Utilisation
 
@@ -119,13 +139,32 @@ au début et détruit à la fin.
 | Affiche cette aide.
 |===
 
+== Lancer aussi via Crystal spec (Option II)
+
+Le test est wrappé dans une spec Crystal taggée `:integration` :
+
+[source,shell]
+----
+crystal spec spec/integration/
+----
+
+La spec :
+
+* Skippe automatiquement (avec un message clair) si le banc QEMU
+  n'est pas joignable — pas d'échec en CI Linux.
+* Sinon, exécute `qemu/test-beryl.sh` et asserte la sortie.
+
+Pratique pour intégrer le test au workflow Crystal standard.
+
 == Architecture
 
 [source]
 ----
 crystal-beryl/qemu/
 ├── README.adoc                 (ce fichier)
-├── test-beryl.sh               (script principal, idempotent)
+├── start-bench.sh              (wrapper : démarre + provisionne le banc)
+├── stop-bench.sh               (wrapper : arrête le banc, --wipe pour reset)
+├── test-beryl.sh               (5 tests beryl ↔ tang/zfs, idempotent)
 └── lib/
     └── assert.sh               (helpers : log, ok, ko, assert_*, ssh_client, ssh_tang, run_beryl)
 ----
