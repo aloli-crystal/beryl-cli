@@ -79,8 +79,8 @@ unambiguous, or simply `loulou` if only one account is declared.
 
 * *Agentless*: nothing to install on the target. beryl drives everything over
   SSH (the `ssh` shard fully isolates beryl from `~/.ssh/config`).
-* *One API shard per provider* — `api-ovh`, `api-scaleway`,
-  `api-dedibox`. Each shard is standalone, MIT-licensed, unit-tested.
+* *One API shard per provider* — `aloli-crystal/api-ovh`, `aloli-crystal/api-scaleway`,
+  `aloli-crystal/api-dedibox`. Each shard is standalone, MIT-licensed, unit-tested.
 * *Heterogeneous IDs across providers*: a textual `service_name` for OVH, a
   UUID v4 for Scaleway, an integer for Dedibox. The `aloli/<ID>` form works
   on all three: beryl resolves the public IP via the provider API and carries on.
@@ -122,7 +122,7 @@ The `beryl rescue <host>` flow logs four numbered steps:
 `beryl scan --dns` happily lays down A and AAAA records through the DNS
 provider declared on the domain (OVH in practice) and renames the server in
 the console when possible, but the PTR still has to be set manually on
-https://console.online.net/ (limitation documented in `api-dedibox`).
+https://console.online.net/ (limitation documented in `aloli-crystal/api-dedibox`).
 
 Concrete example, one command per block so each can be copy-pasted on its own:
 

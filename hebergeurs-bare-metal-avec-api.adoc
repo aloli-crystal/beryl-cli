@@ -329,7 +329,7 @@ ticket d'entrée :
 | *Hetzner Robot* (dédiés classiques)
 | NOGO Aloli
 | Mensuel + setup
-| Robot Webservice = REST/JSON (la rumeur XML-RPC est fausse, vérifié 25 avril 2026 ; le shard `api-hetzner` parle JSON proprement). API utilisable, mais *Hetzner exige une copie de pièce d'identité à l'inscription* (vérifié 26 avril 2026) — politique disproportionnée pour de la location bare-metal, refusée par Aloli. Le shard `api-hetzner` reste publié pour la communauté Crystal qui voudrait l'utiliser.
+| Robot Webservice = REST/JSON (la rumeur XML-RPC est fausse, vérifié 25 avril 2026 ; le shard `aloli-crystal/api-hetzner` parle JSON proprement). API utilisable, mais *Hetzner exige une copie de pièce d'identité à l'inscription* (vérifié 26 avril 2026) — politique disproportionnée pour de la location bare-metal, refusée par Aloli. Le shard `aloli-crystal/api-hetzner` reste publié pour la communauté Crystal qui voudrait l'utiliser.
 
 | *Vultr Bare Metal*
 | ⭐⭐
@@ -367,7 +367,7 @@ ticket d'entrée :
 . *Hetzner Robot* : *écarté pour Aloli* — Hetzner réclame une
   copie de pièce d'identité à l'inscription (vérifié 26 avril 2026),
   contrainte refusée par Aloli pour de la location bare-metal. Le
-  shard `api-hetzner` (REST/JSON, MIT) reste disponible pour
+  shard `aloli-crystal/api-hetzner` (REST/JSON, MIT) reste disponible pour
   la communauté Crystal qui voudrait l'utiliser. Toujours pertinent
   comme cible technique pour qui n'a pas ce souci.
 . *Latitude.sh* / *Vultr Bare Metal* : nice-to-have, marché plus

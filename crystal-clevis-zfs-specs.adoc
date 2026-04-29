@@ -10,9 +10,9 @@
 :source-highlighter: rouge
 
 [.lead]
-Spécifications du shard Crystal `crystal-clevis-zfs` : client Tang
+Spécifications du shard Crystal `aloli-crystal/crystal-clevis-zfs` : client Tang
 + pilotage ZFS native encryption sur FreeBSD. Remplace
-`crystal-clevis-geli` (déprécié, voir
+`aloli-crystal/crystal-clevis-geli` (déprécié, voir
 `boot-and-mount-plan.adoc` § « Pivot GELI → ZFS native »).
 
 À lire après `boot-and-mount-plan.adoc` (Option I retenue, ZFS
@@ -32,7 +32,7 @@ antérieure. La nomenclature *définitive* est documentée dans
 * `zroot/zlog` (`/var/log`, *clair compressé*, pas chiffré)
 * `zsave` (pool séparé sur HDD, optionnel)
 
-**Le shard `crystal-clevis-zfs` est agnostique au nom du dataset**
+**Le shard `aloli-crystal/crystal-clevis-zfs` est agnostique au nom du dataset**
 — il prend juste un argument `--dataset <pool/path>`. Les exemples
 ci-dessous restent corrects fonctionnellement. La synchro complète
 des noms dans ce doc sera faite quand le shard sera livré et
@@ -48,13 +48,13 @@ v0.1.
 
 Tout est repris de l'analyse comparative GELI vs ZFS native (voir
 historique de discussion dans `boot-and-mount-plan.adoc` §
-« Révision 0.2 ») et du shard existant `crystal-clevis-geli` v0.1
+« Révision 0.2 ») et du shard existant `aloli-crystal/crystal-clevis-geli` v0.1
 (`crystal-clevis-geli-handoff.adoc`) dont 80 % du code est
 réutilisable tel quel.
 
 == Périmètre du shard
 
-=== Ce que `crystal-clevis-zfs` v0.1 fait
+=== Ce que `aloli-crystal/crystal-clevis-zfs` v0.1 fait
 
 . *CLI* avec sous-commandes `bind`, `unlock`, `version`.
 . *Bind* : génère ou consomme une clé hex 256 bits, l'enroule
@@ -66,7 +66,7 @@ réutilisable tel quel.
   avant `mountcritremote`.
 . *API Crystal* exposée pour intégration dans beryl.
 
-=== Ce que `crystal-clevis-zfs` v0.1 ne fait PAS
+=== Ce que `aloli-crystal/crystal-clevis-zfs` v0.1 ne fait PAS
 
 . *Threshold N-of-M (SSS)* : un seul Tang par dataset en v0.1.
   Voir v0.2 ci-dessous.
@@ -77,9 +77,9 @@ réutilisable tel quel.
   serveur Tang reste manuel ; le shard ne fournit pas de
   `rebind` automatisé en v0.1.
 . *Support GELI* : explicitement retiré.
-  Si quelqu'un veut Tang+GELI, utilise `crystal-clevis-geli`.
+  Si quelqu'un veut Tang+GELI, utilise `aloli-crystal/crystal-clevis-geli`.
 
-== Ce qui se réutilise du shard `crystal-clevis-geli` v0.1
+== Ce qui se réutilise du shard `aloli-crystal/crystal-clevis-geli` v0.1
 
 [cols="2,3,1", options="header"]
 |===
@@ -119,7 +119,7 @@ réutilisable tel quel.
 |===
 
 **Effort estimé** : 3-4 jours en partant du repo
-`crystal-clevis-geli`, fork puis adaptation.
+`aloli-crystal/crystal-clevis-geli`, fork puis adaptation.
 
 == Architecture
 
@@ -385,7 +385,7 @@ module CrystalClevisZfs::Zfs
 end
 ----
 
-=== Module `TangClient` (réutilisé tel quel depuis `crystal-clevis-geli`)
+=== Module `TangClient` (réutilisé tel quel depuis `aloli-crystal/crystal-clevis-geli`)
 
 [source,crystal]
 ----
@@ -550,11 +550,11 @@ run_rc_command "$1"
 === Tests d'interop
 
 . *Avec `latchset/jose`* (binaire Red Hat) : un JWE produit par
-  `crystal-clevis-zfs` doit être lisible par `jose`, et
+  `aloli-crystal/crystal-clevis-zfs` doit être lisible par `jose`, et
   inversement.
 . *PAS d'interop avec `clevis encrypt sss`* en v0.1 (single Tang
   uniquement). En v0.2 : tester qu'un JWE produit par
-  `clevis encrypt sss` est lisible par `crystal-clevis-zfs`.
+  `clevis encrypt sss` est lisible par `aloli-crystal/crystal-clevis-zfs`.
 
 === Tests end-to-end (en VM FreeBSD)
 
@@ -574,7 +574,7 @@ run_rc_command "$1"
 == v0.2 — SSS multi-Tang (hors scope v0.1)
 
 À écrire après v0.1 livrée et stabilisée. Reprend strictement
-l'approche de `crystal-clevis-geli` v0.2 documentée dans son
+l'approche de `aloli-crystal/crystal-clevis-geli` v0.2 documentée dans son
 handoff (module `Sss` ~150 lignes, extension de `bind` et
 `recover` pour itérer sur N Tangs avec un threshold K).
 
@@ -593,10 +593,10 @@ crystal-clevis-zfs bind --init \
 Garantie : un attaquant doit compromettre 2 Tangs sur 3 pour
 reconstituer la clé. Le serveur tolère 1 Tang en panne au boot.
 
-== Migration depuis `crystal-clevis-geli`
+== Migration depuis `aloli-crystal/crystal-clevis-geli`
 
 Pour les utilisateurs (probablement personne en dehors d'Aloli)
-qui auraient déjà déployé `crystal-clevis-geli` v0.1 :
+qui auraient déjà déployé `aloli-crystal/crystal-clevis-geli` v0.1 :
 
 . Décommissionner les vdevs GELI un par un.
 . Sur le pool ZFS, créer le dataset chiffré équivalent

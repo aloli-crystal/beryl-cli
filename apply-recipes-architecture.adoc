@@ -187,7 +187,7 @@ Aloli :
 
 * Les recettes évoluent indépendamment du binaire beryl (ajouter
   une recette ne demande pas de bump beryl).
-* Un opérateur extérieur peut *forker* `beryl-recipes`, modifier
+* Un opérateur extérieur peut *forker* `aloli-crystal/beryl-recipes`, modifier
   les recettes pour son contexte (`https://github.com/<vous>/beryl-recipes`),
   et pointer beryl vers son fork.
 * Versioning git permet de figer la version utilisée par un
@@ -217,7 +217,7 @@ L'opérateur surcharge dans son `<société>/_account.yml` ou
 * Beryl ne fait jamais d'appel HTTP pendant l'`apply` lui-même —
   tout est lu depuis le filesystem local.
 
-=== Layout du dépôt `beryl-recipes`
+=== Layout du dépôt `aloli-crystal/beryl-recipes`
 
 [source,text]
 ----
@@ -498,12 +498,12 @@ Une dizaine bien faites couvrent 80 % du besoin Aloli. Reste extensible.
 
 * Recettes Aloli (ohmyzsh, ssh-hardening, ruby, nginx-passenger,
   letsencrypt) une à une.
-* Chaque recette = PR séparée sur `beryl-recipes`, avec CHANGELOG simple.
+* Chaque recette = PR séparée sur `aloli-crystal/beryl-recipes`, avec CHANGELOG simple.
 * La recette agrégat `post-install` enrichie au fil de l'eau.
 
 === Phase 4 — versioning des recettes
 
-* Tag `v1.0.0` sur `beryl-recipes` quand le tronc commun est rodé.
+* Tag `v1.0.0` sur `aloli-crystal/beryl-recipes` quand le tronc commun est rodé.
 * `beryl apply` peut figer la version : `recipes_version: v1.0.0`
   dans le YAML host. Permet aux serveurs anciens de garder leurs
   recettes connues même si le dépôt principal évolue.

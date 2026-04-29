@@ -342,7 +342,7 @@ l'install non interactive, puis reboote sur FreeBSD final.
   `freebsd-buildutils` ou compilé depuis `src/usr.sbin/makefs` de
   FreeBSD).
 . Reconstruction des entêtes GPT + ESP autour du nouveau UFS (peut
-  se faire en Crystal pur via `silex` étendu ou à la main
+  se faire en Crystal pur via `aloli-crystal/silex` étendu ou à la main
   avec `sgdisk` + `mkfs.vfat`).
 . `dd` sur le disque, `reboot -f`.
 . Attente SSH sur le FreeBSD installé.

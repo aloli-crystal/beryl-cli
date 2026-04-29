@@ -538,7 +538,7 @@ tout le test ensemble.
 
 == 5. Reboot en rescue par API
 
-Depuis la v0.2.0 des shards `ovh-api` et `scaleway-api`, `beryl` sait
+Depuis la v0.2.0 des shards `aloli-crystal/api-ovh` et `aloli-crystal/api-scaleway`, `beryl` sait
 basculer un hôte en mode rescue *sans passer par le manager web* :
 
 [source,sh]
@@ -598,7 +598,7 @@ hosts:
 
 NOTE: `ssh_key_name` côté OVH doit *exister* dans le compte avant le
 `beryl rescue`. Passer par `client.ssh_keys.create` du shard
-`ovh-api` ou par le manager web. Côté Scaleway, les clés sont
+`aloli-crystal/api-ovh` ou par le manager web. Côté Scaleway, les clés sont
 ré-injectées automatiquement depuis celles posées à la création du
 serveur : rien à déclarer dans l'inventaire beryl.
 

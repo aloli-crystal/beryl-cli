@@ -11,14 +11,14 @@
 
 [.lead]
 Document de transmission pour l'intégration de
-`crystal-clevis-zfs` dans `beryl`. Décrit ce que fait
+`aloli-crystal/crystal-clevis-zfs` dans `beryl`. Décrit ce que fait
 aujourd'hui le shard (**v0.1 livré**, single-Tang) et la liste
 précise des tâches côté `beryl` pour brancher la fonctionnalité
 dans le mode `tang` du format YAML évoqué dans
 `zpool-encryption-architecture.adoc` § Option D.
 
 NOTE: Révision 0.3 (27 avril 2026) — pivot **GELI → ZFS native
-encryption**. L'ancêtre `crystal-clevis-geli` v0.2 reste fonctionnel
+encryption**. L'ancêtre `aloli-crystal/crystal-clevis-geli` v0.2 reste fonctionnel
 mais est déprécié pour le pattern Aloli (FreeBSD + ZFS). Voir
 `boot-and-mount-plan.adoc` § « Pivot GELI → ZFS native » et
 `crystal-clevis-zfs-specs.adoc` pour les justifications détaillées.
@@ -38,19 +38,19 @@ mais est déprécié pour le pattern Aloli (FreeBSD + ZFS). Voir
 | **v0.1.0 publié** sur https://github.com/aloli-crystal/jose
   Tag `v0.1.0`. 60 tests + 10 tests d'interop avec `latchset/jose`.
 
-| **`crystal-clevis-zfs`** (client Tang + ZFS native encryption)
+| **`aloli-crystal/crystal-clevis-zfs`** (client Tang + ZFS native encryption)
 | **v0.1.0 publié** sur https://github.com/aloli-crystal/crystal-clevis-zfs
   Tag `v0.1.0`. 47 tests internes (avec mock `zfs(8)` en script
   shell). **Test e2e VM à programmer.**
 
-| **`crystal-clevis-geli`** (ancêtre, GELI au lieu de ZFS native)
+| **`aloli-crystal/crystal-clevis-geli`** (ancêtre, GELI au lieu de ZFS native)
 | Toujours disponible (`v0.2.0` publié), mais **déprécié** pour le
   pattern Aloli. Reste utilisable pour cas Tang+UFS ou Tang+ext4
   hors écosystème ZFS.
 
 | **SSS — multi-Tang threshold N-of-M**
-| Code interne **présent et testé** dans `crystal-clevis-zfs`
-  (réutilisé depuis `crystal-clevis-geli` v0.2). Surface CLI
+| Code interne **présent et testé** dans `aloli-crystal/crystal-clevis-zfs`
+  (réutilisé depuis `aloli-crystal/crystal-clevis-geli` v0.2). Surface CLI
   exposée en v0.2.
 
 | **`--use-existing-key`** dans `bind`
@@ -58,11 +58,11 @@ mais est déprécié pour le pattern Aloli (FreeBSD + ZFS). Voir
   beryl) vers `mode: tang`. Pas implémenté en v0.1, prévu en v0.2.
 |===
 
-== État de l'art côté shard `crystal-clevis-zfs` (v0.1)
+== État de l'art côté shard `aloli-crystal/crystal-clevis-zfs` (v0.1)
 
 === Ce que le shard fait
 
-* CLI `crystal-clevis-zfs` avec sous-commandes :
+* CLI `aloli-crystal/crystal-clevis-zfs` avec sous-commandes :
 +
 [source,shell]
 ----
@@ -142,8 +142,8 @@ CrystalClevisZfs::Zfs.mount_recursive("zroot/zsys")
 === Ce qui reste à valider end-to-end
 
 Le banc QEMU 2 VMs FreeBSD 15 aarch64 utilisé pour
-`crystal-clevis-geli` (8 scripts shell dans `prod-crystal/qemu/`)
-n'a **pas encore été refait** pour `crystal-clevis-zfs`. À
+`aloli-crystal/crystal-clevis-geli` (8 scripts shell dans `prod-crystal/qemu/`)
+n'a **pas encore été refait** pour `aloli-crystal/crystal-clevis-zfs`. À
 programmer : adapter le script de test pour créer un dataset
 chiffré + reboot, ou attendre l'intégration directe dans beryl.
 
@@ -169,7 +169,7 @@ sur un host FreeBSD :
   cibles vers le port Tang
 . `service tangd start`
 . **Sauvegarde** des clés `/var/db/tang/*.jwk` dans le coffre
-  `crystal-secrets` (cf. CRYSTAL-SECRETS-SPECS.adoc) — sinon perte
+  `aloli-crystal/crystal-secrets` (cf. CRYSTAL-SECRETS-SPECS.adoc) — sinon perte
   des clés Tang = ré-enrôlement de tous les clients
 . Test de fumée : `curl -fs http://localhost:8888/adv`
 
@@ -187,7 +187,7 @@ hosts:
       keys_backup: secrets://tang/tang-nas-keys.tar.age
 ----
 
-=== T2 — Recette d'installation `crystal-clevis-zfs` (côté client ZFS)
+=== T2 — Recette d'installation `aloli-crystal/crystal-clevis-zfs` (côté client ZFS)
 
 Sur chaque serveur dont les datasets sont à chiffrer :
 
@@ -317,7 +317,7 @@ poste opérateur, le passage à `mode: tang` se fait via :
   `mode: ssh_unlock` à `mode: tang`.
 . `service crystal-clevis-zfs start` au prochain reboot suffit.
 
-En attendant v0.2 : `crystal-clevis-zfs` n'expose pas
+En attendant v0.2 : `aloli-crystal/crystal-clevis-zfs` n'expose pas
 `--use-existing-key`. Workaround manuel : récupérer la clé
 existante (`zfs get -H -o value keylocation`) puis
 `zfs change-key` avec le résultat de `bind --init` sur un dataset
@@ -325,11 +325,11 @@ neuf, puis basculer.
 
 === T8 — Rotation programmée des clés Tang
 
-Quand `crystal-secrets` sera disponible (autre chantier), prévoir
+Quand `aloli-crystal/crystal-secrets` sera disponible (autre chantier), prévoir
 une recette beryl :
 
 . `tangd-rotate-keys -d /var/db/tang` sur chaque serveur Tang.
-. Sauvegarder les nouvelles clés dans `crystal-secrets`.
+. Sauvegarder les nouvelles clés dans `aloli-crystal/crystal-secrets`.
 . Pour chaque client ZFS : `crystal-clevis-zfs rebind --dataset …`
   (à coder en v0.3 si besoin, ou bien `bind --use-existing-key`
   contre le nouveau Tang).
@@ -365,7 +365,7 @@ Au moins :
 `zpool-encryption-architecture.adoc` retient **Option C** (clé sur
 poste opérateur, `beryl unlock` manuel via SSH après reboot) en v0.
 
-Avec `crystal-clevis-zfs` disponible, **l'Option D devient
+Avec `aloli-crystal/crystal-clevis-zfs` disponible, **l'Option D devient
 techniquement réalisable**. La transition prévue :
 
 . **v0** (déjà fait) : Option C, `mode: ssh_unlock`.
@@ -386,7 +386,7 @@ L'option C reste pertinente pour :
 
 * **Clés Tang serveur = secret critique** : si vous perdez les clés
   Tang d'un serveur, **tous les clients enrôlés contre lui** doivent
-  être ré-enrôlés. La sauvegarde dans `crystal-secrets` est
+  être ré-enrôlés. La sauvegarde dans `aloli-crystal/crystal-secrets` est
   **non-négociable**.
 * **Pas d'isolation tang-par-environnement en v0.1** : un seul Tang
   peut servir prod et staging. Pour séparer, utiliser des Tangs
@@ -412,9 +412,9 @@ L'option C reste pertinente pour :
   `prod-crystal/TANG-DEPLOIEMENT.adoc`.
 * Repo `jose` v0.1 :
   https://github.com/aloli-crystal/jose
-* Repo `crystal-clevis-zfs` v0.1 :
+* Repo `aloli-crystal/crystal-clevis-zfs` v0.1 :
   https://github.com/aloli-crystal/crystal-clevis-zfs
-* Repo `crystal-clevis-geli` v0.2 (déprécié) :
+* Repo `aloli-crystal/crystal-clevis-geli` v0.2 (déprécié) :
   https://github.com/aloli-crystal/crystal-clevis-geli
 * Banc de test QEMU (à adapter pour ZFS) :
   `prod-crystal/qemu/` (8 scripts shell + README).

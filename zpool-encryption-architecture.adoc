@@ -181,7 +181,7 @@ opérateur (ni KVM, ni `beryl unlock`).
 .Mise à jour 27 avril 2026 — pivot GELI → ZFS native
 ====
 Une première version de l'Option D s'appuyait sur GELI sous ZFS
-(`crystal-clevis-geli` v0.1.0 publié). Après analyse comparative,
+(`aloli-crystal/crystal-clevis-geli` v0.1.0 publié). Après analyse comparative,
 *pivot vers ZFS native encryption* :
 
 * *Performance* : ZFS native gagne sur les workloads compressibles
@@ -198,8 +198,8 @@ Une première version de l'Option D s'appuyait sur GELI sous ZFS
   ZFS native déjà → Option D ajoute juste Tang comme source de clé
   alternative au lieu de réécrire la couche de chiffrement.
 
-Le shard `crystal-clevis-geli` (v0.1.0) est *déprécié au profit
-de `crystal-clevis-zfs`* (à écrire — voir
+Le shard `aloli-crystal/crystal-clevis-geli` (v0.1.0) est *déprécié au profit
+de `aloli-crystal/crystal-clevis-zfs`* (à écrire — voir
 `crystal-clevis-zfs-specs.adoc`). Archivage différé après
 livraison du successeur.
 
@@ -208,7 +208,7 @@ Pré-requis FreeBSD :
 * `tang` packagé : `pkg install -y tang`.
 * `jose` v0.1.0 (lib JOSE pure Crystal Aloli) — réutilisé
   tel quel.
-* `crystal-clevis-zfs` v0.1 — à écrire (~3-4 jours en repartant
+* `aloli-crystal/crystal-clevis-zfs` v0.1 — à écrire (~3-4 jours en repartant
   du shard GELI).
 ====
 
@@ -240,7 +240,7 @@ dataset `zroot/zsave` en `mode: ssh_unlock` (clé sur poste
 opérateur, gardé pour des données très sensibles). Les deux modes
 vivent dans le même beryl, sans exclusion.
 
-*Limite v0.1 du shard `crystal-clevis-zfs`* (à venir) : un seul
+*Limite v0.1 du shard `aloli-crystal/crystal-clevis-zfs`* (à venir) : un seul
 Tang par dataset (SPOF inacceptable en prod). v0.2 SSS (threshold
 N-of-M) est nécessaire pour un usage prod. En attendant, beryl
 doit *rejeter explicitement* les configs avec plusieurs URLs
@@ -271,12 +271,12 @@ jusqu'à v0.2 publié.
 * *Partage avec un binôme* : binôme connecté à un Apple ID
   partagé (équipe Aloli) hérite des clés via iCloud Keychain.
 . *Tang/ZFS native (Option D)* : *spécifié*, intégration à câbler
-  après livraison de `crystal-clevis-zfs` v0.1. Pivot acté
+  après livraison de `aloli-crystal/crystal-clevis-zfs` v0.1. Pivot acté
   27 avril 2026 (abandon de GELI au profit de ZFS native — voir
   `boot-and-mount-plan.adoc` § « Pivot GELI → ZFS native » pour
   la justification : compression possible, boot simplifié,
   cohérence avec le code beryl 25 avril). Specs dans
-  `crystal-clevis-zfs-specs.adoc`. Le shard `crystal-clevis-geli`
+  `crystal-clevis-zfs-specs.adoc`. Le shard `aloli-crystal/crystal-clevis-geli`
   v0.1.0 est en cours de dépréciation — archivage après livraison
   du successeur. v0.2 SSS (multi-Tang threshold) requise avant
   bascule prod par défaut.
@@ -1000,6 +1000,6 @@ NOTE: *Tang/GELI* n'est plus dans cette liste depuis le 27 avril
   via `requires_dataset:` dans les recettes).
 * `crystal-clevis-geli-handoff.adoc` — handoff d'intégration Tang/GELI
   (Option D) ; détaille l'état des shards `jose` v0.1.0 et
-  `crystal-clevis-geli` v0.1.0 + 8 tâches T1-T8 côté beryl.
+  `aloli-crystal/crystal-clevis-geli` v0.1.0 + 8 tâches T1-T8 côté beryl.
 * `project_beryl_secrets_vault.md` (note mémoire) — sera lié à la
   v2 du chiffrement quand le vault sera implémenté.

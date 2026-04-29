@@ -416,7 +416,7 @@ zsave:
       encryption: { mode: ssh_unlock, compression: zstd-3 }
 ----
 
-Au boot, le rc.d `crystal-clevis-zfs` ouvre `zroot/zhome`
+Au boot, le rc.d `aloli-crystal/crystal-clevis-zfs` ouvre `zroot/zhome`
 automatiquement. L'opérateur ouvre `zsave` manuellement avec
 `beryl unlock`.
 
@@ -438,12 +438,12 @@ enrichi.
 
 === Variante B — `mode: tang`
 
-`crystal-clevis-zfs` (en cours de développement par Philippe) au
+`aloli-crystal/crystal-clevis-zfs` (en cours de développement par Philippe) au
 démarrage du `rc.d`. Le serveur interroge Tang sur le réseau,
 dérive sa clé, charge dans ZFS, auto-monte. Aucune intervention
 opérateur.
 
-Pré-requis : `crystal-clevis-zfs` v0.1 livré (single Tang) ou
+Pré-requis : `aloli-crystal/crystal-clevis-zfs` v0.1 livré (single Tang) ou
 v0.2 SSS multi-Tang (recommandé pour prod).
 
 === Variante C — Mixte (cf. § Cohabitation ci-dessus)
@@ -464,7 +464,7 @@ phases :
 . **Stage 1 : mini-FreeBSD** sur partition non chiffrée (~512 MB).
   Contient juste le kernel, les modules nécessaires (`zfs`,
   drivers NIC), `/sbin/`, `/lib/`, et le binaire
-  `crystal-clevis-zfs`.
+  `aloli-crystal/crystal-clevis-zfs`.
 . **Stage 2 : vrai système** dans un pool ZFS chiffré au niveau
   pool entier. Atteint via `reboot -r /newroot` natif FreeBSD.
 
@@ -542,7 +542,7 @@ STAGE 2 (vrai système)
 | Backup miniroot séparé en plus.
 
 | Effort dev (beryl)
-| Inclus dans l'intégration `crystal-clevis-zfs`.
+| Inclus dans l'intégration `aloli-crystal/crystal-clevis-zfs`.
 | ~2-3 semaines additionnelles (recette provision+lifecycle).
 
 | Compression sur datasets chiffrés
@@ -572,10 +572,10 @@ FreeBSD. Le « chemin B » (loader patché Tang-aware en C) reste
 * `zpool-encryption-architecture.adoc` — décisions Options A/B/C/D
   (le présent document précise Options C et A).
 * `crystal-clevis-zfs-specs.adoc` — spécifications du shard
-  `crystal-clevis-zfs`.
+  `aloli-crystal/crystal-clevis-zfs`.
 * `crystal-clevis-geli-handoff.adoc` — handoff GELI initial,
   *historique uniquement* (le shard est déprécié).
 * `prod-crystal/CRYSTAL-SECRETS-SPECS.adoc` — papier d'archi parent.
 * `prod-crystal/TANG-DEPLOIEMENT.adoc` — guide install Tang FreeBSD.
-* Repo `crystal-clevis-zfs` (en cours) : https://github.com/aloli-crystal/crystal-clevis-zfs
-* Repo `crystal-clevis-geli` (en cours de dépréciation) : https://github.com/aloli-crystal/crystal-clevis-geli
+* Repo `aloli-crystal/crystal-clevis-zfs` (en cours) : https://github.com/aloli-crystal/crystal-clevis-zfs
+* Repo `aloli-crystal/crystal-clevis-geli` (en cours de dépréciation) : https://github.com/aloli-crystal/crystal-clevis-geli

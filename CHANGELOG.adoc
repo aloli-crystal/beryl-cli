@@ -93,7 +93,7 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
   compressé `zlog`, `geli onetime` swap, exclusion mutuelle
   `nginx`/`nginx-passenger` par host.
 * *`crystal-clevis-zfs-specs.adoc`* : spécifications du shard
-  successeur de `crystal-clevis-geli` (livré v0.2.0 le 27 avril).
+  successeur de `aloli-crystal/crystal-clevis-geli` (livré v0.2.0 le 27 avril).
 * *`apply-recipes-architecture.adoc`* : enrichissements relecture
   Philippe 28 avril (lead avec dépôt git privé partagé entre
   admin-sys, décisions actées sur le scope des recettes).
@@ -144,7 +144,7 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 ==== Dépendances
 
-* `ovh-api` v0.2.4 — méthode `boot_from_disk(service_name)` (bascule
+* `aloli-crystal/api-ovh` v0.2.4 — méthode `boot_from_disk(service_name)` (bascule
   OVH inverse de `prepare_rescue`).
 
 === Sous-commande `rescue` par API hébergeur (avril 2026)
@@ -176,9 +176,9 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 ==== Dépendances
 
-* `ovh-api` v0.2.0 (shard `aloli-crystal/api-ovh`, branche
+* `aloli-crystal/api-ovh` v0.2.0 (shard `aloli-crystal/api-ovh`, branche
   `production`) — nouveaux endpoints rescue.
-* `scaleway-api` v0.2.0 (shard `aloli-crystal/api-scaleway`,
+* `aloli-crystal/api-scaleway` v0.2.0 (shard `aloli-crystal/api-scaleway`,
   branche `production`) — `servers.reboot` avec `BootType::Rescue`.
 
 === Pivot bootstrap — ADR-010 / ADR-011 (avril 2026)

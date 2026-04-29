@@ -863,7 +863,7 @@ parce qu'Aloli a publié une nouvelle version.
 === Contexte
 
 Un membre de la communauté Crystal veut contribuer une recette
-`postgresql-tuning` au dépôt `beryl-recipes`.
+`postgresql-tuning` au dépôt `aloli-crystal/beryl-recipes`.
 
 === Workflow contributeur
 
@@ -926,7 +926,7 @@ mature.
 . Continuer Phase 2 : reste des primitives (`service-enable`,
   `sysrc-set`, `file-template`, `user-create`, `user-update-keys`,
   `sshd-config-set`, `pf-rule`, `cron-entry`).
-. Ajouter les recettes Aloli une par une dans `beryl-recipes`.
+. Ajouter les recettes Aloli une par une dans `aloli-crystal/beryl-recipes`.
 
 == Liens
 

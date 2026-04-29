@@ -76,8 +76,8 @@ est sans ambiguïté, ou simplement `loulou` si une seule société est déclar�
 
 * *Agentless* : rien à installer sur le serveur cible. beryl pilote tout par SSH
   (shard `ssh`, isolation complète de `~/.ssh/config`).
-* *Un shard API par fournisseur* — `api-ovh`, `api-scaleway`,
-  `api-dedibox`. Chaque shard est autonome, publié MIT, et testé unitairement.
+* *Un shard API par fournisseur* — `aloli-crystal/api-ovh`, `aloli-crystal/api-scaleway`,
+  `aloli-crystal/api-dedibox`. Chaque shard est autonome, publié MIT, et testé unitairement.
 * *Identifiants hétérogènes par provider* : texte `service_name` pour OVH,
   UUID v4 pour Scaleway, entier pour Dedibox. La forme `aloli/<ID>` fonctionne
   sur les trois : beryl résout l'IP publique via l'API et enchaîne.
@@ -118,7 +118,7 @@ Le flow `beryl rescue <host>` affiche quatre étapes numérotées :
 (PTR). `beryl scan --dns` pose bien les records A et AAAA via le fournisseur DNS
 déclaré sur le domaine (OVH en pratique) et renomme le serveur côté console si
 possible, mais le PTR reste à poser manuellement sur https://console.online.net/
-(limitation documentée dans `api-dedibox`).
+(limitation documentée dans `aloli-crystal/api-dedibox`).
 
 Exemple concret, une commande par bloc pour permettre le copier-coller
 individuel :

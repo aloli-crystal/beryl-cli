@@ -10,7 +10,7 @@
 [.lead]
 Tests d'intégration de beryl contre une vraie VM FreeBSD chiffrée
 ZFS native + serveurs Tang. Consomment le banc QEMU du shard
-`crystal-clevis-zfs` (`prod-crystal/qemu/`, futur
+`aloli-crystal/crystal-clevis-zfs` (`prod-crystal/qemu/`, futur
 `crystal-clevis-zfs/qemu/`) — pas de duplication, juste un
 adaptateur côté beryl.
 
@@ -48,7 +48,7 @@ cd ~/prod-crystal/qemu
 * VM `tang` (port SSH 2222) avec 3 instances Tang sur 8888/8889/8890.
 * VM `client` (port SSH 2223) avec :
 +
-** `crystal-clevis-zfs` v0.2.0 binaire à `/usr/local/sbin/`.
+** `aloli-crystal/crystal-clevis-zfs` v0.2.0 binaire à `/usr/local/sbin/`.
 ** `rc.d` du shard installé.
 ** root SSH activé via la clé du banc (le script 22 fait ce
    travail, indispensable pour beryl qui ne wrap pas ses commandes
@@ -195,7 +195,7 @@ Conformément à la règle Aloli (mémoire) :
 * Avant chaque commit sensible (changement dans `Beryl::Config`,
   `cli/unlock.cr`, `cli/reboot.cr`, `cli/status.cr`, `cli/tang_enroll.cr`,
   `bootstrap/qemu_in_rescue.cr`).
-* Après mise à jour du shard `crystal-clevis-zfs` (vérifier
+* Après mise à jour du shard `aloli-crystal/crystal-clevis-zfs` (vérifier
   qu'aucune régression d'API n'est introduite).
 * Comme test de fumée d'une nouvelle release beryl.
 
