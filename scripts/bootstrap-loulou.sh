@@ -18,7 +18,7 @@
 
 set -euo pipefail
 
-BERYL="/Users/philippe/prod-crystal/crystal-beryl/bin/beryl"
+BERYL="/Users/philippe/prod-crystal/beryl/bin/beryl"
 HOST="ns3156789.ip-51-83-6.eu"
 DOMAIN="aloli.net"
 SHORT="loulou"

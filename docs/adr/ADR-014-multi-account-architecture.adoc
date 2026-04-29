@@ -498,7 +498,7 @@ class Beryl::Providers::Ovh < Beryl::Provider
 end
 ----
 
-Un shard tiers (ex : `crystal-beryl-gandi`) n'a qu'à :
+Un shard tiers (ex : `beryl-gandi`) n'a qu'à :
 
 . Créer `class Gandi < Beryl::Provider; include Beryl::DnsProvider; end`
 . Appeler `Beryl::Providers.register(Gandi.new)`

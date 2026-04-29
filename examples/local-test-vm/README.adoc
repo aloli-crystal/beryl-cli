@@ -56,7 +56,7 @@ only needs to type one short line in the VM.
 
 [source,sh]
 ----
-cd ~/prod-crystal/crystal-beryl
+cd ~/prod-crystal/beryl
 ./bin/beryl prep-rescue
 ----
 

@@ -10,7 +10,7 @@ Bascule un serveur bare-metal OVH, Scaleway ou Dedibox en rescue Linux, installe
 via mfsBSD-in-QEMU, puis applique une configuration déclarative à partir d'un arbre YAML.
 
 Version courante : *0.1.41* (24 avril 2026). +
-Dépôt : https://github.com/aloli-crystal/crystal-beryl +
+Dépôt : https://github.com/aloli-crystal/beryl +
 Licence : MIT (voir section en bas de page).
 
 [NOTE]
@@ -300,14 +300,14 @@ beryl bootstrap aloli/chouquette.aloli.net
 +
 [source,sh]
 ----
-git clone https://github.com/aloli-crystal/crystal-beryl.git
+git clone https://github.com/aloli-crystal/beryl.git
 ----
 +
 2. Récupération des dépendances (shards Aloli + stdlib).
 +
 [source,sh]
 ----
-cd crystal-beryl && shards install
+cd beryl && shards install
 ----
 +
 3. Build du binaire release.

@@ -1,4 +1,4 @@
-= crystal-beryl/qemu — tests d'intégration beryl ↔ crystal-clevis-zfs
+= beryl/qemu — tests d'intégration beryl ↔ crystal-clevis-zfs
 :author: Philippe Nénert
 :revdate: 28 avril 2026
 :revnumber: 0.1
@@ -22,7 +22,7 @@ Le banc QEMU shard doit être démarré et provisionné. Deux options :
 
 [source,shell]
 ----
-~/prod-crystal/crystal-beryl/qemu/start-bench.sh
+~/prod-crystal/beryl/qemu/start-bench.sh
 ----
 
 Enchaîne automatiquement les 7 scripts du shard. Idempotent.
@@ -58,8 +58,8 @@ cd ~/prod-crystal/qemu
 
 [source,shell]
 ----
-~/prod-crystal/crystal-beryl/qemu/stop-bench.sh         # stoppe proprement
-~/prod-crystal/crystal-beryl/qemu/stop-bench.sh --wipe  # stoppe + supprime les disques (reset complet)
+~/prod-crystal/beryl/qemu/stop-bench.sh         # stoppe proprement
+~/prod-crystal/beryl/qemu/stop-bench.sh --wipe  # stoppe + supprime les disques (reset complet)
 ----
 
 == Utilisation
@@ -68,7 +68,7 @@ Une fois le banc up :
 
 [source,shell]
 ----
-cd ~/prod-crystal/crystal-beryl/qemu
+cd ~/prod-crystal/beryl/qemu
 ./test-beryl.sh
 ----
 
@@ -160,7 +160,7 @@ Pratique pour intégrer le test au workflow Crystal standard.
 
 [source]
 ----
-crystal-beryl/qemu/
+beryl/qemu/
 ├── README.adoc                 (ce fichier)
 ├── start-bench.sh              (wrapper : démarre + provisionne le banc)
 ├── stop-bench.sh               (wrapper : arrête le banc, --wipe pour reset)
@@ -174,7 +174,7 @@ des responsabilités est claire :
 
 * `prod-crystal/qemu/` (futur shard) — *infrastructure de test* :
   VMs FreeBSD, instances Tang, provisionnement.
-* `crystal-beryl/qemu/` (ici) — *tests applicatifs beryl* :
+* `beryl/qemu/` (ici) — *tests applicatifs beryl* :
   consomment l'infra, exercent les commandes beryl.
 
 == Politique d'isolation

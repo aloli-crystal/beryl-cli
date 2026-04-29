@@ -18,7 +18,7 @@ require "socket"
 #     ./20-provision-tang.sh
 #     ./21-provision-client.sh
 #     ./22-promote-root-on-client.sh
-#     cd ~/prod-crystal/crystal-beryl
+#     cd ~/prod-crystal/beryl
 #     crystal spec spec/integration/
 #
 # Si le banc n'est pas démarré, le test est marqué « pending »

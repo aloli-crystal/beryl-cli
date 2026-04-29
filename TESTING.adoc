@@ -403,7 +403,7 @@ Dans le terminal sur le poste opérateur, avant de lancer beryl :
 
 [source,sh]
 ----
-cd ~/prod-crystal/crystal-beryl
+cd ~/prod-crystal/beryl
 mkdir -p tmp # dossier non suivi par git pour les artéfacts
 script -q -t 2>tmp/beryl-timing.txt tmp/beryl-session.log
 # une nouvelle session shell s'ouvre, tout est enregistré

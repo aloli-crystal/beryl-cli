@@ -11,7 +11,7 @@ its Linux rescue mode, installs FreeBSD 15 via mfsBSD-in-QEMU, then applies
 declarative configuration from a YAML tree.
 
 Current version: *0.1.41* (24 April 2026). +
-Repository: https://github.com/aloli-crystal/crystal-beryl +
+Repository: https://github.com/aloli-crystal/beryl +
 License: MIT (see section at the bottom of this page).
 
 [NOTE]
@@ -302,14 +302,14 @@ beryl bootstrap aloli/chouquette.aloli.net
 +
 [source,sh]
 ----
-git clone https://github.com/aloli-crystal/crystal-beryl.git
+git clone https://github.com/aloli-crystal/beryl.git
 ----
 +
 2. Fetch dependencies (Aloli shards + stdlib).
 +
 [source,sh]
 ----
-cd crystal-beryl && shards install
+cd beryl && shards install
 ----
 +
 3. Build the release binary.

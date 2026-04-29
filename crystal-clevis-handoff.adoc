@@ -11,7 +11,7 @@
 
 [.lead]
 Document de transmission pour l'intégration de
-`crystal-clevis-zfs` dans `crystal-beryl`. Décrit ce que fait
+`crystal-clevis-zfs` dans `beryl`. Décrit ce que fait
 aujourd'hui le shard (**v0.1 livré**, single-Tang) et la liste
 précise des tâches côté `beryl` pour brancher la fonctionnalité
 dans le mode `tang` du format YAML évoqué dans
@@ -147,7 +147,7 @@ n'a **pas encore été refait** pour `crystal-clevis-zfs`. À
 programmer : adapter le script de test pour créer un dataset
 chiffré + reboot, ou attendre l'intégration directe dans beryl.
 
-== Tâches côté `crystal-beryl`
+== Tâches côté `beryl`
 
 Toutes les tâches ci-dessous sont **à faire**. Aucune n'est
 amorcée côté beryl à ce jour.
@@ -403,11 +403,11 @@ L'option C reste pertinente pour :
 
 * Spec parent : `prod-crystal/CRYSTAL-SECRETS-SPECS.adoc`.
 * Plan partitionnement et montage :
-  `crystal-beryl/boot-and-mount-plan.adoc`.
+  `beryl/boot-and-mount-plan.adoc`.
 * Spec détaillée du shard :
-  `crystal-beryl/crystal-clevis-zfs-specs.adoc`.
+  `beryl/crystal-clevis-zfs-specs.adoc`.
 * Décisions chiffrement beryl :
-  `crystal-beryl/zpool-encryption-architecture.adoc`.
+  `beryl/zpool-encryption-architecture.adoc`.
 * Guide install Tang :
   `prod-crystal/TANG-DEPLOIEMENT.adoc`.
 * Repo `crystal-jose` v0.1 :
