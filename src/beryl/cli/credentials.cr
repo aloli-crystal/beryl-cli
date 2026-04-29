@@ -3,9 +3,9 @@
 # mais leur répertoire dans `lib/` garde le tiret (`lib/ovh-api/`,
 # `lib/scaleway-api/`). Crystal exige la même casse des deux côtés ;
 # on passe donc par la forme longue `<shard-dir>/<file>`.
-require "ovh-api/ovh_api"
-require "scaleway-api/scaleway_api"
-require "dedibox-api/dedibox_api"
+require "api-ovh/ovh_api"
+require "api-scaleway/scaleway_api"
+require "api-dedibox/dedibox_api"
 
 # Helpers pour construire les clients d'API des hébergeurs à partir de
 # variables d'environnement. Séparés de la sous-commande `rescue` pour

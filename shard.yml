@@ -1,5 +1,5 @@
 name: beryl
-version: 0.1.64
+version: 0.2.0
 
 description: >
   Outil Crystal de gestion de configuration FreeBSD, agentless SSH.
@@ -15,22 +15,22 @@ license: MIT
 
 dependencies:
   silex:
-    github: aloli-crystal/crystal-silex
+    github: aloli-crystal/silex
     branch: production
-  ovh-api:
-    github: aloli-crystal/crystal-api-ovh
+  api-ovh:
+    github: aloli-crystal/api-ovh
     branch: production
-  scaleway-api:
-    github: aloli-crystal/crystal-api-scaleway
+  api-scaleway:
+    github: aloli-crystal/api-scaleway
     branch: production
-  dedibox-api:
-    github: aloli-crystal/crystal-api-dedibox
+  api-dedibox:
+    github: aloli-crystal/api-dedibox
     branch: production
   load-env:
-    github: aloli-crystal/crystal-load-env
+    github: aloli-crystal/load-env
     branch: production
   ssh:
-    github: aloli-crystal/crystal-ssh
+    github: aloli-crystal/ssh
     branch: production
 
 targets:

@@ -1,5 +1,5 @@
 require "option_parser"
-require "scaleway-api/scaleway_api"
+require "api-scaleway/scaleway_api"
 require "../config"
 require "../providers"
 require "./account_utils"

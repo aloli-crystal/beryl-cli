@@ -1,4 +1,4 @@
-require "ovh-api/ovh_api"
+require "api-ovh/ovh_api"
 
 # Met en place les informations de nommage d'un serveur OVH fraîchement
 # reçu pour qu'on puisse ensuite l'appeler par son nom custom et oublier

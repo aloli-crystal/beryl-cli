@@ -47,7 +47,7 @@ et avant `crystal-clevis-zfs-specs.adoc` (intégration Tang).
 * L'OS est en clair, **mais aucun secret applicatif ne l'est** :
   configs `pkg`/ports vivent sous `/usr/local/etc/` (chiffré),
   données services dans `/home/<service>/` (chiffré), apps
-  Aloli `crystal-deploy` dans `/home/<app>/` (chiffré).
+  Aloli `deploy` dans `/home/<app>/` (chiffré).
 
 === Schéma de partitionnement
 
@@ -348,7 +348,7 @@ PHASE 4 — mountcritremote
 
 PHASE 5 — DAEMON
   Postgres démarre (lit /home/<myapp>/db ou /home/postgres = chiffré)
-  Apps crystal-deploy démarrent (configs sur /usr/local/etc/* = chiffré)
+  Apps deploy démarrent (configs sur /usr/local/etc/* = chiffré)
   Logs applicatifs sensibles s'écrivent dans /home/<app>/log/ = chiffré
 ----
 

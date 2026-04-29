@@ -85,7 +85,7 @@ réutilisable tel quel.
 |===
 | Composant | Réutilisation | %
 
-| `crystal-jose` v0.1.0 (lib JOSE/JWE/JWK)
+| `jose` v0.1.0 (lib JOSE/JWE/JWK)
 | Inchangé. Dépendance directe.
 | 100 %
 
@@ -632,7 +632,7 @@ Option I + ZFS native au prochain re-bootstrap (cf.
   cible et plan de montage qui consomme ce shard.
 * `crystal-clevis-geli-handoff.adoc` — handoff de l'ancêtre GELI
   (historique uniquement, déprécié).
-* https://github.com/aloli-crystal/crystal-jose — lib JOSE pure
+* https://github.com/aloli-crystal/jose — lib JOSE pure
   Crystal, dépendance directe.
 * https://www.freebsd.org/cgi/man.cgi?zfsprops(7) — documentation
   des propriétés ZFS native encryption (`encryption`, `keyformat`,

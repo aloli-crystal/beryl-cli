@@ -110,7 +110,7 @@ Ce dépôt est *distinct* du dépôt public `aloli-crystal/beryl-recipes`
   `cron-entry` existe pour les recettes Aloli (typiquement
   `freebsd-updates` qui pose son cron quotidien de check). Pour
   les crons applicatifs (déploiement, migrations) →
-  `crystal-deploy`.
+  `deploy`.
 
 | Mises à jour FreeBSD
 | Pas d'application automatique (risque de casser un service en
@@ -141,7 +141,7 @@ Aloli :
 * être idempotent (relancer `apply` plusieurs fois ne casse rien) ;
 * être lisible (un dossier de recettes bien nommé = la doc du serveur) ;
 * ne PAS faire le déploiement applicatif (c'est le rôle de
-  https://github.com/aloli-crystal/crystal-deploy[crystal-deploy]).
+  https://github.com/aloli-crystal/deploy[deploy]).
 
 == Architecture en deux niveaux
 
@@ -615,9 +615,9 @@ Référentiel des helpers maintenu :
 == Pour mémoire — points NON couverts par `beryl apply`
 
 * Déploiement applicatif (Marten, Kemal, Rails, sites statiques) →
-  `crystal-deploy`.
-* Migrations base de données → `crystal-deploy` ou recette dédiée
+  `deploy`.
+* Migrations base de données → `deploy` ou recette dédiée
   applicative.
 * Monitoring / alerting → outil tiers à intégrer si besoin (futur).
 * Backups → outil tiers (rsnapshot, restic, ZFS send/receive géré
-  par crystal-deploy ou un cron beryl-managé via `cron-entry`).
+  par deploy ou un cron beryl-managé via `cron-entry`).

@@ -3,7 +3,7 @@
 # le conflit avec le FakeTransport de scaleway-api (même nom de classe
 # top-level dans les deux shards).
 
-require "ovh-api/ovh_api"
+require "api-ovh/ovh_api"
 
 class FakeOvhTransport < OvhApi::HttpTransport
   record Request,

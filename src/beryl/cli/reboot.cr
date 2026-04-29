@@ -1,6 +1,6 @@
 require "option_parser"
-require "ovh-api/ovh_api"
-require "scaleway-api/scaleway_api"
+require "api-ovh/ovh_api"
+require "api-scaleway/scaleway_api"
 require "ssh"
 require "../config"
 require "./account_utils"

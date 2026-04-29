@@ -2,7 +2,7 @@
 # Équivalent du FakeTransport du shard scaleway-api, namespacé pour
 # éviter le conflit avec FakeOvhTransport.
 
-require "scaleway-api/scaleway_api"
+require "api-scaleway/scaleway_api"
 
 class FakeScalewayTransport < ScalewayApi::HttpTransport
   record Request,

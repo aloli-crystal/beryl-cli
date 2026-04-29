@@ -1,26 +1,26 @@
 version: 2.0
 shards:
-  dedibox-api:
-    git: https://github.com/aloli-crystal/crystal-api-dedibox.git
-    version: 0.1.4+git.commit.1113f53b2bc2958f6fea99a700e3fca5e6ded8ab
+  api-dedibox:
+    git: https://github.com/aloli-crystal/api-dedibox.git
+    version: 0.1.5+git.commit.823033f32532946a08ca06489fa302d66858e004
+
+  api-ovh:
+    git: https://github.com/aloli-crystal/api-ovh.git
+    version: 0.4.2+git.commit.e6299f04b9b0b290b75a8514342f08be9db0d3f8
+
+  api-scaleway:
+    git: https://github.com/aloli-crystal/api-scaleway.git
+    version: 0.5.1+git.commit.aef5ea59ad76605051bc7e29f7504665886d1a4b
 
   load-env:
-    git: https://github.com/aloli-crystal/crystal-load-env.git
-    version: 0.1.0+git.commit.357cb130668a0177543710155fcb6c0a56b3f710
-
-  ovh-api:
-    git: https://github.com/aloli-crystal/crystal-api-ovh.git
-    version: 0.4.1+git.commit.3907aabf82388b499aa86816ff171402a81eb118
-
-  scaleway-api:
-    git: https://github.com/aloli-crystal/crystal-api-scaleway.git
-    version: 0.5.0+git.commit.023fb21515319b8139459b776f9bd84cf5c60d2d
+    git: https://github.com/aloli-crystal/load-env.git
+    version: 0.1.1+git.commit.8976784997e28d647f72817c03e05d4a5c303163
 
   silex:
-    git: https://github.com/aloli-crystal/crystal-silex.git
-    version: 0.1.0+git.commit.040e8554d2e49adfc2b9e326f1aec3a3d3e4cf3f
+    git: https://github.com/aloli-crystal/silex.git
+    version: 0.1.1+git.commit.1f464e5bcfa7be02f939c58a141f1ebbd08da3ac
 
   ssh:
-    git: https://github.com/aloli-crystal/crystal-ssh.git
-    version: 0.2.0+git.commit.7e6ed7e7bc32075184e8b7191b89311edacefff0
+    git: https://github.com/aloli-crystal/ssh.git
+    version: 0.2.1+git.commit.1c8298a5b76894f8eef23dd7379d78b2e07212fb
 

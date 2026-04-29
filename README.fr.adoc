@@ -15,9 +15,9 @@ Licence : MIT (voir section en bas de page).
 
 [NOTE]
 ====
-beryl se place *avant* https://github.com/aloli-crystal/crystal-deploy[crystal-deploy] :
+beryl se place *avant* https://github.com/aloli-crystal/deploy[deploy] :
 il prépare le serveur FreeBSD (OS, users, paquets système, clés SSH, durcissement sshd),
-puis crystal-deploy déploie les applications Marten ou Kemal par-dessus.
+puis deploy déploie les applications Marten ou Kemal par-dessus.
 ====
 
 == Vue d'ensemble
@@ -75,9 +75,9 @@ est sans ambiguïté, ou simplement `loulou` si une seule société est déclar�
 === Concepts clés
 
 * *Agentless* : rien à installer sur le serveur cible. beryl pilote tout par SSH
-  (shard `crystal-ssh`, isolation complète de `~/.ssh/config`).
-* *Un shard API par fournisseur* — `crystal-api-ovh`, `crystal-api-scaleway`,
-  `crystal-api-dedibox`. Chaque shard est autonome, publié MIT, et testé unitairement.
+  (shard `ssh`, isolation complète de `~/.ssh/config`).
+* *Un shard API par fournisseur* — `api-ovh`, `api-scaleway`,
+  `api-dedibox`. Chaque shard est autonome, publié MIT, et testé unitairement.
 * *Identifiants hétérogènes par provider* : texte `service_name` pour OVH,
   UUID v4 pour Scaleway, entier pour Dedibox. La forme `aloli/<ID>` fonctionne
   sur les trois : beryl résout l'IP publique via l'API et enchaîne.
@@ -118,7 +118,7 @@ Le flow `beryl rescue <host>` affiche quatre étapes numérotées :
 (PTR). `beryl scan --dns` pose bien les records A et AAAA via le fournisseur DNS
 déclaré sur le domaine (OVH en pratique) et renomme le serveur côté console si
 possible, mais le PTR reste à poser manuellement sur https://console.online.net/
-(limitation documentée dans `crystal-api-dedibox`).
+(limitation documentée dans `api-dedibox`).
 
 Exemple concret, une commande par bloc pour permettre le copier-coller
 individuel :

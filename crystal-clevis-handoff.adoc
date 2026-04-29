@@ -34,8 +34,8 @@ mais est déprécié pour le pattern Aloli (FreeBSD + ZFS). Voir
   link:../TANG-DEPLOIEMENT.adoc[TANG-DEPLOIEMENT.adoc] (à la
   racine prod-crystal/).
 
-| **`crystal-jose`** (lib JOSE pure Crystal)
-| **v0.1.0 publié** sur https://github.com/aloli-crystal/crystal-jose
+| **`jose`** (lib JOSE pure Crystal)
+| **v0.1.0 publié** sur https://github.com/aloli-crystal/jose
   Tag `v0.1.0`. 60 tests + 10 tests d'interop avec `latchset/jose`.
 
 | **`crystal-clevis-zfs`** (client Tang + ZFS native encryption)
@@ -410,8 +410,8 @@ L'option C reste pertinente pour :
   `beryl/zpool-encryption-architecture.adoc`.
 * Guide install Tang :
   `prod-crystal/TANG-DEPLOIEMENT.adoc`.
-* Repo `crystal-jose` v0.1 :
-  https://github.com/aloli-crystal/crystal-jose
+* Repo `jose` v0.1 :
+  https://github.com/aloli-crystal/jose
 * Repo `crystal-clevis-zfs` v0.1 :
   https://github.com/aloli-crystal/crystal-clevis-zfs
 * Repo `crystal-clevis-geli` v0.2 (déprécié) :

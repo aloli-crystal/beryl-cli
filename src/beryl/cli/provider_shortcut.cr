@@ -1,6 +1,6 @@
-require "ovh-api/ovh_api"
-require "scaleway-api/scaleway_api"
-require "dedibox-api/dedibox_api"
+require "api-ovh/ovh_api"
+require "api-scaleway/scaleway_api"
+require "api-dedibox/dedibox_api"
 
 # Raccourci path-like par ID provider partagé entre `beryl rescue` et
 # `beryl scan` (et toute commande future qui cible un serveur encore

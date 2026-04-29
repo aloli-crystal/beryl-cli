@@ -17,7 +17,7 @@ Les décisions de type « Accepted » sont figées ; les « Proposed » restent 
 | beryl fait | beryl ne fait pas
 
 | Provisionner un serveur FreeBSD depuis un rescue Linux (bootstrap).
-| Déployer des applications (voir https://github.com/aloli-crystal/crystal-deploy[crystal-deploy]).
+| Déployer des applications (voir https://github.com/aloli-crystal/deploy[deploy]).
 
 | Installer et configurer les logiciels système (nginx, PostgreSQL, sshd, cron, etc.).
 | Monitoring actif en production (voir Uptime Kuma, Healthchecks, Prometheus).
@@ -108,7 +108,7 @@ avec symlink). Les besoins varient d'un serveur à l'autre.
 * Le format YAML est prioritaire. Un format AsciiDoc littéraire reste une piste
   pour une V2 si le besoin se confirme.
 * Un *catalogue officiel* de recettes est livré avec beryl (core-system,
-  nginx-crystal-deploy, nginx-passenger-classic, nginx-passenger-versioned, etc.).
+  nginx-deploy, nginx-passenger-classic, nginx-passenger-versioned, etc.).
 * Les utilisateurs peuvent écrire leurs propres recettes sans fork.
 
 === ADR-005 — Convention over configuration, mais rien de figé (Accepted)

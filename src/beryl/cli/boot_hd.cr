@@ -1,5 +1,5 @@
 require "option_parser"
-require "ovh-api/ovh_api"
+require "api-ovh/ovh_api"
 require "../config"
 require "ssh"
 require "./account_utils"

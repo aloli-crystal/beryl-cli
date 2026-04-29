@@ -211,7 +211,7 @@ l'état SSH si on a appliqué il y a 5 minutes ?*
 est seul maître de ses commandes — pas de cache silencieux qui
 masquerait l'état réel du serveur. Une commande `apply` lit toujours
 l'état SSH au moment où elle s'exécute. Le multiplexage SSH
-(`ControlMaster`, ajouté à `crystal-ssh` v0.2.0 le 28 avril 2026)
+(`ControlMaster`, ajouté à `ssh` v0.2.0 le 28 avril 2026)
 règle déjà le coût des handshakes ; pas besoin de cache applicatif
 au-dessus.
 

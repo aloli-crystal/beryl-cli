@@ -1,6 +1,6 @@
 require "base64"
 require "uri"
-require "ovh-api/ovh_api"
+require "api-ovh/ovh_api"
 require "ssh"
 require "../config/zpool"
 

@@ -9,6 +9,97 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+== 0.2.0 (29 avril 2026)
+
+=== Convention de nommage Aloli
+
+* *Rename du repo `crystal-beryl` → `beryl`*. Tous les shards
+  Aloli abandonnent le préfixe `crystal-` (cf. note mémoire
+  `feedback_naming_shards_api_aloli`). GitHub redirige les
+  anciennes URLs.
+* *Factorisation des packages API* : les shards distants
+  `crystal-api-{ovh,scaleway,dedibox,hetzner}` deviennent
+  `api-{ovh,scaleway,dedibox,hetzner}` côté repo *et* côté
+  champ `name:` du shard.yml. Beryl s'aligne :
+  `dependencies.api-ovh:` (au lieu de `ovh-api:`),
+  `require "api-ovh/ovh_api"` (au lieu de `require "ovh-api/ovh_api"`).
+  Les modules Crystal restent inchangés (`OvhApi::Client`,
+  `ScalewayApi::Client`, `DediboxApi::Client`).
+
+=== Chiffrement des données (Options C + D)
+
+* *Module `Beryl::Encryption`* : génération + lecture de clé hex
+  256 bits, chmod 0400, anti-écrasement, scrub.
+* *`Pool#encryption: EncryptionConfig?`* (anciennement Bool).
+  Struct supportant les modes `ssh_unlock` (Option C, clé sur
+  poste opérateur) et `tang` (Option D, auto-unlock via Tang au
+  boot). Factory `from_yaml` rétrocompatible
+  (`encryption: true` → `mode: ssh_unlock`).
+* *Commande `beryl unlock`* : route par mode. ssh_unlock = clé
+  locale via stdin SSH (inchangé). tang = délègue à
+  `crystal-clevis-zfs unlock` côté serveur. Pre-flight binaire
+  serveur en mode tang.
+* *Commande `beryl reboot`* : `--soft` (SSH) ou `--hard` (API
+  hébergeur), enchaîne `unlock` automatiquement après le reboot
+  si pools chiffrés.
+* *Commande `beryl status`* : état pools (ONLINE/ABSENT/LOCKED/
+  DEGRADED) + services (sshd, cron, custom via -S).
+* *Commande `beryl tang-enroll`* : bascule Option C → Option D.
+  Push clé locale via stdin SSH dans tmpfs, change keylocation,
+  appelle `crystal-clevis-zfs bind --use-existing-key`, cleanup
+  inconditionnel via ensure, met à jour `/etc/rc.conf` via
+  `sysrc` (idempotent).
+
+=== Tests d'intégration QEMU
+
+* *Banc `qemu/test-beryl.sh`* : 5 scénarios end-to-end (ssh_unlock,
+  tang single, tang SSS k=2/n=3, robustesse 1 panne, ressuscitation
+  Tang #2). Idempotent. Consomme l'infra QEMU côté shard
+  `prod-crystal/qemu/`.
+* *Wrappers `qemu/start-bench.sh` et `stop-bench.sh`* : démarrage
+  et arrêt du banc QEMU (avec `--wipe` pour reset complet).
+* *Spec Crystal `spec/integration/qemu_tang_spec.cr`* : taggée
+  `:integration`, skippe automatiquement si banc non joignable.
+
+=== Fixes
+
+* *`ResolvedHost#ssh_host`* respecte le YAML override pour tous
+  les providers (avant : ignoré sauf pour OVH). Fix terrain QEMU
+  28 avril 2026.
+* *`Beryl.format_ssh_target`* : trois cas distincts (FQDN seul /
+  « = ssh_host côté provider » pour OVH / « via ssh_host » pour
+  override YAML). Évite la mention « côté local » trompeuse pour
+  les providers non-cloud.
+
+=== Dépendances
+
+* `ssh` v0.2.0 → v0.2.1 — *ControlMaster OpenSSH activé par défaut*.
+  Multiplexage transparent : le 1er ssh ouvre un master, les exec
+  suivants vers la même cible se branchent dessus. Gain ~10× sur
+  enchaînements (50-100 exec). Important pour beryl apply qui
+  déroule des dizaines d'étapes.
+* `silex` v0.1.0 → v0.1.1.
+* `api-ovh` v0.4.1 → v0.4.2.
+* `api-scaleway` v0.5.0 → v0.5.1.
+* `api-dedibox` v0.1.4 → v0.1.5.
+* `load-env` v0.1.0 → v0.1.1.
+
+=== Documentation
+
+* *`zpool-encryption-architecture.adoc`* : Options A/B/C/D actées.
+  Pivot GELI → ZFS native (27 avril 2026).
+* *`boot-and-mount-plan.adoc`* (rev 0.3) : profils `standard` et
+  `custom`, datasets `zhome`/`zopt`/`zusrlocaletc`, dataset clair
+  compressé `zlog`, `geli onetime` swap, exclusion mutuelle
+  `nginx`/`nginx-passenger` par host.
+* *`crystal-clevis-zfs-specs.adoc`* : spécifications du shard
+  successeur de `crystal-clevis-geli` (livré v0.2.0 le 27 avril).
+* *`apply-recipes-architecture.adoc`* : enrichissements relecture
+  Philippe 28 avril (lead avec dépôt git privé partagé entre
+  admin-sys, décisions actées sur le scope des recettes).
+* *`apply-recipes-scenarii.adoc`* : 13 scénarios opérateur + 22
+  questions de design tranchées.
+
 === Post-install sans chroot et conf FreeBSD par YAML (21 avril 2026)
 
 ==== Ajouté
@@ -85,9 +176,9 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 ==== Dépendances
 
-* `ovh-api` v0.2.0 (shard `aloli-crystal/crystal-api-ovh`, branche
+* `ovh-api` v0.2.0 (shard `aloli-crystal/api-ovh`, branche
   `production`) — nouveaux endpoints rescue.
-* `scaleway-api` v0.2.0 (shard `aloli-crystal/crystal-api-scaleway`,
+* `scaleway-api` v0.2.0 (shard `aloli-crystal/api-scaleway`,
   branche `production`) — `servers.reboot` avec `BootType::Rescue`.
 
 === Pivot bootstrap — ADR-010 / ADR-011 (avril 2026)

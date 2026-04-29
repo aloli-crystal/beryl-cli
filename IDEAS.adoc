@@ -48,7 +48,7 @@ groups:
     provider: ovh
     recipes:
       - core-system
-      - nginx-crystal-deploy
+      - nginx-deploy
       - sshd-hardening
     variables:
       timezone: Europe/Paris
@@ -144,7 +144,7 @@ Dans l'inventaire, chaque groupe (ou hôte) déclare son *target_os* :
 groups:
   web-front:
     target_os: freebsd-15
-    recipes: [core-system, nginx-crystal-deploy]
+    recipes: [core-system, nginx-deploy]
 
   worker-linux:
     target_os: debian-13
@@ -342,7 +342,7 @@ l'install non interactive, puis reboote sur FreeBSD final.
   `freebsd-buildutils` ou compilé depuis `src/usr.sbin/makefs` de
   FreeBSD).
 . Reconstruction des entêtes GPT + ESP autour du nouveau UFS (peut
-  se faire en Crystal pur via `crystal-silex` étendu ou à la main
+  se faire en Crystal pur via `silex` étendu ou à la main
   avec `sgdisk` + `mkfs.vfat`).
 . `dd` sur le disque, `reboot -f`.
 . Attente SSH sur le FreeBSD installé.
@@ -507,7 +507,7 @@ pw useradd deploy -g www              -s /bin/sh  -m
 
 Côté sshd, le défaut FreeBSD `PermitRootLogin no` est **conservé**.
 Connexions administratives : `ssh admin@host && sudo -i`.
-Connexions applicatives (crystal-deploy) : `ssh deploy@host`.
+Connexions applicatives (deploy) : `ssh deploy@host`.
 
 === Phase 2 — recettes à écrire (= reproduire le gist v2ror)
 
@@ -655,7 +655,7 @@ Objectif : zéro interaction, zéro erreur humaine, déploiement de 10 ou
      en un appel).
 . *Attribuer un nom* — soit passé par l'opérateur, soit suggéré par
   beryl selon une convention (`<role>-<index>-<région>`, ex. `web-01-gra`).
-. *Enregistrer en DNS* (A/AAAA) via l'API du registrar (crystal-deploy
+. *Enregistrer en DNS* (A/AAAA) via l'API du registrar (deploy
   le fait déjà pour OVH et Gandi).
 . *Configurer le reverse DNS* IPv4 et IPv6 :
   ** OVH : `POST /ip/{ip}/reverse` pour chaque IP (v4 + v6).
@@ -708,7 +708,7 @@ en DNS, avec reverse DNS, prêts pour `beryl bootstrap`.
 === Architecture technique
 
 Deux shards **crystal-ovh-api** et **crystal-scw-api** (organisation
-`aloli-crystal`), réutilisables pour d'autres projets Aloli (crystal-deploy
+`aloli-crystal`), réutilisables pour d'autres projets Aloli (deploy
 par exemple).
 
 Périmètre minimal de chaque shard :

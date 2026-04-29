@@ -206,7 +206,7 @@ livraison du successeur.
 Pré-requis FreeBSD :
 
 * `tang` packagé : `pkg install -y tang`.
-* `crystal-jose` v0.1.0 (lib JOSE pure Crystal Aloli) — réutilisé
+* `jose` v0.1.0 (lib JOSE pure Crystal Aloli) — réutilisé
   tel quel.
 * `crystal-clevis-zfs` v0.1 — à écrire (~3-4 jours en repartant
   du shard GELI).
@@ -999,7 +999,7 @@ NOTE: *Tang/GELI* n'est plus dans cette liste depuis le 27 avril
 * `apply-recipes-architecture.adoc` — docs `beryl apply` (couplage
   via `requires_dataset:` dans les recettes).
 * `crystal-clevis-geli-handoff.adoc` — handoff d'intégration Tang/GELI
-  (Option D) ; détaille l'état des shards `crystal-jose` v0.1.0 et
+  (Option D) ; détaille l'état des shards `jose` v0.1.0 et
   `crystal-clevis-geli` v0.1.0 + 8 tâches T1-T8 côté beryl.
 * `project_beryl_secrets_vault.md` (note mémoire) — sera lié à la
   v2 du chiffrement quand le vault sera implémenté.
