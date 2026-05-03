@@ -900,7 +900,7 @@ mature.
 | Q4.2 | Restauration d'état d'avant (rollback auto) ? | *NON* (Philippe 29 avril). Idempotence en avant uniquement. Snapshot ZFS pré-apply = responsabilité opérateur sur serveur critique.
 | Q5.1 | unlock enchaîné dans apply ? | *NON* (Philippe 28 avril). Deux commandes distinctes, pas de chaînage implicite.
 | Q5.2 | requires_dataset pointant vers un pool inexistant ? | *NON, pas de mécanisme requires_dataset* (Philippe 28 avril). FreeBSD remontera l'erreur naturellement.
-| Q6.1 | Stratégie multi-niveaux des recettes ? | *Question ouverte* (Philippe 29 avril). 3 niveaux pressentis : (1) dépôt central public `aloli-crystal/beryl-recipes`, (2) dépôt par organisation/société partenaire (recettes partagées), (3) orchestration par société dans son `~/.beryl/<société>/` git privé. Mécanisme via taps + dépôt git privé. Discussion dédiée à venir.
+| Q6.1 | Stratégie multi-niveaux des recettes ? | *Question ouverte SENSIBLE* (Philippe 29 avril). « C'est un GROS sujet particulièrement sensible qu'il ne faut pas louper ou merder. La reprise serait terrible. » 3 niveaux pressentis : (1) dépôt central public `aloli-crystal/beryl-recipes`, (2) dépôt par organisation/société partenaire (recettes partagées), (3) orchestration par société dans son `~/.beryl/<société>/` git privé. Discussion dédiée à programmer SANS PRESSION quand l'occasion sera bonne — le coût d'une mauvaise architecture est catastrophique une fois 50+ serveurs déployés.
 | Q6.2 | Tap inaccessible (git down) ? | Utilise clone local. Update = commande explicite.
 | Q7.1 | `users-sync` = recette ou implicite ? | *Question ouverte* (Philippe 29 avril). À reprendre avant la Phase 2 (couverture des primitives). Pas urgent pour la Phase 1 PoC qui ne touche pas aux users.
 | Q7.2 | Suppression d'une clé du YAML = retrait sur serveur ? | Oui (set, pas append). 2 catégories distinctes : *clés admin* (partout, source de vérité) et *clés deploy* (par-host). Procédure de rotation en 5 étapes validée Philippe 29 avril (cf. § ci-dessous). Garde-fou : refus de supprimer la clé en cours d'usage.
@@ -911,7 +911,7 @@ mature.
 | Q10.1 | `when:` au niveau step ? | *NON en v0* (Philippe 29 avril). Même nature de problème que Q9.1 (« le when est MAL »). À reprendre dans un second temps si nécessaire.
 | Q11.1 | `--parallel=N` ? | *Hors scope v0* (Philippe 29 avril). Pas urgent à l'échelle Aloli actuelle.
 | Q11.2 | Groupes de hosts ? | *Déjà supportés* par la convention `<société>/<domaine>/<groupe>/<host>` côté config. Formes `beryl apply société/groupe` ou `beryl apply groupe`. Pas de fichier `groups.yml` ni de flag `--group`.
-| Q12.1 | Plusieurs sources de recettes simultanément ? | *Question ouverte* (cf. Q6.1). Liée à la stratégie multi-niveaux. Mécanisme via taps une fois la stratégie tranchée.
+| Q12.1 | Plusieurs sources de recettes simultanément ? | *Question ouverte SENSIBLE — couplée à Q6.1* (cf. ci-dessus). À traiter en bloc avec la stratégie multi-niveaux, pas de manière isolée.
 | Q12.2 | Mise à jour auto du dépôt central ? | *NON* (Philippe 29 avril). « Pas question de faire vriller tous les serveurs à cause de moi. » `beryl recipes update` explicite.
 | Q13.1 | Tests des recettes en local ? | *Tests FreeBSD en QEMU obligatoires* (Philippe 29 avril). Banc à étendre depuis l'existant `crystal-beryl/qemu/test-beryl.sh` (chiffrement) avec une VM FreeBSD vanille pour exercer chaque recette.
 |===
