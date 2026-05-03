@@ -896,25 +896,49 @@ mature.
 | Q1.2 | freebsd-update interactif (pager less) ? | `PAGER=cat` + `--not-running-from-cron`. Tester.
 | Q2.1 | Cache local de l'état SSH ? | *NON jamais* (Philippe 28 avril). Utilisateur seul maître de ses commandes.
 | Q3.1 | Hash de la copie locale loggué pour diff ? | Optionnel v0, utile v1.
-| Q4.1 | `--continue-on-error` ? | Non par défaut. Erreur = stop.
-| Q4.2 | Restauration d'état d'avant ? | Non. ZFS snapshot manuel = responsabilité opérateur.
+| Q4.1 | `--continue-on-error` ? | *NON par défaut* (Philippe 29 avril). Erreur = stop net, opérateur corrige et relance (idempotence garantit la reprise sans dommage).
+| Q4.2 | Restauration d'état d'avant (rollback auto) ? | *NON* (Philippe 29 avril). Idempotence en avant uniquement. Snapshot ZFS pré-apply = responsabilité opérateur sur serveur critique.
 | Q5.1 | unlock enchaîné dans apply ? | *NON* (Philippe 28 avril). Deux commandes distinctes, pas de chaînage implicite.
 | Q5.2 | requires_dataset pointant vers un pool inexistant ? | *NON, pas de mécanisme requires_dataset* (Philippe 28 avril). FreeBSD remontera l'erreur naturellement.
-| Q6.1 | Tap appliqué par défaut sur tous hosts ? | Non, symlink explicite par host.
+| Q6.1 | Stratégie multi-niveaux des recettes ? | *Question ouverte* (Philippe 29 avril). 3 niveaux pressentis : (1) dépôt central public `aloli-crystal/beryl-recipes`, (2) dépôt par organisation/société partenaire (recettes partagées), (3) orchestration par société dans son `~/.beryl/<société>/` git privé. Mécanisme via taps + dépôt git privé. Discussion dédiée à venir.
 | Q6.2 | Tap inaccessible (git down) ? | Utilise clone local. Update = commande explicite.
-| Q7.1 | users-sync = recette ou implicite ? | Recette, mais incluse par défaut dans post-install.
-| Q7.2 | Suppression d'une clé du YAML = retrait sur serveur ? | Oui (set, pas append). 2 catégories distinctes : *clés admin* (partout, source de vérité) et *clés deploy* (par-host). Procédure de rotation à formaliser. Garde-fou : refus de supprimer la clé en cours d'usage.
-| Q8.1 | Marqueur reboot_required transmis comment ? | Fichier sentinelle sur le serveur.
+| Q7.1 | `users-sync` = recette ou implicite ? | *Question ouverte* (Philippe 29 avril). À reprendre avant la Phase 2 (couverture des primitives). Pas urgent pour la Phase 1 PoC qui ne touche pas aux users.
+| Q7.2 | Suppression d'une clé du YAML = retrait sur serveur ? | Oui (set, pas append). 2 catégories distinctes : *clés admin* (partout, source de vérité) et *clés deploy* (par-host). Procédure de rotation en 5 étapes validée Philippe 29 avril (cf. § ci-dessous). Garde-fou : refus de supprimer la clé en cours d'usage.
+| Q8.1 | Mécanisme de notification `reboot_required` ? | *Courriel à root* (routé vers `it@orga.xyz` selon config sendmail du host) + *commentaire en fin de console* (récap des actions ayant nécessité reboot). Décision Philippe 29 avril.
 | Q8.2 | `--auto-reboot` ? | *NON jamais* (Philippe 28 avril). Reboot toujours *proposé*, jamais effectué auto.
-| Q9.1 | Templating riche (Jinja-like) ? | Non v0. Si conditionnel = primitive Crystal dédiée.
+| Q9.1 | Templating riche (ERB / Jinja-like) ? | *NON en v0* (Philippe 29 avril). « Les templates, c'est mal. » Question ouverte à reprendre plus tard si besoin réel après une dizaine de recettes codées.
 | Q9.2 | Sendmail config pour notifications ? | Recette `smarthost-relay` future, hors scope v0.
-| Q10.1 | `when:` au niveau step ? | Non v0. Deux recettes séparées si comportement radicalement différent.
-| Q11.1 | `--parallel=N` ? | Hors scope v0. Défaut séquentiel.
+| Q10.1 | `when:` au niveau step ? | *NON en v0* (Philippe 29 avril). Même nature de problème que Q9.1 (« le when est MAL »). À reprendre dans un second temps si nécessaire.
+| Q11.1 | `--parallel=N` ? | *Hors scope v0* (Philippe 29 avril). Pas urgent à l'échelle Aloli actuelle.
 | Q11.2 | Groupes de hosts ? | *Déjà supportés* par la convention `<société>/<domaine>/<groupe>/<host>` côté config. Formes `beryl apply société/groupe` ou `beryl apply groupe`. Pas de fichier `groups.yml` ni de flag `--group`.
-| Q12.1 | Plusieurs sources de recettes ? | Oui, c'est le mécanisme tap.
-| Q12.2 | Mise à jour auto du dépôt central ? | Non. `beryl recipes update` explicite.
-| Q13.1 | Tests CI des recettes ? | Hors scope v0. Jail FreeBSD locale plus tard.
+| Q12.1 | Plusieurs sources de recettes simultanément ? | *Question ouverte* (cf. Q6.1). Liée à la stratégie multi-niveaux. Mécanisme via taps une fois la stratégie tranchée.
+| Q12.2 | Mise à jour auto du dépôt central ? | *NON* (Philippe 29 avril). « Pas question de faire vriller tous les serveurs à cause de moi. » `beryl recipes update` explicite.
+| Q13.1 | Tests des recettes en local ? | *Tests FreeBSD en QEMU obligatoires* (Philippe 29 avril). Banc à étendre depuis l'existant `crystal-beryl/qemu/test-beryl.sh` (chiffrement) avec une VM FreeBSD vanille pour exercer chaque recette.
 |===
+
+== Procédure de rotation des clés SSH (validée Philippe 29 avril 2026)
+
+Suite à Q7.2 (cf. ci-dessus), la procédure pour faire tourner une clé
+SSH sans interrompre l'accès :
+
+. *Ajouter* la nouvelle clé dans le YAML domaine (pour les clés
+  *admin*) ou dans le YAML host (pour les clés *deploy*),
+  *en parallèle* de l'ancienne — les deux cohabitent dans le YAML.
+. *Lancer* `beryl apply` sur tous les hosts concernés. La nouvelle
+  clé est déployée via la primitive `user-update-keys` ; l'ancienne
+  reste active.
+. *Vérifier* que la nouvelle clé fonctionne (au moins une commande
+  SSH avec la nouvelle clé sur un host échantillon).
+. *Retirer* l'ancienne clé du YAML.
+. *Relancer* `beryl apply`. L'ancienne clé est retirée du serveur
+  (set, pas append).
+
+*Garde-fou côté `user-update-keys`* (à câbler quand on
+implémentera la primitive en Phase 2) : refus explicite de supprimer
+la clé qui sert actuellement à beryl pour se connecter (lecture de
+`host.identity_file` du YAML domaine, comparaison avec la liste de
+clés à retirer). Sans ce garde-fou, l'opérateur risquerait de se
+couper la branche sur laquelle il est assis en plein apply.
 
 == Prochaines étapes après validation des scénarios
 
