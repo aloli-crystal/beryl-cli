@@ -784,3 +784,164 @@ Ajoutera un nouvel ADR (post-v1) décrivant :
 * La politique de validation avant achat (confirmations interactives).
 * L'intégration avec l'idée « Groupes de serveurs » (un ordre produit
   plusieurs membres d'un groupe).
+
+== Headscale comme couche réseau privée
+
+=== Idée
+
+Utiliser https://github.com/juanfont/headscale[Headscale] (control
+plane open-source pour Tailscale, basé sur WireGuard) comme *couche
+réseau privée* entre les serveurs gérés par beryl, le poste
+opérateur, et les services internes Aloli (Tang, monitoring,
+backup, etc.). Tous les hôtes participent à un mesh WireGuard
+authentifié, joignables via leurs IPs Tailscale (`100.64.0.0/10`)
+sans exposer SSH ni Tang sur l'internet public.
+
+=== Pourquoi
+
+* *Réduction de la surface d'attaque* : SSH et Tang ne sont plus
+  accessibles depuis l'internet, seulement via le mesh. Un attaquant
+  qui n'est pas dans le mesh ne peut pas tenter de bruteforce SSH
+  ni interroger Tang.
+* *Cohérence avec le modèle de chiffrement* (Option D Tang) : la
+  promesse « si le serveur sort du réseau de confiance, Tang devient
+  inaccessible et les données sont illisibles » est *cryptographiquement
+  garantie* — la clé Tang ne peut être négociée qu'en étant dans le
+  mesh WireGuard.
+* *Self-hosted, conforme philosophie Aloli* : Headscale tourne sur
+  un VPS / NAS interne Aloli, pas de dépendance au SaaS Tailscale.
+  WireGuard est standard moderne audité.
+* *Performance* : WireGuard a un overhead négligeable, kernel
+  module FreeBSD (`if_wg`) disponible nativement depuis FreeBSD 13.
+* *Facilité d'usage* : `tailscale up` côté client = inscription en
+  une commande. Côté beryl, le bootstrap pose la pre-auth-key et le
+  serveur joint le mesh tout seul au premier boot.
+
+=== Cas d'usage spécifiques pour beryl
+
+==== 1. Tang accessible uniquement via Headscale
+
+Plutôt qu'exposer Tang sur une IP publique avec ACL stricte (compromis
+fragile), Tang écoute sur l'IP Tailscale du host Aloli :
+
+[source]
+----
+Tang URL côté beryl :  http://100.64.0.10:8888/
+                                ↑ IP Tailscale du host tang-1.aloli.headscale
+----
+
+Au boot d'un serveur encrypted :
+. Le serveur monte son lien WireGuard via `tailscale up --auth-key=...`
+  (clé pré-posée par bootstrap, expirable).
+. `crystal-clevis-zfs unlock` interroge `http://100.64.0.10:8888`.
+. Le mesh route vers le Tang. Réponse OK → unlock.
+
+Si le serveur est volé et sorti du mesh : le `tailscale up` échoue
+(la pre-auth-key ne suffit pas si le control plane Headscale ne
+reconnaît plus la machine, contrôle d'authent côté serveur). Tang
+devient inaccessible. Données illisibles. Promesse défendue.
+
+==== 2. `beryl <commande> <host>` via le mesh
+
+`host.ssh_host` du YAML peut pointer vers l'IP Tailscale (genre
+`100.64.0.42` ou un nom DNS interne `quantas.aloli.headscale`)
+plutôt que l'IP publique. Le fix `ssh_host` du 28 avril 2026 (cf.
+`feedback_no_bug_workaround.md`) garantit que beryl respecte
+l'override YAML.
+
+[source,yaml]
+----
+freebsd:
+  hostname: quantas
+  ssh_host: 100.64.0.42         # IP Tailscale stable
+provider: ovh
+ovh:
+  service_name: ns3156789.ip-51-83-6.eu  # garde l'IP publique pour les API
+                                          # mais SSH passe par le mesh
+----
+
+==== 3. Inscription automatique au bootstrap
+
+Pendant le `beryl bootstrap`, mfsBSD-in-QEMU :
+
+. Pose le binaire Tailscale FreeBSD (`pkg install tailscale` ou
+  port `net/tailscale`).
+. Pose une pre-auth-key Headscale dans `/usr/local/etc/tailscale-auth.key`
+  (générée via API Headscale par beryl, expirable, single-use).
+. Configure rc.conf : `tailscaled_enable=YES`,
+  `tailscale_up_args="--auth-key=$(cat /usr/local/etc/tailscale-auth.key) --hostname={{ hostname }}"`.
+. Au premier boot FreeBSD, le serveur s'inscrit tout seul dans le
+  mesh, reçoit son IP `100.64.X.Y`.
+
+==== 4. Recettes beryl associées (futures)
+
+* `headscale-server` : pose Headscale (binaire + config + cert TLS
+  via Let's Encrypt) sur un host dédié.
+* `tailscale-client` : pose le client Tailscale FreeBSD sur les
+  hosts gérés par beryl, avec auth-key beryl-générée.
+* `firewall-pf-tailscale` : règles pf qui ne laissent passer SSH /
+  Tang / autres services internes que sur l'interface
+  `tailscale0` (`100.64.0.0/10`), bloquent tout depuis les
+  interfaces publiques.
+
+=== Questions ouvertes à trancher
+
+* *Où vit le serveur Headscale ?* NAS interne Aloli, VPS dédié,
+  plusieurs en HA ? Dépend de la criticité (si Headscale tombe,
+  les nouveaux serveurs ne peuvent plus joindre le mesh, mais les
+  serveurs déjà inscrits continuent à parler entre eux via
+  WireGuard direct grâce au key-relay déjà en place).
+* *Tang en HA via Headscale* : on peut avoir 3 Tangs sur 3 IPs
+  Tailscale différentes, tous joignables via le mesh. Cohérent
+  avec `crystal-clevis-zfs` v0.2.0 SSS multi-Tang.
+* *Pre-auth-key vs OAuth-style* : Headscale supporte plusieurs
+  modes d'authent. Pour beryl, pre-auth-key single-use posée au
+  bootstrap est probablement le plus simple. Renouvellement
+  d'auth via API Headscale après expiration.
+* *Bootstrap FreeBSD-15 et `if_wg`* : à vérifier que le kernel
+  module est inclus par défaut dans la distrib mfsBSD-SE qu'on
+  utilise. Sinon, charger via `loader.conf` ou recette dédiée.
+* *Compatibilité QEMU NAT pour les tests* : le mesh WireGuard
+  doit pouvoir traverser le NAT user-mode de QEMU. Tailscale a
+  un mécanisme DERP (relay) qui devrait gérer. À valider sur
+  le banc QEMU.
+* *Plan de bascule pour les serveurs déjà déployés* : ajouter
+  Tailscale via une recette `apply` post-installation. Pas de
+  re-bootstrap nécessaire si Headscale est en place après coup.
+
+=== Impact sur les ADR
+
+Plusieurs ADR à venir :
+
+* *Couche réseau Aloli* : décrit la topologie Headscale (control
+  plane, exit nodes éventuels, ACLs).
+* *Sécurité par défaut* : SSH et Tang fermés sur les interfaces
+  publiques, ouverts seulement sur `tailscale0`. À intégrer dans
+  les recettes `firewall-pf` et `ssh-hardening`.
+* *Bootstrap headless* : l'inscription automatique au mesh devient
+  une étape standard du `beryl bootstrap`, à documenter dans
+  ADR-013 (no-chroot post-install) ou un nouvel ADR dédié.
+
+=== Couplage avec les décisions actées
+
+* *Option D (Tang)* : Headscale rend l'Option D *opérationnellement
+  praticable* sans exposer Tang publiquement. C'est probablement le
+  prérequis qui manquait pour faire de l'Option D le défaut Aloli.
+* *Q11.2 (groupes de hosts)* : un groupe peut hériter d'une
+  configuration Headscale (tag Tailscale = nom du groupe pour les ACL).
+* *Note mémoire `feedback_beryl_no_root_ssh.md`* : Headscale
+  renforce ce principe (root SSH désactivé partout, et même les
+  accès admin via Tailscale sont en `admin` + sudo).
+
+=== Effort estimé
+
+* *Headscale en service stable* : 1 jour de déploiement (binary
+  Headscale, config, TLS, DNS) + tests.
+* *Recette `tailscale-client`* : 0.5 jour.
+* *Adaptation `beryl bootstrap` pour pre-auth-key* : 0.5 jour.
+* *Tests bout-en-bout sur banc QEMU* : 0.5 jour.
+
+Total ~3 jours, à programmer après que la stratégie multi-niveaux
+des recettes (Q6.1) soit tranchée — la recette `tailscale-client`
+relèvera de la stratégie commune ou Aloli-spécifique selon les
+décisions.
