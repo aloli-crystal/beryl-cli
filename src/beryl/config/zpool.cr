@@ -90,7 +90,7 @@ module Beryl::Config
   # Deux modes supportés :
   #
   # * *ssh_unlock* (Option C) — la clé vit sur le poste opérateur
-  #   (`~/.beryl/<société>/<domaine>/<host>.key`, chmod 0400). Au
+  #   (`~/.config/beryl/<société>/<domaine>/<host>.key`, chmod 0400). Au
   #   reboot, l'opérateur lance `beryl unlock <host>` ; la clé voyage
   #   via stdin SSH, jamais loggable. Pas de prérequis Tang. Code
   #   livré le 25 avril 2026.

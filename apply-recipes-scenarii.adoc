@@ -22,7 +22,7 @@ pas » révèlent une décision à prendre.
 * `cookie` = idem côté Dedibox.
 * `chouquette` = idem côté Scaleway.
 * L'opérateur tape ses commandes depuis son Mac, dans
-  `~/.beryl/aloli/aloli.net/`.
+  `~/.config/beryl/aloli/aloli.net/`.
 * Convention path-like : `aloli/quantas.aloli.net` ou simplement
   `quantas` quand il n'y a pas d'ambiguïté.
 
@@ -49,7 +49,7 @@ Appliquer le standard Aloli post-install :
 === Préparation côté Mac
 
 ```
-cd ~/.beryl/aloli/aloli.net
+cd ~/.config/beryl/aloli/aloli.net
 mkdir quantas
 cd quantas
 ln -s ../../../recipes/recipes/post-install.yml .
@@ -227,7 +227,7 @@ prend une liste `users:` qu'il faut surcharger.
 === Commande de préparation
 
 ```
-cd ~/.beryl/aloli/aloli.net/quantas
+cd ~/.config/beryl/aloli/aloli.net/quantas
 cp ../../../recipes/recipes/ohmyzsh.yml ./ohmyzsh.yml
 vim ohmyzsh.yml
 ```
@@ -236,7 +236,7 @@ Le fichier copié devient :
 
 [source,yaml]
 ----
-# ~/.beryl/aloli/aloli.net/quantas/ohmyzsh.yml
+# ~/.config/beryl/aloli/aloli.net/quantas/ohmyzsh.yml
 recipe: ohmyzsh
 description: oh-my-zsh pour admin uniquement (quantas-spécifique)
 
@@ -425,14 +425,14 @@ la met dans un *tap*.
 beryl recipes-tap add https://git.aloli.fr/private-recipes.git
 ```
 
-Beryl clone dans `~/.beryl/recipes-taps/private-recipes/`. La
+Beryl clone dans `~/.config/beryl/recipes-taps/private-recipes/`. La
 recette `aloli-monitoring.yml` y vit, comme dans le dépôt central
 mais avec priorité plus haute (entre `<host>/` et `recipes/`).
 
 === Préparation par host
 
 ```
-cd ~/.beryl/aloli/aloli.net/quantas
+cd ~/.config/beryl/aloli/aloli.net/quantas
 ln -s ../../../recipes-taps/private-recipes/recipes/aloli-monitoring.yml .
 ```
 
@@ -464,10 +464,10 @@ sur le user `admin` de tous les hosts d'`aloli.net`.
 
 Comme c'est une clé qui doit être sur tous les serveurs Aloli, la
 clé Pierre est ajoutée à `freebsd.users[admin].ssh_keys` du fichier
-domaine `~/.beryl/aloli/aloli.net.yml`.
+domaine `~/.config/beryl/aloli/aloli.net.yml`.
 
 ```
-vim ~/.beryl/aloli/aloli.net.yml
+vim ~/.config/beryl/aloli/aloli.net.yml
 # ajoute pierre.aloli.fr.pub à freebsd.users[name=admin].ssh_keys
 ```
 
@@ -739,7 +739,7 @@ Copie locale :
 
 [source,yaml]
 ----
-# ~/.beryl/aloli/aloli.net/cookie/ruby.yml
+# ~/.config/beryl/aloli/aloli.net/cookie/ruby.yml
 recipe: ruby
 description: Ruby chruby pour les devs sur cookie
 
@@ -835,7 +835,7 @@ recette pour son `nginx-bunch-of-stuff`).
 
 . Fork de `aloli-crystal/beryl-recipes` sur son GitHub.
 . Ajoute `recipes/his-nginx-bunch.yml`.
-. Pointe son beryl vers son fork via `~/.beryl/_default.yml` :
+. Pointe son beryl vers son fork via `~/.config/beryl/_default.yml` :
 +
 [source,yaml]
 ----
@@ -900,7 +900,7 @@ mature.
 | Q4.2 | Restauration d'état d'avant (rollback auto) ? | *NON* (Philippe 29 avril). Idempotence en avant uniquement. Snapshot ZFS pré-apply = responsabilité opérateur sur serveur critique.
 | Q5.1 | unlock enchaîné dans apply ? | *NON* (Philippe 28 avril). Deux commandes distinctes, pas de chaînage implicite.
 | Q5.2 | requires_dataset pointant vers un pool inexistant ? | *NON, pas de mécanisme requires_dataset* (Philippe 28 avril). FreeBSD remontera l'erreur naturellement.
-| Q6.1 | Stratégie multi-niveaux des recettes ? | *Question ouverte SENSIBLE* (Philippe 29 avril). « C'est un GROS sujet particulièrement sensible qu'il ne faut pas louper ou merder. La reprise serait terrible. » 3 niveaux pressentis : (1) dépôt central public `aloli-crystal/beryl-recipes`, (2) dépôt par organisation/société partenaire (recettes partagées), (3) orchestration par société dans son `~/.beryl/<société>/` git privé. Discussion dédiée à programmer SANS PRESSION quand l'occasion sera bonne — le coût d'une mauvaise architecture est catastrophique une fois 50+ serveurs déployés.
+| Q6.1 | Stratégie multi-niveaux des recettes ? | *Question ouverte SENSIBLE* (Philippe 29 avril). « C'est un GROS sujet particulièrement sensible qu'il ne faut pas louper ou merder. La reprise serait terrible. » 3 niveaux pressentis : (1) dépôt central public `aloli-crystal/beryl-recipes`, (2) dépôt par organisation/société partenaire (recettes partagées), (3) orchestration par société dans son `~/.config/beryl/<société>/` git privé. Discussion dédiée à programmer SANS PRESSION quand l'occasion sera bonne — le coût d'une mauvaise architecture est catastrophique une fois 50+ serveurs déployés.
 | Q6.2 | Tap inaccessible (git down) ? | Utilise clone local. Update = commande explicite.
 | Q7.1 | `users-sync` = recette ou implicite ? | *Question ouverte* (Philippe 29 avril). À reprendre avant la Phase 2 (couverture des primitives). Pas urgent pour la Phase 1 PoC qui ne touche pas aux users.
 | Q7.2 | Suppression d'une clé du YAML = retrait sur serveur ? | Oui (set, pas append). 2 catégories distinctes : *clés admin* (partout, source de vérité) et *clés deploy* (par-host). Procédure de rotation en 5 étapes validée Philippe 29 avril (cf. § ci-dessous). Garde-fou : refus de supprimer la clé en cours d'usage.

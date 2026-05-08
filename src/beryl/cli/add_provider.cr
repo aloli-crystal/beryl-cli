@@ -12,7 +12,7 @@ require "./account_utils"
 #   beryl add-provider aloli/ovh
 #   beryl add-provider ovh --account=aloli
 #
-# Si une seule société existe dans `~/.beryl/`, `--account` peut être
+# Si une seule société existe dans `~/.config/beryl/`, `--account` peut être
 # omis : beryl auto-détecte.
 #
 # Pour OVH, beryl déclenche le hook `bootstrap_credentials_if_needed`
@@ -36,7 +36,7 @@ module Beryl::CLI::AddProvider
                  "  beryl add-provider <société>/<provider>\n" \
                  "  beryl add-provider <provider> [--account=NAME]\n\n" \
                  "Ajoute un fournisseur à une société et stocke ses credentials\n" \
-                 "dans ~/.beryl/.env.yml[<société>][<provider>]."
+                 "dans ~/.config/beryl/.env.yml[<société>][<provider>]."
       p.on("-a NAME", "--account=NAME", "Société cible (si ambiguë)") { |v| account_flag = v }
       p.on("-n", "--dry-run", "Affiche ce qui serait fait sans écrire ni appeler d'API") { dry_run = true }
       p.on("-r", "--regen-credentials", "Force la régénération des credentials dérivés (ex: OVH consumer key)") { regen_credentials = true }

@@ -68,7 +68,7 @@ méthode.
 |*Compte fournisseur* (code : `ProviderAccount`)
 |Couple *(société, fournisseur)* + les credentials associés. Une
 société a typiquement un `ProviderAccount` par fournisseur qu'elle
-utilise. Les credentials vivent dans `~/.beryl/.env.yml` à
+utilise. Les credentials vivent dans `~/.config/beryl/.env.yml` à
 l'intersection `[société][fournisseur]`.
 
 |*Domaine* (code : `Domain`)
@@ -132,7 +132,7 @@ tient dans :
 
 [source,yaml]
 ----
-# ~/.beryl/aloli.net.yml
+# ~/.config/beryl/aloli.net.yml
 provider: ovh
 ovh:
   ssh_key_name: philippe-aloli-fr
@@ -142,7 +142,7 @@ ssh_keys:
 
 [source,yaml]
 ----
-# ~/.beryl/.env.yml
+# ~/.config/beryl/.env.yml
 aloli.net:
   OVH_APPLICATION_KEY: xxx
   OVH_APPLICATION_SECRET: yyy
@@ -342,11 +342,11 @@ erreur explicite à la résolution.
 
 == Organisation des fichiers
 
-=== `~/.beryl/` — arborescence proposée
+=== `~/.config/beryl/` — arborescence proposée
 
 [source]
 ----
-~/.beryl/
+~/.config/beryl/
 ├── _default.yml                       # socle technique commun à toutes sociétés
 ├── .env.yml                           # credentials — 3 niveaux
 ├── aloli/                             # dossier société
@@ -365,7 +365,7 @@ erreur explicite à la résolution.
         └── web.yml
 ----
 
-La société est *dérivée du chemin* : `~/.beryl/aloli/aloli.net.yml`
+La société est *dérivée du chemin* : `~/.config/beryl/aloli/aloli.net.yml`
 appartient forcément à la société `aloli`. Pas besoin d'un champ
 `account:` dans chaque fichier domaine.
 
@@ -399,7 +399,7 @@ soit le nombre de domaines de la société. Zéro répétition.
 
 [source,yaml]
 ----
-# ~/.beryl/aloli/aloli.net.yml
+# ~/.config/beryl/aloli/aloli.net.yml
 dns_provider: ovh        # qui gère la zone aloli.net
 provider: ovh            # hébergeur par défaut (= default_compute_provider)
 
@@ -415,7 +415,7 @@ ssh_keys:
 
 [source,yaml]
 ----
-# ~/.beryl/aloli/aloli.fr.yml
+# ~/.config/beryl/aloli/aloli.fr.yml
 dns_provider: gandi      # DNS chez Gandi
 provider: ovh            # hébergeur par défaut chez OVH (même compte aloli)
 
@@ -430,7 +430,7 @@ ssh_keys:
 
 [source,yaml]
 ----
-# ~/.beryl/aloli/_account.yml
+# ~/.config/beryl/aloli/_account.yml
 name: ALOLI SAS
 contact_email: contact@aloli.fr
 notes: |
@@ -455,7 +455,7 @@ Si absent, beryl infère juste `name = aloli` (nom du dossier).
 ├─────────────────────────────────────────────────────────────┤
 │  Credentials Store   (.env.yml abstrait derrière une API)   │
 │  Provider Registry   (catalogue + capabilities + plugins)   │
-│  Config Loader       (lit ~/.beryl/<account>/…)             │
+│  Config Loader       (lit ~/.config/beryl/<account>/…)             │
 └─────────────────────────────────────────────────────────────┘
 ----
 
@@ -510,7 +510,7 @@ Beryl le découvre au démarrage via le registre.
 === Refonte immédiate (cet ADR)
 
 Deux formes équivalentes pour désigner l'objet à créer : une *forme
-path-like* qui reprend directement l'arborescence de `~/.beryl/`
+path-like* qui reprend directement l'arborescence de `~/.config/beryl/`
 (concise, naturelle pour un admin qui navigue dans son filesystem),
 et une *forme drapeau* plus classique en CLI. L'utilisateur choisit
 celle qui lui parle.
@@ -520,7 +520,7 @@ celle qui lui parle.
 |Commande |Rôle |Exemples équivalents
 
 |`beryl init <société>`
-|Crée `~/.beryl/<société>/`. Propose d'ajouter providers et domaines en chaîne.
+|Crée `~/.config/beryl/<société>/`. Propose d'ajouter providers et domaines en chaîne.
 |`beryl init aloli`
 
 |`beryl add-provider <société>/<provider>` +
@@ -539,7 +539,7 @@ beryl add-provider ovh --account=aloli
 
 |`beryl add-domain <société>/<domaine>` +
 `beryl add-domain <domaine> [--account=S]`
-|Crée `~/.beryl/<société>/<domaine>.yml`. Demande DNS provider,
+|Crée `~/.config/beryl/<société>/<domaine>.yml`. Demande DNS provider,
 default compute provider, SSH key.
 a|
 [source,console]
@@ -553,9 +553,9 @@ beryl add-domain aloli.net --account=aloli
 
 *Règle de désambiguïsation* : si l'argument contient un `/`, beryl
 l'interprète comme `<société>/<objet>` ; sinon, il cherche `--account`
-(ou auto-détecte si une seule société existe dans `~/.beryl/`).
+(ou auto-détecte si une seule société existe dans `~/.config/beryl/`).
 
-Si une seule société existe dans `~/.beryl/`, ni le slash ni
+Si une seule société existe dans `~/.config/beryl/`, ni le slash ni
 `--account` ne sont nécessaires :
 
 [source,console]
@@ -601,7 +601,7 @@ et lisent les credentials via le nouveau canal.
 [source,console]
 ----
 $ beryl init aloli
-[beryl init] Société « aloli » créée dans ~/.beryl/aloli/
+[beryl init] Société « aloli » créée dans ~/.config/beryl/aloli/
 [beryl init] Ajouter un fournisseur maintenant ? [o/N] : o
 # … chaîne vers add-provider …
 
@@ -618,7 +618,7 @@ $ beryl add-domain aloli/aloli.net
 # Qui gère la zone DNS ? [ovh, scaleway] : ovh
 # Hébergeur par défaut ? [ovh, scaleway] : ovh
 # Sélection SSH key OVH… ↔ ~/.ssh/philippe.aloli.fr.pub
-# Écrit ~/.beryl/aloli/aloli.net.yml
+# Écrit ~/.config/beryl/aloli/aloli.net.yml
 
 # Équivalent 100% avec la forme verbeuse :
 $ beryl add-provider ovh --account=aloli
@@ -629,7 +629,7 @@ $ beryl add-domain aloli.net --account=aloli
 
 Philippe a confirmé le 23 avril 2026 : « Que cela casse quoi que ce soit,
 cela m'est égal, nous ne sommes pas en production. » Pas de migration
-automatique. Le `~/.beryl/` actuel sera refait manuellement avec les
+automatique. Le `~/.config/beryl/` actuel sera refait manuellement avec les
 nouvelles commandes `init` / `add-provider` / `add-domain`.
 
 Côté tests : les fixtures `spec/fixtures/config/` sont toutes
@@ -649,7 +649,7 @@ refondu en dernier pour consommer toute l'infrastructure.
   `DnsProvider` / `ComputeProvider`.
 . *Credentials Store* — `.env.yml` à 3 niveaux, API
   `store.for(account, provider)`.
-. *Config Loader* — scan de `~/.beryl/<account>/<domain>.yml` +
+. *Config Loader* — scan de `~/.config/beryl/<account>/<domain>.yml` +
   sous-dossiers hosts/groupes.
 . *Resolver* — FQDN → Host avec merge hiérarchique
   (default + domain + group + host).
@@ -686,7 +686,7 @@ refondu en dernier pour consommer toute l'infrastructure.
 
 * *Refactor structurant* : 9 commits, touche la plupart des fichiers.
 * *Casse la config locale* de Philippe : il devra refaire son
-  `~/.beryl/` depuis zéro (acté).
+  `~/.config/beryl/` depuis zéro (acté).
 * *Complexité conceptuelle augmentée* : Account / Domain / Host /
   Provider / ProviderAccount / DnsProvider / ComputeProvider, ça fait
   beaucoup d'entités. Documentation soignée nécessaire.
@@ -706,7 +706,7 @@ sans avoir à tout repenser.
 
 === Multi-admin : plusieurs opérateurs partagent la configuration
 
-Aujourd'hui, `~/.beryl/` vit sur la machine d'un seul utilisateur.
+Aujourd'hui, `~/.config/beryl/` vit sur la machine d'un seul utilisateur.
 Dès qu'il y a une équipe, plusieurs admins doivent pouvoir :
 
 * lancer `beryl rescue`, `bootstrap`, `apply` sur les mêmes serveurs ;
@@ -716,7 +716,7 @@ Dès qu'il y a une équipe, plusieurs admins doivent pouvoir :
 
 ==== Pistes techniques
 
-. *Dépôt git privé par équipe* — l'arborescence `~/.beryl/` (sauf
+. *Dépôt git privé par équipe* — l'arborescence `~/.config/beryl/` (sauf
   `.env.yml`) vit dans un repo privé. Les admins clonent, pull
   régulièrement, commit leurs changements. Bénéfice : versioning
   gratuit, audit via `git log`.
@@ -740,7 +740,7 @@ Dès qu'il y a une équipe, plusieurs admins doivent pouvoir :
   actuelle lit `.env.yml` plaintext. Une future implémentation peut
   lire depuis age/sops/vault/1password sans que les CLI ou Actions
   s'en rendent compte.
-* *Arborescence `~/.beryl/`* : organisable comme un repo git, chaque
+* *Arborescence `~/.config/beryl/`* : organisable comme un repo git, chaque
   société dans son dossier. Commitable tel quel (hors `.env.yml`).
 * *Actions idempotentes* : un admin peut relancer sans crainte de
   corruption, les ressources (DNS records, reverses, CK OVH) sont
@@ -751,7 +751,7 @@ Dès qu'il y a une équipe, plusieurs admins doivent pouvoir :
 * Un mécanisme de *lock* pour éviter que deux admins lancent un
   bootstrap sur le même host simultanément. Pas urgent.
 * Un *journal d'audit* local (qui a fait quoi quand). Probablement
-  une ligne par commande dans `~/.beryl/.history` ou équivalent.
+  une ligne par commande dans `~/.config/beryl/.history` ou équivalent.
 * Une commande `beryl sync` pour pull/push vers le git partagé.
 
 === Coffre-fort pour les clés SSH

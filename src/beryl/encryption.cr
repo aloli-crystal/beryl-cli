@@ -8,7 +8,7 @@ module Beryl
   #
   #   - La clé (32 bytes / 256 bits) est générée *côté opérateur* au
   #     moment du bootstrap. Jamais sur le serveur.
-  #   - Stockée dans `~/.beryl/<société>/<domaine>/<host>.key`,
+  #   - Stockée dans `~/.config/beryl/<société>/<domaine>/<host>.key`,
   #     chmod 0400 (lecture par owner uniquement). Dossier parent
   #     chmod 0700.
   #   - Format sur disque : 64 caractères hexadécimaux + newline.
@@ -32,7 +32,7 @@ module Beryl
     # exact est rejetée par `read` (sécurité par défaut).
     KEY_FILE_MODE = 0o400
 
-    # Permissions du dossier parent (`~/.beryl/<société>/<domaine>/`).
+    # Permissions du dossier parent (`~/.config/beryl/<société>/<domaine>/`).
     # 0700 : seul owner peut entrer. Si le dossier existe déjà avec
     # un autre mode, on ne le modifie pas (pas notre rôle d'écraser
     # les permissions d'un dossier existant), mais on log un warning.
@@ -64,11 +64,11 @@ module Beryl
 
     # Chemin canonique du fichier de clé pour un host donné.
     #
-    #   ~/.beryl/<société>/<domaine>/<host>.key
+    #   ~/.config/beryl/<société>/<domaine>/<host>.key
     #
     # Le `<host>` est le short_name (ex: `quantas`), pas le FQDN.
     # Cohérent avec le reste de l'arborescence beryl où les YAML host
-    # vivent à `~/.beryl/<société>/<domaine>/<host>.yml`.
+    # vivent à `~/.config/beryl/<société>/<domaine>/<host>.yml`.
     def self.key_path(config_root : String, account : String, domain : String, host_short : String) : String
       File.join(config_root, account, domain, "#{host_short}.key")
     end

@@ -1,10 +1,10 @@
 require "yaml"
 
-# Namespace de la configuration beryl dans `~/.beryl/` (ADR-014).
+# Namespace de la configuration beryl dans `~/.config/beryl/` (ADR-014).
 #
 # Arborescence :
 #
-#   ~/.beryl/
+#   ~/.config/beryl/
 #     _default.yml                    # socle technique commun à toutes sociétés
 #     .env.yml                        # credentials : société → fournisseur → vars
 #     <société>/

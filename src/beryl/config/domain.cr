@@ -1,7 +1,7 @@
 module Beryl::Config
   # Un domaine (ex: `aloli.net`). Existe dès qu'il y a un
-  # `<domaine>.yml` à la racine de `~/.beryl/`. Le dossier
-  # `~/.beryl/<domaine>/` est créé à la demande (pas vide).
+  # `<domaine>.yml` à la racine de `~/.config/beryl/`. Le dossier
+  # `~/.config/beryl/<domaine>/` est créé à la demande (pas vide).
   #
   # Le fichier porte l'identité du domaine :
   #   - `ovh.ssh_key_name` / `scaleway.ssh_key_ids`  — clé provider

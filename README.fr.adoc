@@ -27,9 +27,9 @@ native. La procédure manuelle — KVM-over-IP, image ISO custom, bascule à la 
 rescue — n'est ni reproductible ni automatisable. beryl automatise le cycle complet
 *depuis le poste de l'opérateur* :
 
-. `beryl init <société>` crée l'arborescence `~/.beryl/<société>/` (ADR-014).
+. `beryl init <société>` crée l'arborescence `~/.config/beryl/<société>/` (ADR-014).
 . `beryl add-provider <société>/<provider>` enregistre les credentials API dans
-  `~/.beryl/.env.yml` (chiffrés hors du dépôt).
+  `~/.config/beryl/.env.yml` (chiffrés hors du dépôt).
 . `beryl add-domain <société>/<domaine>` déclare la zone DNS, le fournisseur par
   défaut, les clés SSH des utilisateurs.
 . `beryl rescue <host>` déclenche l'API hébergeur pour rebooter en rescue Linux,
@@ -47,11 +47,11 @@ rescue — n'est ni reproductible ni automatisable. beryl automatise le cycle co
 
 === Architecture multi-société (ADR-014)
 
-La configuration vit dans `~/.beryl/` organisée par société puis par domaine :
+La configuration vit dans `~/.config/beryl/` organisée par société puis par domaine :
 
 [source,text]
 ----
-~/.beryl/
+~/.config/beryl/
 ├── _default.yml                 # socle FreeBSD (timezone, users admin/deploy, packages)
 ├── .env.yml                     # credentials par société × provider (0600)
 ├── aloli/                       # une société
@@ -322,14 +322,14 @@ hors `libssl` / `libcrypto` présentes par défaut sur macOS et Linux.
 
 == Démarrage rapide
 
-1. Crée l'arborescence `~/.beryl/aloli/` (prompts interactifs).
+1. Crée l'arborescence `~/.config/beryl/aloli/` (prompts interactifs).
 +
 [source,sh]
 ----
 beryl init aloli
 ----
 +
-2. Enregistre les credentials OVH dans `~/.beryl/.env.yml`.
+2. Enregistre les credentials OVH dans `~/.config/beryl/.env.yml`.
 +
 [source,sh]
 ----

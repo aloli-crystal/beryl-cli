@@ -28,9 +28,9 @@ The manual procedure — KVM-over-IP, custom ISO, hand-rolled rescue mode — is
 neither reproducible nor automatable. beryl automates the full cycle *from the
 operator's workstation*:
 
-. `beryl init <account>` creates the `~/.beryl/<account>/` tree (ADR-014).
+. `beryl init <account>` creates the `~/.config/beryl/<account>/` tree (ADR-014).
 . `beryl add-provider <account>/<provider>` stores API credentials in
-  `~/.beryl/.env.yml` (kept outside the repo).
+  `~/.config/beryl/.env.yml` (kept outside the repo).
 . `beryl add-domain <account>/<domain>` declares the DNS zone, the default
   hosting provider, and user SSH keys.
 . `beryl rescue <host>` triggers the provider API to reboot into Linux rescue,
@@ -50,11 +50,11 @@ operator's workstation*:
 
 === Multi-account architecture (ADR-014)
 
-Configuration lives in `~/.beryl/`, organised by account, then by domain:
+Configuration lives in `~/.config/beryl/`, organised by account, then by domain:
 
 [source,text]
 ----
-~/.beryl/
+~/.config/beryl/
 ├── _default.yml                 # FreeBSD baseline (timezone, admin/deploy users, pkgs)
 ├── .env.yml                     # credentials per account × provider (0600)
 ├── aloli/                       # one account
@@ -324,14 +324,14 @@ The `beryl` binary lands in `./bin/beryl`. No runtime dependency beyond
 
 == Quick start
 
-1. Create the `~/.beryl/aloli/` tree (interactive prompts).
+1. Create the `~/.config/beryl/aloli/` tree (interactive prompts).
 +
 [source,sh]
 ----
 beryl init aloli
 ----
 +
-2. Store OVH credentials in `~/.beryl/.env.yml`.
+2. Store OVH credentials in `~/.config/beryl/.env.yml`.
 +
 [source,sh]
 ----

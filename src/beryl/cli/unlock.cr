@@ -11,7 +11,7 @@ require "./account_utils"
 # Routage par mode (depuis T3 — 28 avril 2026) :
 #
 # * *mode ssh_unlock* (Option C, défaut historique) — la clé locale
-#   `~/.beryl/<société>/<domaine>/<host>.key` voyage via stdin SSH
+#   `~/.config/beryl/<société>/<domaine>/<host>.key` voyage via stdin SSH
 #   jusqu'à `zfs load-key`. Aucune dépendance Tang.
 #
 # * *mode tang* (Option D) — délègue à `crystal-clevis-zfs unlock`

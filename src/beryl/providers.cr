@@ -144,7 +144,7 @@ module Beryl
 
   # Spécification d'une variable d'environnement attendue par un
   # provider. Utilisé par la configuration interactive de `beryl init`
-  # pour prompter, sauvegarder dans ~/.beryl/.env, et afficher de
+  # pour prompter, sauvegarder dans ~/.config/beryl/.env, et afficher de
   # l'aide.
   struct EnvVarSpec
     getter name : String        # "OVH_APPLICATION_KEY"

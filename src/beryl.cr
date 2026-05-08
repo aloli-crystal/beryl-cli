@@ -1,5 +1,6 @@
 require "ssh"
 require "./beryl/version"
+require "./beryl/xdg"
 require "./beryl/i18n"
 require "./beryl/config"
 require "./beryl/bootstrap"

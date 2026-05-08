@@ -11,7 +11,7 @@ Document de design pour `beryl apply` (commande 9). Validé le
 « Décisions actées » en haut du document pour relecture rapide ;
 détails et justifications dans les sections suivantes.
 
-L'orchestration par host (dossier `~/.beryl/<société>/<domaine>/<host>/`)
+L'orchestration par host (dossier `~/.config/beryl/<société>/<domaine>/<host>/`)
 est destinée à vivre dans un *dépôt git privé*, partagé entre les
 admin-sys d'une même société. Cela donne :
 
@@ -43,16 +43,16 @@ Ce dépôt est *distinct* du dépôt public `aloli-crystal/beryl-recipes`
 | Stockage des recettes
 | Dépôt git séparé `aloli-crystal/beryl-recipes`, URL en défaut
   beryl. L'opérateur peut forker et pointer vers son fork.
-  beryl clone localement dans `~/.beryl/recipes/` au premier
+  beryl clone localement dans `~/.config/beryl/recipes/` au premier
   `apply`.
 
 | Orchestration par host
-| Dossier `~/.beryl/<société>/<domaine>/<host>/` qui contient les
+| Dossier `~/.config/beryl/<société>/<domaine>/<host>/` qui contient les
   recettes que l'opérateur veut exécuter sur ce host (symlinks
   vers le dépôt central, ou copies locales modifiées).
 
 | Pas de `apply.yml` central
-| L'orchestration vit dans le *dépôt git privé* `~/.beryl/<société>/`,
+| L'orchestration vit dans le *dépôt git privé* `~/.config/beryl/<société>/`,
   partagé entre admin-sys de la société. Les recettes du dossier
   `<host>/` sont autosuffisantes.
 
@@ -96,7 +96,7 @@ Ce dépôt est *distinct* du dépôt public `aloli-crystal/beryl-recipes`
   philosophie Aloli « le serveur est jetable ».
 
 | Secrets
-| Réutilisation de `~/.beryl/.env.yml[<société>][<provider>]` (chmod
+| Réutilisation de `~/.config/beryl/.env.yml[<société>][<provider>]` (chmod
   0600). Recettes peuvent référencer `{{ env.OVH_API_TOKEN }}` qui
   est résolu côté beryl avant SSH. Pas de secret dans le YAML host.
 
@@ -121,7 +121,7 @@ Ce dépôt est *distinct* du dépôt public `aloli-crystal/beryl-recipes`
 
 | Recettes privées
 | Modèle « taps » à la Homebrew : `beryl recipes-tap add <git_url>`
-  ajoute un dépôt supplémentaire dans `~/.beryl/recipes-taps/<nom>/`.
+  ajoute un dépôt supplémentaire dans `~/.config/beryl/recipes-taps/<nom>/`.
   Résolution avec priorité : dossier host > taps > dépôt principal.
   Permet des recettes privées sans forker le dépôt central.
 |===
@@ -191,17 +191,17 @@ Aloli :
   les recettes pour son contexte (`https://github.com/<vous>/beryl-recipes`),
   et pointer beryl vers son fork.
 * Versioning git permet de figer la version utilisée par un
-  parc : `~/.beryl/recipes/` reste sur la branche que vous voulez
+  parc : `~/.config/beryl/recipes/` reste sur la branche que vous voulez
   (production, ou un tag précis).
 
 === URL en défaut beryl
 
 [source,yaml]
 ----
-# ~/.beryl/_default.yml (livré par `beryl init`)
+# ~/.config/beryl/_default.yml (livré par `beryl init`)
 recipes:
   repo_url: https://github.com/aloli-crystal/beryl-recipes.git
-  local_path: ~/.beryl/recipes
+  local_path: ~/.config/beryl/recipes
   branch: production
 ----
 
@@ -210,10 +210,10 @@ L'opérateur surcharge dans son `<société>/_account.yml` ou
 
 === Récupération côté beryl
 
-* Au premier `beryl apply` : si `~/.beryl/recipes/` n'existe pas,
+* Au premier `beryl apply` : si `~/.config/beryl/recipes/` n'existe pas,
   beryl `git clone` depuis `recipes.repo_url`.
 * Pas de `git pull` automatique. L'opérateur décide quand mettre
-  à jour : `cd ~/.beryl/recipes && git pull`.
+  à jour : `cd ~/.config/beryl/recipes && git pull`.
 * Beryl ne fait jamais d'appel HTTP pendant l'`apply` lui-même —
   tout est lu depuis le filesystem local.
 
@@ -249,7 +249,7 @@ Pas de séparation `meta-recipes/` vs `recipes/`. Tout dans
 
 [source,text]
 ----
-~/.beryl/aloli/aloli.net/
+~/.config/beryl/aloli/aloli.net/
 ├── quantas.yml                       # config bootstrap (zfs, packages, users)
 └── quantas/                          # dossier d'orchestration apply
     ├── post-install.yml              # symlink → ../../../recipes/recipes/post-install.yml
@@ -283,7 +283,7 @@ L'opérateur fait :
 
 [source,sh]
 ----
-cd ~/.beryl/aloli/aloli.net/quantas
+cd ~/.config/beryl/aloli/aloli.net/quantas
 cp ../../../recipes/recipes/ohmyzsh.yml ./ohmyzsh.yml
 vim ohmyzsh.yml                  # adapte (ex: liste des users, .zshrc spécifique)
 ----
@@ -298,8 +298,8 @@ viennent du dépôt central.
 ```
 Pour chaque recette R référencée (directement dans le dossier ou
 via requires:), beryl cherche R.yml :
-  1. dans ~/.beryl/<société>/<domaine>/<host>/         ← priorité (override)
-  2. sinon dans ~/.beryl/recipes/recipes/              ← défaut (dépôt central)
+  1. dans ~/.config/beryl/<société>/<domaine>/<host>/         ← priorité (override)
+  2. sinon dans ~/.config/beryl/recipes/recipes/              ← défaut (dépôt central)
   3. sinon erreur : recette R introuvable
 ```
 
@@ -365,7 +365,7 @@ La copie locale dans le dossier host les fixe via le bloc
 
 [source,yaml]
 ----
-# ~/.beryl/aloli/aloli.net/quantas/ohmyzsh.yml (copie locale)
+# ~/.config/beryl/aloli/aloli.net/quantas/ohmyzsh.yml (copie locale)
 recipe: ohmyzsh
 description: oh-my-zsh pour les users de quantas
 
@@ -394,7 +394,7 @@ steps:
 . *Résolution* récursive des `requires:` :
 +
 .. Pour chaque `requires: R`, cherche `R.yml` d'abord dans `<host>/`
-   (override), sinon dans `~/.beryl/recipes/recipes/`.
+   (override), sinon dans `~/.config/beryl/recipes/recipes/`.
 .. Si introuvable → erreur claire (« recette `R` requise par `<X>`
    est introuvable. Symlinkez-la dans `<host>/` ou ajoutez-la au
    dépôt central. »).

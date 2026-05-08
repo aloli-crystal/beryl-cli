@@ -20,25 +20,35 @@ require "./cli/tang_enroll"
 
 # Point d'entrée CLI de beryl.
 #
-# Tous les chemins de configuration partent de `~/.beryl/` (sauf
-# `-c PATH` qui override explicitement, typiquement pour des tests).
-# Structure figée (voir `docs/adr/ADR-014-beryl-config-tree.adoc`) :
+# Tous les chemins de configuration partent de `$XDG_CONFIG_HOME/beryl/`
+# (= `~/.config/beryl/` par défaut, conforme à la
+# https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html[spec
+# XDG Base Directory]). `-c PATH` override explicitement, typiquement
+# pour des tests. Structure figée (voir
+# `docs/adr/ADR-014-beryl-config-tree.adoc`) :
 #
-#   ~/.beryl/
+#   ~/.config/beryl/
 #     _default.yml          # socle FreeBSD (sans clés SSH)
 #     .env.yml              # credentials providers par domaine
 #     <domaine>.yml         # identité d'un domaine (clés SSH, ovh.ssh_key_name)
 #     <domaine>/            # contenu du domaine (hosts directs, groupes)
 #       <host>.yml          # → <host>.<domaine>
 #       <groupe>.yml + <groupe>/<host>.yml
+#
+# *Migration depuis v0.2.0* : avant le 8 mai 2026, beryl utilisait
+# +~/.beryl/+ (non-XDG). Pour migrer : `mv ~/.beryl ~/.config/beryl`.
 module Beryl::CLI
-  DEFAULT_CONFIG_ROOT = File.expand_path("~/.beryl", home: true)
-
   # Options globales qui consomment l'argument suivant (forme « -c VALEUR »).
   GLOBAL_FLAGS_WITH_VALUE = {"-c", "--config"}
 
+  # Racine de config par défaut (dynamique : honore `$XDG_CONFIG_HOME`
+  # si défini au runtime). Voir `Beryl::Xdg.config_dir`.
+  def self.default_config_root : String
+    Beryl::Xdg.config_dir
+  end
+
   def self.run(argv : Array(String) = ARGV) : Int32
-    config_root = DEFAULT_CONFIG_ROOT
+    config_root = default_config_root
 
     # Sépare les options globales (avant la sous-commande) du reste.
     split_at = 0
@@ -56,7 +66,7 @@ module Beryl::CLI
 
     global_parser = OptionParser.new do |p|
       p.banner = usage_banner
-      p.on("-c PATH", "--config=PATH", "Racine de configuration (défaut : ~/.beryl)") { |v| config_root = File.expand_path(v, home: true) }
+      p.on("-c PATH", "--config=PATH", "Racine de configuration (défaut : ~/.config/beryl)") { |v| config_root = File.expand_path(v, home: true) }
       p.on("-h", "--help", "Affiche cette aide") do
         puts p
         exit(0)
@@ -202,7 +212,7 @@ module Beryl::CLI
 
     Sous-commandes (chacune a un alias court) :
       help          [h]     Aide globale ou d'une sous-commande précise
-      init          [i]     Initialise ~/.beryl/<société>/ + propose providers/domaines
+      init          [i]     Initialise ~/.config/beryl/<société>/ + propose providers/domaines
       add-provider  [ap]    Ajoute un fournisseur à une société (credentials)
       add-domain    [ad]    Ajoute un domaine à une société (zone DNS)
       list-hosts    [ls]    Liste les hôtes de toutes les sociétés

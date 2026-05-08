@@ -1,6 +1,6 @@
 = Fixtures Beryl::Config pour les tests
 
-Chaque sous-dossier représente une arborescence `~/.beryl/` complète,
+Chaque sous-dossier représente une arborescence `~/.config/beryl/` complète,
 versionnée dans le dépôt pour rendre les tests reproductibles et
 lisibles (plutôt que des arborescences créées à la volée dans `/tmp`).
 

@@ -254,7 +254,7 @@ jusqu'à v0.2 publié.
   commercial Aloli sans dépendre d'IPMI/KVM.
 . *Stockage de la clé sur le poste opérateur* :
 +
-* *v0* : fichier `~/.beryl/<société>/<domaine>/<host>.key`
+* *v0* : fichier `~/.config/beryl/<société>/<domaine>/<host>.key`
   (chmod 0400). Démarrage rapide.
 * *v1 (cible)* : référence Keychain macOS via tag YAML
   `!keychain` (cf. `project_beryl_secrets_vault.md`). Philippe
@@ -263,7 +263,7 @@ jusqu'à v0.2 publié.
 . *Résilience opérateur* :
 +
 * *Backup automatique de la clé* via Time Machine (le dossier
-  `~/.beryl/` est inclus dans la sauvegarde système) — pas de
+  `~/.config/beryl/` est inclus dans la sauvegarde système) — pas de
   procédure manuelle.
 * *Synchronisation multi-machines* via iCloud Keychain quand
   les clés vivent dans le Keychain (v1) — Philippe peut
@@ -329,7 +329,7 @@ jusqu'à v0.2 publié.
   la protection contre le vol de disque ET le vol de serveur.
 
 | Stockage de la clé côté opérateur
-| Fichier local `~/.beryl/<société>/<domaine>/<host>.key`, chmod
+| Fichier local `~/.config/beryl/<société>/<domaine>/<host>.key`, chmod
   0400. v1 simple. v2 (cf.
   `project_beryl_secrets_vault.md`) : tag `!keychain` pour pointer
   vers Keychain macOS / pass / Vault.
@@ -452,7 +452,7 @@ commercial Aloli (cf. section « Positionnement commercial »).
 . L'opérateur lance : `beryl unlock aloli/quantas.aloli.net` (H4)
 . beryl :
 +
-.. Lit `~/.beryl/aloli/aloli.net/quantas.key` (chmod 0400)
+.. Lit `~/.config/beryl/aloli/aloli.net/quantas.key` (chmod 0400)
 .. Ouvre une connexion SSH `root@quantas`
 .. Exécute `zpool import -N -R / zsave` (importe sans monter)
 .. Pipe la clé via stdin : `zfs load-key zsave`
@@ -491,7 +491,7 @@ beryl reboot --hard aloli/quantas.aloli.net
    typique) avec log par tentative comme pour le rescue.
 .. *Auto-unlock si pools chiffrés déclarés* dans le YAML host :
 +
-. Lit `~/.beryl/aloli/aloli.net/quantas.key` (chmod 0400) sur
+. Lit `~/.config/beryl/aloli/aloli.net/quantas.key` (chmod 0400) sur
   votre poste.
 . Pour chaque pool data chiffré :
    * `zpool import -N -R / <pool>` (sans monter)
@@ -578,7 +578,7 @@ elle vit dans la recette du service.
 
 [source,yaml]
 ----
-# ~/.beryl/aloli/aloli.net/quantas.yml
+# ~/.config/beryl/aloli/aloli.net/quantas.yml
 freebsd:
   hostname: quantas
   zfs:
@@ -739,7 +739,7 @@ key = Random::Secure.random_bytes(32)
 +
 [source]
 ----
-~/.beryl/aloli/aloli.net/quantas.key (chmod 0400, 0700 le dossier)
+~/.config/beryl/aloli/aloli.net/quantas.key (chmod 0400, 0700 le dossier)
 ----
 
 . Pendant le bootstrap (script mfsBSD-in-QEMU), la clé est passée
@@ -769,7 +769,7 @@ echo -n "<key_binary_32_bytes>" | zpool create -f -R /mnt \
   pour ce pool, ou pool exporté).
 . L'opérateur lance `beryl unlock` qui :
 +
-.. Lit `~/.beryl/aloli/aloli.net/quantas.key` localement.
+.. Lit `~/.config/beryl/aloli/aloli.net/quantas.key` localement.
 .. Ouvre SSH `root@quantas`.
 .. Pour chaque pool data chiffré (vu dans le YAML host) :
    * `zpool import -N -R / zsave` (sans monter, sans charger la clé)
@@ -786,7 +786,7 @@ clé à partir des données.
 
 === v0 — sauvegarde manuelle par l'opérateur
 
-* L'opérateur copie son dossier `~/.beryl/<société>/<domaine>/`
+* L'opérateur copie son dossier `~/.config/beryl/<société>/<domaine>/`
   sur un disque externe / un cloud chiffré (iCloud avec
   end-to-end, Mega, Tresorit, etc.).
 * La copie inclut tous les `*.key` chmod 0400.
@@ -797,10 +797,10 @@ clé à partir des données.
 
 Si deux opérateurs doivent pouvoir gérer le serveur :
 
-* Copier `~/.beryl/<société>/<domaine>/<host>.key` sur le poste
+* Copier `~/.config/beryl/<société>/<domaine>/<host>.key` sur le poste
   du binôme via canal sécurisé (Signal, AirDrop chiffré, clé USB
   remise en main propre).
-* Le binôme range dans son propre `~/.beryl/<société>/<domaine>/`.
+* Le binôme range dans son propre `~/.config/beryl/<société>/<domaine>/`.
 
 NOTE: Ce n'est pas idéal — chaque copie de la clé est un point
 d'attaque. v1 ou v2, on remplace par un secrets manager partagé
@@ -812,7 +812,7 @@ Quand `project_beryl_secrets_vault.md` sera implémenté :
 
 [source,yaml]
 ----
-# ~/.beryl/aloli/aloli.net/quantas.key.ref
+# ~/.config/beryl/aloli/aloli.net/quantas.key.ref
 backend: keychain
 service: beryl-aloli-quantas-zsave
 account: zfs-key
@@ -870,7 +870,7 @@ l'envoie au serveur. Plus de fichier `.key` brut sur le poste.
 
 | 7
 | Sauvegarde régulière de la clé.
-| Hebdomadaire : copie de `~/.beryl/<société>/` sur cloud
+| Hebdomadaire : copie de `~/.config/beryl/<société>/` sur cloud
   chiffré + disque externe.
 
 | 8
@@ -928,7 +928,7 @@ sont les ACL système et le firewall qui protègent.
    passe au script mfsBSD via SSH stdin (pas via `beryl bootstrap`
    args qui seraient logguées). `data_pools_script` adapté pour
    créer les pools chiffrés avec `keyformat=raw -O keylocation=prompt`.
-.. Stockage de la clé en local : `~/.beryl/<société>/<domaine>/<host>.key`,
+.. Stockage de la clé en local : `~/.config/beryl/<société>/<domaine>/<host>.key`,
    chmod 0400, 0700 le dossier parent.
 .. Commande `beryl unlock <host>` (H4) : lit la clé locale, ouvre
    SSH, charge la clé via stdin, monte les datasets.

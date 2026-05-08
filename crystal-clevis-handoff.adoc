@@ -152,10 +152,10 @@ chiffré + reboot, ou attendre l'intégration directe dans beryl.
 Toutes les tâches ci-dessous sont **à faire**. Aucune n'est
 amorcée côté beryl à ce jour.
 
-NOTE: La conf beryl vit dans `~/.beryl/` côté opérateur (cf.
+NOTE: La conf beryl vit dans `~/.config/beryl/` côté opérateur (cf.
 mémoire `reference_beryl_config_location.md`). Migration prévue
 à terme vers un dépôt git chiffré. Tout schéma YAML proposé
-ici est destiné à `~/.beryl/<...>`.
+ici est destiné à `~/.config/beryl/<...>`.
 
 === T1 — Recette d'installation Tang (côté serveur Tang)
 
@@ -173,7 +173,7 @@ sur un host FreeBSD :
   des clés Tang = ré-enrôlement de tous les clients
 . Test de fumée : `curl -fs http://localhost:8888/adv`
 
-Modèle YAML, à placer dans `~/.beryl/<…>` :
+Modèle YAML, à placer dans `~/.config/beryl/<…>` :
 
 [source,yaml]
 ----

@@ -12,7 +12,12 @@ module Beryl::Config
   # Les opérations habituelles (résolution d'un host, obtention de la
   # config mergée) passent par des méthodes de cette classe.
   class Root
-    DEFAULT_PATH = File.expand_path("~/.beryl", home: true)
+    # Racine de config par défaut (dynamique : honore
+    # `$XDG_CONFIG_HOME` si défini au runtime, sinon
+    # `~/.config/beryl/`). Voir `Beryl::Xdg.config_dir`.
+    def self.default_path : String
+      Beryl::Xdg.config_dir
+    end
 
     getter path : String
     getter defaults : Hash(YAML::Any, YAML::Any)
@@ -27,7 +32,8 @@ module Beryl::Config
     # est le dossier où chercher les clés SSH référencées par nom
     # (ex. `philippe.aloli.fr.pub` → `<ssh_dir>/philippe.aloli.fr.pub`).
     # Paramétrable pour les tests qui utilisent des fixtures.
-    def self.load(path : String = DEFAULT_PATH, ssh_dir : String = DEFAULT_SSH_DIR) : Root
+    def self.load(path : String? = nil, ssh_dir : String = DEFAULT_SSH_DIR) : Root
+      path ||= default_path
       expanded = File.expand_path(path, home: true)
       result = Loader.load(expanded)
       Root.new(

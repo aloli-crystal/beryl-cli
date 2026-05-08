@@ -12,7 +12,7 @@ require "./account_utils"
 #
 # * Le host a été bootstrapé : ses pools data sont chiffrés en
 #   ZFS native avec `keyformat=hex`. La clé locale
-#   `~/.beryl/<société>/<domaine>/<host>.key` existe.
+#   `~/.config/beryl/<société>/<domaine>/<host>.key` existe.
 # * Le binaire `crystal-clevis-zfs` est installé sur le serveur
 #   (à `/usr/local/sbin/crystal-clevis-zfs`).
 # * Le YAML host déclare `encryption.mode: tang` avec au moins une

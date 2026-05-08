@@ -1,11 +1,11 @@
 require "yaml"
 
 module Beryl::Config
-  # Lit l'arborescence `~/.beryl/` et construit un `Root` exploitable.
+  # Lit l'arborescence `~/.config/beryl/` et construit un `Root` exploitable.
   #
   # Nouvelle arborescence (ADR-014) :
   #
-  #   ~/.beryl/
+  #   ~/.config/beryl/
   #   ├── _default.yml
   #   ├── .env.yml
   #   ├── <société>/
@@ -21,7 +21,7 @@ module Beryl::Config
   #
   # Tolère les fichiers/dossiers absents : une société peut avoir un
   # seul domaine sans sous-dossier d'hosts, un `_default.yml` peut
-  # manquer, etc. Seul `~/.beryl/` lui-même peut être absent (on
+  # manquer, etc. Seul `~/.config/beryl/` lui-même peut être absent (on
   # retourne un Root vide).
   module Loader
     # Alias pour le tuple retourné par `.load`.
@@ -32,7 +32,7 @@ module Beryl::Config
     )
 
     # Charge une arborescence à partir du chemin racine (typiquement
-    # `~/.beryl/`). Retourne defaults + accounts + env_file.
+    # `~/.config/beryl/`). Retourne defaults + accounts + env_file.
     def self.load(root_path : String) : Result
       expanded = File.expand_path(root_path, home: true)
       unless File.directory?(expanded)

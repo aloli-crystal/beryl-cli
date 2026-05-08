@@ -328,16 +328,16 @@ describe Beryl::CLI::Scan do
     it "construit <config_root>/<société>/<domaine>/<host>.yml en mode auto" do
       result = Beryl::CLI::Scan.resolve_write_target(
         explicit: nil, auto: true,
-        config_root: "/tmp/.beryl", account_name: "aloli",
+        config_root: "/tmp/.config/beryl", account_name: "aloli",
         domain_name: "aloli.net", short: "loulou",
       )
-      result.should eq("/tmp/.beryl/aloli/aloli.net/loulou.yml")
+      result.should eq("/tmp/.config/beryl/aloli/aloli.net/loulou.yml")
     end
 
     it "retourne le chemin explicite quand fourni (write_path gagne)" do
       result = Beryl::CLI::Scan.resolve_write_target(
         explicit: "/custom/path.yml", auto: true,
-        config_root: "/tmp/.beryl", account_name: "aloli",
+        config_root: "/tmp/.config/beryl", account_name: "aloli",
         domain_name: "aloli.net", short: "loulou",
       )
       result.should eq("/custom/path.yml")
@@ -346,7 +346,7 @@ describe Beryl::CLI::Scan do
     it "retourne nil quand ni --write ni --write-to ne sont passés" do
       result = Beryl::CLI::Scan.resolve_write_target(
         explicit: nil, auto: false,
-        config_root: "/tmp/.beryl", account_name: "aloli",
+        config_root: "/tmp/.config/beryl", account_name: "aloli",
         domain_name: "aloli.net", short: "loulou",
       )
       result.should be_nil

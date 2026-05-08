@@ -2,7 +2,7 @@ require "../../spec_helper"
 require "../../../src/beryl/config"
 
 # Racine où vivent les fixtures : `spec/fixtures/config/<cas>/`.
-# Chaque cas est une arborescence ~/.beryl/ complète :
+# Chaque cas est une arborescence ~/.config/beryl/ complète :
 #   <cas>/<société>/<domaine>.yml
 #   <cas>/<société>/<domaine>/<host>.yml
 #

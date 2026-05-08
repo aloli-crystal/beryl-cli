@@ -3,13 +3,13 @@
 #
 # Pré-requis :
 #   - ns3156789.ip-51-83-6.eu est EN RESCUE (via beryl rescue fait hier)
-#   - ~/.beryl/.env.yml contient les credentials OVH AVEC le droit
+#   - ~/.config/beryl/.env.yml contient les credentials OVH AVEC le droit
 #     PUT /services/* (consumer key régénérée dans la nuit par Philippe)
 #   - Disque unique détecté : /dev/sda (INTEL SSDSA2CW120G3 ~120 Go)
 #
 # Flux (minutes indicatives) :
 #   1. scan --dns --write : DNS A + AAAA, reverses, rename OVH,       ~2 min
-#      écriture ~/.beryl/aloli.net/loulou.yml avec RAID 0 sur sda
+#      écriture ~/.config/beryl/aloli.net/loulou.yml avec RAID 0 sur sda
 #   2. bootstrap loulou   : mfsBSD-in-QEMU + bsdinstall no-chroot,    ~25 min
 #      reboot sur disque, attente SSH admin
 #

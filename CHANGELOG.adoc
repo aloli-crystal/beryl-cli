@@ -9,6 +9,57 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+== 0.2.1 (8 mai 2026)
+
+=== Migration XDG Base Directory
+
+Beryl respecte désormais la
+https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html[spec
+XDG Base Directory] pour la racine de configuration.
+
+* *Avant* : `~/.beryl/` (non-XDG, posait souci côté Linux où
+  `~/` accumule trop de dotfiles non standardisés).
+* *Après* : `$XDG_CONFIG_HOME/beryl/` si la variable est
+  définie, sinon `~/.config/beryl/` (défaut XDG).
+
+[CAUTION]
+====
+*Migration manuelle requise* : pas de fallback automatique vers
+l'ancien chemin (cohérent avec « pas de défauts silencieux »
+côté Aloli). Si vous avez un `~/.beryl/` existant :
+
+[source,shell]
+----
+mv ~/.beryl ~/.config/beryl
+----
+
+Sans cette commande, beryl démarre sur un Root vide et toutes
+les sociétés/hosts sont introuvables (« société inconnue »).
+====
+
+=== Code
+
+* Nouveau helper `Beryl::Xdg.config_dir` (`src/beryl/xdg.cr`)
+  qui résout dynamiquement la racine au runtime (honore
+  `$XDG_CONFIG_HOME`).
+* `Beryl::CLI::DEFAULT_CONFIG_ROOT` (constante) → méthode
+  `Beryl::CLI.default_config_root`.
+* `Beryl::Config::Root::DEFAULT_PATH` (constante) → méthode
+  `Beryl::Config::Root.default_path`. Le paramètre `path` de
+  `Root.load` accepte désormais `nil` (pris au défaut au moment
+  de l'appel, pas à la définition).
+* `Beryl::Config::EnvFile::DEFAULT_PATH` → méthode
+  `Beryl::Config::EnvFile.default_path`. Idem `path` accepte
+  `nil`.
+* Tous les commentaires inline et docs (`*.adoc`, README,
+  scripts shell, qemu/) mis à jour vers `~/.config/beryl/`.
+
+=== Tests
+
+242 specs unitaires verts. Fixture `spec/beryl/cli/scan_spec.cr`
+alignée sur `/tmp/.config/beryl` (cohérence avec la nouvelle
+convention).
+
 == 0.2.0 (29 avril 2026)
 
 === Convention de nommage Aloli

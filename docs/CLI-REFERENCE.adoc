@@ -13,7 +13,7 @@ forme courte (feedback_cli_short_flags).
 
 Depuis beryl 0.1.5, toutes les commandes qui prennent un host
 (`rescue`, `bootstrap`, `scan`, `wipe`, `apply`, `boot-hd`, `show`)
-acceptent une syntaxe path-like miroir du filesystem `~/.beryl/` :
+acceptent une syntaxe path-like miroir du filesystem `~/.config/beryl/` :
 
 [cols="3,4",options="header"]
 |===
@@ -44,7 +44,7 @@ beryl b aloli/loulou.aloli.net
 beryl r aloli/aloli.fr/mail
 beryl r aloli/aloli.net/mail
 
-# Forme plate (auto si une seule société dans ~/.beryl/) :
+# Forme plate (auto si une seule société dans ~/.config/beryl/) :
 beryl r loulou
 ----
 
@@ -57,7 +57,7 @@ Chaque commande est utilisable sous sa forme longue ou sa forme courte :
 |Commande |Alias |Description
 
 |`help` |`h` |Aide globale ou d'une sous-commande (ex: `beryl h rescue`)
-|`init` |`i` |Initialise `~/.beryl/<société>/` + propose providers/domaines
+|`init` |`i` |Initialise `~/.config/beryl/<société>/` + propose providers/domaines
 |`add-provider` |`ap` |Ajoute un fournisseur à une société (credentials)
 |`add-domain` |`ad` |Ajoute un domaine à une société (zone DNS)
 |`list-hosts` |`ls` |Liste les hôtes de toutes les sociétés
@@ -79,7 +79,7 @@ Chaque commande est utilisable sous sa forme longue ou sa forme courte :
 |===
 |Long |Court |Description
 
-|`--config=PATH` |`-c` |Racine de configuration (défaut : `~/.beryl`)
+|`--config=PATH` |`-c` |Racine de configuration (défaut : `~/.config/beryl`)
 |`--help` |`-h` |Aide globale
 |`--version` |`-v` |Version de beryl
 |===
@@ -185,7 +185,7 @@ Chaque commande est utilisable sous sa forme longue ou sa forme courte :
 |`--domain=NAME` |`-d` |Forcer le domaine
 |`--provider=NAME` |`-P` |Surcharge `provider:` du merge
 |`--dry-run` |`-n` |Affiche sans écrire ni appeler d'API
-|`--write` |`-w` |Écrit `~/.beryl/<société>/<domaine>/<host>.yml`
+|`--write` |`-w` |Écrit `~/.config/beryl/<société>/<domaine>/<host>.yml`
 |`--write-to=PATH` |`-W` |Écrit dans le chemin explicite
 |`--disks=LIST` |`-k` |Disques à inclure (non-interactif)
 |`--raid=N` |`-r` |Niveau RAID (0\|1\|5\|6\|7\|10)

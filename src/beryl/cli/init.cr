@@ -7,12 +7,12 @@ require "./add_provider"
 require "./add_domain"
 
 # Sous-commande `beryl init [<société>]` (refondue ADR-014) :
-# initialise l'arborescence `~/.beryl/` avec une société.
+# initialise l'arborescence `~/.config/beryl/` avec une société.
 #
 # Crée :
-#   - `~/.beryl/_default.yml` (socle FreeBSD) si absent
-#   - `~/.beryl/<société>/` (dossier société)
-#   - `~/.beryl/<société>/_account.yml` (optionnel, métadonnées)
+#   - `~/.config/beryl/_default.yml` (socle FreeBSD) si absent
+#   - `~/.config/beryl/<société>/` (dossier société)
+#   - `~/.config/beryl/<société>/_account.yml` (optionnel, métadonnées)
 #
 # Puis propose d'enchaîner sur `beryl add-provider` et `beryl add-domain`
 # pour configurer fournisseurs et domaines.
@@ -34,7 +34,7 @@ module Beryl::CLI::Init
 
     parser = OptionParser.new do |p|
       p.banner = "USAGE : beryl init [<société>] [options]\n\n" \
-                 "Crée l'arborescence ~/.beryl/<société>/ et propose d'ajouter\n" \
+                 "Crée l'arborescence ~/.config/beryl/<société>/ et propose d'ajouter\n" \
                  "fournisseurs et domaines.\n\n" \
                  "Enchaînements possibles :\n" \
                  "  beryl add-provider <société>/<provider>\n" \

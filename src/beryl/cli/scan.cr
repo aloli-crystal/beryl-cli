@@ -17,7 +17,7 @@ require "./provider_shortcut"
 #
 # Avec `--dns` : pose les records DNS (CNAME vers le FQDN OVH),
 # le reverse DNS IPv4/IPv6 et renomme le serveur côté panel OVH.
-# Avec `--write` : écrit ~/.beryl/<domaine>/<nom>.yml (nom court
+# Avec `--write` : écrit ~/.config/beryl/<domaine>/<nom>.yml (nom court
 # demandé interactivement ou via --hostname).
 module Beryl::CLI::Scan
   EXIT_OK           =  0
@@ -135,7 +135,7 @@ module Beryl::CLI::Scan
       p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (ex: dedibox, ovh, scaleway)") { |v| provider_override = v }
       p.on("-I ID", "--server-id=ID", "ID serveur côté hébergeur (ex: Dedibox entier, Scaleway UUID). Inutile pour OVH (le FQDN est le service_name)") { |v| server_id_flag = v }
       p.on("-n", "--dry-run", "Affiche ce qui serait fait sans écrire ni appeler d'API") { dry_run = true }
-      p.on("-w", "--write", "Écrit ~/.beryl/<domaine>/<nom>.yml") { write_auto = true }
+      p.on("-w", "--write", "Écrit ~/.config/beryl/<domaine>/<nom>.yml") { write_auto = true }
       p.on("-W PATH", "--write-to=PATH", "Écrit dans le chemin explicite") { |v| write_path = File.expand_path(v, home: true) }
       p.on("-k LIST", "--disks=LIST", "Disques du pool zroot (ex: sda,sdb | 'all')") { |v| disks_flag = v }
       p.on("-r N", "--raid=N", "Niveau RAID du pool zroot (0|1|5|6|7|10)") { |v| raid_flag = v }
@@ -414,7 +414,7 @@ module Beryl::CLI::Scan
       STDERR.printf("  %-6s %s\n", rule[:verb], rule[:path])
     end
     STDERR.puts
-    STDERR.puts "Puis mettez à jour `~/.beryl/.env.yml` ou relancez `beryl init`."
+    STDERR.puts "Puis mettez à jour `~/.config/beryl/.env.yml` ou relancez `beryl init`."
     EXIT_BAD_CREDS
   rescue ex : OvhApi::Error
     STDERR.puts "beryl : erreur API OVH — #{ex.message}"

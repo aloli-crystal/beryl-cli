@@ -122,7 +122,7 @@ module Beryl::CLI::ScalewayReinstall
     # on donne ici un message actionnable.
     unless (pid = ENV["SCW_DEFAULT_PROJECT_ID"]?) && !pid.empty?
       STDERR.puts
-      STDERR.puts "beryl : SCW_DEFAULT_PROJECT_ID manquant dans ~/.beryl/.env.yml."
+      STDERR.puts "beryl : SCW_DEFAULT_PROJECT_ID manquant dans ~/.config/beryl/.env.yml."
       STDERR.puts "  `scaleway-reinstall` a besoin de lister les clés SSH du projet,"
       STDERR.puts "  ce qui requiert un project_id côté API."
       STDERR.puts
@@ -133,7 +133,7 @@ module Beryl::CLI::ScalewayReinstall
       STDERR.puts "  Ou plus rapide : cliquez sur un projet, l'UUID est dans l'URL"
       STDERR.puts "  (console.scaleway.com/project/<UUID>/…)."
       STDERR.puts
-      STDERR.puts "  Puis ajoutez dans ~/.beryl/.env.yml sous `#{host.account_name}.scaleway` :"
+      STDERR.puts "  Puis ajoutez dans ~/.config/beryl/.env.yml sous `#{host.account_name}.scaleway` :"
       STDERR.puts "    SCW_DEFAULT_PROJECT_ID: <votre_project_id>"
       STDERR.puts
       raise MissingProviderConfig.new("SCW_DEFAULT_PROJECT_ID manquant — voir instructions ci-dessus")

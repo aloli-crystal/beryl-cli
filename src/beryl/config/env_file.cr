@@ -1,7 +1,7 @@
 require "yaml"
 
 module Beryl::Config
-  # Parse de `~/.beryl/.env.yml`. Format à **trois niveaux** :
+  # Parse de `~/.config/beryl/.env.yml`. Format à **trois niveaux** :
   # `société → fournisseur → variables`.
   #
   #   aloli:
@@ -27,7 +27,12 @@ module Beryl::Config
   # `[account][provider]` concernée dans `ENV`, le temps de
   # l'exécution. Pas de contamination entre sociétés.
   class EnvFile
-    DEFAULT_PATH = File.expand_path("~/.beryl/.env.yml", home: true)
+    # Chemin par défaut de `.env.yml` (dynamique : honore
+    # `$XDG_CONFIG_HOME` si défini, sinon
+    # `~/.config/beryl/.env.yml`). Voir `Beryl::Xdg.config_dir`.
+    def self.default_path : String
+      File.join(Beryl::Xdg.config_dir, ".env.yml")
+    end
 
     # Signature interne : account → provider → var → value.
     alias Data = Hash(String, Hash(String, Hash(String, String)))
@@ -41,7 +46,8 @@ module Beryl::Config
     # Charge le fichier. Retourne une instance vide si le fichier
     # n'existe pas (certains flux — ex: `beryl init` — le créent à
     # la volée).
-    def self.load(path : String = DEFAULT_PATH) : EnvFile
+    def self.load(path : String? = nil) : EnvFile
+      path ||= default_path
       return EnvFile.new(path, Data.new) unless File.exists?(path)
       raw = YAML.parse(File.read(path))
       data = Data.new

@@ -4,7 +4,7 @@ require "../providers"
 require "./account_utils"
 
 # Sous-commande `beryl add-domain` : ajoute un domaine (zone DNS) à
-# une société et crée `~/.beryl/<société>/<domaine>.yml`.
+# une société et crée `~/.config/beryl/<société>/<domaine>.yml`.
 #
 # Formes équivalentes :
 #
@@ -38,7 +38,7 @@ module Beryl::CLI::AddDomain
       p.banner = "USAGE :\n" \
                  "  beryl add-domain <société>/<domaine>\n" \
                  "  beryl add-domain <domaine> [--account=NAME]\n\n" \
-                 "Crée ~/.beryl/<société>/<domaine>.yml."
+                 "Crée ~/.config/beryl/<société>/<domaine>.yml."
       p.on("-a NAME", "--account=NAME", "Société cible") { |v| account_flag = v }
       p.on("-n", "--dry-run", "Affiche ce qui serait fait sans écrire ni appeler d'API") { dry_run = true }
       p.on("-D NAME", "--dns-provider=NAME", "Gestionnaire DNS (cloudflare, gandi, ovh…)") { |v| dns_provider_flag = v }

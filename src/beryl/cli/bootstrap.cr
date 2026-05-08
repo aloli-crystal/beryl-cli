@@ -143,7 +143,7 @@ module Beryl::CLI::Bootstrap
     # segment contigu de vtbd* QEMU après les disques du pool boot.
     #
     # Si un pool data déclare `encryption: true`, on génère une clé
-    # 256 bits localement (côté opérateur, dans `~/.beryl/<société>/
+    # 256 bits localement (côté opérateur, dans `~/.config/beryl/<société>/
     # <domaine>/<host>.key`) AVANT de lancer le bootstrap. Si une clé
     # existe déjà à ce chemin, on la réutilise (cas d'un re-bootstrap
     # explicite après wipe — mais ATTENTION, les datasets de l'ancien

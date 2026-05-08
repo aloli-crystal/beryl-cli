@@ -309,7 +309,7 @@ zfs create -o mountpoint=/usr/local/etc -o compression=zstd-3 zroot/encrypted/zu
 NOTE: ZFS native encryption supporte `keyformat=raw` (32 bytes
 binaires), `hex` (64 chars hex) ou `passphrase` (chaîne dérivée
 PBKDF2). Aloli utilise *hex* pour la lisibilité côté opérateur
-(`cat ~/.beryl/<host>.key` produit une chaîne lisible) et la
+(`cat ~/.config/beryl/<host>.key` produit une chaîne lisible) et la
 robustesse au transport via stdin SSH.
 
 == Plan de montage par phase de boot
@@ -425,7 +425,7 @@ automatiquement. L'opérateur ouvre `zsave` manuellement avec
 === Variante A — `mode: ssh_unlock`
 
 L'opérateur garde la clé sur son poste
-(`~/.beryl/<société>/<domaine>/<host>.key`, chmod 0400). Pas de
+(`~/.config/beryl/<société>/<domaine>/<host>.key`, chmod 0400). Pas de
 Tang. Au boot :
 
 . Le serveur boote, sshd démarre, datasets chiffrés non montés.
