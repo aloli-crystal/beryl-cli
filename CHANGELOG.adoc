@@ -9,7 +9,7 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
-== 0.2.1 (8 mai 2026)
+== 0.2.2 (8 mai 2026)
 
 === Migration XDG Base Directory
 
@@ -59,6 +59,15 @@ les sociétés/hosts sont introuvables (« société inconnue »).
 242 specs unitaires verts. Fixture `spec/beryl/cli/scan_spec.cr`
 alignée sur `/tmp/.config/beryl` (cohérence avec la nouvelle
 convention).
+
+== 0.2.1 (7 mai 2026)
+
+=== Fix
+
+* `Beryl::VERSION` lue au compile-time depuis `shard.yml` (via le
+  macro `read_file`) au lieu d'une constante hardcodée. Avant :
+  désynchronisation silencieuse possible (VERSION figée à 0.1.64
+  alors que shard.yml affichait déjà 0.2.0).
 
 == 0.2.0 (29 avril 2026)
 
