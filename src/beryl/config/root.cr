@@ -481,6 +481,21 @@ module Beryl::Config
       provider_field("ovh", "price_eur")
     end
 
+    # Baie (rack) OVH du serveur, écrite par `beryl info --refresh` (`ovh.rack`).
+    # Sert à repérer les serveurs CO-LOCALISÉS (panne baie = perte simultanée).
+    def ovh_rack : String?
+      provider_field("ovh", "rack")
+    end
+
+    # IPv4 / IPv6 publiques écrites par `beryl info --refresh` (`ovh.ipv4`/`ovh.ipv6`).
+    def ovh_ipv4 : String?
+      provider_field("ovh", "ipv4")
+    end
+
+    def ovh_ipv6 : String?
+      provider_field("ovh", "ipv6")
+    end
+
     # Caractéristiques matérielles écrites par `beryl scan` (bloc top-level
     # `hardware:`). nil si jamais scanné. Source de `beryl info` (hors-ligne).
     def hardware : Beryl::HardwareSpec?

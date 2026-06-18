@@ -171,6 +171,19 @@ describe Beryl::Providers::Ovh do
     end
   end
 
+  describe "#server_detail" do
+    it "extrait gamme + rack + IPv4 en un GET" do
+      transport = FakeOvhTransport.new
+      transport.stub("GET", /dedicated\/server\/ns123\.eu$/, status: 200,
+        body: %({"commercialRange":"Advance-2","rack":"16RA09","ip":"1.2.3.4"}))
+      provider = Beryl::Providers::Ovh.new(build_fake_ovh_client(transport))
+      d = provider.server_detail("ns123.eu")
+      d[:commercial].should eq("Advance-2")
+      d[:rack].should eq("16RA09")
+      d[:ipv4].should eq("1.2.3.4")
+    end
+  end
+
   describe "#commercial_range" do
     it "lit le champ commercialRange du serveur" do
       transport = FakeOvhTransport.new

@@ -5,18 +5,29 @@ private FIXTURES = File.expand_path(File.join(__DIR__, "..", "..", "fixtures", "
 
 describe Beryl::CLI::Info do
   describe ".build_adoc" do
-    it "produit un doc AsciiDoc sectionné (synthèse + matériel)" do
+    it "produit un doc AsciiDoc sectionné (synthèse + matériel + réseau)" do
       root = Beryl::Config::Root.load(File.join(FIXTURES, "ssh-host-override"))
       out = Beryl::CLI::Info.build_adoc([root.resolve("infohw")], "test")
       out.should contain("= Inventaire des serveurs — test")
+      out.should contain(":pdf-page-layout: landscape") # paysage
       out.should contain("== Synthèse")
-      out.should contain("Serveurs:: 1")
       out.should contain("== Matériel")
-      out.should contain("| Host | Gamme | CPU | RAM | Disques | Prix/mois")
-      out.should contain("| infohw")
-      out.should contain("Advance-2")
-      out.should contain("8c/16t")
+      out.should contain("| Host | Gamme | Baie | CPU | RAM | Disques | Prix/mois")
+      out.should contain("16RA09") # rack
+      out.should contain("== Réseau")
+      out.should contain("| Host | IPv4 publique | IPv6 publique | vRack | Rôle")
+      out.should contain("1.2.3.4")
+      out.should contain("2001:db8::1")
       out.should_not contain("== Utilisation disque") # pas d'usage fourni
+    end
+
+    it "alerte sur les serveurs co-localisés (même baie)" do
+      root = Beryl::Config::Root.load(File.join(FIXTURES, "ssh-host-override"))
+      hosts = ["infohw", "infohw2"].map { |n| root.resolve(n) }
+      out = Beryl::CLI::Info.build_adoc(hosts, "test")
+      out.should contain("[WARNING]")
+      out.should contain("CO-LOCALISÉS")
+      out.should contain("*16RA09* : infohw, infohw2")
     end
 
     it "ajoute la section utilisation disque quand l'usage est fourni" do

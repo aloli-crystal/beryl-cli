@@ -94,6 +94,11 @@ module Beryl::CLI
       puts "provider:       #{host.provider || "—"}"
       puts "service_name:   #{host.ovh_service_name || host.scaleway_server_id || "—"}"
       puts "gamme:          #{host.ovh_commercial_name || "—"}"
+      puts "baie (rack):    #{host.ovh_rack || "—"}"
+      puts "prix/mois:      #{host.ovh_price ? "#{host.ovh_price} €" : "—"}"
+      puts "ipv4 publique:  #{host.ovh_ipv4 || "—"}"
+      puts "ipv6 publique:  #{host.ovh_ipv6 || "—"}"
+      puts "ip vRack:       #{host.vrack_ip || "—"}"
       puts "os:             #{host.os}"
       if hw = host.hardware
         puts "cpu:            #{hw.cpu} (#{hw.cores}c/#{hw.threads}t)"
@@ -233,16 +238,19 @@ module Beryl::CLI
             puts "  ⚠ #{h.short_name} : service_name introuvable (DNS/IP) — ignoré."
             next
           end
-          commercial = ovh.commercial_range(sn)
+          detail = ovh.server_detail(sn)
           hw = ovh.server_hardware(sn)
           price = ovh.monthly_price(sn)
+          ipv6 = Beryl::CLI::Scan.resolve_host_ipv6(h.fqdn)
           path = h.node.source_path
           content = File.read(path)
-          content = upsert_block(content, "ovh", ovh_block(sn, commercial, price))
+          content = upsert_block(content, "ovh",
+            ovh_block(sn, detail[:commercial], detail[:rack], detail[:ipv4], ipv6, price))
           content = upsert_block(content, "hardware", hardware_block(hw)) if hw
           File.write(path, content)
           ok += 1
-          puts "  ✓ #{h.short_name} : #{commercial || "gamme ?"}#{price ? " — #{price} €/mois" : ""} — " \
+          puts "  ✓ #{h.short_name} : #{detail[:commercial] || "gamme ?"}" \
+               "#{detail[:rack] ? " [#{detail[:rack]}]" : ""}#{price ? " — #{price} €/mois" : ""} — " \
                "#{hw ? "#{hw.cores}c/#{hw.threads}t, #{hw.ram_gb} Go, #{hw.disks.size} grp disque(s)" : "specs indisponibles"}"
         end
       end
@@ -251,10 +259,14 @@ module Beryl::CLI
       EXIT_OK
     end
 
-    # Lignes du bloc `ovh:` (service_name + gamme + prix/mois).
-    private def self.ovh_block(service_name : String, commercial : String?, price : String? = nil) : Array(String)
+    # Lignes du bloc `ovh:` (service_name + gamme + rack + IPs + prix/mois).
+    private def self.ovh_block(service_name : String, commercial : String?, rack : String?,
+                               ipv4 : String?, ipv6 : String?, price : String?) : Array(String)
       b = ["ovh:", "  service_name: #{service_name}"]
       b << "  commercial_name: #{commercial}" if commercial
+      b << "  rack: #{rack}" if rack
+      b << "  ipv4: #{ipv4}" if ipv4
+      b << "  ipv6: #{ipv6}" if ipv6
       b << "  price_eur: #{price}" if price
       b
     end
@@ -320,13 +332,14 @@ module Beryl::CLI
         io << "Coût mensuel:: #{"%.2f" % price} € _(prix connus)_\n\n"
 
         io << "== Matériel\n\n"
-        io << "[options=\"header\",cols=\"2,3,3,1,4,2\"]\n|===\n"
-        io << "| Host | Gamme | CPU | RAM | Disques | Prix/mois\n\n"
+        io << "[options=\"header\",cols=\"2,3,2,3,1,4,2\"]\n|===\n"
+        io << "| Host | Gamme | Baie | CPU | RAM | Disques | Prix/mois\n\n"
         hosts.each do |h|
           hw = h.hardware
           cells = [
             h.short_name,
             h.ovh_commercial_name || "—",
+            h.ovh_rack || "—",
             hw ? "#{hw.cpu} (#{hw.cores}c/#{hw.threads}t)" : "—",
             hw ? "#{hw.ram_gb} Go" : "—",
             (hw && !hw.disks.empty?) ? hw.disks.join(", ") : "—",
@@ -336,12 +349,29 @@ module Beryl::CLI
         end
         io << "|===\n\n"
 
-        vrack_hosts = hosts.select(&.vrack_ip)
-        unless vrack_hosts.empty?
-          io << "== Réseau vRack\n\n[options=\"header\",cols=\"2,2,3\"]\n|===\n"
-          io << "| Host | IP vRack | Rôle\n\n"
-          vrack_hosts.each do |h|
-            io << "| #{h.short_name} | #{h.vrack_ip} | #{esc.call(adoc_role(h))}\n"
+        # Alerte CO-LOCALISATION : baies hébergeant ≥ 2 serveurs (panne baie =
+        # perte simultanée → à éviter pour des serveurs redondants).
+        racks = Hash(String, Array(String)).new
+        hosts.each do |h|
+          if r = h.ovh_rack
+            (racks[r] ||= [] of String) << h.short_name
+          end
+        end
+        shared = racks.select { |_, v| v.size >= 2 }
+        unless shared.empty?
+          io << "[WARNING]\n====\n"
+          io << "Serveurs CO-LOCALISÉS (même baie → une panne de baie les perd ensemble) :\n\n"
+          shared.each { |r, hs| io << "* *#{esc.call(r)}* : #{hs.join(", ")}\n" }
+          io << "====\n\n"
+        end
+
+        net_hosts = hosts.select { |h| h.ovh_ipv4 || h.ovh_ipv6 || h.vrack_ip }
+        unless net_hosts.empty?
+          io << "== Réseau\n\n[options=\"header\",cols=\"2,2,3,2,2\"]\n|===\n"
+          io << "| Host | IPv4 publique | IPv6 publique | vRack | Rôle\n\n"
+          net_hosts.each do |h|
+            io << "| #{h.short_name} | #{h.ovh_ipv4 || "—"} | #{h.ovh_ipv6 || "—"} "
+            io << "| #{h.vrack_ip || "—"} | #{esc.call(adoc_role(h))}\n"
           end
           io << "|===\n\n"
         end

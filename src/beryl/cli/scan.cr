@@ -1173,6 +1173,15 @@ module Beryl::CLI::Scan
     nil
   end
 
+  # Résout une IPv6 depuis un host : déjà une IPv6 (contient `:`) → tel quel ;
+  # sinon DNS (AAAA). nil si aucune (host sans IPv6 publique).
+  def self.resolve_host_ipv6(host : String) : String?
+    return host if host.includes?(':')
+    Socket::Addrinfo.resolve(host, 22, family: Socket::Family::INET6, type: Socket::Type::STREAM).first?.try(&.ip_address.address)
+  rescue
+    nil
+  end
+
   def self.default_hostname(fqdn : String) : String
     fqdn.split('.').first
   end

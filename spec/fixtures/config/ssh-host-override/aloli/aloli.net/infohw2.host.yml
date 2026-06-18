@@ -1,0 +1,15 @@
+provider: ovh
+ovh:
+  service_name: ns998.eu
+  commercial_name: Advance-2
+  rack: 16RA09
+  ipv4: 1.2.3.5
+hardware:
+  cpu: AMD EPYC 4344P
+  cores: 8
+  threads: 16
+  ram_gb: 64
+  disks:
+    - 2 x 960 GB SSD
+freebsd:
+  hostname: infohw2
