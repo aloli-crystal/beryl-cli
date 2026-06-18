@@ -200,6 +200,30 @@ module Beryl::Providers
       nil
     end
 
+    # Index { IP principale => service_name } de TOUS les serveurs dédiés du
+    # compte, en UNE passe (liste + un GET par serveur). Sert au batch
+    # `beryl info --refresh` : résoudre le service_name de chaque host par son
+    # IP sans relister à chaque fois. Couvert par `GET /dedicated/server*`.
+    def ip_to_service_index : Hash(String, String)
+      idx = {} of String => String
+      resp = client.call("GET", "/dedicated/server")
+      return idx unless resp
+      resp.as_a.each do |s|
+        sn = s.as_s?
+        next unless sn
+        details = begin
+          client.call("GET", "/dedicated/server/#{sn}")
+        rescue
+          next
+        end
+        next unless details
+        if ip = details["ip"]?.try(&.as_s?)
+          idx[ip] = sn
+        end
+      end
+      idx
+    end
+
     # --- vRack (réseau privé OVH) ---
 
     # Noms de service des vRacks du compte (ex. "pn-12345").

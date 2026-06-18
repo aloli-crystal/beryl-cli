@@ -188,6 +188,19 @@ describe Beryl::Providers::Ovh do
     end
   end
 
+  describe "#ip_to_service_index" do
+    it "construit la map IP => service_name en une passe" do
+      transport = FakeOvhTransport.new
+      transport.stub("GET", /dedicated\/server$/, status: 200, body: %(["ns1.eu","ns2.eu"]))
+      transport.stub("GET", /dedicated\/server\/ns1\.eu$/, status: 200, body: %({"ip":"1.1.1.1"}))
+      transport.stub("GET", /dedicated\/server\/ns2\.eu$/, status: 200, body: %({"ip":"2.2.2.2"}))
+      provider = Beryl::Providers::Ovh.new(build_fake_ovh_client(transport))
+      idx = provider.ip_to_service_index
+      idx["1.1.1.1"].should eq("ns1.eu")
+      idx["2.2.2.2"].should eq("ns2.eu")
+    end
+  end
+
   describe "#server_hardware" do
     it "extrait CPU, cœurs/threads, RAM et disques (groupes)" do
       transport = FakeOvhTransport.new

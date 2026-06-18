@@ -14,13 +14,15 @@ module Beryl::CLI
 
     def self.run(config_root : String, args : Array(String)) : Int32
       usage = false
+      refresh = false
       account_hint : String? = nil
       domain_hint : String? = nil
       positional = [] of String
 
       parser = OptionParser.new do |p|
-        p.banner = "USAGE : beryl info [host] [--usage]"
+        p.banner = "USAGE : beryl info [host] [--usage]  |  beryl info --refresh [société|domaine]"
         p.on("--usage", "Utilisation LIVE (zpool/df/uptime via SSH)") { usage = true }
+        p.on("--refresh", "Rafraîchit nom commercial + specs via l'API OVH (écrit les host.yml, SANS SSH)") { refresh = true }
         p.on("-a NAME", "--account=NAME", "Forcer la société") { |v| account_hint = v }
         p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
         p.on("-h", "--help", "Aide") { puts p; exit 0 }
@@ -29,6 +31,8 @@ module Beryl::CLI
       parser.parse(args)
 
       root = Beryl::Config::Root.load(config_root)
+      return refresh_metadata(root, positional.first?) if refresh
+
       if raw = positional.first?
         parsed = Beryl::CLI::AccountUtils.split_host_path(raw)
         host = root.resolve(parsed[:host],
@@ -118,6 +122,107 @@ module Beryl::CLI
       end
     rescue ex
       puts "  ✗ erreur live : #{ex.message}"
+    end
+
+    # `--refresh [périmètre]` : pour chaque host OVH du périmètre (société,
+    # domaine, host, ou tous), récupère gamme + specs via l'API OVH et les
+    # écrit dans le host.yml. AUCUN SSH, aucune modif serveur. Le périmètre
+    # filtre par société / domaine / fqdn / nom court.
+    private def self.refresh_metadata(root : Beryl::Config::Root, scope : String?) : Int32
+      targets = root.all_hosts_by_fqdn.keys.sort.compact_map do |fqdn|
+        begin
+          root.resolve(fqdn)
+        rescue
+          nil
+        end
+      end
+      if s = scope
+        targets = targets.select do |h|
+          {h.account_name, h.domain_name, h.fqdn, h.short_name}.includes?(s)
+        end
+      end
+      ovh_targets = targets.reject(&.virtual).select { |h| h.provider == "ovh" }
+      if ovh_targets.empty?
+        puts "Aucun host OVH dans le périmètre #{scope || "(tous)"}."
+        return EXIT_OK
+      end
+
+      ok = 0
+      ovh_targets.group_by(&.account_name).each do |account, hosts|
+        hosts.first.apply_all_credentials_to_env!
+        ovh = Beryl::Providers::Ovh.new
+        unless ovh.available?
+          puts "⚠ #{account} : credentials OVH absents — #{hosts.size} host(s) ignoré(s)."
+          next
+        end
+        puts "société #{account} : index des serveurs OVH (API)…"
+        index = ovh.ip_to_service_index
+        hosts.each do |h|
+          sn = h.ovh_service_name
+          if sn.nil?
+            ip = Beryl::CLI::Scan.resolve_host_ipv4(h.ssh_host)
+            sn = ip ? index[ip]? : nil
+          end
+          unless sn
+            puts "  ⚠ #{h.short_name} : service_name introuvable (DNS/IP) — ignoré."
+            next
+          end
+          commercial = ovh.commercial_range(sn)
+          hw = ovh.server_hardware(sn)
+          path = h.node.source_path
+          content = File.read(path)
+          content = upsert_block(content, "ovh", ovh_block(sn, commercial))
+          content = upsert_block(content, "hardware", hardware_block(hw)) if hw
+          File.write(path, content)
+          ok += 1
+          puts "  ✓ #{h.short_name} : #{commercial || "gamme ?"} — " \
+               "#{hw ? "#{hw.cores}c/#{hw.threads}t, #{hw.ram_gb} Go, #{hw.disks.size} grp disque(s)" : "specs indisponibles"}"
+        end
+      end
+      puts
+      puts "#{ok}/#{ovh_targets.size} host(s) rafraîchi(s). `beryl info` pour la vue d'ensemble."
+      EXIT_OK
+    end
+
+    # Lignes du bloc `ovh:` (service_name + gamme).
+    private def self.ovh_block(service_name : String, commercial : String?) : Array(String)
+      b = ["ovh:", "  service_name: #{service_name}"]
+      b << "  commercial_name: #{commercial}" if commercial
+      b
+    end
+
+    # Lignes du bloc `hardware:` (specs déclarées par le provider).
+    private def self.hardware_block(hw : Beryl::HardwareSpec) : Array(String)
+      b = ["hardware:", "  cpu: #{hw.cpu}", "  cores: #{hw.cores}",
+           "  threads: #{hw.threads}", "  ram_gb: #{hw.ram_gb}"]
+      b << "  raid: #{hw.raid}" if hw.raid
+      unless hw.disks.empty?
+        b << "  disks:"
+        hw.disks.each { |d| b << "    - #{d}" }
+      end
+      b
+    end
+
+    # Remplace le bloc top-level `key:` (sa ligne + les lignes indentées qui
+    # suivent) par `block`, en PRÉSERVANT tout le reste (commentaires inclus).
+    # Si le bloc est absent, l'ajoute en fin de fichier (ligne vide de séparation).
+    def self.upsert_block(content : String, key : String, block : Array(String)) : String
+      lines = content.split('\n')
+      if start = lines.index { |l| l.rstrip == "#{key}:" }
+        i = start + 1
+        while i < lines.size && lines[i].starts_with?(" ")
+          i += 1
+        end
+        return (lines[0...start] + block + lines[i..]).join('\n')
+      end
+      out = lines.dup
+      while !out.empty? && out.last.empty?
+        out.pop
+      end
+      out << ""
+      out.concat(block)
+      out << ""
+      out.join('\n')
     end
 
     # Table alignée (colonnes ljust), en-tête souligné.

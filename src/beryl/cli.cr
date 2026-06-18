@@ -164,7 +164,7 @@ module Beryl::CLI
     {"env", "e", "Gère le coffre de credentials chiffré (.env.toml.age)"},
     {"follow-install", "fi", "Suit l'installation FreeBSD en cours"},
     {"help", "h", "Aide globale ou d'une sous-commande précise"},
-    {"info", "nf", "Inventaire des serveurs (gamme, CPU, RAM, disques ; --usage = live)"},
+    {"info", "nf", "Inventaire serveurs (gamme/CPU/RAM/disques ; --usage = live ; --refresh = MAJ via API OVH)"},
     {"init", "i", "Initialise ~/.config/beryl/<société>/ + providers/domaines"},
     {"list-hosts", "ls", "Liste les hôtes de toutes les sociétés"},
     {"prep-rescue", "pr", "HTTP local pour préparer un rescue Debian"},
