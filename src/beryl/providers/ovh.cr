@@ -200,6 +200,24 @@ module Beryl::Providers
       nil
     end
 
+    # Prix de renouvellement MENSUEL du serveur (HT, devise du compte), via
+    # `serviceInfos` → `serviceId` → `GET /services/{id}` (champ
+    # `billing.pricing.price.value`). Chaîne formatée "89.99", nil si l'API ne
+    # répond pas / ne l'expose pas / droit `GET /services/*` absent. Best-effort.
+    def monthly_price(service_name : String) : String?
+      infos = client.call("GET", "/dedicated/server/#{service_name}/serviceInfos")
+      sid = infos.try(&.["serviceId"]?).try(&.as_i?)
+      return nil unless sid
+      svc = client.call("GET", "/services/#{sid}")
+      return nil unless svc
+      v = svc["billing"]?.try(&.["pricing"]?).try(&.["price"]?).try(&.["value"]?)
+      val = v.try(&.as_f?) || v.try(&.as_i?).try(&.to_f)
+      return nil unless val
+      "%.2f" % val
+    rescue
+      nil
+    end
+
     # Index { IP principale => service_name } de TOUS les serveurs dédiés du
     # compte, en UNE passe (liste + un GET par serveur). Sert au batch
     # `beryl info --refresh` : résoudre le service_name de chaque host par son
@@ -375,6 +393,7 @@ module Beryl::Providers
         {verb: "POST", path: "/domain/zone/*/refresh"},
         {verb: "PUT", path: "/ip/*/reverse"},
         {verb: "POST", path: "/ip/*/reverse"},
+        {verb: "GET", path: "/services/*"}, # prix/mois (billing) + infos service
         {verb: "PUT", path: "/services/*"}, # displayName rename (avril 2026)
         {verb: "GET", path: "/vrack"},      # liste des vRacks
         {verb: "GET", path: "/vrack/*"},    # serveurs/interfaces du vRack + tasks

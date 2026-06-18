@@ -15,14 +15,16 @@ module Beryl::CLI
     def self.run(config_root : String, args : Array(String)) : Int32
       usage = false
       refresh = false
+      adoc = false
       account_hint : String? = nil
       domain_hint : String? = nil
       positional = [] of String
 
       parser = OptionParser.new do |p|
-        p.banner = "USAGE : beryl info [host] [--usage]  |  beryl info --refresh [société|domaine]"
+        p.banner = "USAGE : beryl info [host] [--usage] [--adoc]  |  beryl info --refresh [société|domaine]"
         p.on("--usage", "Utilisation LIVE (zpool/df/uptime via SSH)") { usage = true }
-        p.on("--refresh", "Rafraîchit nom commercial + specs via l'API OVH (écrit les host.yml, SANS SSH)") { refresh = true }
+        p.on("--adoc", "Sort un document AsciiDoc (table récap du parc) sur stdout") { adoc = true }
+        p.on("--refresh", "Rafraîchit gamme + specs + prix via l'API OVH (écrit les host.yml, SANS SSH)") { refresh = true }
         p.on("-a NAME", "--account=NAME", "Forcer la société") { |v| account_hint = v }
         p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
         p.on("-h", "--help", "Aide") { puts p; exit 0 }
@@ -32,6 +34,10 @@ module Beryl::CLI
 
       root = Beryl::Config::Root.load(config_root)
       return refresh_metadata(root, positional.first?) if refresh
+      if adoc
+        puts build_adoc(scoped_hosts(root, positional.first?), positional.first?)
+        return EXIT_OK
+      end
 
       if raw = positional.first?
         parsed = Beryl::CLI::AccountUtils.split_host_path(raw)
@@ -128,20 +134,21 @@ module Beryl::CLI
     # domaine, host, ou tous), récupère gamme + specs via l'API OVH et les
     # écrit dans le host.yml. AUCUN SSH, aucune modif serveur. Le périmètre
     # filtre par société / domaine / fqdn / nom court.
-    private def self.refresh_metadata(root : Beryl::Config::Root, scope : String?) : Int32
-      targets = root.all_hosts_by_fqdn.keys.sort.compact_map do |fqdn|
+    # Hosts résolus du périmètre (société / domaine / fqdn / nom court ; vide = tous).
+    private def self.scoped_hosts(root : Beryl::Config::Root, scope : String?) : Array(Beryl::Config::ResolvedHost)
+      hosts = root.all_hosts_by_fqdn.keys.sort.compact_map do |fqdn|
         begin
           root.resolve(fqdn)
         rescue
           nil
         end
       end
-      if s = scope
-        targets = targets.select do |h|
-          {h.account_name, h.domain_name, h.fqdn, h.short_name}.includes?(s)
-        end
-      end
-      ovh_targets = targets.reject(&.virtual).select { |h| h.provider == "ovh" }
+      return hosts unless (s = scope)
+      hosts.select { |h| {h.account_name, h.domain_name, h.fqdn, h.short_name}.includes?(s) }
+    end
+
+    private def self.refresh_metadata(root : Beryl::Config::Root, scope : String?) : Int32
+      ovh_targets = scoped_hosts(root, scope).reject(&.virtual).select { |h| h.provider == "ovh" }
       if ovh_targets.empty?
         puts "Aucun host OVH dans le périmètre #{scope || "(tous)"}."
         return EXIT_OK
@@ -169,13 +176,14 @@ module Beryl::CLI
           end
           commercial = ovh.commercial_range(sn)
           hw = ovh.server_hardware(sn)
+          price = ovh.monthly_price(sn)
           path = h.node.source_path
           content = File.read(path)
-          content = upsert_block(content, "ovh", ovh_block(sn, commercial))
+          content = upsert_block(content, "ovh", ovh_block(sn, commercial, price))
           content = upsert_block(content, "hardware", hardware_block(hw)) if hw
           File.write(path, content)
           ok += 1
-          puts "  ✓ #{h.short_name} : #{commercial || "gamme ?"} — " \
+          puts "  ✓ #{h.short_name} : #{commercial || "gamme ?"}#{price ? " — #{price} €/mois" : ""} — " \
                "#{hw ? "#{hw.cores}c/#{hw.threads}t, #{hw.ram_gb} Go, #{hw.disks.size} grp disque(s)" : "specs indisponibles"}"
         end
       end
@@ -184,10 +192,11 @@ module Beryl::CLI
       EXIT_OK
     end
 
-    # Lignes du bloc `ovh:` (service_name + gamme).
-    private def self.ovh_block(service_name : String, commercial : String?) : Array(String)
+    # Lignes du bloc `ovh:` (service_name + gamme + prix/mois).
+    private def self.ovh_block(service_name : String, commercial : String?, price : String? = nil) : Array(String)
       b = ["ovh:", "  service_name: #{service_name}"]
       b << "  commercial_name: #{commercial}" if commercial
+      b << "  price_eur: #{price}" if price
       b
     end
 
@@ -223,6 +232,55 @@ module Beryl::CLI
       out.concat(block)
       out << ""
       out.join('\n')
+    end
+
+    # Document AsciiDoc récapitulatif du parc (table + totaux). Régénérable
+    # (`beryl info --adoc <périmètre> > inventaire.adoc`).
+    def self.build_adoc(hosts : Array(Beryl::Config::ResolvedHost), scope : String?) : String
+      String.build do |io|
+        io << "= Inventaire des serveurs"
+        io << " — " << scope if scope
+        io << '\n'
+        io << ":toc:\n"
+        io << ":generated: " << Beryl.format_timestamp(Time.local) << "\n\n"
+        io << "[cols=\"1,2,3,1,3,1,1,1\",options=\"header\"]\n|===\n"
+        io << "| Host | Gamme | CPU | RAM | Disques | vRack | Rôle | Prix/mois\n\n"
+
+        total_cores = 0
+        total_ram = 0
+        total_price = 0.0
+        hosts.each do |h|
+          hw = h.hardware
+          if hw
+            total_cores += hw.cores
+            total_ram += hw.ram_gb
+          end
+          total_price += (h.ovh_price.try(&.to_f?) || 0.0)
+          cells = [
+            h.short_name,
+            h.ovh_commercial_name || "—",
+            hw ? "#{hw.cpu} (#{hw.cores}c/#{hw.threads}t)" : "—",
+            hw ? "#{hw.ram_gb} Go" : "—",
+            (hw && !hw.disks.empty?) ? hw.disks.join(" + ") : "—",
+            h.vrack_ip || "—",
+            adoc_role(h),
+            h.ovh_price ? "#{h.ovh_price} €" : "—",
+          ]
+          io << "| " << cells.map { |c| c.gsub("|", "\\|") }.join(" | ") << '\n'
+        end
+
+        io << "|===\n\n"
+        io << "_#{hosts.size} serveurs · #{total_cores} cœurs · #{total_ram} Go RAM · "
+        io << "#{"%.2f" % total_price} €/mois (somme des prix connus)._\n"
+      end
+    end
+
+    # Rôle réseau lisible pour la table : bastion / caché / public / — (pas de vRack).
+    private def self.adoc_role(h : Beryl::Config::ResolvedHost) : String
+      return "bastion" if h.bastion?
+      return "caché" if h.hidden?
+      return "public" if h.vrack_ip
+      "—"
     end
 
     # Table alignée (colonnes ljust), en-tête souligné.

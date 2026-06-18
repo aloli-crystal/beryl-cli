@@ -188,6 +188,25 @@ describe Beryl::Providers::Ovh do
     end
   end
 
+  describe "#monthly_price" do
+    it "résout serviceInfos → serviceId → /services/{id} → prix" do
+      transport = FakeOvhTransport.new
+      transport.stub("GET", /ns123\.eu\/serviceInfos$/, status: 200, body: %({"serviceId":42}))
+      transport.stub("GET", /services\/42$/, status: 200,
+        body: %({"billing":{"pricing":{"price":{"value":89.99,"currencyCode":"EUR"}}}}))
+      provider = Beryl::Providers::Ovh.new(build_fake_ovh_client(transport))
+      provider.monthly_price("ns123.eu").should eq("89.99")
+    end
+
+    it "renvoie nil si le prix n'est pas exposé" do
+      transport = FakeOvhTransport.new
+      transport.stub("GET", /ns123\.eu\/serviceInfos$/, status: 200, body: %({"serviceId":42}))
+      transport.stub("GET", /services\/42$/, status: 200, body: %({"billing":{}}))
+      provider = Beryl::Providers::Ovh.new(build_fake_ovh_client(transport))
+      provider.monthly_price("ns123.eu").should be_nil
+    end
+  end
+
   describe "#ip_to_service_index" do
     it "construit la map IP => service_name en une passe" do
       transport = FakeOvhTransport.new

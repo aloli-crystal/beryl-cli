@@ -1,7 +1,23 @@
 require "../../spec_helper"
 require "../../../src/beryl/cli/info"
 
+private FIXTURES = File.expand_path(File.join(__DIR__, "..", "..", "fixtures", "config"))
+
 describe Beryl::CLI::Info do
+  describe ".build_adoc" do
+    it "produit une table AsciiDoc avec en-tête, données host et totaux" do
+      root = Beryl::Config::Root.load(File.join(FIXTURES, "ssh-host-override"))
+      hosts = ["infohw"].map { |n| root.resolve(n) }
+      out = Beryl::CLI::Info.build_adoc(hosts, "test")
+      out.should contain("= Inventaire des serveurs — test")
+      out.should contain("| Host | Gamme | CPU | RAM | Disques | vRack | Rôle | Prix/mois")
+      out.should contain("| infohw")
+      out.should contain("Advance-2")
+      out.should contain("8c/16t")
+      out.should contain("1 serveurs")
+    end
+  end
+
   describe ".upsert_block" do
     it "remplace un bloc existant en préservant les autres clés" do
       content = "provider: ovh\novh:\n  service_name: old\nvrack:\n  name: pn-1\n"

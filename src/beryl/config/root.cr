@@ -475,6 +475,12 @@ module Beryl::Config
       provider_field("ovh", "commercial_name")
     end
 
+    # Prix de renouvellement mensuel (HT) écrit par `beryl info --refresh`
+    # (`ovh.price_eur`), ou posé à la main. Chaîne (ex. "89.99"), nil si absent.
+    def ovh_price : String?
+      provider_field("ovh", "price_eur")
+    end
+
     # Caractéristiques matérielles écrites par `beryl scan` (bloc top-level
     # `hardware:`). nil si jamais scanné. Source de `beryl info` (hors-ligne).
     def hardware : Beryl::HardwareSpec?
