@@ -30,6 +30,44 @@ describe Beryl::CLI::Info do
     end
   end
 
+  describe ".parse_zpool" do
+    it "une ligne par pool" do
+      txt = "zroot\t460G\t12G\t448G\t3%\nzdata\t14T\t5T\t9T\t36%"
+      rows = Beryl::CLI::Info.parse_zpool(txt)
+      rows.map(&.label).should eq(["zroot", "zdata"])
+      rows[1].pct.should eq("36%")
+    end
+  end
+
+  describe ".parse_df" do
+    it "regroupe les datasets ZFS par pool (montage racine), filtre les pseudo-FS" do
+      df = <<-DF
+        Filesystem            Size    Used   Avail Capacity  Mounted on
+        zroot/ROOT/default    430G    8.0G    422G     2%    /
+        zroot/usr/home        422G    100K    422G     0%    /usr/home
+        zdata                  14T    5.0T    9.0T    36%    /data
+        devfs                  1.0K    1.0K      0B   100%    /dev
+        tmpfs                  4.0G    1.0M    4.0G     0%    /tmp
+        DF
+      rows = Beryl::CLI::Info.parse_df(df)
+      rows.map(&.label).should eq(["zroot", "zdata"])
+      rows[0].used.should eq("8.0G") # racine du pool (/), pas /usr/home
+      rows[1].pct.should eq("36%")
+    end
+
+    it "garde les devices classiques par montage (Linux/UFS)" do
+      df = <<-DF
+        Filesystem      Size  Used Avail Use% Mounted on
+        /dev/sda1        50G   20G   30G  40% /
+        /dev/sdb1       2.0T  1.2T  800G  60% /data
+        tmpfs           7.8G     0  7.8G   0% /run
+        DF
+      rows = Beryl::CLI::Info.parse_df(df)
+      rows.map(&.label).should eq(["/", "/data"])
+      rows[1].used.should eq("1.2T")
+    end
+  end
+
   describe ".upsert_block" do
     it "remplace un bloc existant en préservant les autres clés" do
       content = "provider: ovh\novh:\n  service_name: old\nvrack:\n  name: pn-1\n"

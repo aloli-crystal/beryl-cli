@@ -135,28 +135,47 @@ module Beryl::CLI
     private def self.gather_usage(host : Beryl::Config::ResolvedHost) : Array(UsageRow)?
       conn = host.connection(host.connect_user)
       return nil unless conn.exec("uname 2>/dev/null", raise_on_error: false).success?
-      rows = [] of UsageRow
       zp = conn.exec("zpool list -H -o name,size,alloc,free,cap 2>/dev/null", raise_on_error: false).stdout.strip
-      if !zp.empty?
-        zp.each_line do |l|
-          f = l.split
-          rows << UsageRow.new(f[0], f[1], f[2], f[3], f[4]) if f.size >= 5
-        end
-      else
-        skip = {"devfs", "tmpfs", "procfs", "fdescfs", "linprocfs", "none", "run", "udev", "overlay"}
-        df = conn.exec("df -h 2>/dev/null", raise_on_error: false).stdout.strip
-        df.split('\n')[1..].each do |l|
-          f = l.split
-          next if f.size < 6
-          mnt = f[5..].join(" ")
-          next if skip.includes?(f[0]) || !mnt.starts_with?("/")
-          next if {"/dev", "/proc", "/sys", "/run"}.any? { |p| mnt == p || mnt.starts_with?("#{p}/") }
-          rows << UsageRow.new(mnt, f[1], f[2], f[3], f[4])
-        end
-      end
-      rows
+      return parse_zpool(zp) unless zp.empty?
+      # `df -h` SANS sudo (suggestion de Philippe) — résumé par pool.
+      parse_df(conn.exec("df -h 2>/dev/null", raise_on_error: false).stdout.strip)
     rescue
       nil
+    end
+
+    # Parse `zpool list -H -o name,size,alloc,free,cap` → une ligne par pool.
+    def self.parse_zpool(output : String) : Array(UsageRow)
+      output.each_line.compact_map do |l|
+        f = l.split
+        f.size >= 5 ? UsageRow.new(f[0], f[1], f[2], f[3], f[4]) : nil
+      end.to_a
+    end
+
+    # Parse `df -h` → utilisation par POOL : un dataset ZFS (`zroot/...`, `zdata`)
+    # est regroupé sous son pool (segment avant le 1er `/`), en gardant le montage
+    # le plus court (racine du pool) ; un device classique (UFS/ext4) = son montage.
+    # Pseudo-FS (devfs/tmpfs/proc…) filtrés. Fonction PURE (sans sudo côté hôte).
+    def self.parse_df(output : String) : Array(UsageRow)
+      skip = {"devfs", "tmpfs", "procfs", "fdescfs", "linprocfs", "none", "run", "udev", "overlay"}
+      best = {} of String => {mnt: String, row: UsageRow}
+      order = [] of String
+      output.split('\n')[1..].each do |l|
+        f = l.split
+        next if f.size < 6
+        fs = f[0]
+        mnt = f[5..].join(" ")
+        next if skip.includes?(fs) || !mnt.starts_with?("/")
+        next if {"/dev", "/proc", "/sys", "/run"}.any? { |p| mnt == p || mnt.starts_with?("#{p}/") }
+        # Dataset ZFS (ne commence PAS par `/`, ex. `zroot/...` ou `zdata`) →
+        # regroupé par pool ; device classique (`/dev/...`) → par montage.
+        key = fs.starts_with?('/') ? mnt : fs.split('/').first
+        cur = best[key]?
+        if cur.nil? || mnt.size < cur[:mnt].size
+          order << key unless best.has_key?(key)
+          best[key] = {mnt: mnt, row: UsageRow.new(key, f[1], f[2], f[3], f[4])}
+        end
+      end
+      order.map { |k| best[k][:row] }
     end
 
     # Collecte l'usage de chaque host (pour `--adoc --usage`). Progrès sur STDERR
@@ -287,6 +306,8 @@ module Beryl::CLI
         io << "= Inventaire des serveurs"
         io << " — " << scope if scope
         io << "\n:toc:\n:toclevels: 2\n"
+        # Rendu PDF en PAYSAGE (asciidoctor-pdf) : tables larges lisibles.
+        io << ":pdf-page-layout: landscape\n:pdf-page-size: A4\n"
         io << ":generated: " << Beryl.format_timestamp(Time.local) << "\n\n"
 
         cores = hosts.sum { |h| h.hardware.try(&.cores) || 0 }
