@@ -5,16 +5,28 @@ private FIXTURES = File.expand_path(File.join(__DIR__, "..", "..", "fixtures", "
 
 describe Beryl::CLI::Info do
   describe ".build_adoc" do
-    it "produit une table AsciiDoc avec en-tête, données host et totaux" do
+    it "produit un doc AsciiDoc sectionné (synthèse + matériel)" do
       root = Beryl::Config::Root.load(File.join(FIXTURES, "ssh-host-override"))
-      hosts = ["infohw"].map { |n| root.resolve(n) }
-      out = Beryl::CLI::Info.build_adoc(hosts, "test")
+      out = Beryl::CLI::Info.build_adoc([root.resolve("infohw")], "test")
       out.should contain("= Inventaire des serveurs — test")
-      out.should contain("| Host | Gamme | CPU | RAM | Disques | vRack | Rôle | Prix/mois")
+      out.should contain("== Synthèse")
+      out.should contain("Serveurs:: 1")
+      out.should contain("== Matériel")
+      out.should contain("| Host | Gamme | CPU | RAM | Disques | Prix/mois")
       out.should contain("| infohw")
       out.should contain("Advance-2")
       out.should contain("8c/16t")
-      out.should contain("1 serveurs")
+      out.should_not contain("== Utilisation disque") # pas d'usage fourni
+    end
+
+    it "ajoute la section utilisation disque quand l'usage est fourni" do
+      root = Beryl::Config::Root.load(File.join(FIXTURES, "ssh-host-override"))
+      h = root.resolve("infohw")
+      usage = {} of String => Array(Beryl::CLI::Info::UsageRow)?
+      usage[h.fqdn] = [Beryl::CLI::Info::UsageRow.new("zroot", "460G", "12G", "448G", "3%")]
+      out = Beryl::CLI::Info.build_adoc([h], "test", usage)
+      out.should contain("== Utilisation disque")
+      out.should contain("| infohw | zroot | 460G | 12G | 448G | 3%")
     end
   end
 

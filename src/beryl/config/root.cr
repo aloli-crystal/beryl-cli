@@ -528,6 +528,25 @@ module Beryl::Config
       @merged[YAML::Any.new("user")]?.try(&.as_s?) || "root"
     end
 
+    # Utilisateur de connexion SSH effectif : le PREMIER user sudo-capable de
+    # `freebsd.users` (groupe `wheel` ou `sudo: true`), à défaut `user`. Sur les
+    # hôtes durcis le root SSH est fermé → beryl entre par ce compte. Aligné sur
+    # `beryl apply`/`vrack` (qui dérivaient cette logique chacun de leur côté).
+    def connect_user : String
+      if users = @merged[YAML::Any.new("freebsd")]?.try(&.as_h?).try(&.[YAML::Any.new("users")]?).try(&.as_a?)
+        users.each do |u|
+          uh = u.as_h?
+          next unless uh
+          name = uh[YAML::Any.new("name")]?.try(&.as_s?)
+          next unless name
+          wheel = uh[YAML::Any.new("groups")]?.try(&.as_a?).try(&.any? { |g| g.as_s? == "wheel" }) || false
+          sudo = uh[YAML::Any.new("sudo")]?.try(&.as_bool?) == true
+          return name if wheel || sudo
+        end
+      end
+      user
+    end
+
     # Hôte de rebond SSH (bastion) pour joindre ce host, ex.
     # `deploy@zsbg.quimeo.net`. Passé à ssh via `-o ProxyJump=…` (donc
     # aussi à scp). INDISPENSABLE pour les hôtes cachés derrière le vRack

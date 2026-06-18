@@ -35,7 +35,9 @@ module Beryl::CLI
       root = Beryl::Config::Root.load(config_root)
       return refresh_metadata(root, positional.first?) if refresh
       if adoc
-        puts build_adoc(scoped_hosts(root, positional.first?), positional.first?)
+        hosts = scoped_hosts(root, positional.first?)
+        usage_map = usage ? gather_usage_map(hosts) : nil
+        puts build_adoc(hosts, positional.first?, usage_map)
         return EXIT_OK
       end
 
@@ -109,25 +111,63 @@ module Beryl::CLI
       print_usage(host)
     end
 
-    # Interroge le host EN LIVE (best-effort) : pools ZFS, remplissage, charge.
+    # Affiche l'utilisation disque LIVE d'un host (table). Best-effort.
     private def self.print_usage(host : Beryl::Config::ResolvedHost) : Nil
-      conn = host.connection
-      unless conn.exec("uname -s", raise_on_error: false).stdout.strip == "FreeBSD"
-        puts "  ✗ injoignable (ou pas FreeBSD) — vérifiez l'accès SSH."
+      rows = gather_usage(host)
+      if rows.nil?
+        puts "  ✗ injoignable — vérifiez l'accès SSH (user #{host.connect_user})."
         return
       end
-      {
-        "zpool"  => "zpool list 2>/dev/null",
-        "fs"     => "df -h -t zfs,ufs 2>/dev/null",
-        "charge" => "uptime 2>/dev/null",
-      }.each do |label, cmd|
-        out = conn.exec(cmd, raise_on_error: false).stdout.strip
-        next if out.empty?
-        puts "  [#{label}]"
-        out.each_line { |l| puts "    #{l}" }
+      if rows.empty?
+        puts "  (aucun volume détecté)"
+        return
       end
-    rescue ex
-      puts "  ✗ erreur live : #{ex.message}"
+      print_table(["VOLUME", "TAILLE", "UTILISÉ", "LIBRE", "%"],
+        rows.map { |r| [r.label, r.size, r.used, r.free, r.pct] })
+    end
+
+    # Utilisation disque normalisée (une ligne par volume).
+    record UsageRow, label : String, size : String, used : String, free : String, pct : String
+
+    # Récupère l'utilisation disque EN LIVE (best-effort) : pools ZFS
+    # (`zpool list`) ou, à défaut, systèmes de fichiers réels (`df -h`, pseudo-FS
+    # filtrés). nil si le host est injoignable. Marche FreeBSD ET Linux.
+    private def self.gather_usage(host : Beryl::Config::ResolvedHost) : Array(UsageRow)?
+      conn = host.connection(host.connect_user)
+      return nil unless conn.exec("uname 2>/dev/null", raise_on_error: false).success?
+      rows = [] of UsageRow
+      zp = conn.exec("zpool list -H -o name,size,alloc,free,cap 2>/dev/null", raise_on_error: false).stdout.strip
+      if !zp.empty?
+        zp.each_line do |l|
+          f = l.split
+          rows << UsageRow.new(f[0], f[1], f[2], f[3], f[4]) if f.size >= 5
+        end
+      else
+        skip = {"devfs", "tmpfs", "procfs", "fdescfs", "linprocfs", "none", "run", "udev", "overlay"}
+        df = conn.exec("df -h 2>/dev/null", raise_on_error: false).stdout.strip
+        df.split('\n')[1..].each do |l|
+          f = l.split
+          next if f.size < 6
+          mnt = f[5..].join(" ")
+          next if skip.includes?(f[0]) || !mnt.starts_with?("/")
+          next if {"/dev", "/proc", "/sys", "/run"}.any? { |p| mnt == p || mnt.starts_with?("#{p}/") }
+          rows << UsageRow.new(mnt, f[1], f[2], f[3], f[4])
+        end
+      end
+      rows
+    rescue
+      nil
+    end
+
+    # Collecte l'usage de chaque host (pour `--adoc --usage`). Progrès sur STDERR
+    # (stdout = le document). nil = host injoignable.
+    private def self.gather_usage_map(hosts : Array(Beryl::Config::ResolvedHost)) : Hash(String, Array(UsageRow)?)
+      map = {} of String => Array(UsageRow)?
+      hosts.each do |h|
+        STDERR.puts "  usage #{h.short_name}…"
+        map[h.fqdn] = gather_usage(h)
+      end
+      map
     end
 
     # `--refresh [périmètre]` : pour chaque host OVH du périmètre (société,
@@ -234,53 +274,85 @@ module Beryl::CLI
       out.join('\n')
     end
 
-    # Document AsciiDoc récapitulatif du parc (table + totaux). Régénérable
-    # (`beryl info --adoc <périmètre> > inventaire.adoc`).
-    def self.build_adoc(hosts : Array(Beryl::Config::ResolvedHost), scope : String?) : String
+    # Document AsciiDoc récapitulatif : synthèse + matériel + réseau vRack +
+    # (si `usage` fourni) utilisation disque LIVE. Régénérable :
+    # `beryl info --adoc [--usage] <périmètre> > inventaire.adoc`.
+    def self.build_adoc(
+      hosts : Array(Beryl::Config::ResolvedHost),
+      scope : String?,
+      usage : Hash(String, Array(UsageRow)?)? = nil,
+    ) : String
+      esc = ->(s : String) { s.gsub("|", "\\|") }
       String.build do |io|
         io << "= Inventaire des serveurs"
         io << " — " << scope if scope
-        io << '\n'
-        io << ":toc:\n"
+        io << "\n:toc:\n:toclevels: 2\n"
         io << ":generated: " << Beryl.format_timestamp(Time.local) << "\n\n"
-        io << "[cols=\"1,2,3,1,3,1,1,1\",options=\"header\"]\n|===\n"
-        io << "| Host | Gamme | CPU | RAM | Disques | vRack | Rôle | Prix/mois\n\n"
 
-        total_cores = 0
-        total_ram = 0
-        total_price = 0.0
+        cores = hosts.sum { |h| h.hardware.try(&.cores) || 0 }
+        ram = hosts.sum { |h| h.hardware.try(&.ram_gb) || 0 }
+        price = hosts.sum { |h| h.ovh_price.try(&.to_f?) || 0.0 }
+        io << "== Synthèse\n\n[horizontal]\n"
+        io << "Serveurs:: #{hosts.size}\n"
+        io << "Cœurs (vCPU):: #{cores}\n"
+        io << "RAM totale:: #{ram} Go\n"
+        io << "Coût mensuel:: #{"%.2f" % price} € _(prix connus)_\n\n"
+
+        io << "== Matériel\n\n"
+        io << "[options=\"header\",cols=\"2,3,3,1,4,2\"]\n|===\n"
+        io << "| Host | Gamme | CPU | RAM | Disques | Prix/mois\n\n"
         hosts.each do |h|
           hw = h.hardware
-          if hw
-            total_cores += hw.cores
-            total_ram += hw.ram_gb
-          end
-          total_price += (h.ovh_price.try(&.to_f?) || 0.0)
           cells = [
             h.short_name,
             h.ovh_commercial_name || "—",
             hw ? "#{hw.cpu} (#{hw.cores}c/#{hw.threads}t)" : "—",
             hw ? "#{hw.ram_gb} Go" : "—",
-            (hw && !hw.disks.empty?) ? hw.disks.join(" + ") : "—",
-            h.vrack_ip || "—",
-            adoc_role(h),
+            (hw && !hw.disks.empty?) ? hw.disks.join(", ") : "—",
             h.ovh_price ? "#{h.ovh_price} €" : "—",
           ]
-          io << "| " << cells.map { |c| c.gsub("|", "\\|") }.join(" | ") << '\n'
+          io << "| " << cells.map { |c| esc.call(c) }.join(" | ") << '\n'
+        end
+        io << "|===\n\n"
+
+        vrack_hosts = hosts.select(&.vrack_ip)
+        unless vrack_hosts.empty?
+          io << "== Réseau vRack\n\n[options=\"header\",cols=\"2,2,3\"]\n|===\n"
+          io << "| Host | IP vRack | Rôle\n\n"
+          vrack_hosts.each do |h|
+            io << "| #{h.short_name} | #{h.vrack_ip} | #{esc.call(adoc_role(h))}\n"
+          end
+          io << "|===\n\n"
         end
 
-        io << "|===\n\n"
-        io << "_#{hosts.size} serveurs · #{total_cores} cœurs · #{total_ram} Go RAM · "
-        io << "#{"%.2f" % total_price} €/mois (somme des prix connus)._\n"
+        if usage
+          io << "== Utilisation disque _(live)_\n\n"
+          io << "[options=\"header\",cols=\"2,3,1,1,1,1\"]\n|===\n"
+          io << "| Host | Volume | Taille | Utilisé | Libre | %\n\n"
+          hosts.each do |h|
+            rows = usage[h.fqdn]?
+            if rows.nil?
+              io << "| #{h.short_name} | _injoignable_ | — | — | — | —\n"
+            elsif rows.empty?
+              io << "| #{h.short_name} | _aucun volume_ | — | — | — | —\n"
+            else
+              rows.each_with_index do |r, i|
+                io << "| #{i.zero? ? h.short_name : ""} | #{esc.call(r.label)} | #{r.size} | #{r.used} | #{r.free} | #{r.pct}\n"
+              end
+            end
+          end
+          io << "|===\n\n"
+        end
       end
     end
 
-    # Rôle réseau lisible pour la table : bastion / caché / public / — (pas de vRack).
+    # Rôle réseau lisible : bastion / caché (via <z>) / public.
     private def self.adoc_role(h : Beryl::Config::ResolvedHost) : String
       return "bastion" if h.bastion?
-      return "caché" if h.hidden?
-      return "public" if h.vrack_ip
-      "—"
+      if pj = h.proxy_jump(h.connect_user)
+        return "caché (via #{pj.split('@').last.split('.').first})"
+      end
+      "public"
     end
 
     # Table alignée (colonnes ljust), en-tête souligné.
