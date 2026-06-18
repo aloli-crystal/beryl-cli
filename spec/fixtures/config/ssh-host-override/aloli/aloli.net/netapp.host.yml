@@ -1,7 +1,8 @@
 provider: local
 user: admin
-network:
-  vrack_ip: [192.168.42.31, 192.168.42.131]
+vrack:
+  name: pn-1049829
+  ip: [192.168.42.31, 192.168.42.131]
   proxy_jump: admin@zsbg.aloli.net
 freebsd:
   hostname: netapp

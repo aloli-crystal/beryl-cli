@@ -92,4 +92,24 @@ describe Beryl::Apply::Netif do
       shell, apply_params("{iface: auto, ip: 192.168.42.11}"), dry_run: false, context: ctx)
     result.outcome.should eq(Beryl::Apply::Outcome::Failed)
   end
+
+  it "mode alias : ajoute l'IP en alias SANS retirer les autres ni persister (rotation)" do
+    shell = FakeShell.new
+    shell.stub(/ifconfig ix1 inet 2>/, stdout: "192.168.42.31") # IP primaire en place
+    shell.stub(/sysrc -n/, stdout: "inet 192.168.42.31 netmask 255.255.255.0")
+    result = prim("netif").apply(
+      shell, apply_params("{iface: ix1, ip: 192.168.42.131, alias: true}"), dry_run: false, context: ctx)
+    result.outcome.should eq(Beryl::Apply::Outcome::Applied)
+    shell.ran?(%r{ifconfig ix1 inet 192.168.42.131 netmask 255.255.255.0 alias}).should be_true
+    shell.ran?(/-alias/).should be_false        # ne retire pas l'ancienne
+    shell.ran?(/ifconfig_ix1=/).should be_false # ne persiste pas (pas de sysrc)
+  end
+
+  it "mode alias : skip si l'iface porte déjà l'IP" do
+    shell = FakeShell.new
+    shell.stub(/ifconfig ix1 inet 2>/, stdout: "192.168.42.31 192.168.42.131")
+    result = prim("netif").apply(
+      shell, apply_params("{iface: ix1, ip: 192.168.42.131, alias: true}"), dry_run: false, context: ctx)
+    result.outcome.should eq(Beryl::Apply::Outcome::Skipped)
+  end
 end

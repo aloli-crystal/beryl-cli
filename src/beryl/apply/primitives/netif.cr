@@ -58,6 +58,17 @@ module Beryl::Apply
       ).stdout.split
       rc_current = shell.exec("sysrc -n #{Process.quote(rc_var)} 2>/dev/null", raise_on_error: false).stdout.strip
 
+      # Mode ALIAS (transitoire) : ajoute l'IP en alias SANS retirer les autres
+      # ni persister dans rc.conf. Sert à la rotation d'IP de `beryl vrack` :
+      # monter la nouvelle IP le temps de la VALIDER, avant de la promouvoir
+      # (un `netif` normal ensuite la pose en primaire + retire l'ancienne).
+      if bool(params, "alias", default: false)
+        return StepResult.skipped("#{iface} porte déjà #{ip}") if current_ips.includes?(ip)
+        return StepResult.applied("#{iface} : alias #{ip} (dry-run)") if dry_run
+        shell.exec("ifconfig #{Process.quote(iface)} inet #{Process.quote(ip)} netmask #{Process.quote(netmask)} alias")
+        return StepResult.applied("#{iface} : alias #{ip} ajouté (transitoire)")
+      end
+
       # Idempotent : l'iface porte EXACTEMENT l'IP voulue (et rien d'autre)
       # ET rc.conf est à jour. Le « rien d'autre » est crucial : un
       # changement d'IP doit FAIRE DISPARAÎTRE l'ancienne (sinon elle

@@ -509,19 +509,26 @@ module Beryl::Config
     #   - `true`         → CE host est un bastion (point d'entrée public du vRack).
     #   - `<nom>`        → host caché, joint VIA le bastion nommé (`bastion_name`).
     #   - `false`/absent → pas de bastion.
-    # Section `network:` (réseau interne, gérée par `beryl vrack`). Hash brut ou nil.
-    private def network_hash : Hash(YAML::Any, YAML::Any)?
-      @merged[YAML::Any.new("network")]?.try(&.as_h?)
+    # Section `vrack:` (config vRack du host, gérée par `beryl vrack`). Champs :
+    # `name` (id OVH pn-XXXX), `ip` (scalaire OU liste=rotation), `proxy_jump`
+    # (host caché) / `bastion` (true=z, false=public). Hash brut ou nil.
+    private def vrack_hash : Hash(YAML::Any, YAML::Any)?
+      @merged[YAML::Any.new("vrack")]?.try(&.as_h?)
     end
 
-    private def network_field(key : String) : YAML::Any?
-      network_hash.try(&.[YAML::Any.new(key)]?)
+    private def vrack_field(key : String) : YAML::Any?
+      vrack_hash.try(&.[YAML::Any.new(key)]?)
     end
 
-    # CE host est un bastion (point d'entrée public du vRack). Nouveau modèle :
-    # `network.bastion: true`. Fallback legacy : `bastion: true` top-level.
+    # Nom du vRack (id OVH pn-XXXX) déclaré dans `vrack.name`, ou nil.
+    def vrack_name : String?
+      vrack_field("name").try(&.as_s?)
+    end
+
+    # CE host est un bastion (point d'entrée public du vRack). Modèle :
+    # `vrack.bastion: true`. Fallback legacy : `bastion: true` top-level.
     def bastion? : Bool
-      if v = network_field("bastion")
+      if v = vrack_field("bastion")
         return v.as_bool? == true
       end
       @merged[YAML::Any.new("bastion")]?.try(&.as_bool?) == true
@@ -537,9 +544,9 @@ module Beryl::Config
     # <nom>` est posé, on dérive `<user>@<nom>.<domaine>` (user du saut = celui
     # de la connexion). nil = connexion directe (cas par défaut).
     def proxy_jump(connect_user : String? = nil) : String?
-      # Nouveau modèle : `network.proxy_jump` (posé par `beryl vrack`), chaîne
-      # complète `<user>@<bastion.fqdn>` → le user du transfert est dedans.
-      if np = network_field("proxy_jump").try(&.as_s?)
+      # Modèle `vrack.proxy_jump` (posé par `beryl vrack`), chaîne complète
+      # `<user>@<bastion.fqdn>` → le user du transfert est dedans.
+      if np = vrack_field("proxy_jump").try(&.as_s?)
         return np
       end
       # Legacy : `proxy_jump:` top-level, puis dérivation depuis `bastion: <nom>`.
@@ -568,7 +575,7 @@ module Beryl::Config
     # rotation). Source : `network.vrack_ip` (scalaire OU liste). Fallback
     # legacy : `vrack_ip:` top-level puis recette `vrack-interface`.
     def vrack_ips : Array(String)
-      if v = network_field("vrack_ip")
+      if v = vrack_field("ip")
         if s = v.as_s?
           return [s]
         elsif a = v.as_a?
@@ -591,11 +598,21 @@ module Beryl::Config
       vrack_ips.first?
     end
 
-    # Vrai si l'IP est déjà déclarée DANS la section `network:` (par opposition
-    # au fallback legacy). Sert à `beryl vrack` pour ne consolider l'IP dans
-    # network: que si elle n'y est pas encore (et ne pas écraser une LISTE).
-    def network_declares_vrack_ip? : Bool
-      !network_field("vrack_ip").nil?
+    # Vrai si l'IP est déjà déclarée DANS la section `vrack:` (≠ fallback legacy).
+    # Sert à `beryl vrack` pour ne consolider l'IP que si elle n'y est pas (et ne
+    # pas écraser une LISTE de rotation).
+    def vrack_declares_ip? : Bool
+      !vrack_field("ip").nil?
+    end
+
+    # Vrai si le RÔLE réseau est déjà déterminé (`proxy_jump` ou `bastion`
+    # posé — section `vrack:` ou fallback legacy top-level). Sert à `beryl
+    # vrack` : on n'ouvre le chooser de rôle que si le rôle est encore inconnu
+    # (re-poser la question quand il est déjà fixé n'apporte rien).
+    def vrack_role_declared? : Bool
+      {"proxy_jump", "bastion"}.any? do |k|
+        !vrack_field(k).nil? || !@merged[YAML::Any.new(k)]?.nil?
+      end
     end
 
     # Legacy : IP déclarée par la recette `vrack-interface` dans `apply_recipes`.
