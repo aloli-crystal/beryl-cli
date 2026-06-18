@@ -1,0 +1,15 @@
+provider: ovh
+ovh:
+  service_name: ns999.eu
+  commercial_name: Advance-2
+hardware:
+  cpu: AMD EPYC 4344P
+  cores: 8
+  threads: 16
+  ram_gb: 64
+  raid: 9361-4i
+  disks:
+    - 2 x 960 GB SSD
+    - 4 x 7680 GB SSD
+freebsd:
+  hostname: infohw

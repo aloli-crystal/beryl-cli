@@ -199,6 +199,18 @@ module Beryl
   # disques déclarés (peut dépasser flash+spinning si un type est inconnu).
   record DiskInventory, flash : Int32, spinning : Int32, total : Int32
 
+  # Caractéristiques matérielles DÉCLARÉES par l'API du provider (ex. OVH
+  # `specifications/hardware`). Sert à `beryl info` (inventaire hors-ligne,
+  # écrit dans le host.yml par `beryl scan`). `disks` = lignes lisibles
+  # (ex. "2 x 960 GB SSD"). `raid` = contrôleur RAID matériel, nil si aucun.
+  record HardwareSpec,
+    cpu : String,
+    cores : Int32,
+    threads : Int32,
+    ram_gb : Int32,
+    disks : Array(String),
+    raid : String? = nil
+
   # Registre des providers enregistrés. Simple wrapper autour d'un
   # hash ; le module est utilisable de n'importe où via l'API `.register`
   # / `.all` / `.find`. Les providers beryl natifs sont enregistrés au

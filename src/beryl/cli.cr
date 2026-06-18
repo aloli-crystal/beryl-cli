@@ -11,6 +11,7 @@ require "./cli/vrack"
 require "./cli/vrack_dns"
 require "./cli/vrack_ip"
 require "./cli/scan"
+require "./cli/info"
 require "./cli/dns"
 require "./cli/init"
 require "./cli/add_provider"
@@ -125,6 +126,7 @@ module Beryl::CLI
     when "bootstrap"          then Beryl::CLI::Bootstrap.run(config_root, sub_args)
     when "follow-install"     then Beryl::CLI::FollowInstall.run(config_root, sub_args)
     when "scan"               then Beryl::CLI::Scan.run(config_root, sub_args)
+    when "info"               then Beryl::CLI::Info.run(config_root, sub_args)
     when "dns"                then Beryl::CLI::Dns.run(config_root, sub_args)
     when "apply"              then Beryl::CLI::Apply.run(config_root, sub_args)
     when "rotate-key"         then Beryl::CLI::RotateKey.run(config_root, sub_args)
@@ -162,6 +164,7 @@ module Beryl::CLI
     {"env", "e", "Gère le coffre de credentials chiffré (.env.toml.age)"},
     {"follow-install", "fi", "Suit l'installation FreeBSD en cours"},
     {"help", "h", "Aide globale ou d'une sous-commande précise"},
+    {"info", "nf", "Inventaire des serveurs (gamme, CPU, RAM, disques ; --usage = live)"},
     {"init", "i", "Initialise ~/.config/beryl/<société>/ + providers/domaines"},
     {"list-hosts", "ls", "Liste les hôtes de toutes les sociétés"},
     {"prep-rescue", "pr", "HTTP local pour préparer un rescue Debian"},
@@ -227,6 +230,7 @@ module Beryl::CLI
     when "bootstrap"      then Beryl::CLI::Bootstrap.run(config_root, ["--help"])
     when "follow-install" then Beryl::CLI::FollowInstall.run(config_root, ["--help"])
     when "scan"           then Beryl::CLI::Scan.run(config_root, ["--help"])
+    when "info"           then Beryl::CLI::Info.run(config_root, ["--help"])
     when "dns"            then Beryl::CLI::Dns.run(config_root, ["--help"])
     when "apply"          then Beryl::CLI::Apply.run(config_root, ["--help"])
     when "prep-rescue"    then Beryl::CLI::PrepRescue.run(["--help"])

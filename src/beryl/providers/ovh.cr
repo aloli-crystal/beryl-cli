@@ -117,6 +117,68 @@ module Beryl::Providers
       nil
     end
 
+    # Gamme commerciale OVH du serveur (ex. "Advance-2"), via
+    # `GET /dedicated/server/{s}` → champ `commercialRange`. nil si l'API ne
+    # répond pas. Couvert par le droit `GET /dedicated/server/*`.
+    def commercial_range(service_name : String) : String?
+      resp = client.call("GET", "/dedicated/server/#{service_name}")
+      resp.try(&.["commercialRange"]?).try(&.as_s?)
+    rescue
+      nil
+    end
+
+    # Caractéristiques matérielles DÉCLARÉES par OVH
+    # (`specifications/hardware`) : CPU, cœurs/threads, RAM, disques. nil si
+    # l'API ne répond pas. Lecture seule, droit `GET /dedicated/server/*`.
+    def server_hardware(service_name : String) : Beryl::HardwareSpec?
+      resp = client.call("GET", "/dedicated/server/#{service_name}/specifications/hardware")
+      return nil unless resp
+      nproc = resp["numberOfProcessors"]?.try(&.as_i?) || 1
+      cpu = resp["processorName"]?.try(&.as_s?) || "(CPU inconnu)"
+      cores = (resp["coresPerProcessor"]?.try(&.as_i?) || 0) * nproc
+      threads = (resp["threadsPerProcessor"]?.try(&.as_i?) || 0) * nproc
+
+      ram_gb = 0
+      if mem = resp["memorySize"]?
+        if mh = mem.as_h?
+          v = mh["value"]?.try(&.as_i?) || 0
+          unit = (mh["unit"]?.try(&.as_s?) || "GB").upcase
+          ram_gb = unit.starts_with?("M") ? (v // 1024) : v
+        elsif mv = mem.as_i?
+          ram_gb = mv
+        end
+      end
+
+      disks = [] of String
+      raid : String? = nil
+      if groups = resp["diskGroups"]?.try(&.as_a?)
+        groups.each do |g|
+          n = g["numberOfDisks"]?.try(&.as_i?) || 0
+          next if n <= 0
+          size_s = "?"
+          if sz = g["diskSize"]?
+            if sh = sz.as_h?
+              size_s = "#{sh["value"]?.try(&.as_i?) || "?"} #{sh["unit"]?.try(&.as_s?) || "GB"}"
+            elsif si = sz.as_i?
+              size_s = "#{si} GB"
+            end
+          end
+          type = g["diskType"]?.try(&.as_s?) || ""
+          disks << "#{n} x #{size_s} #{type}".strip
+          if rc = g["raidController"]?.try(&.as_s?)
+            raid = rc unless rc.empty?
+          end
+        end
+      end
+
+      Beryl::HardwareSpec.new(
+        cpu: nproc > 1 ? "#{nproc}x #{cpu}" : cpu,
+        cores: cores, threads: threads, ram_gb: ram_gb, disks: disks, raid: raid,
+      )
+    rescue
+      nil
+    end
+
     # Cherche le service_name d'un serveur dédié OVH par son IP principale
     # (v4). nil si aucun match. Itère `/dedicated/server` puis lit l'`ip` de
     # chacun — permet de scanner un host par FQDN/IP sans connaître son

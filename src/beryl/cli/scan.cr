@@ -390,12 +390,18 @@ module Beryl::CLI::Scan
     # bootstrap ne peut pas faire boot_from_disk → le serveur revient en
     # rescue (cf. garde-fou bootstrap).
     ovh_sn_override = nil
-    if (provider_override || host.provider) == "ovh" && host.ovh_service_name.nil?
-      ovh_sn_override = resolve_ovh_service_name(host)
+    ovh_commercial_override = nil
+    ovh_hardware_override = nil
+    if (provider_override || host.provider) == "ovh"
+      ovh_sn_override = resolve_ovh_service_name(host) if host.ovh_service_name.nil?
+      if effective_sn = (ovh_sn_override || host.ovh_service_name)
+        ovh_commercial_override, ovh_hardware_override = fetch_ovh_specs(host, effective_sn)
+      end
     end
     yaml = render_yaml(host, short, pools,
       provider_override: provider_override, server_id_override: server_id_flag,
-      scaleway_zone_override: scaleway_zone_override, ovh_service_name_override: ovh_sn_override)
+      scaleway_zone_override: scaleway_zone_override, ovh_service_name_override: ovh_sn_override,
+      ovh_commercial_override: ovh_commercial_override, ovh_hardware_override: ovh_hardware_override)
     target = resolve_write_target(write_path, write_auto, config_root, host.account_name, host.domain_name, short)
 
     if target
@@ -993,6 +999,8 @@ module Beryl::CLI::Scan
     server_id_override : String? = nil,
     scaleway_zone_override : String? = nil,
     ovh_service_name_override : String? = nil,
+    ovh_commercial_override : String? = nil,
+    ovh_hardware_override : Beryl::HardwareSpec? = nil,
   ) : String
     String.build do |io|
       io << "# Généré par `beryl scan` le " << Beryl.format_timestamp(Time.local) << '\n'
@@ -1010,6 +1018,11 @@ module Beryl::CLI::Scan
         when "ovh"
           if sn = (ovh_service_name_override || host.ovh_service_name)
             io << "ovh:\n  service_name: " << sn << '\n'
+            # Nom commercial (gamme OVH) à CÔTÉ de service_name. Fallback sur la
+            # valeur existante si l'API n'a rien renvoyé (pas d'écrasement).
+            if cn = (ovh_commercial_override || host.ovh_commercial_name)
+              io << "  commercial_name: " << cn << '\n'
+            end
           end
         when "scaleway"
           sid = server_id_override || host.scaleway_server_id
@@ -1041,6 +1054,22 @@ module Beryl::CLI::Scan
         io << "      raid: " << pool.raid << "             # 0=stripe 1=mirror 5=raidz 6=raidz2 7=raidz3 10=mirror_stripe\n"
         io << "      disks:\n"
         pool.disks.each { |d| io << "        - " << d.dev_path << "  # " << d.human_size << " " << d.kind << " " << d.model << '\n' }
+      end
+      # Bloc `hardware:` (specs déclarées par le provider) — alimente `beryl
+      # info` hors-ligne. Fallback sur l'existant si l'API n'a rien renvoyé.
+      if hw = (ovh_hardware_override || host.hardware)
+        io << "\nhardware:             # specs provider (beryl info) — ne pas éditer à la main\n"
+        io << "  cpu: " << hw.cpu << '\n'
+        io << "  cores: " << hw.cores << '\n'
+        io << "  threads: " << hw.threads << '\n'
+        io << "  ram_gb: " << hw.ram_gb << '\n'
+        if r = hw.raid
+          io << "  raid: " << r << '\n'
+        end
+        unless hw.disks.empty?
+          io << "  disks:\n"
+          hw.disks.each { |d| io << "    - " << d << '\n' }
+        end
       end
     end
   end
@@ -1095,6 +1124,23 @@ module Beryl::CLI::Scan
     (old_fb.as_h? || {} of YAML::Any => YAML::Any).each { |k, v| merged[k] = v }
     (scan_fb.as_h? || {} of YAML::Any => YAML::Any).each { |k, v| merged[k] = v }
     YAML::Any.new(merged)
+  end
+
+  # Récupère (nom commercial, specs matériel) OVH pour un service_name connu.
+  # Best-effort : {nil, nil} si credentials absents / API muette → render_yaml
+  # retombe alors sur les valeurs déjà présentes dans le host.yml (pas d'écrasement
+  # destructif). JAMAIS bloquant.
+  private def self.fetch_ovh_specs(
+    host : Beryl::Config::ResolvedHost, service_name : String,
+  ) : Tuple(String?, Beryl::HardwareSpec?)
+    host.apply_all_credentials_to_env!
+    ovh = Beryl::Providers::Ovh.new
+    return {nil, nil} unless ovh.available?
+    STDERR.puts "  → specs OVH (gamme commerciale + matériel) via l'API…"
+    {ovh.commercial_range(service_name), ovh.server_hardware(service_name)}
+  rescue ex
+    STDERR.puts "  ⚠ specs OVH indisponibles (#{ex.message}) — valeurs existantes conservées."
+    {nil, nil}
   end
 
   # Résout le service_name OVH d'un host scanné par FQDN/IP, via l'API

@@ -170,4 +170,53 @@ describe Beryl::Providers::Ovh do
       end
     end
   end
+
+  describe "#commercial_range" do
+    it "lit le champ commercialRange du serveur" do
+      transport = FakeOvhTransport.new
+      transport.stub("GET", /dedicated\/server\/ns123\.eu$/, status: 200,
+        body: %({"commercialRange":"Advance-2","ip":"1.2.3.4"}))
+      provider = Beryl::Providers::Ovh.new(build_fake_ovh_client(transport))
+      provider.commercial_range("ns123.eu").should eq("Advance-2")
+    end
+
+    it "renvoie nil si l'API lève (rescue-friendly)" do
+      transport = FakeOvhTransport.new
+      transport.stub("GET", /dedicated\/server\/ns123\.eu$/, status: 500, body: %({"message":"boom"}))
+      provider = Beryl::Providers::Ovh.new(build_fake_ovh_client(transport))
+      provider.commercial_range("ns123.eu").should be_nil
+    end
+  end
+
+  describe "#server_hardware" do
+    it "extrait CPU, cœurs/threads, RAM et disques (groupes)" do
+      transport = FakeOvhTransport.new
+      transport.stub("GET", /specifications\/hardware$/, status: 200, body: %({
+        "processorName": "AMD EPYC 4344P",
+        "numberOfProcessors": 1,
+        "coresPerProcessor": 8,
+        "threadsPerProcessor": 16,
+        "memorySize": {"value": 64, "unit": "GB"},
+        "diskGroups": [
+          {"numberOfDisks": 2, "diskSize": {"value": 960, "unit": "GB"}, "diskType": "SSD"},
+          {"numberOfDisks": 4, "diskSize": {"value": 7680, "unit": "GB"}, "diskType": "SSD", "raidController": "9361-4i"}
+        ]
+      }))
+      provider = Beryl::Providers::Ovh.new(build_fake_ovh_client(transport))
+      hw = provider.server_hardware("ns123.eu").not_nil!
+      hw.cpu.should eq("AMD EPYC 4344P")
+      hw.cores.should eq(8)
+      hw.threads.should eq(16)
+      hw.ram_gb.should eq(64)
+      hw.disks.should eq(["2 x 960 GB SSD", "4 x 7680 GB SSD"])
+      hw.raid.should eq("9361-4i")
+    end
+
+    it "renvoie nil si l'API lève (rescue-friendly)" do
+      transport = FakeOvhTransport.new
+      transport.stub("GET", /specifications\/hardware$/, status: 500, body: %({"message":"boom"}))
+      provider = Beryl::Providers::Ovh.new(build_fake_ovh_client(transport))
+      provider.server_hardware("ns123.eu").should be_nil
+    end
+  end
 end

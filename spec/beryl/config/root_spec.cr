@@ -201,6 +201,24 @@ describe Beryl::Config::ResolvedHost do
     rh.ssh_host.should eq("192.168.42.31")          # 1ʳᵉ IP vRack (caché)
   end
 
+  it "ovh.commercial_name + bloc hardware: lus pour `beryl info`" do
+    rh = Beryl::Config::Root.load(fixture("ssh-host-override")).resolve("infohw")
+    rh.ovh_commercial_name.should eq("Advance-2")
+    hw = rh.hardware.not_nil!
+    hw.cpu.should eq("AMD EPYC 4344P")
+    hw.cores.should eq(8)
+    hw.threads.should eq(16)
+    hw.ram_gb.should eq(64)
+    hw.raid.should eq("9361-4i")
+    hw.disks.should eq(["2 x 960 GB SSD", "4 x 7680 GB SSD"])
+  end
+
+  it "hardware = nil si le host n'a pas été scanné (pas de bloc hardware:)" do
+    rh = Beryl::Config::Root.load(fixture("ssh-host-override")).resolve("netbast")
+    rh.hardware.should be_nil
+    rh.ovh_commercial_name.should be_nil
+  end
+
   it "vrack.bastion: true → bastion public (non caché, ssh_host = fqdn)" do
     rh = Beryl::Config::Root.load(fixture("ssh-host-override")).resolve("netbast")
     rh.bastion?.should be_true

@@ -469,6 +469,29 @@ module Beryl::Config
       provider_field("ovh", "ssh_key_name")
     end
 
+    # Gamme commerciale OVH (ex. "Advance-2"), écrite par `beryl scan` à
+    # côté de `service_name`. nil si jamais scanné (ou non-OVH).
+    def ovh_commercial_name : String?
+      provider_field("ovh", "commercial_name")
+    end
+
+    # Caractéristiques matérielles écrites par `beryl scan` (bloc top-level
+    # `hardware:`). nil si jamais scanné. Source de `beryl info` (hors-ligne).
+    def hardware : Beryl::HardwareSpec?
+      h = @merged[YAML::Any.new("hardware")]?.try(&.as_h?)
+      return nil unless h
+      get = ->(k : String) { h[YAML::Any.new(k)]? }
+      disks = get.call("disks").try(&.as_a?).try(&.compact_map(&.as_s?)) || [] of String
+      Beryl::HardwareSpec.new(
+        cpu: get.call("cpu").try(&.as_s?) || "(inconnu)",
+        cores: get.call("cores").try(&.as_i?) || 0,
+        threads: get.call("threads").try(&.as_i?) || 0,
+        ram_gb: get.call("ram_gb").try(&.as_i?) || 0,
+        disks: disks,
+        raid: get.call("raid").try(&.as_s?),
+      )
+    end
+
     def scaleway_server_id : String?
       provider_field("scaleway", "server_id")
     end

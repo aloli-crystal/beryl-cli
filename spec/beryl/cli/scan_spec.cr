@@ -23,6 +23,22 @@ describe Beryl::CLI::Scan do
       yaml.should contain("provider: ovh")
     end
 
+    it "écrit ovh.commercial_name + bloc hardware: depuis les overrides OVH" do
+      root = Beryl::Config::Root.load(File.join(FIXTURES, "multi-provider-domain"))
+      host = root.resolve("loulou", domain_hint: "aloli.net")
+      hw = Beryl::HardwareSpec.new(cpu: "AMD EPYC 4344P", cores: 8, threads: 16,
+        ram_gb: 64, disks: ["2 x 960 GB SSD", "4 x 7680 GB SSD"], raid: "9361-4i")
+      yaml = Beryl::CLI::Scan.render_yaml(host, "loulou", single_zroot([sample_disk]),
+        ovh_service_name_override: "ns1.eu", ovh_commercial_override: "Advance-2",
+        ovh_hardware_override: hw)
+      yaml.should contain("commercial_name: Advance-2")
+      yaml.should contain("hardware:")
+      yaml.should contain("cpu: AMD EPYC 4344P")
+      yaml.should contain("ram_gb: 64")
+      yaml.should contain("raid: 9361-4i")
+      yaml.should contain("- 2 x 960 GB SSD")
+    end
+
     it "surcharge via provider_override (ex: --provider=scaleway)" do
       root = Beryl::Config::Root.load(File.join(FIXTURES, "multi-provider-domain"))
       host = root.resolve("loulou", domain_hint: "aloli.net")
