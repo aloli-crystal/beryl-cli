@@ -476,9 +476,13 @@ module Beryl::Config
     end
 
     # Prix de renouvellement mensuel (HT) écrit par `beryl info --refresh`
-    # (`ovh.price_eur`), ou posé à la main. Chaîne (ex. "89.99"), nil si absent.
+    # (`ovh.price_eur`), ou posé à la main. Renvoie une CHAÎNE (ex. "89.99").
+    # Tolère le NOMBRE comme la chaîne : `price_eur: 89.99` est lu par YAML
+    # comme un float → `as_s?` renverrait nil (bug : prix absent du .adoc).
     def ovh_price : String?
-      provider_field("ovh", "price_eur")
+      v = @merged[YAML::Any.new("ovh")]?.try(&.as_h?).try(&.[YAML::Any.new("price_eur")]?)
+      return nil unless v
+      v.as_s? || v.as_f?.try { |f| "%.2f" % f } || v.as_i?.try(&.to_s)
     end
 
     # Baie (rack) OVH du serveur, écrite par `beryl info --refresh` (`ovh.rack`).

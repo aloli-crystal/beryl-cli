@@ -18,6 +18,7 @@ describe Beryl::CLI::Info do
       out.should contain("| Host | IPv4 publique | IPv6 publique | vRack | Rôle")
       out.should contain("1.2.3.4")
       out.should contain("2001:db8::1")
+      out.should contain("89.99 €")                   # prix lu depuis un NOMBRE YAML (pas une chaîne)
       out.should_not contain("== Utilisation disque") # pas d'usage fourni
     end
 

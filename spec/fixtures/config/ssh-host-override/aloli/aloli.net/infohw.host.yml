@@ -5,6 +5,7 @@ ovh:
   rack: 16RA09
   ipv4: 1.2.3.4
   ipv6: "2001:db8::1"
+  price_eur: 89.99
 hardware:
   cpu: AMD EPYC 4344P
   cores: 8

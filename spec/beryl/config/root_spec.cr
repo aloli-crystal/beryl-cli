@@ -204,6 +204,9 @@ describe Beryl::Config::ResolvedHost do
   it "ovh.commercial_name + bloc hardware: lus pour `beryl info`" do
     rh = Beryl::Config::Root.load(fixture("ssh-host-override")).resolve("infohw")
     rh.ovh_commercial_name.should eq("Advance-2")
+    rh.ovh_rack.should eq("16RA09")
+    rh.ovh_ipv4.should eq("1.2.3.4")
+    rh.ovh_price.should eq("89.99") # lu depuis un NOMBRE YAML
     hw = rh.hardware.not_nil!
     hw.cpu.should eq("AMD EPYC 4344P")
     hw.cores.should eq(8)
