@@ -130,10 +130,49 @@ describe Beryl::Config::Merger do
       users = merged[YAML::Any.new("freebsd")].as_h[YAML::Any.new("users")].as_a
 
       users.size.should eq(2)
-      users.each do |user|
-        keys = user.as_h[YAML::Any.new("ssh_keys")].as_a.map(&.as_s)
+      Beryl::Config::Users.list(users).each do |e|
+        keys = e.fields[YAML::Any.new("ssh_keys")].as_a.map(&.as_s)
         keys.should contain("ssh-ed25519 AAAA philippe@aloli.fr")
       end
+    end
+
+    it "injecte la clé déclarée au niveau SOCIÉTÉ (cherchée dans le merge, pas que le domaine)" do
+      defaults = hash_from_yaml(<<-YAML)
+      freebsd:
+        users:
+          - admin:
+              groups: [www, wheel]
+              shell: /bin/csh
+      YAML
+      # Clé SSH au niveau SOCIÉTÉ (`_account.yml`/`_defaults.yml`), domaine SANS ssh_keys.
+      account_meta = hash_from_yaml("ssh_keys:\n  - ssh-ed25519 AAAA societe\n")
+      d = domain("provider: ovh\n")
+      h = host_node("freebsd:\n  hostname: x\n")
+
+      merged = Beryl::Config::Merger.merge(defaults, account_meta, d, nil, h)
+      users = merged[YAML::Any.new("freebsd")].as_h[YAML::Any.new("users")].as_a
+      keys = Beryl::Config::Users.list(users).first.fields[YAML::Any.new("ssh_keys")].as_a.map(&.as_s)
+      keys.should contain("ssh-ed25519 AAAA societe")
+    end
+
+    it "précédence host > domaine > société : le plus spécifique REMPLACE (premier trouvé)" do
+      defaults = hash_from_yaml(<<-YAML)
+      freebsd:
+        users:
+          - admin:
+              groups: [www, wheel]
+              shell: /bin/csh
+      YAML
+      account_meta = hash_from_yaml("ssh_keys:\n  - ssh-ed25519 AAAA societe\n")
+      d = domain("ssh_keys:\n  - ssh-ed25519 AAAA domaine\n")
+      h = host_node("ssh_keys:\n  - ssh-ed25519 AAAA host\nfreebsd:\n  hostname: x\n")
+
+      merged = Beryl::Config::Merger.merge(defaults, account_meta, d, nil, h)
+      users = merged[YAML::Any.new("freebsd")].as_h[YAML::Any.new("users")].as_a
+      keys = Beryl::Config::Users.list(users).first.fields[YAML::Any.new("ssh_keys")].as_a.map(&.as_s)
+      keys.should contain("ssh-ed25519 AAAA host")        # host gagne…
+      keys.should_not contain("ssh-ed25519 AAAA domaine") # …et remplace domaine
+      keys.should_not contain("ssh-ed25519 AAAA societe") # …et société
     end
 
     it "ajoute les clés host en plus de la clé domaine (obligatoire en tête)" do
@@ -158,9 +197,9 @@ describe Beryl::Config::Merger do
       YAML
 
       merged = Beryl::Config::Merger.merge(defaults, EMPTY_META, d, nil, h)
-      deploy = merged[YAML::Any.new("freebsd")].as_h[YAML::Any.new("users")].as_a
-        .find! { |u| u.as_h[YAML::Any.new("name")].as_s == "deploy" }
-      keys = deploy.as_h[YAML::Any.new("ssh_keys")].as_a.map(&.as_s)
+      users = merged[YAML::Any.new("freebsd")].as_h[YAML::Any.new("users")].as_a
+      deploy = Beryl::Config::Users.list(users).find! { |e| e.name == "deploy" }
+      keys = deploy.fields[YAML::Any.new("ssh_keys")].as_a.map(&.as_s)
 
       keys.size.should eq(3)
       keys[0].should eq("ssh-ed25519 AAAA philippe@aloli.fr") # domaine en tête
@@ -189,8 +228,8 @@ describe Beryl::Config::Merger do
       YAML
 
       merged = Beryl::Config::Merger.merge(defaults, EMPTY_META, d, nil, h)
-      admin = merged[YAML::Any.new("freebsd")].as_h[YAML::Any.new("users")].as_a.first
-      keys = admin.as_h[YAML::Any.new("ssh_keys")].as_a.map(&.as_s)
+      users = merged[YAML::Any.new("freebsd")].as_h[YAML::Any.new("users")].as_a
+      keys = Beryl::Config::Users.list(users).first.fields[YAML::Any.new("ssh_keys")].as_a.map(&.as_s)
 
       keys.size.should eq(2)
       keys.count("ssh-ed25519 AAAA philippe@aloli.fr").should eq(1) # pas doublée
@@ -228,12 +267,35 @@ describe Beryl::Config::Merger do
       v1 = Beryl::Config::Merger.merge(defaults, EMPTY_META, d, nil, h_v1)
       v2 = Beryl::Config::Merger.merge(defaults, EMPTY_META, d, nil, h_v2)
 
-      v1_keys = v1[YAML::Any.new("freebsd")].as_h[YAML::Any.new("users")].as_a.first.as_h[YAML::Any.new("ssh_keys")].as_a.map(&.as_s)
-      v2_keys = v2[YAML::Any.new("freebsd")].as_h[YAML::Any.new("users")].as_a.first.as_h[YAML::Any.new("ssh_keys")].as_a.map(&.as_s)
+      v1_users = v1[YAML::Any.new("freebsd")].as_h[YAML::Any.new("users")].as_a
+      v2_users = v2[YAML::Any.new("freebsd")].as_h[YAML::Any.new("users")].as_a
+      v1_keys = Beryl::Config::Users.list(v1_users).first.fields[YAML::Any.new("ssh_keys")].as_a.map(&.as_s)
+      v2_keys = Beryl::Config::Users.list(v2_users).first.fields[YAML::Any.new("ssh_keys")].as_a.map(&.as_s)
 
       v1_keys.should eq(["ssh-ed25519 AAAA philippe", "ssh-ed25519 AAAA dev2", "ssh-ed25519 AAAA dev3"])
       v2_keys.should eq(["ssh-ed25519 AAAA philippe", "ssh-ed25519 AAAA dev2"])
       # dev3 a disparu : apply pourra le supprimer du serveur.
+    end
+  end
+
+  describe ".merge_users (forme NOUVELLE : user en clé)" do
+    it "fusionne par nom (override gagne champ par champ), ordre préservé" do
+      base = YAML.parse("- deploy:\n    groups: [wheel]\n    shell: /bin/csh\n").as_a
+      override = YAML.parse("- deploy:\n    shell: oh-my-zsh\n- admin:\n    groups: [wheel]\n").as_a
+      users = Beryl::Config::Users.list(Beryl::Config::Merger.merge_users(base, override))
+      users.map(&.name).should eq(["deploy", "admin"]) # ordre préservé, admin ajouté
+      deploy = users.find { |e| e.name == "deploy" }.not_nil!
+      deploy.shell.should eq("oh-my-zsh")                                          # override gagne
+      deploy.fields[YAML::Any.new("groups")].as_a.map(&.as_s).should eq(["wheel"]) # base conservé
+    end
+
+    it "tolère le mélange legacy (base) + nouvelle (override)" do
+      base = YAML.parse("- name: deploy\n  groups: [wheel]\n").as_a
+      override = YAML.parse("- deploy:\n    shell: oh-my-zsh\n").as_a
+      deploy = Beryl::Config::Users.list(Beryl::Config::Merger.merge_users(base, override)).first
+      deploy.name.should eq("deploy")
+      deploy.shell.should eq("oh-my-zsh")
+      deploy.fields[YAML::Any.new("groups")].as_a.map(&.as_s).should eq(["wheel"])
     end
   end
 end

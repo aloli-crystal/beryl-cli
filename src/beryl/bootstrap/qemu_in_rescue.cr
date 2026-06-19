@@ -29,7 +29,11 @@ module Beryl::Bootstrap
       raise ArgumentError.new("user name vide") if name.empty?
       raise ArgumentError.new("#{name} : primary_group vide") if primary_group.empty?
       raise ArgumentError.new("#{name} : shell vide") if shell.empty?
-      raise ArgumentError.new("#{name} : ssh_keys vide (Aloli interdit les défauts silencieux)") if ssh_keys.empty?
+      if ssh_keys.empty?
+        raise ArgumentError.new("#{name} : ssh_keys vide (Beryl interdit les défauts silencieux) — " \
+                                "déclarez `ssh_keys:` à la RACINE (<société>/_defaults.yml ou " \
+                                "<société>/<domaine>/_defaults.yml, injecté dans chaque user), PAS sous `freebsd:`")
+      end
     end
   end
 

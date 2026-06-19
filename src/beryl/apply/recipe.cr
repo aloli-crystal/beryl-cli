@@ -24,6 +24,9 @@ module Beryl::Apply
     getter name : String
     getter description : String
     getter requires : Array(String)
+    # `requires_vrack: true` → recette ÉCARTÉE par `beryl apply` si le host n'a
+    # pas d'IP vRack (ex. `pkg-repo-quimeo` joint le builder sur le vRack).
+    getter requires_vrack : Bool
     getter parameters : Hash(String, YAML::Any)
     getter arguments : Hash(String, YAML::Any)
     getter steps : Array(Step)
@@ -41,6 +44,7 @@ module Beryl::Apply
       @steps : Array(Step),
       @source_path : String,
       @positional : String? = nil,
+      @requires_vrack : Bool = false,
     )
     end
 
@@ -80,6 +84,7 @@ module Beryl::Apply
 
       description = root[YAML::Any.new("description")]?.try(&.as_s?) || ""
       requires = string_array(root, "requires")
+      requires_vrack = root[YAML::Any.new("requires_vrack")]?.try(&.as_bool?) == true
       parameters = sub_hash(root, "parameters")
       arguments = sub_hash(root, "arguments")
       steps = parse_steps(root, path)
@@ -100,6 +105,7 @@ module Beryl::Apply
         steps: steps,
         source_path: path,
         positional: positional,
+        requires_vrack: requires_vrack,
       )
     end
 

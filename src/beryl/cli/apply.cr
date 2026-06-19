@@ -145,10 +145,20 @@ module Beryl::CLI::Apply
       if r = adhoc_recipe
         [RecipeRequest.new(r, {} of String => String)]
       else
-        apply_recipes_list(host)
+        # apply_recipes: explicites + recettes-shell dérivées des users
+        # (ex. `shell: oh-my-zsh` → recette oh-my-zsh avec user: <nom>).
+        apply_recipes_list(host) + user_shell_recipe_requests(host)
       end
     resolver = Beryl::Apply::Resolver.new(central_dir)
     recipes = resolver.resolve(requests.map(&.name).uniq)
+
+    # Garde vRack : une recette `requires_vrack: true` (ex. pkg-repo-quimeo, qui
+    # joint le builder de paquets sur le vRack) est ÉCARTÉE si le host n'a pas
+    # d'IP vRack (ex. han, GAME1). Évite un apply qui échouerait pour rien.
+    if host.vrack_ip.nil? && (skipped = recipes.select(&.requires_vrack)).size > 0
+      log "écartées (pas de vRack sur #{host.fqdn}) : #{skipped.map(&.name).join(", ")}"
+      recipes = recipes.reject(&.requires_vrack)
+    end
 
     # Réconciliation des comptes : phase intégrée (sauf mode ad-hoc),
     # pilotée par `freebsd.users` — TOUJOURS, même sans apply_recipes. La
@@ -238,22 +248,18 @@ module Beryl::CLI::Apply
     users = freebsd[YAML::Any.new("users")]?.try(&.as_a?)
     return nil unless users
 
-    users.each do |u|
-      uh = u.as_h?
-      next unless uh
-      name = uh[YAML::Any.new("name")]?.try(&.as_s?)
-      next unless name
+    Beryl::Config::Users.list(users).each do |e|
       can =
-        if flag = uh[YAML::Any.new("sudo")]?
+        if flag = e.fields[YAML::Any.new("sudo")]?
           flag.as_bool? == true
         else
-          # `secondary_groups` (canonique) OU alias `groups` — même
-          # tolérance que user-sync, sinon le user de connexion diffère.
+          # `secondary_groups` (canonique) OU alias `groups` — même tolérance
+          # que user-sync, sinon le user de connexion diffère.
           {"secondary_groups", "groups"}.any? do |key|
-            uh[YAML::Any.new(key)]?.try(&.as_a?).try(&.any? { |g| g.as_s? == "wheel" }) || false
+            e.fields[YAML::Any.new(key)]?.try(&.as_a?).try(&.any? { |g| g.as_s? == "wheel" }) || false
           end
         end
-      return name if can
+      return e.name if can
     end
     nil
   end
@@ -267,14 +273,21 @@ module Beryl::CLI::Apply
     return nil unless users
 
     steps = [] of Beryl::Apply::Step
-    users.each do |u|
-      next unless uh = u.as_h?
-      next unless name_any = uh[YAML::Any.new("name")]?
+    Beryl::Config::Users.list(users).each do |e|
+      name_any = YAML::Any.new(e.name)
+      # user-sync : tous les champs SAUF `shell` (géré à part : un /chemin par
+      # user-shell ci-dessous, une recette par user_shell_recipe_requests).
       params = {} of String => YAML::Any
-      uh.each { |k, v| params[k.as_s? || k.to_s] = v }
+      e.fields.each { |k, v| params[k.as_s? || k.to_s] = v unless k.as_s? == "shell" }
+      params["name"] = name_any
       steps << Beryl::Apply::Step.new(name: "user-sync", params: params)
       # Clé d'identité du user (générée sur le serveur, idempotent).
       steps << Beryl::Apply::Step.new(name: "user-ssh-key", params: {"name" => name_any})
+      # `shell: /chemin` → user-shell (idempotent, gère le CHANGEMENT de shell).
+      if path = e.shell_path
+        steps << Beryl::Apply::Step.new(name: "user-shell",
+          params: {"user" => name_any, "shell" => YAML::Any.new(path)})
+      end
     end
     return nil if steps.empty?
 
@@ -287,6 +300,21 @@ module Beryl::CLI::Apply
       steps: steps,
       source_path: "<built-in>",
     )
+  end
+
+  # Recettes dérivées du champ `shell` des users quand c'est un NOM DE RECETTE
+  # (ex. `shell: oh-my-zsh`) : une requête `<recette>` avec `user: <nom>`. Un
+  # `/chemin` n'en produit pas (géré par user-shell dans build_users_recipe).
+  private def self.user_shell_recipe_requests(host : Beryl::Config::ResolvedHost) : Array(RecipeRequest)
+    freebsd = host.merged[YAML::Any.new("freebsd")]?.try(&.as_h?)
+    return [] of RecipeRequest unless freebsd
+    users = freebsd[YAML::Any.new("users")]?.try(&.as_a?)
+    return [] of RecipeRequest unless users
+    Beryl::Config::Users.list(users).compact_map do |e|
+      if recipe = e.shell_recipe
+        RecipeRequest.new(recipe, {"user" => e.name})
+      end
+    end
   end
 
   private def self.central_recipes_dir(config_root : String, host : Beryl::Config::ResolvedHost) : String

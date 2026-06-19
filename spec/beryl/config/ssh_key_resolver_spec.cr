@@ -70,17 +70,17 @@ describe Beryl::Config::Root do
       fixtures_config = File.expand_path(File.join(__DIR__, "..", "..", "fixtures", "config", "ssh-key-by-filename"))
       root = Beryl::Config::Root.load(fixtures_config, ssh_dir: SSH_FIXTURES)
       rh = root.resolve("rails01.aloli.net")
-      users = rh.freebsd_hash[YAML::Any.new("users")].as_a
+      users = Beryl::Config::Users.list(rh.freebsd_hash[YAML::Any.new("users")].as_a)
 
-      admin = users.find { |u| u.as_h[YAML::Any.new("name")].as_s == "admin" }.not_nil!
-      admin_keys = admin.as_h[YAML::Any.new("ssh_keys")].as_a.map(&.as_s)
+      admin = users.find { |e| e.name == "admin" }.not_nil!
+      admin_keys = admin.fields[YAML::Any.new("ssh_keys")].as_a.map(&.as_s)
       # admin hérite UNIQUEMENT de la clé domaine (lue depuis
       # philippe.aloli.fr.pub).
       admin_keys.size.should eq(1)
       admin_keys.first.should contain("philippe@aloli.fr")
 
-      deploy = users.find { |u| u.as_h[YAML::Any.new("name")].as_s == "deploy" }.not_nil!
-      deploy_keys = deploy.as_h[YAML::Any.new("ssh_keys")].as_a.map(&.as_s)
+      deploy = users.find { |e| e.name == "deploy" }.not_nil!
+      deploy_keys = deploy.fields[YAML::Any.new("ssh_keys")].as_a.map(&.as_s)
       # deploy a la clé domaine + dev2.pub référencée par le host
       deploy_keys.size.should eq(2)
       deploy_keys[0].should contain("philippe@aloli.fr")

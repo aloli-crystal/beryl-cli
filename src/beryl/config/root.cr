@@ -1,4 +1,5 @@
 require "yaml"
+require "./users"
 
 module Beryl::Config
   # Point d'entrée de la configuration beryl (ADR-014).
@@ -375,6 +376,7 @@ module Beryl::Config
       @env_file : EnvFile,
       @virtual : Bool = false,
     )
+      @ssh_key_warned = false
     end
 
     # FQDN reconstitué : `<short_name>.<domaine>`. Le groupe
@@ -553,14 +555,12 @@ module Beryl::Config
     # `beryl apply`/`vrack` (qui dérivaient cette logique chacun de leur côté).
     def connect_user : String
       if users = @merged[YAML::Any.new("freebsd")]?.try(&.as_h?).try(&.[YAML::Any.new("users")]?).try(&.as_a?)
-        users.each do |u|
-          uh = u.as_h?
-          next unless uh
-          name = uh[YAML::Any.new("name")]?.try(&.as_s?)
-          next unless name
-          wheel = uh[YAML::Any.new("groups")]?.try(&.as_a?).try(&.any? { |g| g.as_s? == "wheel" }) || false
-          sudo = uh[YAML::Any.new("sudo")]?.try(&.as_bool?) == true
-          return name if wheel || sudo
+        Beryl::Config::Users.list(users).each do |e|
+          wheel = {"groups", "secondary_groups"}.any? do |k|
+            e.fields[YAML::Any.new(k)]?.try(&.as_a?).try(&.any? { |g| g.as_s? == "wheel" })
+          end
+          sudo = e.fields[YAML::Any.new("sudo")]?.try(&.as_bool?) == true
+          return e.name if wheel || sudo
         end
       end
       user
@@ -919,8 +919,41 @@ module Beryl::Config
 
     class MissingMountpoint < Exception; end
 
+    # Avertissement clé SSH : pour un host OVH, si AUCUNE clé privée n'est
+    # résolue (ni `identity_file:` explicite, ni `ovh.ssh_key_name` valide),
+    # beryl se connecterait SANS `-i` — et comme `IdentitiesOnly=yes` est forcé,
+    # l'auth publickey échoue par un opaque « Permission denied ». On renvoie ici
+    # un message clair. nil si tout va bien (clé résolue) ou host non-OVH (où
+    # l'absence de clé peut être légitime : test local, autre provider…).
+    #
+    # Piège typique : `ovh.ssh_key_name` rangé sous `freebsd:` au lieu de la
+    # RACINE → `ovh_ssh_key_name` (qui lit le bloc `ovh:` racine) renvoie nil.
+    def ssh_key_diagnostic : String?
+      return nil unless provider == "ovh"
+      return nil unless identity_file.nil?
+      if name = ovh_ssh_key_name
+        "clé OVH « #{name} » (ovh.ssh_key_name) introuvable dans ~/.ssh " \
+        "(attendu ~/.ssh/#{name.gsub('-', '.')}.key)"
+      else
+        "aucune clé SSH résolue pour #{fqdn} : `ovh.ssh_key_name` absent — " \
+        "il doit être au niveau RACINE du YAML (bloc `ovh:`), PAS sous `freebsd:`"
+      end
+    end
+
+    # Émet l'avertissement clé SSH au plus une fois par host (évite le spam
+    # quand un CLI ouvre plusieurs connexions). Branché sur tous les points
+    # d'entrée SSH (`connection`, `rescue_connection`).
+    private def warn_ssh_key_once : Nil
+      return if @ssh_key_warned
+      @ssh_key_warned = true
+      if msg = ssh_key_diagnostic
+        STDERR.puts "beryl : ⚠️  #{msg}"
+      end
+    end
+
     # Construit une `SSH::Connection` prête à l'emploi.
     def connection(user_override : String? = nil) : SSH::Connection
+      warn_ssh_key_once
       eff_user = user_override || user
       opts = {} of String => String
       if pj = proxy_jump(eff_user)
@@ -941,6 +974,7 @@ module Beryl::Config
     # plutôt que `connection`, sinon `user: admin` casse l'accès (le rescue
     # n'a que root).
     def rescue_connection : SSH::Connection
+      warn_ssh_key_once
       SSH::Connection.new(
         host: ssh_host,
         user: "root",

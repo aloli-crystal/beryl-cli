@@ -350,21 +350,9 @@ module Beryl::CLI
 
     # User de connexion SSH : le PREMIER user sudo-capable de `freebsd.users`
     # (le SSH root est coupé sur les hôtes durcis), à défaut `host.user`.
-    # Aligné sur `beryl apply` (sinon on tenterait `root` → injoignable).
+    # Délègue au modèle (`ResolvedHost#connect_user`, via le normaliseur Users).
     private def self.connect_user(host : Beryl::Config::ResolvedHost) : String
-      freebsd = host.merged[YAML::Any.new("freebsd")]?.try(&.as_h?)
-      if freebsd && (users = freebsd[YAML::Any.new("users")]?.try(&.as_a?))
-        users.each do |u|
-          uh = u.as_h?
-          next unless uh
-          name = uh[YAML::Any.new("name")]?.try(&.as_s?)
-          next unless name
-          wheel = uh[YAML::Any.new("groups")]?.try(&.as_a?).try(&.any? { |g| g.as_s? == "wheel" }) || false
-          sudo = uh[YAML::Any.new("sudo")]?.try(&.as_bool?) == true
-          return name if wheel || sudo
-        end
-      end
-      host.user
+      host.connect_user
     end
 
     # Connexion sudo-capable vers le host (même logique que `beryl apply` :

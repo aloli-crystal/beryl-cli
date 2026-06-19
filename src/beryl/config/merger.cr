@@ -1,4 +1,5 @@
 require "yaml"
+require "./users"
 
 module Beryl::Config
   # Fusionne la chaîne d'héritage d'un host pour produire sa config
@@ -50,9 +51,14 @@ module Beryl::Config
       result = deep_merge(result, group.raw, path: "") if group
       result = deep_merge(result, host.raw, path: "")
 
-      # Injection de la ou des clés SSH du domaine dans chaque user.
-      # Résolution des noms de fichiers `xxx.pub` en contenu effectif.
-      domain_keys_resolved = Beryl::Config.resolve_ssh_keys(domain.ssh_keys, ssh_dir)
+      # Injection des clés SSH dans chaque user. Source = champ racine
+      # `ssh_keys:` du config MERGÉ (défaut → société → domaine → host) : on les
+      # cherche donc d'abord dans `<société>/_defaults.yml`, puis raffinées par
+      # `<société>/<domaine>/_defaults.yml` / host. Permet de déclarer la clé UNE
+      # fois au niveau société. Résolution des noms de fichiers `xxx.pub` → contenu.
+      merged_keys = Beryl::Config.deployed_key_names(
+        result[YAML::Any.new("ssh_keys")]?.try(&.as_a?) || [] of YAML::Any)
+      domain_keys_resolved = Beryl::Config.resolve_ssh_keys(merged_keys, ssh_dir)
       result = inject_domain_keys_into_users(result, domain_keys_resolved, ssh_dir)
 
       result
@@ -116,38 +122,29 @@ module Beryl::Config
     # supérieur (pas append, cohérent avec la sémantique déclarative
     # voulue pour `beryl apply`).
     def self.merge_users(base : Array(YAML::Any), override : Array(YAML::Any)) : Array(YAML::Any)
-      by_name = {} of String => YAML::Any
+      fields = {} of String => Hash(YAML::Any, YAML::Any)
       order = [] of String
 
-      base.each do |u|
-        if (h = u.as_h?) && (n = h[YAML::Any.new("name")]?.try(&.as_s?))
-          by_name[n] = u
-          order << n
-        end
+      Users.list(base).each do |e|
+        fields[e.name] = e.fields
+        order << e.name
       end
 
-      override.each do |u|
-        h = u.as_h?
-        next unless h
-        n = h[YAML::Any.new("name")]?.try(&.as_s?)
-        next unless n
-
-        if existing = by_name[n]?
-          # Fusion champ par champ. `ssh_keys` prend la version override
-          # telle quelle (pas d'append dans les users).
-          existing_hash = existing.as_h
-          merged = existing_hash.dup
-          h.each do |fk, fv|
-            merged[fk] = fv
-          end
-          by_name[n] = YAML::Any.new(merged)
+      Users.list(override).each do |e|
+        if existing = fields[e.name]?
+          # Fusion champ par champ. `ssh_keys` prend la version override telle
+          # quelle (pas d'append dans les users).
+          merged = existing.dup
+          e.fields.each { |fk, fv| merged[fk] = fv }
+          fields[e.name] = merged
         else
-          by_name[n] = u
-          order << n
+          fields[e.name] = e.fields
+          order << e.name
         end
       end
 
-      order.map { |n| by_name[n] }
+      # Sortie en forme NOUVELLE `{ name: fields }` (le normaliseur relit les deux).
+      order.map { |n| Users.build(n, fields[n]) }
     end
 
     # Injecte la ou les clés SSH du domaine en tête de `ssh_keys` de
@@ -170,20 +167,18 @@ module Beryl::Config
 
       domain_keys_as_any = domain_keys_resolved.map { |k| YAML::Any.new(k) }
 
-      new_users = users_array.map do |user_any|
-        user_hash = user_any.as_h
-        existing_keys_any = user_hash[YAML::Any.new("ssh_keys")]?
+      new_users = Users.list(users_array).map do |e|
+        existing_keys_any = e.fields[YAML::Any.new("ssh_keys")]?
         # Paire de rotation `[a, b]` → on ne garde que l'active (la 1ère).
         existing_raw = Beryl::Config.deployed_key_names(existing_keys_any.try(&.as_a?) || [] of YAML::Any)
-        # Résolution de chaque entrée (nom de fichier → contenu, ou
-        # inline tel quel). Les clés déjà présentes dans le domaine
-        # sont filtrées pour dédup.
+        # Résolution de chaque entrée (nom de fichier → contenu, ou inline tel
+        # quel). Les clés déjà dans le domaine sont filtrées pour dédup.
         existing_resolved = existing_raw.map { |k| Beryl::Config.resolve_ssh_key(k, ssh_dir) }
         final_keys = domain_keys_as_any + existing_resolved.reject { |k| domain_keys_resolved.includes?(k) }.map { |k| YAML::Any.new(k) }
 
-        new_user_hash = user_hash.dup
-        new_user_hash[YAML::Any.new("ssh_keys")] = YAML::Any.new(final_keys)
-        YAML::Any.new(new_user_hash)
+        new_fields = e.fields.dup
+        new_fields[YAML::Any.new("ssh_keys")] = YAML::Any.new(final_keys)
+        Users.build(e.name, new_fields)
       end
 
       new_freebsd_hash = freebsd_hash.dup

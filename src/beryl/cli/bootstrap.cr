@@ -390,20 +390,20 @@ module Beryl::CLI::Bootstrap
     users_any = host.freebsd_hash[YAML::Any.new("users")]?
     return [] of Beryl::Bootstrap::UserSpec unless users_any
     list = users_any.as_a? || [] of YAML::Any
-    list.compact_map do |u|
-      h = u.as_h?
-      next nil unless h
-      name = h[YAML::Any.new("name")]?.try(&.as_s?)
-      next nil unless name
+    Beryl::Config::Users.list(list).map do |e|
+      f = e.fields
       # Paire de rotation `[a, b]` → on ne bootstrappe que l'active (1ère).
-      ssh_keys = Beryl::Config.deployed_key_names(h[YAML::Any.new("ssh_keys")]?.try(&.as_a?) || [] of YAML::Any)
+      ssh_keys = Beryl::Config.deployed_key_names(f[YAML::Any.new("ssh_keys")]?.try(&.as_a?) || [] of YAML::Any)
       Beryl::Bootstrap::UserSpec.new(
-        name: name,
-        primary_group: h[YAML::Any.new("primary_group")]?.try(&.as_s?) || "www",
+        name: e.name,
+        primary_group: f[YAML::Any.new("primary_group")]?.try(&.as_s?) || "www",
         # `secondary_groups` (canonique) + alias `groups` (comme user-sync).
-        secondary_groups: ((h[YAML::Any.new("secondary_groups")]?.try(&.as_a?).try(&.compact_map(&.as_s?)) || [] of String) +
-                           (h[YAML::Any.new("groups")]?.try(&.as_a?).try(&.compact_map(&.as_s?)) || [] of String)).uniq,
-        shell: h[YAML::Any.new("shell")]?.try(&.as_s?) || "/bin/csh",
+        secondary_groups: ((f[YAML::Any.new("secondary_groups")]?.try(&.as_a?).try(&.compact_map(&.as_s?)) || [] of String) +
+                           (f[YAML::Any.new("groups")]?.try(&.as_a?).try(&.compact_map(&.as_s?)) || [] of String)).uniq,
+        # `shell` À LA CRÉATION : seulement un /chemin de login. Une RECETTE
+        # (ex. `oh-my-zsh`) n'EST PAS un shell de login → on garde le défaut ;
+        # la recette posera le vrai shell (/usr/local/bin/zsh) au 1ᵉʳ `beryl apply`.
+        shell: e.shell_path || "/bin/csh",
         ssh_keys: ssh_keys,
       )
     end

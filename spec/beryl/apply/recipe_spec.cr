@@ -16,6 +16,17 @@ describe Beryl::Apply::Recipe do
       r.steps.size.should eq(1)
       r.steps.first.name.should eq("pkg-install")
       r.steps.first.params["packages"].as_a.map(&.as_s).should eq(["bash", "git", "curl"])
+      r.requires_vrack.should be_false # défaut
+    end
+
+    it "parse `requires_vrack: true`" do
+      path = File.join(Dir.tempdir, "needs-vrack.recipe.yml")
+      File.write(path, "description: x\nrequires_vrack: true\nsteps:\n  - pkg-install: { packages: [git] }\n")
+      begin
+        Beryl::Apply::Recipe.load(path).requires_vrack.should be_true
+      ensure
+        File.delete(path)
+      end
     end
 
     it "parse les requires d'une recette agrégat sans steps" do

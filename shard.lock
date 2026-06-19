@@ -40,3 +40,7 @@ shards:
     git: https://github.com/aloli-crystal/toml.git
     version: 0.1.4
 
+  yaml-tidy:
+    git: https://github.com/aloli-crystal/yaml-tidy.git
+    version: 0.1.0+git.commit.4a10edf044dc38ae863f2bad583728e5b602df6e
+

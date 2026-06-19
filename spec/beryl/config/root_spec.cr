@@ -336,4 +336,19 @@ describe Beryl::Config::ResolvedHost do
       rh.os.should eq("freebsd")
     end
   end
+
+  describe "#ssh_key_diagnostic" do
+    it "alerte si un host OVH n'a pas de `ovh.ssh_key_name` (clé non résolue)" do
+      rh = Beryl::Config::Root.load(fixture("ssh-host-override")).resolve("infohw")
+      diag = rh.ssh_key_diagnostic
+      diag.should_not be_nil
+      diag.not_nil!.should contain("ovh.ssh_key_name")
+      diag.not_nil!.should contain("RACINE") # pointe le piège du mauvais niveau
+    end
+
+    it "ne dit rien pour un host non-OVH (absence de clé légitime)" do
+      rh = Beryl::Config::Root.load(fixture("ssh-host-override")).resolve("clientvm")
+      rh.ssh_key_diagnostic.should be_nil
+    end
+  end
 end

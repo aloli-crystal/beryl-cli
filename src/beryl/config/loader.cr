@@ -62,7 +62,7 @@ module Beryl::Config
         }
       end
 
-      defaults = load_defaults(File.join(expanded, "_default.yml"))
+      defaults = load_defaults(defaults_path(expanded))
       env_file = EnvFile.load(File.join(expanded, ".env.yml"))
       accounts = load_accounts(expanded)
 
@@ -83,7 +83,15 @@ module Beryl::Config
       {defaults: defaults, accounts: accounts, env_file: env_file}
     end
 
-    # Charge `_default.yml` ou retourne un hash vide s'il n'existe pas.
+    # Chemin du fichier de défauts d'un dossier : `_defaults.yml` (nouveau,
+    # PLURIEL — un fichier contient PLUSIEURS défauts) s'il existe, sinon
+    # `_default.yml` (legacy). Permet le renommage progressif.
+    def self.defaults_path(dir : String) : String
+      plural = File.join(dir, "_defaults.yml")
+      File.exists?(plural) ? plural : File.join(dir, "_default.yml")
+    end
+
+    # Charge le fichier de défauts ou retourne un hash vide s'il n'existe pas.
     def self.load_defaults(path : String) : Hash(YAML::Any, YAML::Any)
       return empty_hash unless File.exists?(path)
       parsed = YAML.parse(File.read(path))
@@ -109,7 +117,7 @@ module Beryl::Config
     # `_default.yml` (nouvelle convention « _default.yml par dossier »),
     # sinon `_account.yml` (ancien nom, rétro-compat).
     def self.load_account(name : String, path : String) : Account
-      default_path = File.join(path, "_default.yml")
+      default_path = defaults_path(path)
       legacy_path = File.join(path, "_account.yml")
       meta_path = File.exists?(default_path) ? default_path : legacy_path
       metadata = File.exists?(meta_path) ? parse_yaml_hash(meta_path) : empty_hash
@@ -144,7 +152,7 @@ module Beryl::Config
     # depuis le dossier `<name>/`.
     def self.load_domain(account_dir : String, name : String) : Domain
       domain_dir = File.join(account_dir, name)
-      default_yml = File.join(domain_dir, "_default.yml")
+      default_yml = defaults_path(domain_dir)
       legacy_yml = File.join(account_dir, "#{name}#{DOMAIN_SUFFIX}")
 
       source_path, raw =

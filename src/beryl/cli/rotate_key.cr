@@ -178,11 +178,11 @@ module Beryl::CLI::RotateKey
       each_pair(arr) { |a, s| pairs << Pair.new(nil, a, s) }
     end
     users = raw[YAML::Any.new("freebsd")]?.try(&.as_h?).try(&.[YAML::Any.new("users")]?).try(&.as_a?)
-    users.try &.each do |u|
-      uh = u.as_h? || next
-      name = uh[YAML::Any.new("name")]?.try(&.as_s?) || next
-      if arr = uh[YAML::Any.new("ssh_keys")]?.try(&.as_a?)
-        each_pair(arr) { |a, s| pairs << Pair.new(name, a, s) }
+    users.try do |arr|
+      Beryl::Config::Users.list(arr).each do |e|
+        if keys = e.fields[YAML::Any.new("ssh_keys")]?.try(&.as_a?)
+          each_pair(keys) { |a, s| pairs << Pair.new(e.name, a, s) }
+        end
       end
     end
     pairs
@@ -199,7 +199,7 @@ module Beryl::CLI::RotateKey
   private def self.user_names(host : Beryl::Config::ResolvedHost) : Array(String)
     users = host.merged[YAML::Any.new("freebsd")]?.try(&.as_h?).try(&.[YAML::Any.new("users")]?).try(&.as_a?)
     return [] of String unless users
-    users.compact_map { |u| u.as_h?.try(&.[YAML::Any.new("name")]?).try(&.as_s?) }
+    Beryl::Config::Users.list(users).map(&.name)
   end
 
   # Remplace l'entrée `[active, suivante]` par `suivante` dans le fichier,
