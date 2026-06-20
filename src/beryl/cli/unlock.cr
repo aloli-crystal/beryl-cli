@@ -78,16 +78,26 @@ module Beryl::CLI::Unlock
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
 
     encrypted_pools = host.data_zpools.select(&.encrypted?)
-    if encrypted_pools.empty?
-      STDERR.puts "beryl : aucun pool data avec `encryption: ...` déclaré pour #{host.fqdn}"
+    # Datasets sensibles du zroot (profil Option I) : l'encryptionroot partagé
+    # `zroot/encrypted` + ses enfants /home,/opt,/usr/local/etc. `find(&.boot)`
+    # plutôt que `boot_zpool` (qui LÈVE) : un host sans pool boot (config de test
+    # data-only) → enc_root nil, on ne traite alors que les pools data.
+    boot_pool = host.zpools.find(&.boot)
+    enc_root = boot_pool.try(&.encryption_root)
+    enc_root_cfg = boot_pool.try(&.encryption)
+    enc_root_tang = !enc_root.nil? && enc_root_cfg.try(&.tang?) == true
+    enc_root_ssh = !enc_root.nil? && !enc_root_tang # défaut ssh_unlock si pas tang
+
+    if encrypted_pools.empty? && enc_root.nil?
+      STDERR.puts "beryl : aucun pool data ni dataset zroot chiffré (profil) déclaré pour #{host.fqdn}"
       STDERR.puts "        (pools data trouvés : #{host.data_zpools.map(&.name).join(", ")})"
       return EXIT_NO_DATA_POOLS
     end
 
-    # Lecture de la clé locale UNIQUEMENT si au moins un pool est en
+    # Lecture de la clé locale UNIQUEMENT si au moins une unité est en
     # mode ssh_unlock. En mode tang seul, la clé vit côté serveur (via
     # Tang) — pas besoin de fichier local.
-    needs_local_key = encrypted_pools.any? { |p| p.encryption.not_nil!.ssh_unlock? }
+    needs_local_key = encrypted_pools.any? { |p| p.encryption.not_nil!.ssh_unlock? } || enc_root_ssh
     key_hex : String? = nil
     if needs_local_key
       key_path = Beryl::Encryption.key_path(
@@ -108,8 +118,9 @@ module Beryl::CLI::Unlock
     end
 
     target = Beryl.format_ssh_target(host)
-    summary = encrypted_pools.map { |p| "#{p.name}(#{mode_label(p)})" }.join(", ")
-    log "H4 unlock #{target} : #{encrypted_pools.size} pool(s) chiffré(s) à déverrouiller (#{summary})"
+    units = encrypted_pools.map { |p| "#{p.name}(#{mode_label(p)})" }
+    units << "#{enc_root}(#{enc_root_tang ? "tang" : "ssh_unlock"})" if enc_root
+    log "H4 unlock #{target} : #{units.size} unité(s) chiffrée(s) à déverrouiller (#{units.join(", ")})"
 
     if dry_run
       log "H4 DRY-RUN : SSH root@#{host.ssh_host}:#{host.port}"
@@ -123,6 +134,15 @@ module Beryl::CLI::Unlock
         end
         log "H4 DRY-RUN :   zfs mount -a -l"
       end
+      if er = enc_root
+        # encryptionroot zroot : pas d'import (zroot déjà importé au boot).
+        if enc_root_tang
+          log "H4 DRY-RUN :   #{TANG_BINARY} unlock --no-mount --dataset #{er}"
+        else
+          log "H4 DRY-RUN :   echo '<64-char-hex-key>' | zfs load-key #{er}"
+        end
+        log "H4 DRY-RUN :   zfs mount -a -l   (datasets zroot : /home, /opt, /usr/local/etc)"
+      end
       return EXIT_OK
     end
 
@@ -132,18 +152,19 @@ module Beryl::CLI::Unlock
     # le binaire `crystal-clevis-zfs` est présent côté serveur. Sinon
     # erreur claire AVANT de tenter quoi que ce soit (évite le
     # déchiffrement partiel).
-    needs_tang = encrypted_pools.any? { |p| p.encryption.not_nil!.tang? }
+    needs_tang = encrypted_pools.any? { |p| p.encryption.not_nil!.tang? } || enc_root_tang
     if needs_tang
       probe = conn.exec("test -x #{Process.quote(TANG_BINARY)}", raise_on_error: false)
       unless probe.success?
         STDERR.puts "beryl : binaire #{TANG_BINARY} absent ou non exécutable sur #{target}"
-        STDERR.puts "        Il est requis pour les pools en `mode: tang`. Installez-le via :"
+        STDERR.puts "        Il est requis pour le `mode: tang`. Installez-le via :"
         STDERR.puts "          beryl apply #{host.account_name}/#{host.fqdn}   (recette crystal-clevis-zfs-install, à venir)"
-        STDERR.puts "        Ou manuellement à partir du repo `crystal-clevis-zfs`."
+        STDERR.puts "        Ou manuellement à partir du repo `clevis-zfs`."
         return EXIT_TANG_BINARY_MISSING
       end
     end
 
+    total = encrypted_pools.size + (enc_root ? 1 : 0)
     failures = 0
     encrypted_pools.each do |pool|
       begin
@@ -154,13 +175,22 @@ module Beryl::CLI::Unlock
         failures += 1
       end
     end
+    if er = enc_root
+      begin
+        unlock_encryption_root(conn, er, enc_root_cfg, key_hex)
+      rescue ex
+        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl unlock] " \
+                    "H4 ÉCHEC encryptionroot #{er} : #{ex.class}: #{ex.message}"
+        failures += 1
+      end
+    end
 
     if failures > 0
-      STDERR.puts "beryl : #{failures}/#{encrypted_pools.size} pool(s) non déverrouillé(s)"
+      STDERR.puts "beryl : #{failures}/#{total} unité(s) non déverrouillée(s)"
       return EXIT_UNLOCK_FAILED
     end
 
-    log "H4 unlock #{target} : terminé (#{encrypted_pools.size} pool(s) en ligne)"
+    log "H4 unlock #{target} : terminé (#{total} unité(s) en ligne)"
     EXIT_OK
   rescue ex : Beryl::Config::Root::HostNotFound
     STDERR.puts "beryl : #{ex.message}"
@@ -243,6 +273,46 @@ module Beryl::CLI::Unlock
     # Diagnostic : liste les datasets montés du pool pour confirmer.
     mounted = conn.exec(
       "zfs list -H -o name,mounted,mountpoint -r #{Process.quote(pool_name)}",
+      raise_on_error: false,
+    )
+    if mounted.success?
+      mounted.stdout.lines.each do |line|
+        log "H4     #{line.strip}"
+      end
+    end
+  end
+
+  # Déverrouille l'encryptionroot zroot du profil Option I (`zroot/encrypted`)
+  # + ses enfants /home, /opt, /usr/local/etc. Différence avec `unlock_one` :
+  # PAS de `zpool import` — le pool boot zroot est déjà importé au boot (sshd
+  # tourne dessus). On charge juste la clé (par voie selon le mode) puis on monte.
+  # Idempotent : si la clé est déjà chargée, on saute le load-key. csh-safe.
+  #
+  # `enc_cfg` est la config `encryption:` du pool boot (le mode des datasets).
+  # nil ou non-tang ⇒ ssh_unlock (clé locale via stdin). `key_hex` requis alors.
+  private def self.unlock_encryption_root(conn : SSH::Connection, enc_root : String, enc_cfg : Beryl::Config::EncryptionConfig?, key_hex : String?) : Nil
+    target = "#{conn.user}@#{conn.host}"
+    tang = enc_cfg.try(&.tang?) == true
+
+    keystatus = conn.exec("zfs get -H -o value keystatus #{Process.quote(enc_root)}", raise_on_error: false)
+    status = keystatus.success? ? keystatus.stdout.strip : "unknown"
+    if status == "available"
+      log "H4   clé déjà chargée pour #{enc_root} (sur #{target})"
+    elsif tang
+      load_key_via_tang(conn, enc_root, enc_cfg.not_nil!)
+    else
+      load_key_via_ssh_stdin(conn, enc_root, key_hex.not_nil!)
+    end
+
+    # Monte les enfants (/home, /opt, /usr/local/etc), maintenant déchiffrables.
+    log "H4   zfs mount -a -l (datasets zroot de #{enc_root})"
+    mount = conn.exec("zfs mount -a -l", raise_on_error: false)
+    unless mount.success?
+      log "H4   zfs mount -a -l a retourné exit=#{mount.exit_code} stderr=#{mount.stderr.strip.inspect[0, 200]}"
+    end
+
+    mounted = conn.exec(
+      "zfs list -H -o name,mounted,mountpoint -r #{Process.quote(enc_root)}",
       raise_on_error: false,
     )
     if mounted.success?

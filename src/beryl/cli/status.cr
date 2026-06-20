@@ -73,6 +73,18 @@ module Beryl::CLI::Status
       puts "  #{pool.name.ljust(8)} #{info[:state].ljust(8)} #{info[:detail]}"
     end
 
+    # --- Datasets zroot chiffrés (profil Option I) ---
+    # L'encryptionroot `zroot/encrypted` est un DATASET enfant du pool boot,
+    # pas un pool : son état de verrou n'apparaît pas dans la liste des pools
+    # ci-dessus (le pool zroot lui-même reste clair/ONLINE). `find(&.boot)`
+    # renvoie nil si pas de pool boot (config data-only) → section sautée.
+    if er = declared_pools.find(&.boot).try(&.encryption_root)
+      puts ""
+      puts "Datasets zroot chiffrés :"
+      info = encryption_root_status(conn, er)
+      puts "  #{er.ljust(16)} #{info[:state].ljust(8)} #{info[:detail]}"
+    end
+
     # --- Services ---
     puts ""
     puts "Services :"
@@ -153,15 +165,58 @@ module Beryl::CLI::Status
     end
   end
 
+  # Statut de l'encryptionroot zroot (profil Option I). Ce n'est pas un pool
+  # mais un dataset chiffré (`canmount=off`) dont les enfants sont /home, /opt,
+  # /usr/local/etc. États :
+  #
+  #   UNLOCKED : clé chargée (keystatus=available) — enfants montables/montés
+  #   LOCKED   : clé non chargée → `beryl unlock`
+  #   ABSENT   : dataset inexistant (host pas bootstrappé en profil Option I)
+  private def self.encryption_root_status(conn : SSH::Connection, enc_root : String) : NamedTuple(state: String, detail: String)
+    keystatus = conn.exec("zfs get -H -o value keystatus #{Process.quote(enc_root)}", raise_on_error: false)
+    unless keystatus.success? && !keystatus.stdout.strip.empty? && keystatus.stdout.strip != "-"
+      return {state: "ABSENT", detail: "(dataset chiffré absent — host pas en profil Option I ?)"}
+    end
+
+    ks = keystatus.stdout.strip
+    if ks != "available"
+      return {state: "LOCKED", detail: "(clé non chargée — beryl unlock)"}
+    end
+
+    # Compte les datasets ENFANTS montés (on ignore l'encryptionroot lui-même,
+    # qui est canmount=off donc jamais monté).
+    mounted = conn.exec(
+      "zfs list -H -o name,mounted -r #{Process.quote(enc_root)}",
+      raise_on_error: false,
+    )
+    detail = "déverrouillé"
+    if mounted.success?
+      total = 0
+      yes = 0
+      mounted.stdout.lines.each do |line|
+        next if line.strip.empty?
+        next if line.split(/\s+/).first? == enc_root
+        total += 1
+        yes += 1 if line.includes?("\tyes") || line.includes?(" yes")
+      end
+      detail = "déverrouillé (#{yes}/#{total} datasets montés)"
+    end
+    {state: "UNLOCKED", detail: detail}
+  end
+
   # Statut FreeBSD d'un service via `service <name> status`. Retourne
   # `up`, `down`, ou un état brut. La commande FreeBSD retourne 0 si
   # le service tourne, !=0 sinon.
   private def self.service_status(conn : SSH::Connection, name : String) : String
-    result = conn.exec("service #{Process.quote(name)} status 2>&1", raise_on_error: false)
+    # PAS de `2>&1` : sous csh (login shell de root sur FreeBSD) cette syntaxe
+    # Bourne casse (le `2` devient un argument). On lit stdout ET stderr du
+    # `SSH::Result` à la place — `service status` écrit son diagnostic sur l'un
+    # ou l'autre selon les rc.d.
+    result = conn.exec("service #{Process.quote(name)} status", raise_on_error: false)
     if result.success?
       "up"
     else
-      out = result.stdout.strip
+      out = "#{result.stdout.strip}\n#{result.stderr.strip}"
       if out.includes?("not running")
         "down"
       elsif out.includes?("does not exist") || out.empty?
