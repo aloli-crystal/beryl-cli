@@ -55,6 +55,11 @@ DATA_POOLS_SCRIPT='__DATA_POOLS_SCRIPT_B64__'
 # Datasets système chiffrés du profil C+ (zroot/encrypted/{home,opt,usrlocaletc}
 # + zroot/zlog clair). Créés AVANT le post-install (les homes/configs s'y écrivent).
 SYSTEM_DATASETS_SCRIPT='__SYSTEM_DATASETS_SCRIPT_B64__'
+# Clés SSH root (base64, union des clés des users) — posées dans /root/.ssh
+# UNIQUEMENT en profil Option I (datasets système chiffrés), pour la porte de
+# secours fail-safe : root clé-seule reste joignable avant tout `beryl unlock`
+# (les authorized_keys opérateur de /home sont chiffrés au boot). Vide hors profil.
+ROOT_KEYS_B64='__ROOT_KEYS_B64__'
 # Type d'install : "distribution_sets" (bsdinstall + tarballs) ou
 # "packages" (pkgbase via install-pkgbase.sh). Chemin du script pkgbase
 # déposé sur le rescue (scp'é dans la VM par la branche pkgbase).
@@ -297,6 +302,44 @@ if [ -n "$SUDOERS_CONTENT" ]; then
     echo '$SUDOERS_CONTENT' | base64 -d > /mnt/usr/local/etc/sudoers.d/beryl && \
     chmod 440 /mnt/usr/local/etc/sudoers.d/beryl"
 fi
+
+# ----------------------------------------------------------------------
+# Étape 5c — SSH : porte de secours root fail-safe (profil Option I)
+# ----------------------------------------------------------------------
+# Profil Option I (datasets système chiffrés) : root CLÉ-SEULE TOUJOURS ouvert.
+# Les authorized_keys opérateur vivent dans /home (chiffré → illisible avant
+# unlock) ; si root était coupé, IMPOSSIBLE de SSH pour lancer `beryl unlock`
+# → brick sans IPMI. /root est CLAIR (zroot/ROOT/default) → on y pose les clés.
+# `beryl unlock` se connecte alors en root. Sinon (pas de profil) : root COUPÉ
+# (durcissement historique). Cf. zpool-encryption-architecture.adoc § « Accès SSH ».
+if [ -n "$SYSTEM_DATASETS_SCRIPT" ]; then
+  echo "[rescue-run-vm] SSH : root CLÉ-SEULE (porte de secours fail-safe, /home chiffré)"
+  # Garde anti-brick : en Option I, root est la SEULE porte avant unlock. Sans
+  # clé root, le serveur serait inaccessible au reboot → on échoue l'install.
+  if [ -z "$ROOT_KEYS_B64" ]; then
+    echo "ERREUR [rescue-run-vm] : profil Option I mais AUCUNE clé root → abandon (serveur sinon verrouillé)." >&2
+    exit 1
+  fi
+  PERMIT_ROOT="prohibit-password"
+  ssh_vm "mkdir -p /mnt/root/.ssh && \
+    printf '%s' '$ROOT_KEYS_B64' | base64 -d > /mnt/root/.ssh/authorized_keys && \
+    chmod 700 /mnt/root/.ssh && chmod 600 /mnt/root/.ssh/authorized_keys"
+else
+  echo "[rescue-run-vm] SSH : ROOT COUPÉ d'emblée (accès uniquement par user + sudo)"
+  PERMIT_ROOT="no"
+fi
+ssh_vm "mkdir -p /mnt/etc/ssh/sshd_config.d
+cat > /mnt/etc/ssh/sshd_config.d/10-beryl-bootstrap.conf <<SSHD
+PermitRootLogin $PERMIT_ROOT
+PasswordAuthentication no
+ChallengeResponseAuthentication no
+SSHD"
+# FreeBSD n'inclut PAS sshd_config.d/*.conf par défaut → on pose l'Include EN
+# TÊTE pour que le drop-in ci-dessus (et ceux de `beryl apply`) priment.
+ssh_vm "grep -qE '^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d/' /mnt/etc/ssh/sshd_config 2>/dev/null || { \
+  printf 'Include /etc/ssh/sshd_config.d/*.conf\n' > /mnt/etc/ssh/sshd_config.new; \
+  cat /mnt/etc/ssh/sshd_config >> /mnt/etc/ssh/sshd_config.new 2>/dev/null; \
+  mv /mnt/etc/ssh/sshd_config.new /mnt/etc/ssh/sshd_config; }"
 
 # ----------------------------------------------------------------------
 # Étape 5b — création des pools ZFS data (mappés vtbd* dans la VM,

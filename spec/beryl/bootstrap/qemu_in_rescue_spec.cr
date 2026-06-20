@@ -217,6 +217,16 @@ describe Beryl::Bootstrap::QemuInRescue do
       sh.should contain("install-pkgbase.sh")
     end
 
+    it "tarball sans profil Option I : root COUPÉ (clés root vides, drop-in posé)" do
+      # NB : "prohibit-password" est TOUJOURS dans le texte (les deux branches du
+      # `if` shell sont présentes ; seul $PERMIT_ROOT est résolu au RUN). La preuve
+      # profil/non-profil est la VALEUR substituée de ROOT_KEYS_B64 (vide ici).
+      sh = make_bootstrap.render_rescue_run_vm
+      sh.should_not contain("__ROOT_KEYS_B64__")
+      sh.should contain("PermitRootLogin $PERMIT_ROOT") # le drop-in sshd est posé
+      sh.should contain(%(ROOT_KEYS_B64=''))            # clés root vides hors profil
+    end
+
     it "injecte les datasets système C+ dans les DEUX templates (profil: standard)" do
       key = "deadbeef" * 8
       pool = Beryl::Config::Pool.new(
@@ -227,15 +237,21 @@ describe Beryl::Bootstrap::QemuInRescue do
         encryption_root: pool.encryption_root,
         system_datasets_key_hex: key,
       )
-      # Placeholder substitué partout (un résidu casserait le script shell).
+      # Placeholders substitués partout (un résidu casserait le script shell).
       bs.render_rescue_run_vm.should_not contain("__SYSTEM_DATASETS_SCRIPT_B64__")
+      bs.render_rescue_run_vm.should_not contain("__ROOT_KEYS_B64__")
       bs.render_install_pkgbase.should_not contain("__SYSTEM_DATASETS_SCRIPT_B64__")
+      bs.render_install_pkgbase.should_not contain("__ROOT_KEYS_B64__")
       # pkgbase : branche conditionnelle C+ (remplace le /home clair).
       bs.render_install_pkgbase.should contain("Datasets système chiffrés (profil C+)")
-      # Porte de secours fail-safe : root clé-seule + clés dans /root clair.
-      bs.render_install_pkgbase.should contain("prohibit-password")
-      bs.render_install_pkgbase.should contain("/mnt/root/.ssh/authorized_keys")
-      bs.render_install_pkgbase.should_not contain(%(ROOT_KEYS_B64="")) # clés root injectées (non vide)
+      # Porte de secours fail-safe (PARITÉ tarball + pkgbase) : root clé-seule
+      # + clés dans /root clair, dans les DEUX templates.
+      [bs.render_install_pkgbase, bs.render_rescue_run_vm].each do |sh|
+        sh.should contain("prohibit-password")
+        sh.should contain("/mnt/root/.ssh/authorized_keys")
+        sh.should_not contain(%(ROOT_KEYS_B64="")) # clés root injectées (non vide)
+        sh.should_not contain(%(ROOT_KEYS_B64=''))
+      end
     end
 
     it "a des défauts raisonnables pour les paramètres non versionnés" do

@@ -291,9 +291,10 @@ module Beryl::Bootstrap
       # pkgbase (install_type: packages) — Phase 2 : PARITÉ COMPLÈTE avec
       # tarball. install-pkgbase.sh gère multi-disque + RAID + pools data,
       # crée les users (groupes + clés + sudo), installe les packages, et
-      # COUPE le SSH root d'emblée (PermitRootLogin no — exigence sécurité
-      # Aloli : aucun accès root, même transitoire). Plus aucune
-      # restriction de périmètre.
+      # configure le SSH root selon le profil : COUPÉ (PermitRootLogin no,
+      # durcissement historique) hors profil ; CLÉ-SEULE (prohibit-password
+      # + clés dans /root) en profil Option I = porte de secours fail-safe.
+      # Les deux templates (tarball + pkgbase) appliquent la même logique.
       @users.each(&.validate!)
 
       @mfsbsd_url = iso_url || self.class.default_mfsbsd_url(@mfsbsd_version)
@@ -411,6 +412,7 @@ module Beryl::Bootstrap
         .gsub("__SUDOERS_CONTENT_B64__", sudoers_base64)
         .gsub("__DATA_POOLS_SCRIPT_B64__", data_pools_script_b64)
         .gsub("__SYSTEM_DATASETS_SCRIPT_B64__", system_datasets_script_b64)
+        .gsub("__ROOT_KEYS_B64__", root_authorized_keys_b64)
         .gsub("__INSTALL_TYPE__", @install_type)
         .gsub("__INSTALL_PKGBASE_PATH__", INSTALL_PKGBASE_PATH)
     end
@@ -443,9 +445,9 @@ module Beryl::Bootstrap
 
     # Users encodés en TSV (name|pgroup|sgroups|shell|key1,key2 par ligne),
     # base64 pour éviter tout souci de quoting des clés. install-pkgbase.sh
-    # crée chaque user (groupes + clés + sudo) au bootstrap — AUCUN accès
-    # root SSH n'est posé (PermitRootLogin no) : l'accès passe uniquement
-    # par les users + sudo (exigence sécurité Aloli).
+    # crée chaque user (groupes + clés + sudo) au bootstrap. L'accès root SSH
+    # suit le profil (cf. root_authorized_keys_b64) : coupé hors profil, clé-
+    # seule fail-safe en Option I.
     private def pkgbase_users_tsv_b64 : String
       Base64.strict_encode(@users.map(&.to_tsv).join("\n") + "\n")
     end
