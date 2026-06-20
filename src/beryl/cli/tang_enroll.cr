@@ -258,7 +258,7 @@ module Beryl::CLI::TangEnroll
 
     # 1. Pré-check : pool existe, est chiffré, clé chargée.
     encrypted = conn.exec(
-      "zfs get -H -o value encryption #{Process.quote(pool_name)} 2>/dev/null",
+      "zfs get -H -o value encryption #{Process.quote(pool_name)}",
       raise_on_error: false,
     )
     unless encrypted.success? && !encrypted.stdout.strip.in?("off", "-")
@@ -267,7 +267,7 @@ module Beryl::CLI::TangEnroll
     end
 
     keystatus = conn.exec(
-      "zfs get -H -o value keystatus #{Process.quote(pool_name)} 2>/dev/null",
+      "zfs get -H -o value keystatus #{Process.quote(pool_name)}",
       raise_on_error: false,
     )
     status = keystatus.success? ? keystatus.stdout.strip : "unknown"
@@ -357,7 +357,7 @@ module Beryl::CLI::TangEnroll
     end
 
     # Lecture de la valeur actuelle (vide si la variable n'existe pas).
-    current = conn.exec("sysrc -n crystal_clevis_zfs_datasets 2>/dev/null", raise_on_error: false)
+    current = conn.exec("sysrc -n crystal_clevis_zfs_datasets", raise_on_error: false)
     existing = if current.success?
                  current.stdout.strip.split(/\s+/).reject(&.empty?)
                else

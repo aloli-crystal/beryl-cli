@@ -315,4 +315,42 @@ describe Beryl::Config::Pool do
       end
     end
   end
+
+  describe "#profile / #system_datasets (architecture C+)" do
+    it "dérive le profil `standard` : 3 datasets chiffrés + /var/log clair zstd-3" do
+      p = Beryl::Config::Pool.new(
+        name: "zroot", boot: true, raid: 0, disks: ["/dev/nvme0n1"],
+        encryption: Beryl::Config::EncryptionConfig.new(
+          mode: Beryl::Config::EncryptionConfig::Mode::SshUnlock,
+        ),
+        profile: "standard",
+      )
+      ds = p.system_datasets
+      ds.map(&.mountpoint).should eq(["/home", "/opt", "/usr/local/etc", "/var/log"])
+      ds.select(&.encrypted).map(&.mountpoint).should eq(["/home", "/opt", "/usr/local/etc"])
+      zlog = ds.find { |d| d.mountpoint == "/var/log" }.not_nil!
+      zlog.encrypted.should be_false
+      zlog.compression.should eq("zstd-3")
+      # Encryptionroot partagé : un seul unlock ouvre les 3.
+      p.encryption_root.should eq("zroot/encrypted")
+      ds.select(&.encrypted).all? { |d| d.name.starts_with?("zroot/encrypted/") }.should be_true
+    end
+
+    it "pas de profil → aucun dataset dérivé, pas d'encryptionroot" do
+      p = Beryl::Config::Pool.new(name: "zroot", boot: true, raid: 0, disks: ["/dev/sda"])
+      p.system_datasets.should be_empty
+      p.encryption_root.should be_nil
+    end
+
+    it "AUTORISE encryption sur le pool boot AVEC profile (chiffre les datasets, pas le /)" do
+      p = Beryl::Config::Pool.new(
+        name: "zroot", boot: true, raid: 0, disks: ["/dev/sda"],
+        encryption: Beryl::Config::EncryptionConfig.new(
+          mode: Beryl::Config::EncryptionConfig::Mode::SshUnlock,
+        ),
+        profile: "standard",
+      )
+      p.validate! # ne lève PAS (≠ pool boot chiffré sans profil)
+    end
+  end
 end

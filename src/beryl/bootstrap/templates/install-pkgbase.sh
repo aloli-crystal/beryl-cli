@@ -33,6 +33,10 @@ USERS_TSV_B64="__USERS_TSV_B64__"
 PACKAGES="__PACKAGES__"
 SUDOERS_B64="__SUDOERS_B64__"
 DATA_POOLS_SCRIPT_B64="__DATA_POOLS_SCRIPT_B64__"
+SYSTEM_DATASETS_SCRIPT_B64="__SYSTEM_DATASETS_SCRIPT_B64__"
+# Clés autorisées pour root (base64, une par ligne). Non vide UNIQUEMENT en
+# Option I (/home chiffré) → root clé-seule = porte de secours fail-safe.
+ROOT_KEYS_B64="__ROOT_KEYS_B64__"
 
 echo "==> [beryl] Disques boot : ${BOOT_DISKS} (RAID ${BOOT_RAID})"
 
@@ -83,10 +87,23 @@ zpool create -f \
 echo "==> [beryl] Datasets ZFS"
 zfs create -o mountpoint=none "${POOL}/ROOT"
 zfs create -o mountpoint=/ "${POOL}/ROOT/default"
-zfs create -o mountpoint=/home "${POOL}/home"
-zfs create -o mountpoint=/var/log "${POOL}/varlog"
 zfs create -o mountpoint=/tmp -o setuid=off -o exec=off "${POOL}/tmp"
 chmod 1777 /mnt/tmp
+
+# Profil C+ : si beryl fournit le script datasets système, il REMPLACE le
+# /home + /var/log clairs par l'encryptionroot chiffré (zroot/encrypted/{home,
+# opt,usrlocaletc}) + zroot/zlog clair. Créés ICI (montés) → le base system et
+# le post-install (users/packages) écrivent DEDANS. L'`zpool export` final
+# (l.~370) largue la clé → datasets verrouillés au reboot. Sinon (pas de profil) :
+# /home + /var/log clairs comme avant.
+SYSTEM_DATASETS_SCRIPT=$(printf '%s' "${SYSTEM_DATASETS_SCRIPT_B64}" | b64decode -r)
+if [ -n "${SYSTEM_DATASETS_SCRIPT}" ]; then
+  echo "==> [beryl] Datasets système chiffrés (profil C+)"
+  eval "${SYSTEM_DATASETS_SCRIPT}"
+else
+  zfs create -o mountpoint=/home "${POOL}/home"
+  zfs create -o mountpoint=/var/log "${POOL}/varlog"
+fi
 
 zpool set bootfs="${POOL}/ROOT/default" "${POOL}"
 
@@ -278,10 +295,27 @@ if [ -n "${SUDOERS_B64}" ]; then
   chmod 440 /mnt/usr/local/etc/sudoers.d/beryl
 fi
 
-echo "==> [beryl] SSH : ROOT COUPÉ d'emblée (accès uniquement par user + sudo)"
+# Option I (/home chiffré) : root clé-seule TOUJOURS ouvert = porte de secours
+# fail-safe. Les authorized_keys de l'opérateur sont dans /home (chiffré, donc
+# illisible avant unlock) → si root était coupé, IMPOSSIBLE de SSH pour lancer
+# `beryl unlock` → brick sans IPMI. /root est CLAIR (zroot/ROOT/default) → on y
+# pose les clés, lisibles avant tout unlock. beryl unlock se connecte en root.
+# Voir zpool-encryption-architecture.adoc § « Accès SSH au boot ».
+# Sinon (pas de profil) : root COUPÉ (durcissement historique, accès user+sudo).
+if [ -n "${SYSTEM_DATASETS_SCRIPT}" ]; then
+  echo "==> [beryl] SSH : root CLÉ-SEULE (porte de secours fail-safe, /home chiffré)"
+  PERMIT_ROOT="prohibit-password"
+  mkdir -p /mnt/root/.ssh
+  printf '%s' "${ROOT_KEYS_B64}" | b64decode -r > /mnt/root/.ssh/authorized_keys
+  chmod 700 /mnt/root/.ssh
+  chmod 600 /mnt/root/.ssh/authorized_keys
+else
+  echo "==> [beryl] SSH : ROOT COUPÉ d'emblée (accès uniquement par user + sudo)"
+  PERMIT_ROOT="no"
+fi
 mkdir -p /mnt/etc/ssh/sshd_config.d
-cat > /mnt/etc/ssh/sshd_config.d/10-beryl-bootstrap.conf <<'SSHD'
-PermitRootLogin no
+cat > /mnt/etc/ssh/sshd_config.d/10-beryl-bootstrap.conf <<SSHD
+PermitRootLogin ${PERMIT_ROOT}
 PasswordAuthentication no
 ChallengeResponseAuthentication no
 SSHD

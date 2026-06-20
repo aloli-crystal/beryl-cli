@@ -212,6 +212,23 @@ module Beryl::CLI::Bootstrap
         ashift: pool.disks.map { |d| ashift_by_disk[d]? || 12 }.max,
       )
     end
+
+    # Profil C+ (pool boot) : datasets système chiffrés (zroot/encrypted/{home,
+    # opt,usrlocaletc}) + zroot/zlog clair. MÊME clé que les pools data (clé du
+    # host, partagée via l'encryptionroot) → un seul `beryl unlock` ouvre tout.
+    system_datasets = boot_pool.system_datasets
+    encryption_root = boot_pool.encryption_root
+    system_key_hex : String? = nil
+    unless system_datasets.empty?
+      key_path = Beryl::Encryption.key_path(
+        config_root, host.account_name, host.domain_name, host.short_name
+      )
+      system_key_hex = Beryl::Encryption.exists?(key_path) ? Beryl::Encryption.read(key_path) : Beryl::Encryption.write_new(key_path)
+      enc_count = system_datasets.count(&.encrypted)
+      STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] " \
+                  "7 profil C+ : #{system_datasets.size} dataset(s) système (#{enc_count} chiffré(s) sous #{encryption_root}), clé #{key_path}"
+    end
+
     timezone = host.freebsd_string("timezone") || "Europe/Paris"
     swap_gb = host.freebsd_int("swap_gb") || 4
     install_type = host.freebsd_string("install_type") || "distribution_sets"
@@ -350,6 +367,9 @@ module Beryl::CLI::Bootstrap
       scaleway_zone: scaleway_zone,
       install_type: install_type,
       data_pools: data_pools,
+      system_datasets: system_datasets,
+      encryption_root: encryption_root,
+      system_datasets_key_hex: system_key_hex,
       boot_ashift: boot_ashift,
       follow_hint_host_name: "#{host.account_name}/#{host.fqdn}",
     )

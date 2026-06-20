@@ -191,9 +191,11 @@ describe Beryl::Bootstrap::QemuInRescue do
         packages: ["sudo", "zsh", "curl", "git"], sudoers: ["%wheel ALL=(ALL) NOPASSWD:ALL"],
       ).render_install_pkgbase
       # Plus aucun placeholder résiduel.
-      %w[__BOOT_DISKS__ __BOOT_RAID__ __USERS_TSV_B64__ __PACKAGES__ __SUDOERS_B64__ __DATA_POOLS_SCRIPT_B64__ __ABI__].each do |ph|
+      %w[__BOOT_DISKS__ __BOOT_RAID__ __USERS_TSV_B64__ __PACKAGES__ __SUDOERS_B64__ __DATA_POOLS_SCRIPT_B64__ __SYSTEM_DATASETS_SCRIPT_B64__ __ROOT_KEYS_B64__ __ABI__].each do |ph|
         sh.should_not contain(ph)
       end
+      # Sans profil Option I : root reste COUPÉ (durcissement historique).
+      sh.should contain("PermitRootLogin no")
       # Boot multi-disque mirror.
       sh.should contain("/dev/vtbd1 /dev/vtbd2")
       sh.should contain(%(BOOT_RAID="mirror"))
@@ -213,6 +215,27 @@ describe Beryl::Bootstrap::QemuInRescue do
       sh = make_bootstrap(install_type: "packages").render_rescue_run_vm
       sh.should contain(%(INSTALL_TYPE="packages"))
       sh.should contain("install-pkgbase.sh")
+    end
+
+    it "injecte les datasets système C+ dans les DEUX templates (profil: standard)" do
+      key = "deadbeef" * 8
+      pool = Beryl::Config::Pool.new(
+        name: "zroot", boot: true, raid: 0, disks: ["/dev/sda"], profile: "standard",
+      )
+      bs = make_bootstrap(
+        system_datasets: pool.system_datasets,
+        encryption_root: pool.encryption_root,
+        system_datasets_key_hex: key,
+      )
+      # Placeholder substitué partout (un résidu casserait le script shell).
+      bs.render_rescue_run_vm.should_not contain("__SYSTEM_DATASETS_SCRIPT_B64__")
+      bs.render_install_pkgbase.should_not contain("__SYSTEM_DATASETS_SCRIPT_B64__")
+      # pkgbase : branche conditionnelle C+ (remplace le /home clair).
+      bs.render_install_pkgbase.should contain("Datasets système chiffrés (profil C+)")
+      # Porte de secours fail-safe : root clé-seule + clés dans /root clair.
+      bs.render_install_pkgbase.should contain("prohibit-password")
+      bs.render_install_pkgbase.should contain("/mnt/root/.ssh/authorized_keys")
+      bs.render_install_pkgbase.should_not contain(%(ROOT_KEYS_B64="")) # clés root injectées (non vide)
     end
 
     it "a des défauts raisonnables pour les paramètres non versionnés" do
@@ -449,6 +472,45 @@ describe Beryl::Bootstrap::QemuInRescue do
       ).data_pools_script
       script.should contain("zpool set cachefile=/mnt/boot/zfs/zpool.cache zdata")
       script.should contain("zpool set cachefile=/mnt/boot/zfs/zpool.cache zbackup")
+    end
+  end
+
+  describe "#system_datasets_script (profil C+)" do
+    it "vide si pas de datasets système (pas de profil)" do
+      make_bootstrap.system_datasets_script.should eq("")
+    end
+
+    it "crée l'encryptionroot (clé via stdin) + datasets chiffrés + zlog clair" do
+      key = "deadbeef" * 8 # 64 chars hex
+      pool = Beryl::Config::Pool.new(
+        name: "zroot", boot: true, raid: 0, disks: ["/dev/sda"], profile: "standard",
+      )
+      script = make_bootstrap(
+        system_datasets: pool.system_datasets,
+        encryption_root: pool.encryption_root,
+        system_datasets_key_hex: key,
+      ).system_datasets_script
+      # Encryptionroot non monté, clé JAMAIS en argv (base64 → $KEY → stdin).
+      script.should contain("base64 -d")
+      script.should contain(%(printf '%s' "$KEY" | zfs create -o encryption=on -o keyformat=hex -o keylocation=prompt -o canmount=off -o mountpoint=none zroot/encrypted))
+      script.should_not contain(key) # la clé hex n'apparaît jamais en clair
+      # Datasets chiffrés (enfants de l'encryptionroot) + clair zlog compressé.
+      script.should contain("zfs create -o compression=lz4 -o mountpoint=/home zroot/encrypted/home")
+      script.should contain("zfs create -o compression=zstd-3 -o mountpoint=/usr/local/etc zroot/encrypted/usrlocaletc")
+      script.should contain("zfs create -o compression=zstd-3 -o mountpoint=/var/log zroot/zlog")
+    end
+
+    it "exige une clé 64-hex si des datasets système sont fournis" do
+      pool = Beryl::Config::Pool.new(
+        name: "zroot", boot: true, raid: 0, disks: ["/dev/sda"], profile: "standard",
+      )
+      expect_raises(ArgumentError, /64 chars hex/) do
+        make_bootstrap(
+          system_datasets: pool.system_datasets,
+          encryption_root: pool.encryption_root,
+          system_datasets_key_hex: "tooshort",
+        )
+      end
     end
   end
 

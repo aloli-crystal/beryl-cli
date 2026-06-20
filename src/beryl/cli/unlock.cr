@@ -201,7 +201,7 @@ module Beryl::CLI::Unlock
     enc = pool.encryption.not_nil!
 
     # 1. Import si pas déjà importé. Étape commune aux deux modes.
-    listed = conn.exec("zpool list -H -o name #{Process.quote(pool_name)} 2>/dev/null", raise_on_error: false)
+    listed = conn.exec("zpool list -H -o name #{Process.quote(pool_name)}", raise_on_error: false)
     already_imported = listed.success? && listed.stdout.strip == pool_name
     if already_imported
       log "H4   pool #{pool_name} déjà importé sur #{target}"
@@ -214,7 +214,7 @@ module Beryl::CLI::Unlock
     end
 
     # 2. Charge la clé selon le mode.
-    keystatus = conn.exec("zfs get -H -o value keystatus #{Process.quote(pool_name)} 2>/dev/null", raise_on_error: false)
+    keystatus = conn.exec("zfs get -H -o value keystatus #{Process.quote(pool_name)}", raise_on_error: false)
     status = keystatus.success? ? keystatus.stdout.strip : "unknown"
     if status == "available"
       log "H4   clé déjà chargée pour #{pool_name}"
@@ -242,7 +242,7 @@ module Beryl::CLI::Unlock
 
     # Diagnostic : liste les datasets montés du pool pour confirmer.
     mounted = conn.exec(
-      "zfs list -H -o name,mounted,mountpoint -r #{Process.quote(pool_name)} 2>/dev/null",
+      "zfs list -H -o name,mounted,mountpoint -r #{Process.quote(pool_name)}",
       raise_on_error: false,
     )
     if mounted.success?

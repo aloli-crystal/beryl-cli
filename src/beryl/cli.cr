@@ -20,6 +20,7 @@ require "./cli/add_domain"
 require "./cli/bootstrap"
 require "./cli/follow_install"
 require "./cli/scaleway_reinstall"
+require "./cli/lock"
 require "./cli/unlock"
 require "./cli/reboot"
 require "./cli/status"
@@ -138,6 +139,7 @@ module Beryl::CLI
     when "prep-rescue"        then Beryl::CLI::PrepRescue.run(sub_args)
     when "bake-seed"          then Beryl::CLI::BakeSeed.run(sub_args)
     when "scaleway-reinstall" then Beryl::CLI::ScalewayReinstall.run(config_root, sub_args)
+    when "lock"               then Beryl::CLI::Lock.run(config_root, sub_args)
     when "unlock"             then Beryl::CLI::Unlock.run(config_root, sub_args)
     when "reboot"             then Beryl::CLI::Reboot.run(config_root, sub_args)
     when "status"             then Beryl::CLI::Status.run(config_root, sub_args)
@@ -170,6 +172,7 @@ module Beryl::CLI
     {"info", "nf", "Inventaire serveurs (gamme/CPU/RAM/disques ; --usage = live ; --refresh = MAJ via API OVH)"},
     {"init", "i", "Initialise ~/.config/beryl/<société>/ + providers/domaines"},
     {"list-hosts", "ls", "Liste les hôtes de toutes les sociétés"},
+    {"lock", "l", "Verrouille les pools chiffrés (unload-key + export) — inverse d'unlock"},
     {"prep-rescue", "pr", "HTTP local pour préparer un rescue Debian"},
     {"reboot", "rb", "Reboot d'un host (--soft via SSH ou --hard via API)"},
     {"rescue", "r", "Bascule un hôte en rescue via l'API hébergeur"},
@@ -239,6 +242,7 @@ module Beryl::CLI
     when "apply"          then Beryl::CLI::Apply.run(config_root, ["--help"])
     when "prep-rescue"    then Beryl::CLI::PrepRescue.run(["--help"])
     when "bake-seed"      then Beryl::CLI::BakeSeed.run(["--help"])
+    when "lock"           then Beryl::CLI::Lock.run(config_root, ["--help"])
     when "unlock"         then Beryl::CLI::Unlock.run(config_root, ["--help"])
     when "reboot"         then Beryl::CLI::Reboot.run(config_root, ["--help"])
     when "status"         then Beryl::CLI::Status.run(config_root, ["--help"])

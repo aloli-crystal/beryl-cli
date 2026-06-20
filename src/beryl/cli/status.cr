@@ -108,7 +108,7 @@ module Beryl::CLI::Status
   #   DEGRADED : pool importé mais en état dégradé (un disque tombé)
   #   FAULTED  : pool importé mais en panne complète
   private def self.pool_status(conn : SSH::Connection, pool : Beryl::Config::Pool) : NamedTuple(state: String, detail: String)
-    listed = conn.exec("zpool list -H -o health #{Process.quote(pool.name)} 2>/dev/null", raise_on_error: false)
+    listed = conn.exec("zpool list -H -o health #{Process.quote(pool.name)}", raise_on_error: false)
     unless listed.success? && !listed.stdout.strip.empty?
       detail = pool.encrypted? ? "(pool non importé — chiffré, clé non chargée)" : "(pool absent)"
       return {state: "ABSENT", detail: detail}
@@ -119,7 +119,7 @@ module Beryl::CLI::Status
     # Statut de la clé (datasets chiffrés). Si keystatus = unavailable,
     # le pool est importé mais on ne peut pas lire les données → LOCKED.
     if pool.encrypted?
-      keystatus = conn.exec("zfs get -H -o value keystatus #{Process.quote(pool.name)} 2>/dev/null", raise_on_error: false)
+      keystatus = conn.exec("zfs get -H -o value keystatus #{Process.quote(pool.name)}", raise_on_error: false)
       if keystatus.success?
         ks = keystatus.stdout.strip
         if ks == "unavailable"
@@ -130,7 +130,7 @@ module Beryl::CLI::Status
 
     # Liste des datasets montés du pool — donne un aperçu vivant.
     mounted = conn.exec(
-      "zfs list -H -o name,mounted -r #{Process.quote(pool.name)} 2>/dev/null",
+      "zfs list -H -o name,mounted -r #{Process.quote(pool.name)}",
       raise_on_error: false,
     )
     mount_summary = "monté"

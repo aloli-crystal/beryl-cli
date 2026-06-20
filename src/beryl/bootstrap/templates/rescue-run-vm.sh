@@ -52,6 +52,9 @@ SUDOERS_CONTENT='__SUDOERS_CONTENT_B64__'
 # Les vtbd* sont mappés par beryl dans l'ordre des disques passés à QEMU
 # (vtbd0 = mfsBSD ; vtbd1..vtbdB = pool boot ; vtbd(B+1)..vtbdN = pools data).
 DATA_POOLS_SCRIPT='__DATA_POOLS_SCRIPT_B64__'
+# Datasets système chiffrés du profil C+ (zroot/encrypted/{home,opt,usrlocaletc}
+# + zroot/zlog clair). Créés AVANT le post-install (les homes/configs s'y écrivent).
+SYSTEM_DATASETS_SCRIPT='__SYSTEM_DATASETS_SCRIPT_B64__'
 # Type d'install : "distribution_sets" (bsdinstall + tarballs) ou
 # "packages" (pkgbase via install-pkgbase.sh). Chemin du script pkgbase
 # déposé sur le rescue (scp'é dans la VM par la branche pkgbase).
@@ -187,6 +190,19 @@ ssh_vm_long "BSDINSTALL_DISTSITE=$DISTSITE bsdinstall script /tmp/installerconfi
 
 echo "[rescue-run-vm] remonte ZFS zroot sur /mnt"
 ssh_vm "zpool import -f -N -R /mnt zroot && zfs mount zroot/ROOT/default && zfs mount -a"
+
+# ----------------------------------------------------------------------
+# Étape 4b — datasets système chiffrés (profil C+), AVANT le post-install
+# ----------------------------------------------------------------------
+# Crée zroot/encrypted (+ enfants /home,/opt,/usr/local/etc) chiffrés + zroot/zlog
+# clair, MONTÉS sur /mnt/<mp>. Les users/packages de l'Étape 5 écrivent donc DANS
+# ces datasets (et non dans zroot/ROOT/default qui serait masqué au montage). La
+# clé est larguée par l'`zpool export -a` de l'Étape 6 → datasets verrouillés au
+# reboot (l'opérateur fera `beryl unlock`).
+if [ -n "$SYSTEM_DATASETS_SCRIPT" ]; then
+  echo "[rescue-run-vm] datasets système chiffrés (profil C+)"
+  ssh_vm_long "$(echo "$SYSTEM_DATASETS_SCRIPT" | base64 -d)"
+fi
 
 # ----------------------------------------------------------------------
 # Étape 5 — post-install HORS CHROOT, ciblant /mnt

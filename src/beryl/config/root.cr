@@ -860,6 +860,7 @@ module Beryl::Config
           disks: (h[YAML::Any.new("disks")]?.try(&.as_a?).try(&.compact_map(&.as_s?)) || [] of String),
           mountpoint: h[YAML::Any.new("mountpoint")]?.try(&.as_s?),
           encryption: parse_encryption(h[YAML::Any.new("encryption")]?, name),
+          profile: h[YAML::Any.new("profile")]?.try(&.as_s?),
         )
       end
     end

@@ -203,6 +203,7 @@ module Beryl::Bootstrap
     getter sudoers : Array(String)
     getter install_type : String
     getter data_pools : Array(DataPoolSpec)
+    getter system_datasets : Array(Beryl::Config::SystemDataset)
     # Nom à suggérer dans le hint `beryl follow-install <name>`
     # (typiquement FQDN ou `<société>/<host>`). nil → fallback « <host> ».
     getter follow_hint_host_name : String?
@@ -235,6 +236,13 @@ module Beryl::Bootstrap
       @sudoers : Array(String) = [] of String,
       @install_type : String = "distribution_sets",
       @data_pools : Array(DataPoolSpec) = [] of DataPoolSpec,
+      # Datasets système du profil C+ (`profile: standard`) à créer dans le pool
+      # boot APRÈS bsdinstall, AVANT le post-install. Vide = pas de profil.
+      @system_datasets : Array(Beryl::Config::SystemDataset) = [] of Beryl::Config::SystemDataset,
+      # Encryptionroot partagé (`zroot/encrypted`) des datasets chiffrés du profil,
+      # et sa clé 64-hex (même clé que les pools data — un seul `beryl unlock`).
+      @encryption_root : String? = nil,
+      @system_datasets_key_hex : String? = nil,
       # ashift du pool boot = log2(taille de bloc physique des disques
       # boot), détecté côté rescue par beryl. Défaut 12 (4 K) si non fourni.
       @boot_ashift : Int32 = 12,
@@ -257,6 +265,18 @@ module Beryl::Bootstrap
       end
 
       @data_pools.each(&.validate!)
+
+      # Datasets système C+ : exigent l'encryptionroot + une clé 64-hex (les
+      # datasets chiffrés héritent la clé de l'encryptionroot → un seul unlock).
+      unless @system_datasets.empty?
+        if @encryption_root.nil? || @encryption_root.not_nil!.empty?
+          raise ArgumentError.new("system_datasets fournis sans encryption_root")
+        end
+        k = @system_datasets_key_hex
+        unless k && k.size == 64 && k.each_char.all? { |c| c.in?('0'..'9') || c.in?('a'..'f') || c.in?('A'..'F') }
+          raise ArgumentError.new("system_datasets : encryption_root_key_hex doit être 64 chars hex")
+        end
+      end
       # Pas de disque partagé entre pool boot et pools data (ni entre
       # pools data — validate! côté Config::ResolvedHost l'impose mais
       # on re-checke ici au cas où QemuInRescue serait appelé hors
@@ -390,6 +410,7 @@ module Beryl::Bootstrap
         .gsub("__PACKAGES__", @packages.join(" "))
         .gsub("__SUDOERS_CONTENT_B64__", sudoers_base64)
         .gsub("__DATA_POOLS_SCRIPT_B64__", data_pools_script_b64)
+        .gsub("__SYSTEM_DATASETS_SCRIPT_B64__", system_datasets_script_b64)
         .gsub("__INSTALL_TYPE__", @install_type)
         .gsub("__INSTALL_PKGBASE_PATH__", INSTALL_PKGBASE_PATH)
     end
@@ -416,6 +437,8 @@ module Beryl::Bootstrap
         .gsub("__PACKAGES__", @packages.join(" "))
         .gsub("__SUDOERS_B64__", pkgbase_sudoers_b64)
         .gsub("__DATA_POOLS_SCRIPT_B64__", data_pools_script_b64)
+        .gsub("__SYSTEM_DATASETS_SCRIPT_B64__", system_datasets_script_b64)
+        .gsub("__ROOT_KEYS_B64__", root_authorized_keys_b64)
     end
 
     # Users encodés en TSV (name|pgroup|sgroups|shell|key1,key2 par ligne),
@@ -545,6 +568,55 @@ module Beryl::Bootstrap
       script = data_pools_script
       return "" if script.empty?
       Base64.strict_encode(script)
+    end
+
+    # Script ZFS des datasets système du profil C+ (`profile: standard`).
+    # Exécuté SUR la VM APRÈS le remount de zroot sur /mnt, AVANT le post-install
+    # (users/packages écrivent alors DANS les datasets chiffrés montés, pas dans
+    # `zroot/ROOT/default` qui serait masqué au montage). Flux :
+    #
+    #   1. Encryptionroot `zroot/encrypted` (non monté), clé 64-hex via stdin.
+    #   2. Datasets enfants chiffrés (héritent la clé) + datasets clairs, chacun
+    #      avec sa compression et son mountpoint (altroot /mnt → /mnt/<mp>).
+    #
+    # La clé n'apparaît jamais en argv (base64 → $KEY → stdin). L'`zpool export -a`
+    # final du template largue la clé → datasets verrouillés au reboot bare-metal
+    # (l'opérateur fait `beryl unlock`). Vide si pas de profil.
+    def system_datasets_script : String
+      return "" if @system_datasets.empty?
+      er = @encryption_root.not_nil!
+      key_b64 = Base64.strict_encode(@system_datasets_key_hex.not_nil!)
+      lines = [] of String
+      lines << "{"
+      lines << "  KEY=$(echo '#{key_b64}' | base64 -d)"
+      lines << "  printf '%s' \"$KEY\" | zfs create -o encryption=on -o keyformat=hex " \
+               "-o keylocation=prompt -o canmount=off -o mountpoint=none #{er}"
+      lines << "  unset KEY"
+      lines << "}"
+      @system_datasets.each do |ds|
+        # Chiffré → enfant de l'encryptionroot (hérite la clé) ; clair → sous le
+        # pool boot. Dans les deux cas : compression + mountpoint explicites.
+        lines << "zfs create -o compression=#{ds.compression} -o mountpoint=#{ds.mountpoint} #{ds.name}"
+      end
+      lines.join("\n") + "\n"
+    end
+
+    def system_datasets_script_b64 : String
+      script = system_datasets_script
+      return "" if script.empty?
+      Base64.strict_encode(script)
+    end
+
+    # Clés à autoriser pour `root` (base64, une par ligne). UNIQUEMENT en
+    # Option I (`/home` chiffré) : root clé-seule devient la porte de secours
+    # fail-safe lisible avant l'unlock (`/root` est clair), `beryl unlock` s'y
+    # connecte. Vide sinon → root reste coupé (durcissement historique).
+    # Voir zpool-encryption-architecture.adoc § « Accès SSH au boot ».
+    def root_authorized_keys_b64 : String
+      return "" if @system_datasets.empty?
+      keys = @users.flat_map(&.ssh_keys).uniq
+      return "" if keys.empty?
+      Base64.strict_encode(keys.join("\n"))
     end
 
     # Contenu base64 du fichier sudoers (chaque ligne == une règle).

@@ -250,6 +250,26 @@ module Beryl::Config
   # `encryption` : si non-nil, le pool/dataset est chiffré avec ZFS
   # native encryption. Voir `EncryptionConfig` pour le détail.
   # Réservé aux pools data : un pool boot chiffré demanderait IPMI/KVM.
+  # Un dataset système dérivé d'un `profile:` sur le pool boot (architecture
+  # « C+ », cf. zpool-encryption-architecture.adoc § Amendement 20 juin). Créé
+  # par beryl APRÈS bsdinstall. Les datasets chiffrés partagent l'`encryptionroot`
+  # du pool (`Pool#encryption_root`) → une seule clé, un seul `beryl unlock`.
+  record SystemDataset,
+    name : String,       # nom ZFS complet, ex. "zroot/encrypted/home", "zroot/zlog"
+    mountpoint : String, # ex. "/home", "/var/log"
+    encrypted : Bool,    # hérite de l'encryptionroot si true
+    compression : String # "lz4" | "zstd-3"
+
+  # Représente un pool ZFS tel que déclaré dans `freebsd.zfs.<nom>`.
+  # Le nom du pool = la clé YAML (pas de champ `name:` redondant).
+  # Un seul pool porte `boot: true` : c'est celui qu'installera
+  # bsdinstall. Les autres sont créés après l'install via
+  # `zpool create <nom> <raid> <disks>`.
+  #
+  # `encryption` : si non-nil, le pool/dataset est chiffré avec ZFS
+  # native encryption. Voir `EncryptionConfig` pour le détail.
+  # Réservé aux pools data, OU — sur le pool boot avec `profile:` — au mode
+  # de chiffrement des datasets sensibles du profil (le `/` reste clair).
   struct Pool
     getter name : String                  # clé YAML = nom ZFS
     getter boot : Bool                    # true = pool système
@@ -257,8 +277,9 @@ module Beryl::Config
     getter disks : Array(String)          # /dev/sdX
     getter mountpoint : String?           # /data, /backup…
     getter encryption : EncryptionConfig? # nil = clair
+    getter profile : String?              # "standard" sur le pool boot (C+) ; nil sinon
 
-    def initialize(@name, @boot, @raid, @disks, @mountpoint = nil, @encryption = nil)
+    def initialize(@name, @boot, @raid, @disks, @mountpoint = nil, @encryption = nil, @profile = nil)
     end
 
     # Sucre syntaxique pour les call sites qui veulent juste un Bool
@@ -271,12 +292,40 @@ module Beryl::Config
       Zpool.zfs_mode(@raid)
     end
 
+    # Encryptionroot partagé des datasets chiffrés du profil (`<pool>/encrypted`,
+    # non monté). `beryl unlock` y charge LA clé → tous les datasets enfants
+    # s'ouvrent. nil si pas de profil chiffrant.
+    def encryption_root : String?
+      return nil unless @profile == "standard"
+      "#{@name}/encrypted"
+    end
+
+    # Datasets dérivés du `profile:` (créés par beryl après bsdinstall). Le `/`
+    # (`<pool>/ROOT/default`) est posé par bsdinstall, pas listé ici. Layout
+    # MINIMAL acté (usr/var/tmp restent dans `/`) : 3 chiffrés + `/var/log` clair.
+    # Vide si pas de profil.
+    def system_datasets : Array(SystemDataset)
+      return [] of SystemDataset unless @profile == "standard"
+      er = encryption_root.not_nil!
+      [
+        SystemDataset.new("#{er}/home", "/home", true, "lz4"),
+        SystemDataset.new("#{er}/opt", "/opt", true, "lz4"),
+        SystemDataset.new("#{er}/usrlocaletc", "/usr/local/etc", true, "zstd-3"),
+        SystemDataset.new("#{@name}/zlog", "/var/log", false, "zstd-3"),
+      ]
+    end
+
     def validate! : Nil
       Zpool.validate!(@raid, @disks.size)
-      if @boot && encrypted?
+      # Chiffrer le pool boot LUI-MÊME (le `/`) reste interdit (demande IPMI/KVM).
+      # MAIS avec `profile:`, `encryption` désigne le mode des DATASETS sensibles
+      # (`/home`…), pas le `/` — autorisé (architecture C+).
+      if @boot && encrypted? && @profile.nil?
         raise BootPoolEncryptionUnsupported.new(
-          "pool #{@name} : `encryption` n'est pas supporté sur un pool `boot: true` " \
-          "(demande IPMI/KVM, hors scope beryl). Voir zpool-encryption-architecture.adoc."
+          "pool #{@name} : `encryption` sur un pool `boot: true` SANS `profile:` " \
+          "chiffrerait le `/` (demande IPMI/KVM, hors scope). Pour chiffrer les " \
+          "datasets sensibles (/home…) en gardant `/` clair, utilisez `profile: standard`. " \
+          "Voir zpool-encryption-architecture.adoc § Amendement 20 juin."
         )
       end
       @encryption.try(&.validate!)
