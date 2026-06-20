@@ -26,6 +26,7 @@ require "./cli/reboot"
 require "./cli/status"
 require "./cli/tang_enroll"
 require "./cli/env"
+require "./cli/headscale_authkey"
 
 # Point d'entrée CLI de beryl.
 #
@@ -145,6 +146,7 @@ module Beryl::CLI
     when "status"             then Beryl::CLI::Status.run(config_root, sub_args)
     when "tang-enroll"        then Beryl::CLI::TangEnroll.run(config_root, sub_args)
     when "env"                then Beryl::CLI::Env.run(config_root, sub_args)
+    when "headscale-authkey"  then Beryl::CLI::HeadscaleAuthkey.run(config_root, sub_args)
     when "version"            then puts "beryl #{Beryl::VERSION}"; 0
     else
       STDERR.puts "beryl : sous-commande inconnue : #{subcommand}"
@@ -168,6 +170,7 @@ module Beryl::CLI
     {"env", "e", "Gère le coffre de credentials chiffré (.env.toml.age)"},
     {"fmt", "", "Normalise les host.yml (clés triées, commentaires gardés, FQDN en tête)"},
     {"follow-install", "fi", "Suit l'installation FreeBSD en cours"},
+    {"headscale-authkey", "hak", "Génère une pre-auth key sur le serveur Headscale (à injecter dans un node)"},
     {"help", "h", "Aide globale ou d'une sous-commande précise"},
     {"info", "nf", "Inventaire serveurs (gamme/CPU/RAM/disques ; --usage = live ; --refresh = MAJ via API OVH)"},
     {"init", "i", "Initialise ~/.config/beryl/<société>/ + providers/domaines"},
