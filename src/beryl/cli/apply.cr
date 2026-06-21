@@ -137,7 +137,7 @@ module Beryl::CLI::Apply
       return EXIT_OK
     end
 
-    central_dir = central_recipes_dir(config_root, host)
+    search_path = recipes_search_path(config_root, host)
 
     # Recettes d'ENTRÉE : recette nommée en argument (one-off), sinon la
     # liste `apply_recipes:` cascadée du merge (état désiré, versionné).
@@ -149,7 +149,7 @@ module Beryl::CLI::Apply
         # (ex. `shell: oh-my-zsh` → recette oh-my-zsh avec user: <nom>).
         apply_recipes_list(host) + user_shell_recipe_requests(host)
       end
-    resolver = Beryl::Apply::Resolver.new(central_dir)
+    resolver = Beryl::Apply::Resolver.new(search_path)
     recipes = resolver.resolve(requests.map(&.name).uniq)
 
     # Garde vRack : une recette `requires_vrack: true` (ex. pkg-repo-acme, qui
@@ -317,7 +317,20 @@ module Beryl::CLI::Apply
     end
   end
 
-  private def self.central_recipes_dir(config_root : String, host : Beryl::Config::ResolvedHost) : String
+  # Chemin de recherche des recettes, par ORDRE DE PRIORITÉ :
+  #   1. PRIVÉ société : `<config_root>/<société>/recipes/` (si présent) —
+  #      recettes spécifiques à la société, peut SURCHARGER une générique du
+  #      même nom. Vit dans le dépôt de config (déjà privé par société).
+  #   2. GÉNÉRIQUE public : `<recipes.local_path>/recipes/` (défaut
+  #      `<config_root>/recipes/recipes/`) — le set diffusable, sans société.
+  private def self.recipes_search_path(config_root : String, host : Beryl::Config::ResolvedHost) : Array(String)
+    dirs = [] of String
+
+    if acct = host.account_name
+      private_dir = File.join(config_root, acct, "recipes")
+      dirs << private_dir if Dir.exists?(private_dir)
+    end
+
     block = host.merged[YAML::Any.new("recipes")]?.try(&.as_h?)
     local_path =
       if block && (lp = block[YAML::Any.new("local_path")]?.try(&.as_s?))
@@ -325,7 +338,9 @@ module Beryl::CLI::Apply
       else
         File.join(config_root, "recipes")
       end
-    File.join(local_path, "recipes")
+    dirs << File.join(local_path, "recipes")
+
+    dirs
   end
 
   # Une recette demandée + ses arguments éventuels (qui surchargent les

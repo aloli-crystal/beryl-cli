@@ -2,8 +2,14 @@ require "./recipe"
 
 module Beryl::Apply
   # Résout l'ensemble des recettes à exécuter et leur ordre, à partir
-  # d'une liste de recettes d'ENTRÉE (les noms demandés) et du dépôt de
-  # recettes (`central_dir`).
+  # d'une liste de recettes d'ENTRÉE (les noms demandés) et d'un CHEMIN
+  # DE RECHERCHE de dépôts de recettes (`search_dirs`, ordonné).
+  #
+  # Chemin de recherche (priorité au premier qui matche) : permet de
+  # séparer les recettes PRIVÉES par société (ex. `<config>/<société>/
+  # recipes/`, qui PEUT surcharger une recette générique du même nom)
+  # des recettes GÉNÉRIQUES publiques (ex. dépôt beryl-recipes). La
+  # société privée passe en tête → override ; le générique en fallback.
   #
   # Les recettes d'entrée viennent de la config (`apply_recipes:`,
   # cascadé du merge société → domaine → host) ou d'un argument CLI
@@ -13,7 +19,8 @@ module Beryl::Apply
   #
   # Étapes :
   #   1. Fermeture transitive des `requires:` — chaque recette est
-  #      cherchée dans `central_dir`. Introuvable → `RecipeNotFound`.
+  #      cherchée dans les `search_dirs` (1er match gagne). Introuvable
+  #      partout → `RecipeNotFound`.
   #   2. Tri topologique (Kahn) : les dépendances sortent avant leurs
   #      dépendants. Ordre alphabétique à indegree égal (déterministe).
   #   3. Cycle → `Cycle` (liste des recettes impliquées).
@@ -32,7 +39,13 @@ module Beryl::Apply
       end
     end
 
-    def initialize(@central_dir : String)
+    # `search_dirs` : dépôts de recettes, par ORDRE DE PRIORITÉ (le premier
+    # qui contient `<name>.recipe.yml` gagne). Accepte aussi un seul dossier
+    # (String) pour la compat des appels existants/tests.
+    @search_dirs : Array(String)
+
+    def initialize(search_dirs : Array(String) | String)
+      @search_dirs = search_dirs.is_a?(String) ? [search_dirs] : search_dirs
     end
 
     # Retourne les recettes dans l'ordre d'exécution (dépendances
@@ -46,15 +59,20 @@ module Beryl::Apply
       topo_sort(loaded)
     end
 
-    # Localise et charge `<name>.recipe.yml` dans le dépôt de recettes.
+    # Localise et charge `<name>.recipe.yml` : parcourt `search_dirs` dans
+    # l'ordre, le PREMIER qui contient le fichier gagne (override société >
+    # générique). Introuvable partout → `RecipeNotFound`.
     private def lookup(name : String, requirer : String?) : Recipe
-      central_path = File.join(@central_dir, "#{name}#{Recipe::SUFFIX}")
-      return Recipe.load(central_path) if File.exists?(central_path)
+      @search_dirs.each do |dir|
+        path = File.join(dir, "#{name}#{Recipe::SUFFIX}")
+        return Recipe.load(path) if File.exists?(path)
+      end
 
       origin = requirer ? " (requise par `#{requirer}`)" : ""
+      tried = @search_dirs.map { |d| File.join(d, "#{name}#{Recipe::SUFFIX}") }.join("\n    ")
       raise RecipeNotFound.new(
-        "recette `#{name}` introuvable#{origin} dans le dépôt de recettes.\n" \
-        "  cherchée dans : #{central_path}"
+        "recette `#{name}` introuvable#{origin} dans le chemin de recherche.\n" \
+        "  cherchée dans :\n    #{tried}"
       )
     end
 

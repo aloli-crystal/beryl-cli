@@ -41,4 +41,34 @@ describe Beryl::Apply::Resolver do
       resolve("needs-missing")
     end
   end
+
+  describe "chemin de recherche (privé société > générique)" do
+    private_dir = File.join(RECIPES_ROOT, "private", "recipes")
+
+    it "le dossier privé (en tête) SURCHARGE une recette générique du même nom" do
+      recipes = Beryl::Apply::Resolver.new([private_dir, CENTRAL_DIR]).resolve(["base-packages"])
+      recipes.size.should eq(1)
+      bp = recipes.first
+      bp.name.should eq("base-packages")
+      bp.description.should contain("PRIVE") # version privée, pas la générique
+      bp.source_path.should contain("/private/")
+    end
+
+    it "résout une recette PRIVÉE absente du générique (+ sa dépendance générique en fallback)" do
+      recipes = Beryl::Apply::Resolver.new([private_dir, CENTRAL_DIR]).resolve(["private-only"])
+      recipes.map(&.name).should eq(["base-packages", "private-only"]) # dep d'abord
+    end
+
+    it "tombe sur le générique (fallback) pour une recette absente du privé" do
+      recipes = Beryl::Apply::Resolver.new([private_dir, CENTRAL_DIR]).resolve(["shell-tools"])
+      recipes.map(&.name).should contain("shell-tools")
+      recipes.find { |r| r.name == "shell-tools" }.not_nil!.source_path.should contain("/central/")
+    end
+
+    it "RecipeNotFound liste TOUS les dossiers cherchés" do
+      expect_raises(Beryl::Apply::Resolver::RecipeNotFound, /private.*\n.*central|central.*\n.*private/m) do
+        Beryl::Apply::Resolver.new([private_dir, CENTRAL_DIR]).resolve(["inexistante-xyz"])
+      end
+    end
+  end
 end

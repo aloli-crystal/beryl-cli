@@ -1,0 +1,7 @@
+recipe: private-only
+description: Recette privee d'une societe (absente du generique).
+requires:
+  - base-packages
+steps:
+  - pkg-install:
+      packages: [private-tool]

@@ -1,0 +1,5 @@
+recipe: base-packages
+description: Override PRIVE de base-packages (specifique societe).
+steps:
+  - pkg-install:
+      packages: [bash, git, curl, htop]
