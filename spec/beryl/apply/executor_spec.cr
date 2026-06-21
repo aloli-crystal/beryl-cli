@@ -63,7 +63,7 @@ describe Beryl::Apply::Executor do
 
   it "from_env : défaut depuis le coffre (ENV), surchargeable positionnellement" do
     begin
-      ENV["TEST_RELAY_TO"] = "it@quimeo.fr"
+      ENV["TEST_RELAY_TO"] = "it@popi.fr"
       shell = FakeShell.new
       recipe = Beryl::Apply::Recipe.new(
         name: "fe-test",
@@ -77,7 +77,7 @@ describe Beryl::Apply::Executor do
       )
       # Recette nue → valeur du coffre.
       Beryl::Apply::Executor.new(shell, dry_run: false).run([recipe], {"fe-test" => [{} of String => String]})
-      TestRecorder.last_params["value"].as_s.should eq("it@quimeo.fr")
+      TestRecorder.last_params["value"].as_s.should eq("it@popi.fr")
       # Valeur positionnelle → surcharge le coffre.
       Beryl::Apply::Executor.new(shell, dry_run: false).run(
         [recipe], {"fe-test" => [{Beryl::Apply::Recipe::POSITIONAL_ARG => "autre@x.fr"}]})

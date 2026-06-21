@@ -21,11 +21,11 @@ describe Beryl::Config::EnvFile do
 
     it "parse un fichier à 2 sociétés avec plusieurs fournisseurs" do
       env = Beryl::Config::EnvFile.load(fixture("two-accounts.yml"))
-      env.accounts.sort.should eq(["aloli", "quimeo"])
+      env.accounts.sort.should eq(["aloli", "popi"])
       env.providers_for("aloli").sort.should eq(["ovh", "scaleway"])
       env.for_account_provider("aloli", "ovh")["OVH_APPLICATION_KEY"].should eq("aaa")
       env.for_account_provider("aloli", "scaleway")["SCW_SECRET_KEY"].should eq("ddd")
-      env.for_account_provider("quimeo", "ovh")["OVH_APPLICATION_KEY"].should eq("eee")
+      env.for_account_provider("popi", "ovh")["OVH_APPLICATION_KEY"].should eq("eee")
       env.for_account_provider("inconnu", "ovh").should be_empty
     end
   end
@@ -110,12 +110,12 @@ describe Beryl::Config::EnvFile do
 
         # Relecture + ajout d'une autre société
         env2 = Beryl::Config::EnvFile.load(path)
-        env2.set_account_provider("quimeo", "ovh", {"K2" => "v2"})
+        env2.set_account_provider("popi", "ovh", {"K2" => "v2"})
         env2.save
 
         # Relecture finale : les deux sont là
         env3 = Beryl::Config::EnvFile.load(path)
-        env3.accounts.sort.should eq(["aloli", "quimeo"])
+        env3.accounts.sort.should eq(["aloli", "popi"])
       ensure
         File.delete(path) rescue nil
       end
@@ -236,9 +236,9 @@ describe Beryl::Config::EnvFile do
     it "clear_account supprime toute trace de la société" do
       env = Beryl::Config::EnvFile.new("/mock", Beryl::Config::EnvFile::Data.new)
       env.set_account_provider("aloli", "ovh", {"K" => "v"})
-      env.set_account_provider("quimeo", "ovh", {"K" => "v"})
+      env.set_account_provider("popi", "ovh", {"K" => "v"})
       env.clear_account("aloli")
-      env.accounts.should eq(["quimeo"])
+      env.accounts.should eq(["popi"])
     end
   end
 end

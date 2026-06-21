@@ -5,8 +5,8 @@ describe Beryl::CLI::Vrack do
   describe ".upsert_vrack_field" do
     it "met à jour une clé existante du bloc vrack:" do
       input = "provider: ovh\nvrack:\n  ip: 192.168.42.31\n  proxy_jump: old@bast.net\nfreebsd:\n  hostname: x\n"
-      out = Beryl::CLI::Vrack.upsert_vrack_field(input, "proxy_jump", "admin@zsbg.quimeo.net")
-      out.should eq("provider: ovh\nvrack:\n  ip: 192.168.42.31\n  proxy_jump: admin@zsbg.quimeo.net\nfreebsd:\n  hostname: x\n")
+      out = Beryl::CLI::Vrack.upsert_vrack_field(input, "proxy_jump", "admin@zsbg.popi.net")
+      out.should eq("provider: ovh\nvrack:\n  ip: 192.168.42.31\n  proxy_jump: admin@zsbg.popi.net\nfreebsd:\n  hostname: x\n")
     end
 
     it "ajoute une clé en fin de bloc vrack: existant" do
@@ -49,11 +49,11 @@ describe Beryl::CLI::Vrack do
 
   describe ".derive_proxy_jump" do
     it "complète un nom court de bastion avec le domaine" do
-      Beryl::CLI::Vrack.derive_proxy_jump("admin", "zsbg", "quimeo.net").should eq("admin@zsbg.quimeo.net")
+      Beryl::CLI::Vrack.derive_proxy_jump("admin", "zsbg", "popi.net").should eq("admin@zsbg.popi.net")
     end
 
     it "respecte un bastion déjà en FQDN" do
-      Beryl::CLI::Vrack.derive_proxy_jump("deploy", "bast.example.net", "quimeo.net").should eq("deploy@bast.example.net")
+      Beryl::CLI::Vrack.derive_proxy_jump("deploy", "bast.example.net", "popi.net").should eq("deploy@bast.example.net")
     end
   end
 

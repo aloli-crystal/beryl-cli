@@ -6,9 +6,9 @@ require "../../../support/apply_helpers"
 describe Beryl::Apply::SecretFile do
   it "injecte la paire [user, password] de l'ENV et écrit le fichier rendu" do
     begin
-      ENV["T_USER"] = "it@quimeo.net"
+      ENV["T_USER"] = "it@popi.net"
       ENV["T_PW"] = "s3cr3t"
-      rendered = "it@quimeo.net|ssl0.ovh.net:s3cr3t\n"
+      rendered = "it@popi.net|ssl0.ovh.net:s3cr3t\n"
       shell = FakeShell.new
       shell.stub(/sha256 -q/, stdout: "") # fichier absent
       result = prim("secret-file").apply(
@@ -29,9 +29,9 @@ describe Beryl::Apply::SecretFile do
 
   it "skip si le contenu distant (valeurs incluses) est déjà à jour" do
     begin
-      ENV["T_USER"] = "it@quimeo.net"
+      ENV["T_USER"] = "it@popi.net"
       ENV["T_PW"] = "s3cr3t"
-      rendered = "it@quimeo.net|ssl0.ovh.net:s3cr3t\n"
+      rendered = "it@popi.net|ssl0.ovh.net:s3cr3t\n"
       shell = FakeShell.new
       shell.stub(/sha256 -q/, stdout: Digest::SHA256.hexdigest(rendered))
       shell.stub(/stat -f %Lp/, stdout: "600") # mode déjà 0600
@@ -51,7 +51,7 @@ describe Beryl::Apply::SecretFile do
 
   it "échoue (sans rien écrire) si une variable d'env est absente" do
     begin
-      ENV["T_USER"] = "it@quimeo.net"
+      ENV["T_USER"] = "it@popi.net"
       ENV.delete("T_PW")
       shell = FakeShell.new
       result = prim("secret-file").apply(
@@ -69,7 +69,7 @@ describe Beryl::Apply::SecretFile do
 
   it "ne fait JAMAIS apparaître une valeur secrète dans le message" do
     begin
-      ENV["T_USER"] = "it@quimeo.net"
+      ENV["T_USER"] = "it@popi.net"
       ENV["T_PW"] = "s3cr3t-unique-42"
       shell = FakeShell.new
       shell.stub(/sha256 -q/, stdout: "")
@@ -88,7 +88,7 @@ describe Beryl::Apply::SecretFile do
 
   it "échoue si un placeholder est absent du contenu" do
     begin
-      ENV["T_USER"] = "it@quimeo.net"
+      ENV["T_USER"] = "it@popi.net"
       ENV["T_PW"] = "s3cr3t"
       shell = FakeShell.new
       result = prim("secret-file").apply(

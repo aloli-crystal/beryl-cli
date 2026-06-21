@@ -6,7 +6,7 @@ aloli:
   scaleway:
     SCW_SECRET_KEY: ddd
 
-quimeo:
+popi:
   ovh:
     OVH_APPLICATION_KEY: eee
     OVH_APPLICATION_SECRET: fff

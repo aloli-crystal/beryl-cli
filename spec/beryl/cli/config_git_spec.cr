@@ -53,7 +53,7 @@ describe Beryl::CLI::ConfigGit do
   describe ".repo_root_for" do
     it "remonte depuis un fichier imbriqué jusqu'à la racine du dépôt" do
       with_temp_repo do |root|
-        nested = File.join(root, "quimeo.net", "host.host.yml")
+        nested = File.join(root, "popi.net", "host.host.yml")
         Dir.mkdir_p(File.dirname(nested))
         File.write(nested, "ok\n")
         # `git init` peut créer un lien symbolique sur macOS (/var → /private/var) :
@@ -135,7 +135,7 @@ describe Beryl::CLI::ConfigGit do
         File.write(File.join(root, ".gitignore"), ".env.yml\n")
         secret = File.join(root, ".env.yml")
         File.write(secret, "OVH_APPLICATION_KEY: super-secret\n")
-        Beryl::CLI::ConfigGit.commit([secret], "add-provider : quimeo/ovh", no_commit: false)
+        Beryl::CLI::ConfigGit.commit([secret], "add-provider : popi/ovh", no_commit: false)
 
         # Le fichier ignoré n'a pas été stagé → aucun commit créé.
         commit_subjects(root).should be_empty

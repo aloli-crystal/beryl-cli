@@ -21,28 +21,28 @@ describe Beryl::Providers::Gandi do
   describe "#ensure_record" do
     it "fait un PUT idempotent du rrset via LiveDNS" do
       t = FakeGandiTransport.new
-      gandi(t).ensure_record("quimeo.fr", "A", "www", "203.0.113.7")
+      gandi(t).ensure_record("popi.fr", "A", "www", "203.0.113.7")
       t.last.method.should eq("PUT")
-      t.last.url.should end_with("/domains/quimeo.fr/records/www/A")
+      t.last.url.should end_with("/domains/popi.fr/records/www/A")
       JSON.parse(t.last.body)["rrset_values"].as_a.map(&.as_s).should eq(["203.0.113.7"])
     end
 
     it "cible la racine (@) quand le sous-domaine est vide" do
       t = FakeGandiTransport.new
-      gandi(t).ensure_record("quimeo.fr", "AAAA", "", "2001:db8::1")
+      gandi(t).ensure_record("popi.fr", "AAAA", "", "2001:db8::1")
       t.last.url.should end_with("/records/@/AAAA")
     end
   end
 
   it "refuse le reverse DNS (PTR géré par l'hébergeur)" do
     expect_raises(Exception, /reverse DNS/) do
-      gandi(FakeGandiTransport.new).set_reverse("203.0.113.7", "www.quimeo.fr")
+      gandi(FakeGandiTransport.new).set_reverse("203.0.113.7", "www.popi.fr")
     end
   end
 
   it "refresh_zone est un no-op (Gandi propage seul)" do
     t = FakeGandiTransport.new
-    gandi(t).refresh_zone("quimeo.fr")
+    gandi(t).refresh_zone("popi.fr")
     t.requests.should be_empty
   end
 

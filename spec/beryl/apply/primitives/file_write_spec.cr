@@ -27,7 +27,7 @@ describe Beryl::Apply::FileWrite do
     shell.stub(/sha256 -q/, stdout: "")
     prim("file-write").apply(
       shell,
-      apply_params({path: "/usr/local/etc/ssl/certs/quimeo.cert", content: "x\n", mode: "0644"}.to_yaml),
+      apply_params({path: "/usr/local/etc/ssl/certs/popi.cert", content: "x\n", mode: "0644"}.to_yaml),
       dry_run: false, context: ctx)
     shell.ran?(%r{mkdir -p /usr/local/etc/ssl/certs}).should be_true
   end

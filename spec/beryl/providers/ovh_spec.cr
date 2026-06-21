@@ -90,10 +90,10 @@ describe Beryl::Providers::Ovh do
         "POST",
         /ip\/.+\/reverse$/,
         status: 200,
-        body: %({"ipReverse":"2001:41d0:306:2b67::1","reverse":"qgra.quimeo.net."}),
+        body: %({"ipReverse":"2001:41d0:306:2b67::1","reverse":"qgra.popi.net."}),
       )
       provider = Beryl::Providers::Ovh.new(build_fake_ovh_client(transport))
-      provider.set_reverse("2001:41d0:306:2b67::1", "qgra.quimeo.net")
+      provider.set_reverse("2001:41d0:306:2b67::1", "qgra.popi.net")
 
       req = transport.requests.find! { |r| r.method == "POST" }
       # Bloc /64 dans le path (slash encodé %2F par le shard).
@@ -101,7 +101,7 @@ describe Beryl::Providers::Ovh do
       req.url.should_not contain("::1/reverse")
       # Adresse /128 dans le body + FQDN terminé par un point.
       req.body.should contain(%("ipReverse":"2001:41d0:306:2b67::1"))
-      req.body.should contain(%("reverse":"qgra.quimeo.net."))
+      req.body.should contain(%("reverse":"qgra.popi.net."))
     end
 
     it "IPv4 : poste le reverse sur l'adresse elle-même (bloc == /32)" do
@@ -110,10 +110,10 @@ describe Beryl::Providers::Ovh do
         "POST",
         /ip\/.+\/reverse$/,
         status: 200,
-        body: %({"ipReverse":"51.83.6.208","reverse":"qgra.quimeo.net."}),
+        body: %({"ipReverse":"51.83.6.208","reverse":"qgra.popi.net."}),
       )
       provider = Beryl::Providers::Ovh.new(build_fake_ovh_client(transport))
-      provider.set_reverse("51.83.6.208", "qgra.quimeo.net.")
+      provider.set_reverse("51.83.6.208", "qgra.popi.net.")
 
       req = transport.requests.find! { |r| r.method == "POST" }
       req.url.should contain("/ip/51.83.6.208/reverse")

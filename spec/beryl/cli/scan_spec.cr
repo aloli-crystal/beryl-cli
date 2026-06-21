@@ -119,7 +119,7 @@ describe Beryl::CLI::Scan do
         provider: ovh
         ovh:
           service_name: ns-old.eu
-        proxy_jump: admin@zsbg.quimeo.net
+        proxy_jump: admin@zsbg.popi.net
         apply_recipes:
           - sshd-vrack-only: {}
         freebsd:
@@ -149,7 +149,7 @@ describe Beryl::CLI::Scan do
       parsed = YAML.parse(merged)
       # préservés
       parsed["apply_recipes"].as_a.size.should eq(1)
-      parsed["proxy_jump"].as_s.should eq("admin@zsbg.quimeo.net")
+      parsed["proxy_jump"].as_s.should eq("admin@zsbg.popi.net")
       parsed["freebsd"]["users"].as_a.size.should eq(2)
       # rafraîchis par scan
       parsed["ovh"]["service_name"].as_s.should eq("ns-new.eu")

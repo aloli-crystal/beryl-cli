@@ -62,9 +62,9 @@ describe Beryl::Config::Root do
 
     it "supporte plusieurs sociétés en parallèle" do
       cfg = Beryl::Config::Root.load(fixture("multi-domains"))
-      cfg.account_names.should eq(["aloli", "quimeo"])
+      cfg.account_names.should eq(["aloli", "popi"])
       cfg.account?("aloli").not_nil!.domain_names.should eq(["aloli.net"])
-      cfg.account?("quimeo").not_nil!.domain_names.should eq(["quimeo.fr"])
+      cfg.account?("popi").not_nil!.domain_names.should eq(["popi.fr"])
     end
 
     it "renvoie une Root vide si la racine n'existe pas" do

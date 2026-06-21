@@ -6,9 +6,9 @@ describe Beryl::CLI::Env do
     it "retire les lignes de note d'erreur injectées (préfixe ERR_MARKER)" do
       injected = "#{Beryl::CLI::Env::ERR_MARKER} TOML invalide : oops\n" \
                  "#{Beryl::CLI::Env::ERR_MARKER} Corrigez puis sauvez.\n" \
-                 "[mail]\nSMTP_RELAY_USER = \"it@quimeo.net\"\n"
+                 "[mail]\nSMTP_RELAY_USER = \"it@popi.net\"\n"
       Beryl::CLI::Env.strip_error_notes(injected).should eq(
-        "[mail]\nSMTP_RELAY_USER = \"it@quimeo.net\"\n")
+        "[mail]\nSMTP_RELAY_USER = \"it@popi.net\"\n")
     end
 
     it "laisse intact un contenu sans note (idempotent)" do
