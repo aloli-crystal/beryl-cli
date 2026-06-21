@@ -2,7 +2,7 @@ require "../primitive"
 
 module Beryl::Apply
   # Primitive `headscale-state-commit` : ajoute une ligne d'audit au
-  # repo `aloli-aloli/headscale-state` et la commit. Utilisée par
+  # repo `aloli/headscale-state` et la commit. Utilisée par
   # les recipes `sshd-public-open` / `sshd-public-close` pour tracer
   # chaque ouverture/fermeture de la fenêtre port 22.
   #

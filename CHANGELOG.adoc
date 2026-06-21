@@ -58,7 +58,7 @@ côté `aloli-crystal/beryl-recipes`.
   `tag:` est remplacé. Le tag distingue plusieurs fenêtres
   concurrentes.
 * `headscale-state-commit` (Phase 3) — append une ligne au fichier
-  `audit.log` du repo `aloli-aloli/headscale-state` puis
+  `audit.log` du repo `aloli/headscale-state` puis
   `git add && commit && push`. Sérialisé via `flock`. Pré-requis :
   recipe `headscale-backup` déjà appliquée (repo cloné sur le host).
 
