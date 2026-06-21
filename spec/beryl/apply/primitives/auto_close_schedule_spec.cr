@@ -20,6 +20,23 @@ describe Beryl::Apply::AutoCloseSchedule do
     shell.ran?(/beryl apply --recipe sshd-public-close/).should be_true
   end
 
+  it "supporte after_minutes (granularité fine, ex. dead-man's-switch)" do
+    shell = FakeShell.new
+    shell.stub(/mkdir -p/, exit_code: 0)
+    shell.stub(/cat .*atjob/, exit_code: 1)
+    shell.stub(/echo .* | at now/, stdout: "", stderr: "job 7 at soon", exit_code: 0)
+    shell.stub(/printf/, exit_code: 0)
+
+    result = prim("auto-close-schedule").apply(
+      shell,
+      apply_params(%({tag: sshd-overlay-deadman, after_minutes: 2, recipe: sshd-overlay-rollback})),
+      dry_run: false, context: ctx,
+    )
+    result.outcome.should eq(Beryl::Apply::Outcome::Applied)
+    shell.ran?(/at now \+ 2 minutes/).should be_true
+    shell.ran?(/at now \+ .* hours/).should be_false
+  end
+
   it "supprime le job précédent du même tag avant d'en poser un nouveau" do
     shell = FakeShell.new
     shell.stub(/mkdir -p/, exit_code: 0)

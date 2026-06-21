@@ -29,12 +29,27 @@ module Beryl::Apply
 
     def apply(shell : Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Context) : StepResult
       tag = required_string(params, "tag")
-      after_hours = string(params, "after_hours").try(&.to_i?) || 1
       recipe = required_string(params, "recipe")
+
+      # Délai : `after_minutes` (granularité fine, ex. dead-man's-switch de
+      # `sshd-overlay-only`) OU `after_hours` (fenêtre longue, ex.
+      # `sshd-public-open`). `at` ne descend pas sous la minute. Défaut 1 h.
+      after_minutes = string(params, "after_minutes").try(&.to_i?)
+      after_hours = string(params, "after_hours").try(&.to_i?)
+      if after_minutes
+        at_spec = "#{after_minutes} minutes"
+        human = "#{after_minutes} min"
+      elsif after_hours
+        at_spec = "#{after_hours} hours"
+        human = "#{after_hours} h"
+      else
+        at_spec = "1 hours"
+        human = "1 h"
+      end
 
       tag_file = "#{TAG_DIR}/#{tag}.atjob"
 
-      msg = "auto-close `#{recipe}` dans #{after_hours} h (tag #{tag})"
+      msg = "auto-close `#{recipe}` dans #{human} (tag #{tag})"
       return StepResult.applied("#{msg} (dry-run)") if dry_run
 
       shell.exec("mkdir -p #{Process.quote(TAG_DIR)} && chmod 0700 #{Process.quote(TAG_DIR)}")
@@ -48,7 +63,7 @@ module Beryl::Apply
       # 2. Poser le nouveau job.
       at_command = "beryl apply --recipe #{Process.quote(recipe)} $(hostname -f)"
       submit = shell.exec(
-        "echo #{Process.quote(at_command)} | at now + #{after_hours} hours 2>&1",
+        "echo #{Process.quote(at_command)} | at now + #{at_spec} 2>&1",
         raise_on_error: false,
       )
       unless submit.success?
