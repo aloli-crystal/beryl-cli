@@ -191,7 +191,7 @@ module Beryl::CLI
     {"unlock", "u", "Déverrouille les pools chiffrés (clé locale → SSH)"},
     {"version", "v", "Affiche la version"},
     {"vrack", "", "Gère le vRack OVH (statut / rattachement)"},
-    {"vrack-dns", "", "Génère/déploie le DNS interne du vRack (vrack.quimeo.net)"},
+    {"vrack-dns", "", "Génère/déploie le DNS interne du vRack (zone vrack.<domaine>)"},
     {"vrack-ip", "", "Valide/consolide la numérotation des IP vRack (vrack.yml)"},
     {"wipe", "w", "Efface un disque sur un hôte en rescue"},
   ]

@@ -12,14 +12,14 @@ module Beryl::CLI
     EXIT_USAGE = 1
     EXIT_FAIL  = 2
 
-    ZONE_DEFAULT    = "vrack.quimeo.net"
+    ZONE_DEFAULT    = "vrack.internal"
     UNBOUND_INCLUDE = "/usr/local/etc/unbound/vrack.conf"
 
     def self.run(config_root : String, args : Array(String)) : Int32
       zone = ZONE_DEFAULT
       to_hosts = [] of String
       parser = OptionParser.new do |p|
-        p.banner = "USAGE : beryl vrack-dns [--zone vrack.quimeo.net] [--to <résolveur>]"
+        p.banner = "USAGE : beryl vrack-dns [--zone #{ZONE_DEFAULT}] [--to <résolveur>]"
         p.on("--zone NAME", "Zone DNS interne (défaut #{ZONE_DEFAULT})") { |v| zone = v }
         p.on("--to HOST", "Déployer la zone sur ce résolveur (répétable)") { |v| to_hosts << v }
         p.on("-h", "--help", "Aide") { puts p; exit 0 }
