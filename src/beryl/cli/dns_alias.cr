@@ -15,10 +15,10 @@ module Beryl::CLI
   # Cas d'usage principal : FAILOVER Headscale. Après promotion d'un standby,
   # l'opérateur repointe `headscale.<zone>` vers le serveur promu :
   #
-  #   beryl dns-alias zstandby.aloli.net --name headscale
+  #   beryl dns-alias zstandby.example.net --name headscale
   #
   # Réduit le RTO du failover (cf. roadmap headscale + doc headscale-setup.adoc :
-  # « mettre à jour le DNS headscale.aloli.net »). Généralement utile pour tout
+  # « mettre à jour le DNS headscale.example.net »). Généralement utile pour tout
   # alias de service (smtp, db, …) pointant vers un host.
   module DnsAlias
     EXIT_OK      =  0

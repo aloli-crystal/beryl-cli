@@ -3,7 +3,7 @@ require "ssh"
 module Beryl::CLI
   # Pilotage d'un contrôleur RAID MATÉRIEL (MegaRAID, via `storcli`) DANS LE
   # RESCUE, avant bootstrap. Le rescue OVH ne fournit aucun outil contrôleur
-  # → on récupère `storcli` depuis `storcli_url` (cf. `aloli/infra-bin`), puis
+  # → on récupère `storcli` depuis `storcli_url` (cf. `acme/infra-bin`), puis
   # on liste / détruit / reconfigure les volumes.
   #
   # DESTRUCTIF, mais en rescue (avant install) → 100 % rejouable. Après une

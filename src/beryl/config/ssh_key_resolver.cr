@@ -11,11 +11,11 @@ module Beryl::Config
   # Deux formes reconnues automatiquement :
   #
   #   1. Clé inline (commence par `ssh-`) :
-  #        - ssh-ed25519 AAAAC3... philippe@aloli.fr
+  #        - ssh-ed25519 AAAAC3... philippe@example.com
   #      Utilisée telle quelle, après `.strip`.
   #
   #   2. Nom de fichier (tout le reste, typiquement `nom.pub`) :
-  #        - philippe.aloli.fr.pub
+  #        - philippe.example.com.pub
   #      Cherché dans `ssh_dir` (défaut `~/.ssh/`). On lit la première
   #      ligne non vide et non commentée du fichier.
   #

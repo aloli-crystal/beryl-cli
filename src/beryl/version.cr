@@ -1,6 +1,6 @@
 module Beryl
   # Lue au compile-time depuis `shard.yml` via le macro `read_file`.
-  # Cf. note mémoire `feedback_shard_version_macro.md` (mémoire ALOLI).
+  # Cf. note mémoire `feedback_shard_version_macro.md` (note interne).
   VERSION = {{
               (read_file("#{__DIR__}/../../shard.yml")
                 .lines

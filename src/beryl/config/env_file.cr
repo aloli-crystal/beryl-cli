@@ -6,7 +6,7 @@ module Beryl::Config
   # Parse de `~/.config/beryl/.env.yml`. Format à **trois niveaux** :
   # `société → fournisseur → variables`.
   #
-  #   aloli:
+  #   acme:
   #     ovh:
   #       OVH_APPLICATION_KEY: xxx
   #       OVH_APPLICATION_SECRET: yyy
@@ -14,7 +14,7 @@ module Beryl::Config
   #     scaleway:
   #       SCW_SECRET_KEY: abc
   #
-  #   quimeo:
+  #   beta:
   #     ovh:
   #       OVH_APPLICATION_KEY: aaa
   #       ...
@@ -22,8 +22,8 @@ module Beryl::Config
   # Justification (ADR-014) : une société a généralement plusieurs
   # domaines payés chez le même compte fournisseur. Indexer par
   # domaine forçait la duplication des credentials. Indexer par
-  # société + fournisseur élimine cette duplication : aloli.net et
-  # aloli.fr partagent `.env.yml[aloli][ovh]`.
+  # société + fournisseur élimine cette duplication : example.net et
+  # example.com partagent `.env.yml[acme][ovh]`.
   #
   # Chaque commande qui cible un host charge uniquement la section
   # `[account][provider]` concernée dans `ENV`, le temps de

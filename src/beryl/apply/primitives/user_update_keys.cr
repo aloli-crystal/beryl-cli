@@ -17,7 +17,7 @@ module Beryl::Apply
   #     - user-update-keys:
   #         user: deploy
   #         keys:
-  #           - "ssh-ed25519 AAAA... deploy@aloli"
+  #           - "ssh-ed25519 AAAA... deploy@acme"
   class UserUpdateKeys < Primitive
     # Type de clé reconnu en tête d'une ligne authorized_keys (après
     # d'éventuelles options). Sert à isoler le couple (type, blob).

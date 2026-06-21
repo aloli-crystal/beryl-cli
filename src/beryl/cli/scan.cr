@@ -17,7 +17,7 @@ require "./raid_controller"
 # détecte les disques, propose un YAML pour le fichier host.
 #
 # Forme typique :
-#   beryl scan ns3156789.ip-51-83-6.eu --domain=aloli.net --dns --write
+#   beryl scan ns3156789.ip-51-83-6.eu --domain=example.net --dns --write
 #
 # Avec `--dns` : pose les records DNS (CNAME vers le FQDN OVH),
 # le reverse DNS IPv4/IPv6 et renomme le serveur côté panel OVH.
@@ -90,7 +90,7 @@ module Beryl::CLI::Scan
   # niveau RAID numérique (0|1|5|6|7|10), et `boot: true` pour
   # exactement UN pool (le zroot, pool système — `mountpoint` nil).
   #
-  # Convention Aloli pour les pools data : l'opérateur tape un nom
+  # Convention beryl pour les pools data : l'opérateur tape un nom
   # court (`data`, `cache`, `backup`…), beryl en déduit :
   # - nom ZFS : `z<court>`    (ex: zdata)
   # - mountpoint : `/<court>` (ex: /data)
@@ -179,7 +179,7 @@ module Beryl::CLI::Scan
 
     root = Beryl::Config::Root.load(config_root)
 
-    # Raccourci UX : `beryl scan aloli/<ID> --provider=<name>`. Même
+    # Raccourci UX : `beryl scan acme/<ID> --provider=<name>`. Même
     # logique que `beryl rescue` — voir src/beryl/cli/provider_shortcut.cr.
     #
     # On mémorise la zone Scaleway découverte par le shortcut pour
@@ -368,7 +368,7 @@ module Beryl::CLI::Scan
       while !remaining.empty?
         STDERR.puts
         STDERR.puts "Pool de données ZFS additionnel :"
-        STDERR.puts "  Convention Aloli : le nom que vous tapez (ex: data) sera utilisé"
+        STDERR.puts "  Convention beryl : le nom que vous tapez (ex: data) sera utilisé"
         STDERR.puts "  pour créer le pool ZFS `zdata` monté sur `/data`. De même pour"
         STDERR.puts "  `cache` → `zcache` sur `/cache`, `backup` → `zbackup` sur `/backup`."
         STDERR.puts
@@ -842,7 +842,7 @@ module Beryl::CLI::Scan
   # Le nom du pool apparaît dans le prompt pour que l'opérateur sache
   # toujours dans quelle « case » il travaille.
   #
-  # Format des messages (norme Aloli) :
+  # Format des messages (norme beryl) :
   #   - options entre parenthèses `(…)`
   #   - défaut entre crochets `[défaut : X]` avec espaces français
   #     autour des `:`
@@ -899,12 +899,12 @@ module Beryl::CLI::Scan
   end
 
   # Prompt du niveau RAID sous forme numérique pour un pool donné.
-  # Convention parlante Aloli : 0, 1, 5, 6, 7, 10 plutôt que
+  # Convention parlante beryl : 0, 1, 5, 6, 7, 10 plutôt que
   # stripe/mirror/raidz…
   #
   # Format cohérent avec `pick_disks_for` : options entre `(…)`,
   # défaut entre `[…]` avec espaces français autour des `:`.
-  # Niveau RAID par défaut : toujours 0 (stripe), convention Aloli —
+  # Niveau RAID par défaut : toujours 0 (stripe), convention beryl —
   # backups bétonnés > redondance disque. L'opérateur qui veut
   # autre chose doit le dire explicitement, pas de magie sur le
   # nombre de disques (un défaut qui change selon le contexte = UX

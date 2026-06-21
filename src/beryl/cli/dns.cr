@@ -16,7 +16,7 @@ module Beryl::CLI
   #
   # La détection d'IP est compute-spécifique : OVH câblé (dédiés). Les
   # autres providers compute (scaleway/dedibox) suivront — refus explicite
-  # d'ici là (règle Aloli : pas d'échec silencieux).
+  # d'ici là (principe : pas d'échec silencieux).
   module Dns
     EXIT_OK      =  0
     EXIT_USAGE   =  2

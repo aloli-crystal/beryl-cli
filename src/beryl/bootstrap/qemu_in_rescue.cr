@@ -7,7 +7,7 @@ require "../config/zpool"
 module Beryl::Bootstrap
   # Spécification d'un utilisateur à créer sur le FreeBSD installé.
   # Les valeurs sont explicites : aucun défaut ne s'applique silencieusement
-  # (règle Aloli « no silent defaults »).
+  # (principe « no silent defaults »).
   record UserSpec,
     name : String,
     primary_group : String,
@@ -247,7 +247,7 @@ module Beryl::Bootstrap
       # boot), détecté côté rescue par beryl. Défaut 12 (4 K) si non fourni.
       @boot_ashift : Int32 = 12,
       @follow_hint_host_name : String? = nil,
-      # FQDN du host (ex. han.quimeo.net) — pour le commentaire des clés
+      # FQDN du host (ex. han.example.net) — pour le commentaire des clés
       # d'identité user générées au bootstrap. Défaut : @hostname.
       @fqdn : String = "",
     )
@@ -491,7 +491,7 @@ module Beryl::Bootstrap
     # et au reboot bare-metal FreeBSD ne retrouve plus que zroot
     # dans `/boot/zfs/zpool.cache`. Le pool data existe sur disque
     # (visible via `zpool import`) mais doit être importé à la main.
-    # Constaté terrain quantas.aloli.net 24 avril 2026.
+    # Constaté terrain quantas.example.net 24 avril 2026.
     #
     # Pointer vers `/mnt/boot/zfs/zpool.cache` (le cachefile du
     # système cible, dans zroot altroot /mnt) garantit qu'au reboot,

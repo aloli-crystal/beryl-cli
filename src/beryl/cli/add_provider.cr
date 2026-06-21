@@ -10,8 +10,8 @@ require "./config_git"
 #
 # Formes équivalentes :
 #
-#   beryl add-provider aloli/ovh
-#   beryl add-provider ovh --account=aloli
+#   beryl add-provider acme/ovh
+#   beryl add-provider ovh --account=acme
 #
 # Si une seule société existe dans `~/.config/beryl/`, `--account` peut être
 # omis : beryl auto-détecte.
@@ -141,7 +141,7 @@ module Beryl::CLI::AddProvider
 
     STDERR.puts "[beryl add-provider] 2 Credentials posés dans #{env_path}[#{account}][#{provider.name}]."
     # Auto-commit défensif : `.env.yml` est en clair et gitignore dans le
-    # dépôt de config (un `.gitignore` défensif existe côté quimeo/beryl-config).
+    # dépôt de config (un `.gitignore` défensif existe côté acme/beryl-config).
     # `ConfigGit.commit` ne force jamais `git add -f` : le fichier ignoré
     # n'est donc pas stagé → commit no-op (« rien à committer »), aucun
     # secret en clair versionné. Si l'opérateur migre vers le coffre

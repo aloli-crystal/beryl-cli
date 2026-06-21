@@ -6,9 +6,9 @@ module Beryl::CLI
   # `beryl vrack <host> [--attach]` : interroge l'API OVH pour savoir si le
   # serveur d'un host est dans un vRack, et le rattache avec `--attach`.
   #
-  #   beryl vrack han.quimeo.net              # statut seulement
-  #   beryl vrack han.quimeo.net --attach     # rattache (task async + suivi)
-  #   beryl vrack han.quimeo.net --attach --vrack pn-12345
+  #   beryl vrack han.example.net              # statut seulement
+  #   beryl vrack han.example.net --attach     # rattache (task async + suivi)
+  #   beryl vrack han.example.net --attach --vrack pn-12345
   module Vrack
     EXIT_OK         = 0
     EXIT_USAGE      = 1

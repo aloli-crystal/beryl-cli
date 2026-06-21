@@ -20,11 +20,11 @@ module Beryl::CLI::AccountUtils
   # `{account, domain, host}`. Trois formes acceptées :
   #
   #   "loulou"                        → {nil, nil, "loulou"}
-  #   "loulou.aloli.net"              → {nil, nil, "loulou.aloli.net"}
-  #   "aloli/loulou"                  → {"aloli", nil, "loulou"}
-  #   "aloli/loulou.aloli.net"        → {"aloli", nil, "loulou.aloli.net"}
-  #   "aloli/aloli.net/loulou"        → {"aloli", "aloli.net", "loulou"}
-  #   "aloli/aloli.net/ns3156789.ip-..."  → {"aloli", "aloli.net",
+  #   "loulou.example.net"              → {nil, nil, "loulou.example.net"}
+  #   "acme/loulou"                  → {"acme", nil, "loulou"}
+  #   "acme/loulou.example.net"        → {"acme", nil, "loulou.example.net"}
+  #   "acme/example.net/loulou"        → {"acme", "example.net", "loulou"}
+  #   "acme/example.net/ns3156789.ip-..."  → {"acme", "example.net",
   #                                          "ns3156789.ip-..."}
   #
   # Règle : 0 slash → `{nil, nil, raw}` (comportement actuel).

@@ -89,7 +89,7 @@ module Beryl::CLI::ScalewayReinstall
 
     root = Beryl::Config::Root.load(config_root)
 
-    # UX path-like : `aloli/<UUID>` pour resolve d'un serveur non
+    # UX path-like : `acme/<UUID>` pour resolve d'un serveur non
     # encore déclaré dans le YAML.
     # On capture aussi `server_id` + `zone` retournés par le shortcut :
     # quand on démarre d'un UUID sans YAML host, `host.scaleway_*` est

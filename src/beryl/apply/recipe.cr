@@ -25,7 +25,7 @@ module Beryl::Apply
     getter description : String
     getter requires : Array(String)
     # `requires_vrack: true` → recette ÉCARTÉE par `beryl apply` si le host n'a
-    # pas d'IP vRack (ex. `pkg-repo-quimeo` joint le builder sur le vRack).
+    # pas d'IP vRack (ex. `pkg-repo-acme` joint le builder sur le vRack).
     getter requires_vrack : Bool
     getter parameters : Hash(String, YAML::Any)
     getter arguments : Hash(String, YAML::Any)

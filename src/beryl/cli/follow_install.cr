@@ -18,7 +18,7 @@ require "./account_utils"
 # rescue. Depuis l'isolation SSH du 0.1.8 (shard `ssh`), beryl
 # n'utilise plus `~/.ssh/config` et le copie-coller ne serait donc plus
 # portable. Cette sous-commande porte toute la résolution elle-même :
-# clé via `SSH::KeyStore` + convention Aloli, user depuis le merge,
+# clé via `SSH::KeyStore` + convention beryl, user depuis le merge,
 # password mfsbsd en dur.
 module Beryl::CLI::FollowInstall
   EXIT_OK         = 0

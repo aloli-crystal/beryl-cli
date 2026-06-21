@@ -3,12 +3,12 @@ require "../primitive"
 module Beryl::Apply
   # Primitive `user-ssh-key` : génère la clé d'identité SSH d'un user sur le
   # serveur (`~user/.ssh/id_ed25519`), de type ed25519, avec le commentaire
-  # `<user>@<fqdn>` (ex. `admin@han.quimeo.net`). Idempotente : skip si la
+  # `<user>@<fqdn>` (ex. `admin@han.example.net`). Idempotente : skip si la
   # clé existe déjà (on ne réécrit JAMAIS une clé privée).
   #
   #     - user-ssh-key:
   #         name: admin
-  #         fqdn: han.quimeo.net   # optionnel ; sinon var `fqdn` du contexte
+  #         fqdn: han.example.net   # optionnel ; sinon var `fqdn` du contexte
   #
   # Le `fqdn` est pris dans les params, sinon dans le contexte (var `fqdn`),
   # sinon via `hostname` sur le serveur.

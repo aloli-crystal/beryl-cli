@@ -94,7 +94,7 @@ module Beryl::CLI::Rescue
 
     root = Beryl::Config::Root.load(config_root)
 
-    # Raccourci UX : `beryl rescue aloli/<ID> --provider=<name>`.
+    # Raccourci UX : `beryl rescue acme/<ID> --provider=<name>`.
     # Si le host_name est un ID provider pur (entier pour Dedibox,
     # UUID pour Scaleway), beryl fetch l'IP publique via l'API et
     # l'utilise comme cible SSH. Plus besoin de connaître le reverse
@@ -362,7 +362,7 @@ module Beryl::CLI::Rescue
   ) : Nil
     # La zone découverte par ProviderShortcut (scan des zones)
     # prime sur celle du YAML : quand on provisionne un serveur
-    # tout neuf via `aloli/<UUID>`, le YAML n'existe pas encore
+    # tout neuf via `acme/<UUID>`, le YAML n'existe pas encore
     # donc `host.scaleway_zone` est nil.
     zone = zone_override || host.scaleway_zone
     client = factory.call
@@ -443,21 +443,21 @@ module Beryl::CLI::Rescue
     # Cherche la clé publique parmi plusieurs conventions de nommage.
     # On teste dans l'ordre et on retient le premier fichier qui existe :
     #
-    #   1. Convention Aloli `.key` → `.pub` (remplacement)
-    #      philippe.aloli.fr.key   → philippe.aloli.fr.pub
+    #   1. Convention beryl `.key` → `.pub` (remplacement)
+    #      philippe.example.com.key   → philippe.example.com.pub
     #   2. Convention OpenSSH suffixe `.pub` (concaténation)
     #      id_ed25519              → id_ed25519.pub
     #      philippe_cle            → philippe_cle.pub
-    #      philippe.aloli.fr.key   → philippe.aloli.fr.key.pub
+    #      philippe.example.com.key   → philippe.example.com.key.pub
     #
     # Les deux conventions coexistent chez Philippe selon l'origine
-    # de la clé (Aloli vs clés importées standard).
+    # de la clé (beryl vs clés importées standard).
     candidates = [] of String
     candidates << privkey_path.sub(/\.key\z/, ".pub") if privkey_path.ends_with?(".key")
     candidates << "#{privkey_path}.pub"
     pubkey_path = candidates.find { |p| File.exists?(p) } || raise MissingProviderConfig.new(
       "Scaleway pre-check : clé publique introuvable. Cherché : #{candidates.join(", ")}. " \
-      "Attendue à côté de la clé privée (convention Aloli `.key` → `.pub`, " \
+      "Attendue à côté de la clé privée (convention beryl `.key` → `.pub`, " \
       "ou convention OpenSSH suffixe `.pub`)."
     )
     local_b64 = File.read(pubkey_path).strip.split(/\s+/)[1]? ||

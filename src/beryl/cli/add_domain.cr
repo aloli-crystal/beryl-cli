@@ -9,8 +9,8 @@ require "./config_git"
 #
 # Formes équivalentes :
 #
-#   beryl add-domain aloli/aloli.net
-#   beryl add-domain aloli.net --account=aloli
+#   beryl add-domain acme/example.net
+#   beryl add-domain example.net --account=acme
 #
 # Le domaine déclare :
 #   - `dns_provider` : qui gère la zone (gandi, ovh, scaleway…)
@@ -339,7 +339,7 @@ module Beryl::CLI::AddDomain
       io << "\nssh_keys:\n"
       if admin_key.empty?
         io << "  # TODO : ajoutez au moins une clé SSH publique ici.\n"
-        io << "  # - philippe.aloli.fr.pub  # nom de fichier dans ~/.ssh/\n"
+        io << "  # - philippe.example.com.pub  # nom de fichier dans ~/.ssh/\n"
         io << "  # - ssh-ed25519 AAAA... votre@email  # contenu inline\n"
       else
         io << "  - " << admin_key << '\n'

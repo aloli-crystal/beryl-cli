@@ -73,12 +73,12 @@ module Beryl
   # Formate une cible SSH pour les logs de façon uniforme. Trois cas :
   #
   # * Pas de divergence entre fqdn et ssh_host :
-  #     `rails01.aloli.net`
+  #     `rails01.example.net`
   #
   # * Provider hébergeur qui impose un nom différent (typiquement OVH
   #   `ovh.service_name`). On annonce le couple « FQDN logique côté
   #   provider » :
-  #     `rails01.aloli.net (= ns1234.ip-51-83-6.eu côté ovh)`
+  #     `rails01.example.net (= ns1234.ip-51-83-6.eu côté ovh)`
   #
   # * Override `ssh_host:` explicite côté YAML — l'opérateur a posé
   #   une valeur (test local, VPN, alias DNS interne). Pas de

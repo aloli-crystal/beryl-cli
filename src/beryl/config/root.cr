@@ -31,7 +31,7 @@ module Beryl::Config
 
     # Charge une arborescence complète depuis le disque. `ssh_dir`
     # est le dossier où chercher les clés SSH référencées par nom
-    # (ex. `philippe.aloli.fr.pub` → `<ssh_dir>/philippe.aloli.fr.pub`).
+    # (ex. `philippe.example.com.pub` → `<ssh_dir>/philippe.example.com.pub`).
     # Paramétrable pour les tests qui utilisent des fixtures.
     def self.load(path : String? = nil, ssh_dir : String = DEFAULT_SSH_DIR) : Root
       path ||= default_path
@@ -57,7 +57,7 @@ module Beryl::Config
     end
 
     # Toutes les sociétés qui ont un domaine de ce nom. Rare qu'il y
-    # en ait plusieurs, mais possible (ex: une société ALOLI et une
+    # en ait plusieurs, mais possible (ex: une société acme et une
     # société cliente ACME possèdent toutes deux `example.com`).
     def accounts_with_domain(domain_name : String) : Array(Account)
       @accounts.values.select { |a| a.domain?(domain_name) }
@@ -93,8 +93,8 @@ module Beryl::Config
     #   2. `--domain=D` seul : cherche D dans toutes les sociétés.
     #      Lève `AmbiguousHost` si plusieurs sociétés ont le domaine
     #      et que le host n'est pas unique parmi elles.
-    #   3. Suffix match : `rails01.aloli.net` — cherche un domaine
-    #      `aloli.net` dans toutes les sociétés. Si plusieurs sociétés
+    #   3. Suffix match : `rails01.example.net` — cherche un domaine
+    #      `example.net` dans toutes les sociétés. Si plusieurs sociétés
     #      l'ont ET que le host existe dans une seule → utilisé.
     #   4. Recherche nom court + provider-name dans tous les hosts de
     #      toutes les sociétés. Unique → utilisé ; multi → ambigu.
@@ -119,7 +119,7 @@ module Beryl::Config
       end
 
       # 1b : account_hint seul (sans domain) — cas typique de la
-      # forme path-like `aloli/loulou` ou `aloli/ns3156789.ip-...`.
+      # forme path-like `acme/loulou` ou `acme/ns3156789.ip-...`.
       if account_hint
         account = @accounts[account_hint]? || raise UnknownAccount.new(
           "société inconnue : #{account_hint}. Connues : #{account_names.join(", ")}"
@@ -226,8 +226,8 @@ module Beryl::Config
     end
 
     # Extrait le nom court d'un host à partir d'un nom CLI qui peut
-    # être FQDN ou court. `rails01.aloli.net` dans le domaine
-    # `aloli.net` → `rails01`.
+    # être FQDN ou court. `rails01.example.net` dans le domaine
+    # `example.net` → `rails01`.
     private def short_name_in_domain(name : String, domain : Domain) : String
       suffix = ".#{domain.name}"
       name.ends_with?(suffix) ? name[0...(name.size - suffix.size)] : name
@@ -380,13 +380,13 @@ module Beryl::Config
     end
 
     # FQDN reconstitué : `<short_name>.<domaine>`. Le groupe
-    # n'apparaît pas (règle figée : pas de `rails01.web.aloli.net`).
+    # n'apparaît pas (règle figée : pas de `rails01.web.example.net`).
     #
     # Exception : si `short_name` contient déjà un point, c'est un
     # FQDN externe (nom hébergeur type `ns3156789.ip-51-83-6.eu` ou
-    # alias DNS qui ne relève pas du domaine aloli). On le garde
+    # alias DNS qui ne relève pas du domaine acme). On le garde
     # tel quel — sans quoi on fabriquerait un
-    # `ns3156789.ip-51-83-6.eu.aloli.net` qui ne résout nulle part.
+    # `ns3156789.ip-51-83-6.eu.example.net` qui ne résout nulle part.
     def fqdn : String
       return @short_name if @short_name.includes?('.')
       "#{@short_name}.#{@domain.name}"
@@ -567,7 +567,7 @@ module Beryl::Config
     end
 
     # Hôte de rebond SSH (bastion) pour joindre ce host, ex.
-    # `deploy@zsbg.quimeo.net`. Passé à ssh via `-o ProxyJump=…` (donc
+    # `deploy@zsbg.example.net`. Passé à ssh via `-o ProxyJump=…` (donc
     # aussi à scp). INDISPENSABLE pour les hôtes cachés derrière le vRack
     # (port 22 public fermé) : beryl ne les joint plus qu'à travers un
     # bastion z. À combiner avec `ssh_host:` = IP vRack du host. nil =
@@ -699,7 +699,7 @@ module Beryl::Config
     # URL d'un binaire `storcli64` (Linux) à récupérer dans le rescue pour
     # piloter un contrôleur RAID matériel (MegaRAID…). Le rescue OVH ne
     # fournit aucun outil contrôleur → beryl le `curl` depuis ici. Hébergé
-    # par nos soins (ex. release `aloli/infra-bin`). nil = pas de
+    # par nos soins (ex. release `acme/infra-bin`). nil = pas de
     # reconstruction RAID possible (seule l'option « volume tel quel »).
     def storcli_url : String?
       @merged[YAML::Any.new("storcli_url")]?.try(&.as_s?)
@@ -711,9 +711,9 @@ module Beryl::Config
     #
     #   1. `identity_file:` explicitement déclaré dans le merge (YAML
     #      host, domaine, `_account.yml` ou `_default.yml`). Prime.
-    #   2. Résolution par convention Aloli depuis `ovh.ssh_key_name` :
-    #      le label côté OVH (ex: `philippe-aloli-fr`) est traduit en
-    #      fichier local `<ssh_dir>/philippe.aloli.fr.key`. Permet de
+    #   2. Résolution par convention beryl depuis `ovh.ssh_key_name` :
+    #      le label côté OVH (ex: `user-example-com`) est traduit en
+    #      fichier local `<ssh_dir>/philippe.example.com.key`. Permet de
     #      ne pas dupliquer l'info : la même clé est référencée par
     #      son nom côté provider et résolue automatiquement côté disque.
     #   3. Sinon nil. `SSH::Connection` lancera alors sans `-i`, et

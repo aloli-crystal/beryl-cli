@@ -8,7 +8,7 @@ module Beryl
   #   le flux `beryl scan --dns`
   # - (futur) création, rescue, boot disk…
   #
-  # Règle Aloli : un utilisateur futur qui veut intégrer un nouvel
+  # Principe : un utilisateur futur qui veut intégrer un nouvel
   # hébergeur (Hetzner, Digital Ocean, AWS…) n'a pas à modifier beryl.
   # Il crée son propre shard qui sous-classe `Beryl::Provider`, puis
   # s'enregistre via `Beryl::Providers.register(instance)`. Les
@@ -185,7 +185,7 @@ module Beryl
     # OVH et le fichier local sans que ce soit la « même » clé au
     # sens cryptographique).
     #
-    # Exemple : `"ssh-ed25519 AAAA... philippe@aloli.fr"` → `"ssh-ed25519 AAAA..."`.
+    # Exemple : `"ssh-ed25519 AAAA... philippe@example.com"` → `"ssh-ed25519 AAAA..."`.
     def crypto_fingerprint : String
       tokens = public_key.strip.split(/\s+/, limit: 3)
       tokens.size >= 2 ? "#{tokens[0]} #{tokens[1]}" : public_key.strip

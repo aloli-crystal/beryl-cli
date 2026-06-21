@@ -32,7 +32,7 @@ module Beryl
     # Enregistre (ou met à jour) un record DNS. Idempotent : si le
     # record existe déjà avec la même valeur, no-op.
     #
-    # `zone`       → nom de la zone (ex: "aloli.net")
+    # `zone`       → nom de la zone (ex: "example.net")
     # `field_type` → type DNS ("A", "AAAA", "CNAME", "TXT"…)
     # `sub_domain` → sous-partie ("loulou" ou "" pour le root)
     # `target`     → valeur du record (IP, FQDN, …)

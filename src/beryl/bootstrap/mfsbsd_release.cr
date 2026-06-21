@@ -19,7 +19,7 @@ module Beryl::Bootstrap
   # X.Y évite le téléchargement et le mismatch pkg. C'est pour ça que
   # `freebsd_version` et `mfsbsd_version` sont synchronisés dans beryl.
   #
-  # **Pas de défaut silencieux** (règle Aloli) : si la détection échoue
+  # **Pas de défaut silencieux** (principe) : si la détection échoue
   # (réseau HS, API GitHub en panne, JSON malformé), on lève
   # `DetectionFailed` — pas de fallback sur une valeur arbitraire.
   # L'opérateur peut forcer une version avec

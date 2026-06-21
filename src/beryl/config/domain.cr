@@ -1,5 +1,5 @@
 module Beryl::Config
-  # Un domaine (ex: `aloli.net`). Existe dès qu'il y a un
+  # Un domaine (ex: `example.net`). Existe dès qu'il y a un
   # `<domaine>.yml` à la racine de `~/.config/beryl/`. Le dossier
   # `~/.config/beryl/<domaine>/` est créé à la demande (pas vide).
   #
@@ -11,7 +11,7 @@ module Beryl::Config
   #
   # Le dossier contient les hosts directs et les groupes.
   class Domain
-    getter name : String                         # "aloli.net"
+    getter name : String                         # "example.net"
     getter raw : Hash(YAML::Any, YAML::Any)      # <domaine>.yml
     getter direct_hosts : Hash(String, HostNode) # hosts au niveau racine
     getter groups : Hash(String, Group)          # "web" => Group

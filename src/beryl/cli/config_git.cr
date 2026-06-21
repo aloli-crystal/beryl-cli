@@ -2,7 +2,7 @@ require "../../beryl"
 
 # Auto-commit des écritures de beryl dans le dépôt git de config société.
 #
-# Contexte : le dépôt `~/.config/beryl/<société>/` (ex: quimeo/beryl-config)
+# Contexte : le dépôt `~/.config/beryl/<société>/` (ex: acme/beryl-config)
 # est versionné. Toute commande beryl qui ÉCRIT dans ce dépôt (`scan
 # --write`, `add-domain`, `env migrate/edit`, …) doit committer le
 # changement pour qu'il ne soit pas perdu/oublié (constaté le 9 juin

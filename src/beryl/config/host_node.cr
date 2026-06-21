@@ -4,7 +4,7 @@ module Beryl::Config
   # fichier YAML. Produit un `ResolvedHost` via `Merger.merge` quand
   # on l'interroge.
   class HostNode
-    getter name : String                    # "rails01" (sans .aloli.net)
+    getter name : String                    # "rails01" (sans .example.net)
     getter raw : Hash(YAML::Any, YAML::Any) # contenu du <host>.yml
     getter source_path : String             # chemin absolu du YAML
 

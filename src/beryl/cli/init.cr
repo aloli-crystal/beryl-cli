@@ -17,12 +17,12 @@ require "./config_git"
 #
 # Puis propose d'enchaîner sur `beryl add-provider` et `beryl add-domain`
 # pour configurer les fournisseurs (hébergeur des serveurs et/ou
-# gestionnaire DNS — chez Aloli c'est OVH pour les deux) et les
+# gestionnaire DNS — chez la plupart des hébergeurs c'est OVH pour les deux) et les
 # domaines.
 #
 # Usage :
 #
-#   beryl init aloli
+#   beryl init acme
 #   beryl init          # demande interactivement
 module Beryl::CLI::Init
   EXIT_OK      = 0
@@ -40,7 +40,7 @@ module Beryl::CLI::Init
       p.banner = "USAGE : beryl init [<société>] [options]\n\n" \
                  "Crée l'arborescence ~/.config/beryl/<société>/ et propose\n" \
                  "d'ajouter ses fournisseurs (hébergeur de serveurs et/ou\n" \
-                 "gestionnaire DNS — chez Aloli c'est OVH pour les deux) et\n" \
+                 "gestionnaire DNS — chez la plupart des hébergeurs c'est OVH pour les deux) et\n" \
                  "ses domaines.\n\n" \
                  "Enchaînements possibles :\n" \
                  "  beryl add-provider <société>/<provider>\n" \
@@ -62,7 +62,7 @@ module Beryl::CLI::Init
       STDERR.puts "beryl : argument société requis en --non-interactive. USAGE : beryl init <société>"
       return EXIT_USAGE
     end
-    account ||= Beryl::CLI::AccountUtils.ask("Nom court de la société (ex: aloli) :", "")
+    account ||= Beryl::CLI::AccountUtils.ask("Nom court de la société (ex: acme) :", "")
     return EXIT_USAGE if account.empty?
 
     # Validation basique du nom (dossier filesystem)
@@ -135,7 +135,7 @@ module Beryl::CLI::Init
 
     STDERR.puts "Prochaines étapes :"
     STDERR.puts "  beryl add-provider #{account}/<provider>   # serveurs et/ou DNS : ovh, scaleway, dedibox, …"
-    STDERR.puts "  beryl add-domain   #{account}/<domaine>    # aloli.net, …"
+    STDERR.puts "  beryl add-domain   #{account}/<domaine>    # example.net, …"
     EXIT_OK
   rescue ex : Beryl::CLI::AccountUtils::Aborted
     STDERR.puts "beryl : abandon"
@@ -182,7 +182,7 @@ module Beryl::CLI::Init
     loop do
       STDERR.puts
       break unless Beryl::CLI::AccountUtils.ask_yes_no("Ajouter un domaine maintenant ?", default_yes: true)
-      domain = Beryl::CLI::AccountUtils.ask("Nom du domaine (ex: aloli.net) :", "")
+      domain = Beryl::CLI::AccountUtils.ask("Nom du domaine (ex: example.net) :", "")
       next if domain.empty?
       STDERR.puts
       exit_code = Beryl::CLI::AddDomain.run(config_root, [domain, "--account=#{account}"])
@@ -219,7 +219,7 @@ module Beryl::CLI::Init
                      account
                    else
                      Beryl::CLI::AccountUtils.ask(
-                       "Nom complet de la société (optionnel, ex: ALOLI SAS) :", account,
+                       "Nom complet de la société (optionnel, ex: ACME SAS) :", account,
                      )
                    end
     content = String.build do |io|

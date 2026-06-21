@@ -14,9 +14,9 @@ module Beryl::CLI::DnsSetup
   # affichage à l'opérateur avant confirmation.
   struct Plan
     getter service_name : String
-    getter fqdn : String       # ex. loulou.aloli.net
+    getter fqdn : String       # ex. loulou.example.net
     getter short_name : String # ex. loulou
-    getter zone : String       # ex. aloli.net
+    getter zone : String       # ex. example.net
     getter ipv4 : String
     getter ipv6 : String?
     getter current_display_name : String?

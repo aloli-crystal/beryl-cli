@@ -61,8 +61,8 @@ module Beryl::CLI::Apply
     domain_hint ||= parsed[:domain]
 
     root = Beryl::Config::Root.load(config_root)
-    # Portée : host, domaine OU société (comme rotate-key). `apply quimeo.net`
-    # → tous les hosts du domaine ; `apply quimeo` → toute la société.
+    # Portée : host, domaine OU société (comme rotate-key). `apply example.net`
+    # → tous les hosts du domaine ; `apply acme` → toute la société.
     hosts = resolve_hosts(root, host_name, account_hint, domain_hint)
     if hosts.empty?
       STDERR.puts "beryl : portée inconnue : #{raw} (ni host, ni domaine, ni société). " \
@@ -152,7 +152,7 @@ module Beryl::CLI::Apply
     resolver = Beryl::Apply::Resolver.new(central_dir)
     recipes = resolver.resolve(requests.map(&.name).uniq)
 
-    # Garde vRack : une recette `requires_vrack: true` (ex. pkg-repo-quimeo, qui
+    # Garde vRack : une recette `requires_vrack: true` (ex. pkg-repo-acme, qui
     # joint le builder de paquets sur le vRack) est ÉCARTÉE si le host n'a pas
     # d'IP vRack (ex. han, GAME1). Évite un apply qui échouerait pour rien.
     if host.vrack_ip.nil? && (skipped = recipes.select(&.requires_vrack)).size > 0

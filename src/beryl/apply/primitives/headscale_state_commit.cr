@@ -14,7 +14,7 @@ module Beryl::Apply
   #     <RFC3339 UTC> <event-type> <key=value>...
   #
   #     - headscale-state-commit:
-  #         message: "PORT 22 PUBLIC OPEN host=loulou.aloli.net operateur=$USER raison=..."
+  #         message: "PORT 22 PUBLIC OPEN host=loulou.example.net operateur=$USER raison=..."
   #
   # Le `message` est interpolé `{{var}}` par l'Executor en amont ; les
   # variables shell `$USER` etc. sont substituées côté shell distant.

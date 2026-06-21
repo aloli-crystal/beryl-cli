@@ -158,7 +158,7 @@ module Beryl::CLI::RotateKey
     }
   end
 
-  # Clé privée depuis un nom public `X.pub` : `~/.ssh/X.key` (Aloli) puis
+  # Clé privée depuis un nom public `X.pub` : `~/.ssh/X.key` (beryl) puis
   # `~/.ssh/X` (officiel, ex. id_ed25519). 1ʳᵉ qui existe.
   private def self.derive_priv(pubname : String, ssh_dir : String) : String?
     base = pubname.ends_with?(".pub") ? pubname[0...-4] : pubname

@@ -6,7 +6,7 @@ require "api-dedibox/dedibox_api"
 # `beryl scan` (et toute commande future qui cible un serveur encore
 # anonyme).
 #
-# Pattern : `beryl <cmd> aloli/<ID> --provider=<name>` où `<ID>` est :
+# Pattern : `beryl <cmd> acme/<ID> --provider=<name>` où `<ID>` est :
 #
 #   - un entier pour Dedibox (ex: `186260`)
 #   - un UUID v4 pour Scaleway (8-4-4-4-12 hex)

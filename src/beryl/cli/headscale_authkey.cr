@@ -14,8 +14,8 @@ require "./account_utils"
 # --expiration <e> [--ephemeral] [--reusable]` → extrait la clé (sortie JSON).
 #
 # Exemples :
-#   beryl headscale-authkey z.aloli.net                 # clé 1h, user = société
-#   beryl headscale-authkey z --user aloli --create-user
+#   beryl headscale-authkey z.example.net                 # clé 1h, user = société
+#   beryl headscale-authkey z --user acme --create-user
 #   beryl headscale-authkey z --ephemeral --reusable --expiration 720h   # CI
 #   AUTHKEY=$(beryl headscale-authkey z -q) ; ...        # -q = clé seule (pipe)
 #

@@ -15,7 +15,7 @@ module Beryl::CLI
   #   - rename panel    → via le compute provider (OVH displayName).
   #
   # Avant l'extraction, `scan --dns` passait par `DnsSetup` (100% OVH) :
-  # une zone hébergée chez Gandi (cas quimeo : dns_provider=gandi,
+  # une zone hébergée chez Gandi (cas acme : dns_provider=gandi,
   # provider=ovh) faisait 404 « This service does not exist » sur
   # `GET /domain/zone/<zone>/record` — OVH ne connaît pas la zone
   # (constaté qsbg, 9 juin 2026). En passant par le dns_provider réel
@@ -23,7 +23,7 @@ module Beryl::CLI
   #
   # La détection d'IP est compute-spécifique : OVH câblé (dédiés). Les
   # autres providers compute (scaleway/dedibox) gardent leurs propres
-  # flux dans `scan` — refus explicite ici (règle Aloli : pas d'échec
+  # flux dans `scan` — refus explicite ici (principe : pas d'échec
   # silencieux).
   module DnsApply
     extend self

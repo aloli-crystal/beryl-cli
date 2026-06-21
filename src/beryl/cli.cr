@@ -93,7 +93,7 @@ module Beryl::CLI
         puts p
         exit(0)
       end
-      # Convention Aloli (feedback_cli_short_flags) : la version est
+      # Convention beryl (feedback_cli_short_flags) : la version est
       # `-V` (majuscule) / `--version`, `-v` minuscule restant réservé
       # à « verbose ». On garde `-v` comme alias de compat (beryl
       # l'utilisait historiquement) pour ne casser personne.
@@ -112,7 +112,7 @@ module Beryl::CLI
     sub_args = rest[1..]? || [] of String
 
     # Résolution des alias courts vers leur nom long. Règle mémoire
-    # Aloli (feedback_cli_short_flags) : chaque sous-commande a un
+    # beryl (feedback_cli_short_flags) : chaque sous-commande a un
     # alias court.
     resolved = resolve_alias(subcommand)
 
@@ -284,7 +284,7 @@ module Beryl::CLI
     Sous-commandes (ordre alphabétique ; alias court entre crochets) :
     #{subcommand_listing}
 
-    Host : FQDN (ex: rails01.aloli.net), nom court, ou identifiant hébergeur
+    Host : FQDN (ex: rails01.example.net), nom court, ou identifiant hébergeur
            (service_name OVH, UUID Scaleway). Ajoutez `--domain=<nom>` si le
            domaine ne peut pas être déduit du nom.
 

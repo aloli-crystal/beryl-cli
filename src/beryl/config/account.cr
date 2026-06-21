@@ -7,10 +7,10 @@ module Beryl::Config
   #     dont les credentials vivent dans `.env.yml[<account>][<provider>]` ;
   #   - héberge *N* domaines (zones DNS) sous son dossier
   #     `~/.config/beryl/<account>/` ;
-  #   - partage ses credentials entre tous ses domaines (aloli.net +
-  #     aloli.fr → mêmes clés OVH aloli).
+  #   - partage ses credentials entre tous ses domaines (example.net +
+  #     example.com → mêmes clés OVH acme).
   #
-  # L'identifiant de la société est son nom court (ex: `aloli`), qui
+  # L'identifiant de la société est son nom court (ex: `acme`), qui
   # correspond au nom du dossier dans `~/.config/beryl/`. Pas d'identifiant
   # numérique, pas de slug : ce qu'on tape dans la commande est ce
   # qu'on voit dans le filesystem.
@@ -18,10 +18,10 @@ module Beryl::Config
   # Les métadonnées optionnelles (contact, notes, facturation…) vivent
   # dans `~/.config/beryl/<account>/_account.yml`, stockées dans `metadata`.
   class Account
-    getter name : String                         # "aloli"
-    getter path : String                         # "/Users/philippe/.config/beryl/aloli"
+    getter name : String                         # "acme"
+    getter path : String                         # "/Users/philippe/.config/beryl/acme"
     getter metadata : Hash(YAML::Any, YAML::Any) # contenu de _account.yml (peut être vide)
-    getter domains : Hash(String, Domain)        # "aloli.net" => Domain
+    getter domains : Hash(String, Domain)        # "example.net" => Domain
 
     def initialize(@name, @path, @metadata, @domains)
     end

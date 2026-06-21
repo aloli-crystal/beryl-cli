@@ -10,7 +10,7 @@
 # service-disable, sysrc-set, file-write, file-template, user-create,
 # user-update-keys, sshd-config-set, pf-rule, cron-entry,
 # headscale-join, assert-env-var, assert-tailscale-up,
-# auto-close-schedule, headscale-state-commit. Les recettes Aloli
+# auto-close-schedule, headscale-state-commit. Les recettes
 # (ssh-hardening, firewall-pf, headscale-*, …) qui les composent
 # vivent dans le dépôt aloli-crystal/beryl-recipes.
 require "./apply/shell"

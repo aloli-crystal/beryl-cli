@@ -12,7 +12,7 @@ module Beryl::Apply
   # upstream, < 1 s d'exposition).
   #
   #     - headscale-join:
-  #         login_server: https://headscale.aloli.net
+  #         login_server: https://headscale.example.net
   #         authkey_env_var: HEADSCALE_AUTHKEY  # nom de la var (pas la valeur)
   #         ephemeral: false                     # défaut false ; true pour CI
   #         hostname: "{{ host_short }}"          # optionnel, override

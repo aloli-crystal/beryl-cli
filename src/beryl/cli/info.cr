@@ -191,7 +191,7 @@ module Beryl::CLI
       if host.hidden?
         return [host.connect_user, "deploy"].uniq.map { |u| {u.as(String?), host.ssh_host} }
       end
-      # Route directe : on PRÉFÈRE le FQDN logique (ex. ke.quimeo.net, qui résout
+      # Route directe : on PRÉFÈRE le FQDN logique (ex. ke.example.net, qui résout
       # en DNS public et que vous joignez à la main) et on BASCULE sur le nom OVH
       # (service_name) en repli s'il diffère. Un `ssh_host:` explicite est respecté
       # tel quel (pas de FQDN deviné).
