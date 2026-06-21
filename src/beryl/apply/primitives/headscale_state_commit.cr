@@ -2,7 +2,8 @@ require "../primitive"
 
 module Beryl::Apply
   # Primitive `headscale-state-commit` : ajoute une ligne d'audit au
-  # repo `aloli/headscale-state` et la commit. Utilisée par
+  # repo d'état headscale (`<company>/headscale-state`, UN par société —
+  # cloné localement dans /etc/headscale-state) et la commit. Utilisée par
   # les recipes `sshd-public-open` / `sshd-public-close` pour tracer
   # chaque ouverture/fermeture de la fenêtre port 22.
   #
@@ -20,9 +21,9 @@ module Beryl::Apply
   #
   # Sérialisé via `flock` (le repo est partagé avec le cron de backup).
   # Pré-requis : recipe `headscale-backup` déjà appliquée sur ce host
-  # (le repo doit déjà être cloné dans /etc/aloli-headscale-state/).
+  # (le repo doit déjà être cloné dans /etc/headscale-state/).
   class HeadscaleStateCommit < Primitive
-    REPO_DIR   = "/etc/aloli-headscale-state"
+    REPO_DIR   = "/etc/headscale-state"
     AUDIT_FILE = "audit.log"
     LOCK_FILE  = "/var/run/headscale-state-commit.lock"
 
