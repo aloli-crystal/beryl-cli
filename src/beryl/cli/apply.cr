@@ -323,7 +323,9 @@ module Beryl::CLI::Apply
   #      même nom. Vit dans le dépôt de config (déjà privé par société).
   #   2. GÉNÉRIQUE public : `<recipes.local_path>/recipes/` (défaut
   #      `<config_root>/recipes/recipes/`) — le set diffusable, sans société.
-  private def self.recipes_search_path(config_root : String, host : Beryl::Config::ResolvedHost) : Array(String)
+  # Public : réutilisé par `beryl info --versions/--updates` pour savoir quelles
+  # recettes (donc quels paquets) s'appliquent à un host.
+  def self.recipes_search_path(config_root : String, host : Beryl::Config::ResolvedHost) : Array(String)
     dirs = [] of String
 
     if acct = host.account_name

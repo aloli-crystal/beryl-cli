@@ -260,4 +260,30 @@ describe Beryl::CLI::Info do
       out.should_not contain("service_name: x")
     end
   end
+
+  describe ".packages_in_dirs" do
+    central = File.expand_path(File.join(__DIR__, "..", "..", "fixtures", "recipes", "central", "recipes"))
+
+    it "extrait les paquets des steps pkg-install, triés et dédupliqués" do
+      Beryl::CLI::Info.packages_in_dirs([central]).should eq(["bash", "ca_root_nss", "curl", "git", "tmux", "zsh"])
+    end
+
+    it "ignore un dossier inexistant sans planter" do
+      Beryl::CLI::Info.packages_in_dirs(["/n/existe/pas"]).should be_empty
+    end
+  end
+
+  describe ".parse_pkg_lines" do
+    it "parse une sortie `pkg query '%n %v'` en map nom→version" do
+      m = Beryl::CLI::Info.parse_pkg_lines("bash 5.2.37\ngit 2.47.1\ncurl 8.11.0\n")
+      m.should eq({"bash" => "5.2.37", "git" => "2.47.1", "curl" => "8.11.0"})
+    end
+
+    it "ignore les lignes vides et tolère une version absente" do
+      m = Beryl::CLI::Info.parse_pkg_lines("\nzsh\n\ntmux 3.5\n")
+      m["zsh"].should eq("")
+      m["tmux"].should eq("3.5")
+      m.size.should eq(2)
+    end
+  end
 end

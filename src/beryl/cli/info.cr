@@ -1,5 +1,6 @@
 require "option_parser"
 require "../apply"
+require "./apply" # Beryl::CLI::Apply.recipes_search_path (paquets gérés par recettes)
 
 module Beryl::CLI
   # `beryl info [host] [--usage]` : inventaire des serveurs.
@@ -18,6 +19,9 @@ module Beryl::CLI
       refresh = false
       adoc = false
       html = false
+      versions = false
+      updates = false
+      all_pkgs = false
       adoc_name : String? = nil
       account_hint : String? = nil
       domain_hint : String? = nil
@@ -37,12 +41,18 @@ module Beryl::CLI
       end
 
       parser = OptionParser.new do |p|
-        p.banner = "USAGE : beryl info [host] [--usage [--system-ssh]] [--adoc[=NOM]|--html]  |  beryl info --refresh [société|domaine]"
+        p.banner = "USAGE : beryl info [host] [--usage [--system-ssh]] [--adoc[=NOM]|--html]\n" \
+                   "        beryl info --versions [--all-pkgs] [société|domaine]   (matrice serveurs × paquets, live)\n" \
+                   "        beryl info --updates [société|domaine]                 (versions dispo vs installées, recettes)\n" \
+                   "        beryl info --refresh [société|domaine]                 (MAJ specs via API OVH)"
         p.on("--usage", "Utilisation LIVE (zpool/df via SSH)") { usage = true }
         p.on("--system-ssh", "Pour --usage : utilise VOTRE ssh (~/.ssh/config + agent) au lieu de la clé beryl") { system_ssh = true }
         p.on("--adoc", "Document AsciiDoc sur stdout ; `--adoc=NOM` → écrit NOM.adoc, le convertit en PDF (crystal-asciidoctor-pdf) et l'ouvre") { adoc = true }
         p.on("--html", "Génère un site HTML triable dans <config>/<scope>/info/ (index + 1 page par serveur)") { html = true }
         p.on("--refresh", "Rafraîchit gamme + specs + prix via l'API OVH (écrit les host.yml, SANS SSH)") { refresh = true }
+        p.on("--versions", "Tableau LIVE des versions de paquets (serveurs en colonnes, paquets en lignes)") { versions = true }
+        p.on("--updates", "Pour les paquets des recettes : version DISPONIBLE au dépôt vs installée (retards)") { updates = true }
+        p.on("--all-pkgs", "Avec --versions : TOUS les paquets installés (défaut : seulement ceux des recettes)") { all_pkgs = true }
         p.on("-a NAME", "--account=NAME", "Forcer la société") { |v| account_hint = v }
         p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
         p.on("-h", "--help", "Aide") { puts p; exit 0 }
@@ -52,6 +62,12 @@ module Beryl::CLI
 
       root = Beryl::Config::Root.load(config_root)
       return refresh_metadata(root, positional.first?) if refresh
+      if versions
+        return render_pkg_versions(config_root, root, positional.first?, all_pkgs, system_ssh)
+      end
+      if updates
+        return render_pkg_updates(config_root, root, positional.first?, system_ssh)
+      end
       if html
         hosts = scoped_hosts(root, positional.first?)
         usage_map, os_map = usage ? gather_usage_map(hosts, system_ssh) : {nil, nil}
@@ -278,6 +294,165 @@ module Beryl::CLI
       end
     rescue ex
       Probe.new(false, "", ex.message || "erreur de connexion")
+    end
+
+    # ─── Versions de paquets (--versions / --updates) ───────────────────────
+
+    # Paquets « gérés » = union des `packages:` des steps `pkg-install` de TOUTES
+    # les recettes du chemin de recherche des hosts du périmètre (générique +
+    # privé société). C'est la liste « logiciels nécessaires aux applications »,
+    # fournie par la mise en œuvre des recettes (pas une liste à maintenir à part).
+    def self.recipe_packages(config_root : String, hosts : Array(Beryl::Config::ResolvedHost)) : Array(String)
+      dirs = hosts.flat_map { |h| Beryl::CLI::Apply.recipes_search_path(config_root, h) }.uniq
+      packages_in_dirs(dirs)
+    end
+
+    # Extrait (trié, dédupliqué) les paquets des steps `pkg-install` de tous les
+    # `*.recipe.yml` des dossiers donnés. Pur (filesystem) → testable.
+    def self.packages_in_dirs(dirs : Array(String)) : Array(String)
+      pkgs = [] of String
+      dirs.each do |dir|
+        next unless Dir.exists?(dir)
+        Dir.glob(File.join(dir, "*.recipe.yml")).each do |file|
+          doc =
+            begin
+              YAML.parse(File.read(file))
+            rescue
+              next
+            end
+          steps = doc["steps"]?
+          next unless steps && steps.as_a?
+          steps.as_a.each do |step|
+            pi = step["pkg-install"]?
+            next unless pi
+            arr = pi["packages"]?
+            next unless arr && arr.as_a?
+            arr.as_a.each { |p| (s = p.as_s?) && pkgs << s }
+          end
+        end
+      end
+      pkgs.uniq.sort
+    end
+
+    # Parse une sortie `pkg query/rquery '%n %v'` (une ligne « nom version »
+    # par paquet) en map nom→version. Pur → testable.
+    def self.parse_pkg_lines(output : String) : Hash(String, String)
+      map = {} of String => String
+      output.each_line do |line|
+        n, _, v = line.strip.partition(' ')
+        map[n] = v unless n.empty?
+      end
+      map
+    end
+
+    # Map paquet→version pour un host (live SSH). `rquery: true` interroge le
+    # dépôt (versions DISPONIBLES) au lieu de l'installé. Tente les users comme
+    # `gather_usage`. {nil, nil} si injoignable. csh-safe (pas de redir Bourne).
+    def self.gather_pkg_map(host : Beryl::Config::ResolvedHost, system_ssh : Bool, rquery : Bool) : {Hash(String, String)?, String?}
+      cmd = rquery ? "pkg rquery -a '%n %v'" : "pkg query -a '%n %v'"
+      usage_attempts(host, system_ssh).each do |user, target|
+        pr = remote(host, user, target, cmd, system_ssh)
+        next unless pr.ok && !pr.stdout.strip.empty?
+        return {parse_pkg_lines(pr.stdout), user ? "#{user}@#{target}" : target}
+      end
+      {nil, nil}
+    end
+
+    # `--versions` : matrice serveurs (colonnes) × paquets (lignes), versions
+    # INSTALLÉES (live). Lignes = paquets des recettes (défaut) ou TOUS installés.
+    private def self.render_pkg_versions(config_root : String, root : Beryl::Config::Root, scope : String?, all_pkgs : Bool, system_ssh : Bool) : Int32
+      hosts = scoped_hosts(root, scope)
+      if hosts.empty?
+        STDERR.puts "beryl : aucun host dans le périmètre."
+        return EXIT_USAGE
+      end
+      STDERR.puts "Versions installées (live SSH) sur #{hosts.size} serveur(s)…"
+      maps = {} of String => Hash(String, String)
+      unreachable = [] of String
+      hosts.each do |h|
+        m, _ = gather_pkg_map(h, system_ssh, rquery: false)
+        m ? (maps[h.short_name] = m) : (unreachable << h.short_name)
+      end
+      reachable = hosts.reject { |h| unreachable.includes?(h.short_name) }
+      if reachable.empty?
+        STDERR.puts "beryl : aucun serveur joignable."
+        return EXIT_USAGE
+      end
+
+      packages =
+        if all_pkgs
+          maps.values.flat_map(&.keys).uniq.sort
+        else
+          recipe_packages(config_root, hosts)
+        end
+      if packages.empty?
+        STDERR.puts "beryl : aucun paquet à afficher (#{all_pkgs ? "rien d'installé ?" : "aucune recette avec pkg-install"})."
+        return EXIT_USAGE
+      end
+
+      header = ["PAQUET"] + reachable.map(&.short_name)
+      rows = packages.map do |pkg|
+        [pkg] + reachable.map { |h| maps[h.short_name][pkg]? || "—" }
+      end
+      print_table(header, rows)
+      puts
+      puts "#{packages.size} paquet(s) × #{reachable.size} serveur(s)#{all_pkgs ? " (tous installés)" : " (recettes)"}. « — » = non installé."
+      puts "injoignables : #{unreachable.join(", ")}" unless unreachable.empty?
+      EXIT_OK
+    end
+
+    # `--updates` : pour les paquets des recettes, version DISPONIBLE au dépôt vs
+    # installée par serveur. « ↑ » = une autre version est disponible au dépôt.
+    private def self.render_pkg_updates(config_root : String, root : Beryl::Config::Root, scope : String?, system_ssh : Bool) : Int32
+      hosts = scoped_hosts(root, scope)
+      if hosts.empty?
+        STDERR.puts "beryl : aucun host dans le périmètre."
+        return EXIT_USAGE
+      end
+      packages = recipe_packages(config_root, hosts)
+      if packages.empty?
+        STDERR.puts "beryl : aucun paquet de recette (pkg-install) dans le périmètre."
+        return EXIT_USAGE
+      end
+      STDERR.puts "Installé + disponible (live SSH) sur #{hosts.size} serveur(s)…"
+      installed = {} of String => Hash(String, String)
+      avail = {} of String => String # paquet → version dispo (1ʳᵉ source qui répond)
+      reachable = [] of Beryl::Config::ResolvedHost
+      hosts.each do |h|
+        inst, _ = gather_pkg_map(h, system_ssh, rquery: false)
+        next unless inst
+        reachable << h
+        installed[h.short_name] = inst
+        # Une seule interro dépôt (même repo pour la flotte) sur le 1er joignable.
+        if avail.empty?
+          rq, _ = gather_pkg_map(h, system_ssh, rquery: true)
+          rq.try(&.each { |n, v| avail[n] = v })
+        end
+      end
+      if reachable.empty?
+        STDERR.puts "beryl : aucun serveur joignable."
+        return EXIT_USAGE
+      end
+
+      header = ["PAQUET", "DISPO"] + reachable.map(&.short_name)
+      rows = packages.map do |pkg|
+        a = avail[pkg]? || "—"
+        cells = reachable.map do |h|
+          iv = installed[h.short_name][pkg]?
+          if iv.nil?
+            "—"
+          elsif a != "—" && iv != a
+            "↑ #{iv}"
+          else
+            iv
+          end
+        end
+        [pkg, a] + cells
+      end
+      print_table(header, rows)
+      puts
+      puts "DISPO = version au dépôt. « ↑ <v> » = installé v, une autre version est dispo. « — » = absent."
+      EXIT_OK
     end
 
     # Convertit un pourcentage d'UTILISÉ (ex. `zpool cap`, `df Capacity`) en
