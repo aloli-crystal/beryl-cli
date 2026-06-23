@@ -28,6 +28,7 @@ require "./cli/status"
 require "./cli/tang_enroll"
 require "./cli/env"
 require "./cli/headscale_authkey"
+require "./cli/pkg_ops"
 
 # Point d'entrée CLI de beryl.
 #
@@ -149,6 +150,8 @@ module Beryl::CLI
     when "tang-enroll"        then Beryl::CLI::TangEnroll.run(config_root, sub_args)
     when "env"                then Beryl::CLI::Env.run(config_root, sub_args)
     when "headscale-authkey"  then Beryl::CLI::HeadscaleAuthkey.run(config_root, sub_args)
+    when "update"             then Beryl::CLI::Update.run(config_root, sub_args)
+    when "upgrade"            then Beryl::CLI::Upgrade.run(config_root, sub_args)
     when "version"            then puts "beryl #{Beryl::VERSION}"; 0
     else
       STDERR.puts "beryl : sous-commande inconnue : #{subcommand}"
@@ -188,6 +191,8 @@ module Beryl::CLI
     {"show", "sh", "Détails d'un hôte (config mergée complète)"},
     {"status", "st", "État pools / services chiffrés d'un host"},
     {"tang-enroll", "te", "Enrôle les pools chiffrés via Tang"},
+    {"update", "", "pkg update (rafraîchit le catalogue) sur une portée"},
+    {"upgrade", "", "pkg upgrade sur une portée — DRY-RUN par défaut, --apply pour exécuter"},
     {"unlock", "u", "Déverrouille les pools chiffrés (clé locale → SSH)"},
     {"version", "v", "Affiche la version"},
     {"vrack", "", "Gère le vRack OVH (statut / rattachement)"},

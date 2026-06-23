@@ -549,6 +549,14 @@ module Beryl::Config
       @merged[YAML::Any.new("user")]?.try(&.as_s?) || "root"
     end
 
+    # `protected: true` dans le host.yml → beryl REFUSE les opérations qui
+    # MODIFIENT le serveur (ex. `upgrade --apply`). Le dry-run et la lecture
+    # restent autorisés. Pour les hosts sensibles (cible de pentest, serveur
+    # gelé…). Générique — aucun nom d'hôte en dur dans le code.
+    def protected? : Bool
+      @merged[YAML::Any.new("protected")]?.try(&.as_bool?) || false
+    end
+
     # Utilisateur de connexion SSH effectif : le PREMIER user sudo-capable de
     # `freebsd.users` (groupe `wheel` ou `sudo: true`), à défaut `user`. Sur les
     # hôtes durcis le root SSH est fermé → beryl entre par ce compte. Aligné sur

@@ -606,7 +606,8 @@ module Beryl::CLI
     # écrit dans le host.yml. AUCUN SSH, aucune modif serveur. Le périmètre
     # filtre par société / domaine / fqdn / nom court.
     # Hosts résolus du périmètre (société / domaine / fqdn / nom court ; vide = tous).
-    private def self.scoped_hosts(root : Beryl::Config::Root, scope : String?) : Array(Beryl::Config::ResolvedHost)
+    # Public : réutilisé par `beryl update`/`upgrade` pour cibler une portée.
+    def self.scoped_hosts(root : Beryl::Config::Root, scope : String?) : Array(Beryl::Config::ResolvedHost)
       hosts = root.all_hosts_by_fqdn.keys.sort.compact_map do |fqdn|
         begin
           root.resolve(fqdn)
