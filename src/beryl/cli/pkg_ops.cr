@@ -36,6 +36,20 @@ module Beryl::CLI
     def self.log(cmd : String, msg : String) : Nil
       STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl #{cmd}] #{msg}"
     end
+
+    # Host chiffré ET VERROUILLÉ ? (au moins une unité avec keystatus=unavailable).
+    # Une opération qui écrit dans un point de montage chiffré non monté
+    # corromprait l'état → on refuse tant que ce n'est pas `beryl unlock`. csh-safe.
+    def self.locked?(host : Beryl::Config::ResolvedHost) : Bool
+      return false unless host.encrypted?
+      shell = Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(host.connection))
+      host.encryption_units.any? do |u|
+        ks = shell.exec("zfs get -H -o value keystatus #{Process.quote(u)}", raise_on_error: false).stdout.strip
+        ks == "unavailable"
+      end
+    rescue
+      false
+    end
   end
 
   # `beryl update [portée]` — `pkg update` (rafraîchit le catalogue des dépôts).
@@ -127,6 +141,12 @@ module Beryl::CLI
         # lecture seule) reste permis pour voir le plan.
         if apply && h.protected?
           PkgOps.log("upgrade", "#{h.short_name} : protégé (protected: true) → --apply REFUSÉ (dry-run uniquement)")
+          next
+        end
+        # Chiffré + verrouillé : pkg écrirait dans /usr/local/etc (dataset non
+        # monté) → on refuse l'écriture tant que ce n'est pas déverrouillé.
+        if apply && PkgOps.locked?(h)
+          PkgOps.log("upgrade", "#{h.short_name} : chiffré et VERROUILLÉ → `beryl unlock #{h.short_name}` d'abord (SKIP).")
           next
         end
 

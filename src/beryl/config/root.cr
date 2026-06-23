@@ -557,6 +557,24 @@ module Beryl::Config
       @merged[YAML::Any.new("protected")]?.try(&.as_bool?) || false
     end
 
+    # Le host a-t-il du chiffrement ZFS (pools data chiffrés OU datasets zroot
+    # chiffrés du profil Option I) ? Sert à savoir s'il faut être déverrouillé
+    # avant une opération qui ÉCRIT (pkg upgrade…).
+    def encrypted? : Bool
+      data_zpools.any?(&.encrypted?) || !zpools.find(&.boot).try(&.encryption_root).nil?
+    end
+
+    # Datasets/pools dont la clé doit être chargée pour que les points de
+    # montage chiffrés soient montés (pour vérifier le verrou via `keystatus`) :
+    # pools data chiffrés + encryptionroot zroot (profil Option I).
+    def encryption_units : Array(String)
+      units = data_zpools.select(&.encrypted?).map(&.name)
+      if er = zpools.find(&.boot).try(&.encryption_root)
+        units << er
+      end
+      units
+    end
+
     # Utilisateur de connexion SSH effectif : le PREMIER user sudo-capable de
     # `freebsd.users` (groupe `wheel` ou `sudo: true`), à défaut `user`. Sur les
     # hôtes durcis le root SSH est fermé → beryl entre par ce compte. Aligné sur

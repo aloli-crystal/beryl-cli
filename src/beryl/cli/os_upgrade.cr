@@ -2,6 +2,7 @@ require "option_parser"
 require "../apply"
 require "../freebsd_release"
 require "./account_utils"
+require "./unlock" # déverrouillage auto post-reboot (hosts chiffrés)
 
 # `beryl os-upgrade <host> [--to X.Y] [--apply] [--reboot]` — met à jour le
 # SYSTÈME FreeBSD (≠ `upgrade` = paquets seuls). CONSCIENT DU TYPE D'INSTALL :
@@ -99,7 +100,7 @@ module Beryl::CLI::OsUpgrade
     pkgbase = shell.exec("pkg query %n FreeBSD-runtime", raise_on_error: false).stdout.strip == "FreeBSD-runtime"
 
     if pkgbase
-      pkgbase_upgrade(shell, host, cur_major, cur_minor, target, tk, ck, apply, reboot)
+      pkgbase_upgrade(config_root, shell, host, cur_major, cur_minor, target, tk, ck, apply, reboot)
     else
       freebsd_update_flow(shell, host, cur_raw, target, tk, ck, apply)
     end
@@ -112,7 +113,7 @@ module Beryl::CLI::OsUpgrade
   end
 
   # ── PKGBASE : repoint `base_release_<minor>` + pkg upgrade (+ reboot) ────────
-  private def self.pkgbase_upgrade(shell, host, cur_major, cur_minor, target, tk, ck, apply, reboot) : Int32
+  private def self.pkgbase_upgrade(config_root, shell, host, cur_major, cur_minor, target, tk, ck, apply, reboot) : Int32
     target_minor = tk[1]
     branch = "base_release_#{target_minor}"
 
@@ -180,6 +181,12 @@ module Beryl::CLI::OsUpgrade
       new = Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(host.connection))
         .exec("freebsd-version -r", raise_on_error: false).stdout.strip
       log "#{host.fqdn} : revenu — #{new}"
+      # Host chiffré : il revient VERROUILLÉ (datasets non montés) → déverrouille
+      # pour qu'il soit opérationnel (sinon /home, /usr/local/etc absents).
+      if host.encrypted?
+        log "#{host.fqdn} : chiffré → déverrouillage post-reboot (beryl unlock)…"
+        Beryl::CLI::Unlock.run(config_root, [host.fqdn])
+      end
       EXIT_OK
     else
       STDERR.puts "beryl : #{host.fqdn} n'est pas revenu en SSH après reboot (vérifiez via la console/IPMI)."
