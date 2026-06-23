@@ -273,6 +273,31 @@ describe Beryl::CLI::Info do
     end
   end
 
+  describe ".freebsd_upgrade_hint" do
+    by = {13 => "13.5", 14 => "14.4", 15 => "15.1"}
+
+    it "signale une minor plus récente dans la même branche" do
+      Beryl::CLI::Info.freebsd_upgrade_hint("FreeBSD 15.0-RELEASE-p10", by).should eq("↑ 15.1-RELEASE dispo")
+    end
+
+    it "nil si déjà à jour (dernière de la branche, pas de branche supérieure)" do
+      Beryl::CLI::Info.freebsd_upgrade_hint("FreeBSD 15.1-RELEASE", by).should be_nil
+    end
+
+    it "signale minor ET nouvelle branche majeure" do
+      Beryl::CLI::Info.freebsd_upgrade_hint("FreeBSD 14.3-RELEASE-p2", by)
+        .should eq("↑ 14.4-RELEASE dispo ; branche 15.1-RELEASE dispo")
+    end
+
+    it "à jour dans sa branche mais une branche majeure plus récente existe" do
+      Beryl::CLI::Info.freebsd_upgrade_hint("FreeBSD 14.4-RELEASE", by).should eq("branche 15.1-RELEASE dispo")
+    end
+
+    it "nil si la version est illisible (OS non FreeBSD)" do
+      Beryl::CLI::Info.freebsd_upgrade_hint("Linux 6.1", by).should be_nil
+    end
+  end
+
   describe ".parse_pkg_lines" do
     it "parse une sortie `pkg query '%n %v'` en map nom→version" do
       m = Beryl::CLI::Info.parse_pkg_lines("bash 5.2.37\ngit 2.47.1\ncurl 8.11.0\n")

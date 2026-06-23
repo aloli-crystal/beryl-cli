@@ -150,7 +150,17 @@ module Beryl::CLI
       puts "ipv4 publique:  #{host.ovh_ipv4 || "—"}"
       puts "ipv6 publique:  #{host.ovh_ipv6 || "—"}"
       puts "ip vRack:       #{host.vrack_ip || "—"}"
-      puts "os:             #{live_os ? "#{live_os} (live)" : host.os}"
+      os_line = live_os ? "#{live_os} (live)" : host.os
+      if live_os
+        begin
+          if hint = freebsd_upgrade_hint(live_os, Beryl::FreebsdRelease.latest_by_branch)
+            os_line += "   #{hint}"
+          end
+        rescue
+          # Réseau indispo : on n'ajoute pas le flag, l'OS reste affiché.
+        end
+      end
+      puts "os:             #{os_line}"
       if hw = host.hardware
         puts "cpu:            #{hw.cpu} (#{hw.cores}c/#{hw.threads}t)"
         puts "ram:            #{hw.ram_gb} Go"
@@ -459,6 +469,25 @@ module Beryl::CLI
       puts
       puts "DISPO = version au dépôt. « ↑ <v> » = installé v, une autre version est dispo. « — » = absent."
       EXIT_OK
+    end
+
+    # À partir d'un OS live (ex. « FreeBSD 15.0-RELEASE-p10 ») et des dernières
+    # RELEASE par branche, renvoie un flag d'upgrade (« ↑ 15.1-RELEASE dispo »
+    # et/ou « branche 16.x dispo ») ou nil si à jour / version illisible. Pur.
+    def self.freebsd_upgrade_hint(live_os : String, by_branch : Hash(Int32, String)) : String?
+      return nil unless live_os.includes?("FreeBSD") # ne compare que des hosts FreeBSD
+      m = live_os.match(/(\d+)\.(\d+)/)
+      return nil unless m
+      major = m[1].to_i
+      inst = "#{m[1]}.#{m[2]}"
+      hints = [] of String
+      if (bl = by_branch[major]?) && Beryl::FreebsdRelease.version_key(bl) > Beryl::FreebsdRelease.version_key(inst)
+        hints << "↑ #{bl}-RELEASE dispo"
+      end
+      if nm = by_branch.keys.select { |mj| mj > major }.max?
+        hints << "branche #{by_branch[nm]}-RELEASE dispo"
+      end
+      hints.empty? ? nil : hints.join(" ; ")
     end
 
     # `--freebsd` : dernières RELEASE FreeBSD disponibles en amont (réseau, pas

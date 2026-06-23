@@ -82,6 +82,20 @@ module Beryl::CLI::Bootstrap
         abi = info.abi
         resolved_iso_url ||= info.image_url
         STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] 7.0 mfsBSD SE détectée : #{info.version} (#{info.image_url})"
+        # Croisement avec la dernière RELEASE FreeBSD du projet : mfsBSD SE
+        # (= version installable) peut être EN RETARD (ex. FreeBSD 15.1 sortie,
+        # mfsBSD SE encore en 15.0). On INFORME sans changer la version (on ne
+        # peut installer que ce que mfsBSD fournit). Best-effort (réseau).
+        begin
+          if (fb = Beryl::FreebsdRelease.latest) &&
+             Beryl::FreebsdRelease.version_key(fb) > Beryl::FreebsdRelease.version_key(info.version)
+            STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] ⚠️  FreeBSD #{fb}-RELEASE est sortie (dernière du projet), " \
+                        "mais mfsBSD SE n'est dispo qu'en #{info.version} → bootstrap installe #{info.version}."
+            STDERR.puts "        Pour #{fb} : attendez la mfsBSD SE #{fb}, ou `--freebsd-version=#{fb}` (si l'ISO mfsBSD #{fb} existe déjà)."
+          end
+        rescue
+          # Pas de réseau / format inattendu : l'info est facultative, on continue.
+        end
       rescue ex : Beryl::Bootstrap::MfsBSDRelease::DetectionFailed
         STDERR.puts "beryl : impossible de détecter la dernière version mfsBSD SE — #{ex.message}"
         STDERR.puts "        Passez --freebsd-version=X.Y pour forcer une version."
