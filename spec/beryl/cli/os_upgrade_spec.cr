@@ -19,4 +19,12 @@ describe Beryl::CLI::OsUpgrade do
       Beryl::CLI::OsUpgrade.parse_version("inconnu").should be_nil
     end
   end
+
+  describe ".base_branch" do
+    it "mappe X.Y → base_release_<minor> (pkgbase)" do
+      Beryl::CLI::OsUpgrade.base_branch("15.1").should eq("base_release_1")
+      Beryl::CLI::OsUpgrade.base_branch("15.0").should eq("base_release_0")
+      Beryl::CLI::OsUpgrade.base_branch("14.4").should eq("base_release_4")
+    end
+  end
 end
