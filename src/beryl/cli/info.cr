@@ -1,6 +1,7 @@
 require "option_parser"
 require "../apply"
-require "./apply" # Beryl::CLI::Apply.recipes_search_path (paquets gérés par recettes)
+require "../freebsd_release" # RELEASE FreeBSD disponibles en amont (--freebsd)
+require "./apply"            # Beryl::CLI::Apply.recipes_search_path (paquets gérés par recettes)
 
 module Beryl::CLI
   # `beryl info [host] [--usage]` : inventaire des serveurs.
@@ -22,6 +23,7 @@ module Beryl::CLI
       versions = false
       updates = false
       all_pkgs = false
+      freebsd_releases = false
       adoc_name : String? = nil
       account_hint : String? = nil
       domain_hint : String? = nil
@@ -44,6 +46,7 @@ module Beryl::CLI
         p.banner = "USAGE : beryl info [host] [--usage [--system-ssh]] [--adoc[=NOM]|--html]\n" \
                    "        beryl info --versions [--all-pkgs] [société|domaine]   (matrice serveurs × paquets, live)\n" \
                    "        beryl info --updates [société|domaine]                 (versions dispo vs installées, recettes)\n" \
+                   "        beryl info --freebsd                                   (dernières RELEASE FreeBSD en amont, ex. 15.1)\n" \
                    "        beryl info --refresh [société|domaine]                 (MAJ specs via API OVH)"
         p.on("--usage", "Utilisation LIVE (zpool/df via SSH)") { usage = true }
         p.on("--system-ssh", "Pour --usage : utilise VOTRE ssh (~/.ssh/config + agent) au lieu de la clé beryl") { system_ssh = true }
@@ -53,12 +56,15 @@ module Beryl::CLI
         p.on("--versions", "Tableau LIVE des versions de paquets (serveurs en colonnes, paquets en lignes)") { versions = true }
         p.on("--updates", "Pour les paquets des recettes : version DISPONIBLE au dépôt vs installée (retards)") { updates = true }
         p.on("--all-pkgs", "Avec --versions : TOUS les paquets installés (défaut : seulement ceux des recettes)") { all_pkgs = true }
+        p.on("--freebsd", "Dernières RELEASE FreeBSD disponibles en amont (signale ex. 15.1 ; réseau, sans SSH)") { freebsd_releases = true }
         p.on("-a NAME", "--account=NAME", "Forcer la société") { |v| account_hint = v }
         p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
         p.on("-h", "--help", "Aide") { puts p; exit 0 }
         p.unknown_args { |rest, _| positional = rest }
       end
       parser.parse(args)
+
+      return render_freebsd_releases if freebsd_releases # réseau seul, pas de config requise
 
       root = Beryl::Config::Root.load(config_root)
       return refresh_metadata(root, positional.first?) if refresh
@@ -452,6 +458,35 @@ module Beryl::CLI
       print_table(header, rows)
       puts
       puts "DISPO = version au dépôt. « ↑ <v> » = installé v, une autre version est dispo. « — » = absent."
+      EXIT_OK
+    end
+
+    # `--freebsd` : dernières RELEASE FreeBSD disponibles en amont (réseau, pas
+    # de SSH ni de config). Répond à « une nouvelle version est-elle sortie ? »
+    # (ex. 15.1) sans aller vérifier à la main. Une ligne par branche majeure.
+    private def self.render_freebsd_releases : Int32
+      STDERR.puts "Interrogation des RELEASE FreeBSD disponibles (download.freebsd.org)…"
+      by_branch =
+        begin
+          Beryl::FreebsdRelease.latest_by_branch
+        rescue ex
+          STDERR.puts "beryl : impossible de récupérer la liste des RELEASE FreeBSD — #{ex.message}"
+          return EXIT_USAGE
+        end
+      if by_branch.empty?
+        STDERR.puts "beryl : aucune RELEASE détectée (format du listing inattendu ?)."
+        return EXIT_USAGE
+      end
+      latest = by_branch.values.max_by { |v| Beryl::FreebsdRelease.version_key(v) }
+      puts
+      puts "RELEASE FreeBSD disponibles (dernière de chaque branche) :"
+      by_branch.keys.sort.reverse_each do |major|
+        v = by_branch[major]
+        puts "  #{v}-RELEASE#{v == latest ? "   ← la plus récente" : ""}"
+      end
+      puts
+      puts "Correctifs intra-release (-pN) : `freebsd-update` sur chaque serveur."
+      puts "Versions installées sur vos serveurs : `beryl info <host> --usage` (OS live)."
       EXIT_OK
     end
 
