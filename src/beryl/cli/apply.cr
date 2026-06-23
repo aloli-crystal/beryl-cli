@@ -136,6 +136,13 @@ module Beryl::CLI::Apply
       log "#{host.fqdn} : host virtuel, rien à appliquer."
       return EXIT_OK
     end
+    # Garde-fou : un host `protected: true` refuse un apply RÉEL (écriture). Le
+    # dry-run (plan, lecture seule) reste permis. Pour les serveurs sensibles
+    # (cible de pentest, gelés). Générique — aucun nom d'hôte en dur (libre).
+    if !dry_run && host.protected?
+      log "#{host.fqdn} : protégé (protected: true) → apply RÉEL refusé (utilisez --dry-run pour le plan)."
+      return EXIT_OK
+    end
 
     search_path = recipes_search_path(config_root, host)
 

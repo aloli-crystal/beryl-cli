@@ -29,6 +29,7 @@ require "./cli/tang_enroll"
 require "./cli/env"
 require "./cli/headscale_authkey"
 require "./cli/pkg_ops"
+require "./cli/os_upgrade"
 
 # Point d'entrée CLI de beryl.
 #
@@ -152,6 +153,7 @@ module Beryl::CLI
     when "headscale-authkey"  then Beryl::CLI::HeadscaleAuthkey.run(config_root, sub_args)
     when "update"             then Beryl::CLI::Update.run(config_root, sub_args)
     when "upgrade"            then Beryl::CLI::Upgrade.run(config_root, sub_args)
+    when "os-upgrade"         then Beryl::CLI::OsUpgrade.run(config_root, sub_args)
     when "version"            then puts "beryl #{Beryl::VERSION}"; 0
     else
       STDERR.puts "beryl : sous-commande inconnue : #{subcommand}"
@@ -182,6 +184,7 @@ module Beryl::CLI
     {"init", "i", "Initialise ~/.config/beryl/<société>/ + providers/domaines"},
     {"list-hosts", "ls", "Liste les hôtes de toutes les sociétés"},
     {"lock", "l", "Verrouille les pools chiffrés (unload-key + export) — inverse d'unlock"},
+    {"os-upgrade", "", "Met à jour le système FreeBSD (correctifs via --apply ; runbook pour une montée de release)"},
     {"prep-rescue", "pr", "HTTP local pour préparer un rescue Debian"},
     {"reboot", "rb", "Reboot d'un host (--soft via SSH ou --hard via API)"},
     {"rescue", "r", "Bascule un hôte en rescue via l'API hébergeur"},
