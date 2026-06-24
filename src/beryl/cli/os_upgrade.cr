@@ -170,6 +170,14 @@ module Beryl::CLI::OsUpgrade
       return EXIT_FAILED
     end
 
+    # Thin jails : le base host vient d'être patché, MAIS le base partagé des
+    # jails (/jails/.base) est distinct → il faut le rafraîchir aussi, puis
+    # redémarrer les jails (elles le montent en nullfs RO).
+    if shell.exec("test -d /jails/.base", raise_on_error: false).success?
+      log "#{host.fqdn} : des thin jails partagent /jails/.base → rafraîchissez-le " \
+          "(`beryl apply #{host.short_name} jail-base`) puis redémarrez les jails (`service jail restart`)."
+    end
+
     unless reboot
       log "#{host.fqdn} : base #{target} installée. REBOOTEZ pour démarrer dessus : `shutdown -r now`."
       return EXIT_OK

@@ -1,5 +1,13 @@
 require "../spec_helper"
 
+describe "primitives jail (registre)" do
+  it "enregistre jail-create / jail-base / jail-exec / jail-proxy / jail-destroy" do
+    %w[jail-create jail-base jail-exec jail-proxy jail-destroy].each do |n|
+      Beryl::Apply::Primitive[n]?.should_not be_nil
+    end
+  end
+end
+
 describe Beryl::Jail do
   describe ".loopback_ip" do
     it "alloue 127.0.1.<index>" do
@@ -53,6 +61,25 @@ describe Beryl::Jail do
       sh.should contain("BSD.var.dist")
       sh.should contain("ifconfig lo1")
       sh.should contain("sysrc -q jail_enable=YES")
+    end
+  end
+
+  describe ".base_install_script" do
+    it "build le base via pkgbase (pkg --rootdir, ABI/clés du host)" do
+      sh = Beryl::Jail.base_install_script("/jails/.base")
+      sh.should contain("pkg --rootdir /jails/.base update -f -r FreeBSD-base")
+      sh.should contain("ABI=$(pkg config ABI)")
+      sh.should contain("FreeBSD-set-base")                 # voie meta si dispo
+      sh.should contain("grep -vE '(-dbg|-lib32|-tests)$'") # repli : tous les base
+    end
+  end
+
+  describe ".nginx_proxy" do
+    it "génère un server block nginx vers la jail (loopback)" do
+      n = Beryl::Jail.nginx_proxy("app.example.net", "127.0.1.5", 3000)
+      n.should contain("server_name app.example.net;")
+      n.should contain("proxy_pass http://127.0.1.5:3000;")
+      n.should contain("proxy_set_header Host $host;")
     end
   end
 

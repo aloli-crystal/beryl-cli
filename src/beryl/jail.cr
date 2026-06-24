@@ -67,6 +67,47 @@ module Beryl
       !name.empty? && name.size <= 63 && name.matches?(/\A[a-z][a-z0-9_-]*\z/)
     end
 
+    # Script (sh) qui build/rafraîchit le BASE PARTAGÉ d'une thin jail via
+    # pkgbase (`pkg --rootdir`), réutilisable pour PATCHER le base (re-run =
+    # upgrade). Mirroir d'install-pkgbase.sh : ABI + clés depuis le host. Au
+    # re-run, `pkg install -U` met à jour → toutes les jails (nullfs RO) suivent
+    # après redémarrage. PUR (renvoie le script) → testable.
+    def self.base_install_script(base_path : String) : String
+      <<-SH
+      set -e
+      ABI=$(pkg config ABI)
+      VMAJ=$(freebsd-version | sed 's/[.-].*//')
+      mkdir -p #{base_path}/usr/share/keys
+      cp -R /usr/share/keys/pkgbase-${VMAJ} #{base_path}/usr/share/keys/ 2>/dev/null || true
+      env ABI="${ABI}" IGNORE_OSVERSION=yes pkg --rootdir #{base_path} update -f -r FreeBSD-base
+      if pkg --rootdir #{base_path} rquery -U -r FreeBSD-base '%n' 2>/dev/null | grep -qx 'FreeBSD-set-base'; then
+        env ABI="${ABI}" IGNORE_OSVERSION=yes pkg --rootdir #{base_path} install -U -y -r FreeBSD-base FreeBSD-set-base
+      else
+        BASE=$(pkg --rootdir #{base_path} rquery -U -r FreeBSD-base '%n' 2>/dev/null | grep -vE '(-dbg|-lib32|-tests)$' | tr '\\n' ' ')
+        env ABI="${ABI}" IGNORE_OSVERSION=yes pkg --rootdir #{base_path} install -U -y -r FreeBSD-base ${BASE}
+      fi
+      SH
+    end
+
+    # Bloc nginx (host) qui reverse-proxy `server_name` vers la jail (loopback).
+    # TLS/certbot gérés séparément (recettes nginx/letsencrypt). PUR → testable.
+    def self.nginx_proxy(server_name : String, ip : String, port : Int32) : String
+      <<-NGINX
+      # Géré par beryl (primitive jail-proxy). Édition manuelle écrasée.
+      server {
+          listen 80;
+          server_name #{server_name};
+          location / {
+              proxy_pass http://#{ip}:#{port};
+              proxy_set_header Host $host;
+              proxy_set_header X-Real-IP $remote_addr;
+              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto $scheme;
+          }
+      }
+      NGINX
+    end
+
     # Script shell (sh) qui crée le SKELETON rw d'une thin jail : répertoires rw
     # + points de montage RO (vides, pour les nullfs), /etc et /var peuplés
     # depuis le base, lo1 cloné, jail_enable. Idempotent (mkdir -p, sysrc -q).
