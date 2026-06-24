@@ -8,6 +8,7 @@ require "./beryl/bootstrap"
 require "./beryl/providers"
 require "./beryl/encryption"
 require "./beryl/freebsd_release"
+require "./beryl/jail"
 
 module Beryl
   # Transport SSH par défaut : `:public` (IP/FQDN publique de l'hébergeur)
