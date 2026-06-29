@@ -1022,18 +1022,35 @@ module Beryl::Config
       )
     end
 
-    # Connexion au rescue Linux : TOUJOURS root, INDÉPENDAMMENT de `user`
-    # (qui désigne l'utilisateur du serveur INSTALLÉ, ex. admin). Toute
-    # commande qui parle au rescue (scan, wipe, bootstrap…) doit l'utiliser
-    # plutôt que `connection`, sinon `user: admin` casse l'accès (le rescue
-    # n'a que root).
+    # Connexion au rescue Linux / au serveur en phase de provisioning.
+    # TOUTE commande d'INFRASTRUCTURE (scan, wipe, bootstrap, rescue) doit
+    # l'utiliser plutôt que `connection`. Deux invariants par rapport à la
+    # connexion de production :
+    #
+    #   * user = TOUJOURS root (le rescue n'a que root ; `user` désigne
+    #     l'utilisateur du serveur INSTALLÉ, ex. admin) ;
+    #   * host = `rescue_ssh_host`, donc l'IP PUBLIQUE et JAMAIS le vRack /
+    #     l'overlay : à ce stade le vRack n'existe pas encore et il n'y a
+    #     pas de ProxyJump. Un host caché en prod a `ssh_host` = IP vRack,
+    #     morte côté rescue.
+    #
+    # Options calquées sur un host fraîchement (re)installé : clé d'hôte
+    # inconnue/changeante → on ne bloque pas et on ne pollue pas
+    # known_hosts ; BatchMode pour échouer vite plutôt que de bloquer sur
+    # un prompt.
     def rescue_connection : SSH::Connection
       warn_ssh_key_once
       SSH::Connection.new(
-        host: ssh_host,
+        host: rescue_ssh_host,
         user: "root",
         port: port,
         identity_file: identity_file,
+        options: {
+          "StrictHostKeyChecking" => "no",
+          "UserKnownHostsFile"    => "/dev/null",
+          "LogLevel"              => "ERROR",
+          "BatchMode"             => "yes",
+        },
       )
     end
   end

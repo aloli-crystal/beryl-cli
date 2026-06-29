@@ -180,7 +180,7 @@ module Beryl::CLI::Rescue
       dry_zone = scaleway_zone_override || host.scaleway_zone
       if dry_run
         log "4 DRY-RUN : Scaleway → reboot(#{server_id}#{dry_zone ? ", zone=#{dry_zone}" : ""}, boot_type=Rescue)"
-        log "4 DRY-RUN : puis wait_for_ssh(#{host.ssh_host}:#{host.port} as root, timeout #{timeout.total_minutes.to_i}m)" if wait
+        log "4 DRY-RUN : puis wait_for_ssh(#{host.rescue_ssh_host}:#{host.port} as root, timeout #{timeout.total_minutes.to_i}m)" if wait
         log "Pour exécuter : #{Beryl.rerun_hint("rescue", args, replace_host: {raw, "#{host.account_name}/#{host.fqdn}"})}"
         return EXIT_OK
       end
@@ -195,7 +195,7 @@ module Beryl::CLI::Rescue
       if dry_run
         log "4 DRY-RUN : Dedibox → prepare_rescue(#{server_id}, image=debian-12_amd64)"
         log "4 DRY-RUN : puis reboot(#{server_id}, reason=\"beryl rescue\")"
-        log "4 DRY-RUN : puis wait_for_ssh(#{host.ssh_host}:#{host.port} as root, timeout #{timeout.total_minutes.to_i}m)" if wait
+        log "4 DRY-RUN : puis wait_for_ssh(#{host.rescue_ssh_host}:#{host.port} as root, timeout #{timeout.total_minutes.to_i}m)" if wait
         log "Pour exécuter : #{Beryl.rerun_hint("rescue", args, replace_host: {raw, "#{host.account_name}/#{host.fqdn}"})}"
         return EXIT_OK
       end
@@ -500,7 +500,7 @@ module Beryl::CLI::Rescue
       "identity_file non résolu pour #{host.fqdn}"
     )
     rescue_conn = SSH::Connection.new(
-      host: host.ssh_host, user: "rescue", port: host.port, identity_file: key,
+      host: host.rescue_ssh_host, user: "rescue", port: host.port, identity_file: key,
     )
     script = <<-BASH
       set -e
@@ -514,7 +514,7 @@ module Beryl::CLI::Rescue
     BASH
     log "4.4 Scaleway : promote rescue → root (copie authorized_keys + PermitRootLogin yes)"
     rescue_conn.exec("bash -s", stdin: script)
-    log "4.4 Scaleway : root@#{host.ssh_host} prêt (le flow beryl continue en root)"
+    log "4.4 Scaleway : root@#{host.rescue_ssh_host} prêt (le flow beryl continue en root)"
   end
 
   # Flow Dedibox (4 étapes numérotées dans les logs pour clarté).
@@ -592,7 +592,7 @@ module Beryl::CLI::Rescue
           break
         end
         begin
-          TCPSocket.new(host.ssh_host, host.port, connect_timeout: 3.seconds).close
+          TCPSocket.new(host.rescue_ssh_host, host.port, connect_timeout: 3.seconds).close
           sleep 3.seconds
         rescue
           # TCP refusé / timeout → sshd tombé, reboot confirmé.
@@ -648,12 +648,12 @@ module Beryl::CLI::Rescue
 
     # 3/4 — attente que sd-<id> réponde (rescue Debian prêt).
     sd_conn = SSH::Connection.new(
-      host: host.ssh_host, user: sd_user, port: host.port, identity_file: key,
+      host: host.rescue_ssh_host, user: sd_user, port: host.port, identity_file: key,
     )
     deadline = Time.instant + DEFAULT_SSH_WAIT_TIMEOUT
     Beryl.log_step(
       "beryl rescue",
-      "4.3 Dedibox : attente SSH #{sd_user}@#{host.ssh_host} (rescue Debian prêt)",
+      "4.3 Dedibox : attente SSH #{sd_user}@#{host.rescue_ssh_host} (rescue Debian prêt)",
     ) do
       attempt = 0
       loop do
@@ -690,7 +690,7 @@ module Beryl::CLI::Rescue
       "sudo -S -p '' bash -s",
       stdin: creds.password + "\n" + script,
     )
-    log "4.4 Dedibox : root@#{host.ssh_host} prêt (le wait_for_ssh principal prend le relais)"
+    log "4.4 Dedibox : root@#{host.rescue_ssh_host} prêt (le wait_for_ssh principal prend le relais)"
   end
 
   # Par défaut, résolution DNS via `Socket::Addrinfo.resolve`.

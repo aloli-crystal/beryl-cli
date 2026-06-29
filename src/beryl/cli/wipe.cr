@@ -88,27 +88,10 @@ module Beryl::CLI::Wipe
       end
     end
 
-    # Le rescue est TOUJOURS joignable en root (cf. bootstrap.cr) —
-    # INDÉPENDAMMENT de host.user (qui désigne l'utilisateur du serveur
-    # installé, ex. admin). Sans ça, `user: admin` cassait wipe
-    # (admin@rescue → uname -s vide → « pas sur un rescue Linux »).
-    #
-    # `rescue_ssh_host` (et PAS `ssh_host`) : un host caché derrière le
-    # vRack a `ssh_host` = IP vRack, injoignable en rescue (le rescue
-    # n'a que l'IP publique, sans vRack ni ProxyJump).
+    # Connexion d'infrastructure centralisée : root + IP publique (jamais
+    # le vRack), options rescue-safe. Cf. ResolvedHost#rescue_connection.
     rescue_host = host.rescue_ssh_host
-    rescue_conn = SSH::Connection.new(
-      host: rescue_host,
-      user: "root",
-      port: host.port,
-      identity_file: host.identity_file,
-      options: {
-        "StrictHostKeyChecking" => "no",
-        "UserKnownHostsFile"    => "/dev/null",
-        "LogLevel"              => "ERROR",
-        "BatchMode"             => "yes",
-      },
-    )
+    rescue_conn = host.rescue_connection
 
     probe = rescue_conn.exec("uname -s", raise_on_error: false)
     uname = probe.stdout.strip

@@ -1147,7 +1147,9 @@ module Beryl::CLI::Scan
   # (match de l'IP principale). nil si non joignable, credentials absents,
   # IP non résolue, ou aucun match. JAMAIS bloquant.
   private def self.resolve_ovh_service_name(host : Beryl::Config::ResolvedHost) : String?
-    ip = resolve_host_ipv4(host.ssh_host)
+    # IP PUBLIQUE (rescue_ssh_host), jamais le vRack : l'API OVH matche un
+    # serveur sur son IP publique, pas sur une IP vRack privée.
+    ip = resolve_host_ipv4(host.rescue_ssh_host)
     return nil unless ip
     host.apply_all_credentials_to_env!
     ovh = Beryl::Providers::Ovh.new

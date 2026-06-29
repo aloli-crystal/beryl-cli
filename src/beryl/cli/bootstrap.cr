@@ -115,22 +115,10 @@ module Beryl::CLI::Bootstrap
     # Construction de la connexion SSH rescue (utilisée par le précheck
     # ET le bootstrap). Le rescue est TOUJOURS joignable en root après
     # `beryl rescue` (OVH nativement ; Dedibox promu root ; cf. rescue.cr
-    # qui attend root). On force donc `root` ici, INDÉPENDAMMENT de
-    # `host.user` : ce dernier désigne l'utilisateur du serveur INSTALLÉ
-    # (ex. `admin`, pour `beryl apply` une fois root SSH coupé), pas le
-    # rescue Linux. Sans ça, `user: admin` cassait le précheck
-    # (admin@rescue → uname -s vide, le rescue n'ayant que root).
-    rescue_conn = SSH::Connection.new(
-      host: host.ssh_host,
-      user: "root",
-      port: host.port,
-      identity_file: host.identity_file,
-      options: {
-        "StrictHostKeyChecking" => "no",
-        "UserKnownHostsFile"    => "/dev/null",
-        "LogLevel"              => "ERROR",
-      },
-    )
+    # qui attend root). `rescue_connection` force root + l'IP PUBLIQUE
+    # (jamais le vRack : à ce stade il n'existe pas) + les options
+    # rescue-safe. Cf. ResolvedHost#rescue_connection.
+    rescue_conn = host.rescue_connection
 
     # Précheck : validation config ZFS + comparaison disques déclarés
     # vs disques physiques côté rescue.
