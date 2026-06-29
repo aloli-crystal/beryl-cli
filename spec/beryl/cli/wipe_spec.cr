@@ -67,6 +67,27 @@ describe Beryl::CLI::Wipe do
       Beryl::CLI::Wipe.erase_plan("/dev/sda", 0, false).should contain("métadonnées")
     end
 
+    it "parallel : un sous-shell par disque + wait, pools détruits avant" do
+      script = Beryl::CLI::Wipe.wipe_script_multi(["/dev/sda", "/dev/sdb"], 1, false, parallel: true)
+      script.should contain("__pids=")
+      script.scan(/\) &\n__pids="\$__pids \$!"/).size.should eq(2)
+      script.should contain("wait \"$__p\"")
+      script.should contain("exit $__rc")
+      # la destruction des pools reste UNIQUE et avant (hors sous-shells)
+      script.scan(/zpool destroy/).size.should eq(1)
+    end
+
+    it "parallel ignoré pour un seul disque (rien à paralléliser)" do
+      script = Beryl::CLI::Wipe.wipe_script_multi(["/dev/sda"], 1, false, parallel: true)
+      script.should_not contain("__pids=")
+      script.should_not contain("wait \"$__p\"")
+    end
+
+    it "sequential (défaut générateur) : pas de sous-shells même à plusieurs disques" do
+      script = Beryl::CLI::Wipe.wipe_script_multi(["/dev/sda", "/dev/sdb"], 1, false)
+      script.should_not contain("__pids=")
+    end
+
     it "refuse un nombre de passes négatif" do
       expect_raises(ArgumentError, /passes négatif/) do
         Beryl::CLI::Wipe.wipe_script_multi(["/dev/sda"], -1)

@@ -21,6 +21,7 @@ module Beryl::CLI::Wipe
     dry_run = false
     passes = 0
     hardware = false
+    parallel = true
     account_hint : String? = nil
     domain_hint : String? = nil
     positional = [] of String
@@ -41,6 +42,7 @@ module Beryl::CLI::Wipe
         passes = n
       end
       p.on("-S", "--secure-erase", "Effacement MATÉRIEL adapté au support : nvme format (NVMe), blkdiscard/TRIM (SSD), shred (HDD)") { hardware = true }
+      p.on("--sequential", "Effacer les disques l'un après l'autre (défaut : en parallèle, un sous-shell par disque)") { parallel = false }
       p.on("-f", "--force", "Pas de confirmation (DANGER, scripts uniquement)") { force = true }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
       p.unknown_args { |rest, _| positional = rest }
@@ -127,6 +129,9 @@ module Beryl::CLI::Wipe
     else
       puts "  mode    : rapide (métadonnées seules : labels ZFS + GPT + tête)"
     end
+    if parallel && target_disks.size > 1
+      puts "  exécut. : en parallèle (#{target_disks.size} disques simultanément)"
+    end
     puts "================================================================"
     puts
 
@@ -147,7 +152,8 @@ module Beryl::CLI::Wipe
     if dry_run
       puts
       mode_label = hardware ? "matériel (adapté au support)" : (passes > 0 ? "sécurisé — #{passes} passe(s) d'écriture" : "rapide — métadonnées seules")
-      puts "DRY-RUN : aucune destruction. Plan d'effacement (#{mode_label}) :"
+      exec_label = (parallel && target_disks.size > 1) ? ", en parallèle" : ""
+      puts "DRY-RUN : aucune destruction. Plan d'effacement (#{mode_label}#{exec_label}) :"
       puts "  • pools ZFS importables → zpool destroy/export (global, avant les disques)"
       target_disks.each { |disk| puts "  • #{disk} → #{erase_plan(disk, passes, hardware)}" }
       puts "  • puis, par disque → sgdisk --zap-all + 10 Mo de zéros en tête (GPT propre)"
@@ -171,7 +177,7 @@ module Beryl::CLI::Wipe
     # Streaming live : un wipe sécurisé/matériel peut durer longtemps et
     # `shred -v` émet sa progression au fil de l'eau — on branche la sortie
     # SSH directement sur le terminal au lieu de la bufferiser (exec()).
-    unless stream_exec(rescue_conn, wipe_script_multi(target_disks, passes, hardware))
+    unless stream_exec(rescue_conn, wipe_script_multi(target_disks, passes, hardware, parallel))
       STDERR.puts "beryl : le script de wipe a signalé une erreur (voir la sortie ci-dessus)"
       return EXIT_SSH_FAILED
     end
@@ -258,11 +264,17 @@ module Beryl::CLI::Wipe
   #   repli `shred` (HDD rotatif, sans support matériel). Quasi instantané
   #   sur SSD/NVMe. `passes` sert alors de nombre de passes du repli HDD
   #   (défaut 1).
-  def self.wipe_script_multi(disks : Array(String), passes : Int32 = 0, hardware : Bool = false) : String
+  #
+  # `parallel` : avec plusieurs disques, lance un sous-shell par disque
+  # (devices indépendants → gain de temps réel, surtout pour les HDD en
+  # shred). La destruction des pools ZFS reste AVANT et séquentielle (un
+  # pool peut couvrir plusieurs disques). On attend tous les sous-shells
+  # et on propage un échec si l'un d'eux a échoué.
+  def self.wipe_script_multi(disks : Array(String), passes : Int32 = 0, hardware : Bool = false, parallel : Bool = false) : String
     raise ArgumentError.new("wipe_script_multi : disks vide") if disks.empty?
     raise ArgumentError.new("wipe_script_multi : passes négatif") if passes < 0
     fallback_passes = passes > 0 ? passes : 1
-    per_disk = disks.map do |disk|
+    bodies = disks.map do |disk|
       quoted = Process.quote(disk)
       erase =
         if hardware
@@ -281,7 +293,25 @@ module Beryl::CLI::Wipe
       sgdisk --zap-all #{quoted} 2>&1 | tail -3
       dd if=/dev/zero of=#{quoted} bs=1M count=10 conv=notrunc 2>&1 | tail -1
       BASH
-    end.join("\n")
+    end
+
+    disk_section =
+      if parallel && bodies.size > 1
+        wrapped = bodies.map { |b| "(\n#{b}\n) &\n__pids=\"$__pids $!\"" }.join("\n")
+        <<-BASH
+        # Effacement EN PARALLÈLE : un sous-shell par disque.
+        __rc=0
+        __pids=""
+        #{wrapped}
+        for __p in $__pids; do
+          wait "$__p" || __rc=1
+        done
+        exit $__rc
+        BASH
+      else
+        bodies.join("\n")
+      end
+
     <<-BASH
     set -u
     # Détruit d'abord tous les pools ZFS importables (un pool peut
@@ -290,7 +320,7 @@ module Beryl::CLI::Wipe
       echo "destroy zpool $p"
       zpool destroy "$p" 2>/dev/null || zpool export -f "$p" 2>/dev/null || true
     done
-    #{per_disk}
+    #{disk_section}
     BASH
   end
 
