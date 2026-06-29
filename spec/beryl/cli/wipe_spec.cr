@@ -23,6 +23,29 @@ describe Beryl::CLI::Wipe do
       script.scan(/dd if=\/dev\/zero/).size.should eq(2)
     end
 
+    it "sans passes (défaut 0) : pas de réécriture intégrale, métadonnées seules" do
+      script = Beryl::CLI::Wipe.wipe_script_multi(["/dev/sda"])
+      script.should_not contain("shred")
+      script.should_not contain("effacement sécurisé")
+      script.should_not contain("/dev/urandom")
+    end
+
+    it "avec passes >= 1 : réécrit tout le disque via shred (N passes), un bloc par disque" do
+      script = Beryl::CLI::Wipe.wipe_script_multi(["/dev/sda", "/dev/sdb"], 3)
+      script.scan(/shred -v -f -n 3 /).size.should eq(2)
+      script.should contain("effacement sécurisé : 3 passe(s)")
+      # fallback dd urandom présent pour rescue sans shred
+      script.should contain("dd if=/dev/urandom")
+      # le zap GPT final reste fait après la réécriture
+      script.scan(/sgdisk --zap-all/).size.should eq(2)
+    end
+
+    it "refuse un nombre de passes négatif" do
+      expect_raises(ArgumentError, /passes négatif/) do
+        Beryl::CLI::Wipe.wipe_script_multi(["/dev/sda"], -1)
+      end
+    end
+
     it "wipe_script (single) délègue à wipe_script_multi([disk])" do
       single = Beryl::CLI::Wipe.wipe_script("/dev/sda")
       multi = Beryl::CLI::Wipe.wipe_script_multi(["/dev/sda"])

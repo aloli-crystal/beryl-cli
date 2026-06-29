@@ -19,6 +19,7 @@ module Beryl::CLI::Wipe
     all_declared = false
     force = false
     dry_run = false
+    passes = 0
     account_hint : String? = nil
     domain_hint : String? = nil
     positional = [] of String
@@ -30,6 +31,14 @@ module Beryl::CLI::Wipe
       p.on("-a NAME", "--account=NAME", "Forcer la société (si ambiguë)") { |v| account_hint = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
       p.on("-n", "--dry-run", "Affiche les commandes sans les exécuter") { dry_run = true }
+      p.on("-p N", "--passes=N", "Effacement SÉCURISÉ : réécrit tout le disque N fois (défaut 0 = métadonnées seules, rapide)") do |v|
+        n = v.to_i?
+        unless n && n >= 0
+          STDERR.puts "beryl : --passes attend un entier >= 0 (reçu #{v.inspect})"
+          exit EXIT_USAGE
+        end
+        passes = n
+      end
       p.on("-f", "--force", "Pas de confirmation (DANGER, scripts uniquement)") { force = true }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
       p.unknown_args { |rest, _| positional = rest }
@@ -107,6 +116,12 @@ module Beryl::CLI::Wipe
     puts "  hôte    : #{Beryl.format_ssh_target(host)}"
     puts "  disques :"
     target_disks.each { |d| puts "    - #{d}" }
+    if passes > 0
+      puts "  mode    : effacement SÉCURISÉ — #{passes} passe(s) d'écriture sur"
+      puts "            l'intégralité de chaque disque (peut durer des heures)"
+    else
+      puts "  mode    : rapide (métadonnées seules : labels ZFS + GPT + tête)"
+    end
     puts "================================================================"
     puts
 
@@ -128,7 +143,7 @@ module Beryl::CLI::Wipe
       puts
       puts "DRY-RUN : aucune destruction. Script qui serait exécuté via SSH :"
       puts "─" * 60
-      puts wipe_script_multi(target_disks)
+      puts wipe_script_multi(target_disks, passes)
       puts "─" * 60
       puts "Pour exécuter : #{Beryl.rerun_hint("wipe", args, replace_host: {raw.not_nil!, "#{host.account_name}/#{host.fqdn}"})}"
       return EXIT_OK
@@ -145,8 +160,9 @@ module Beryl::CLI::Wipe
     end
 
     puts
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl wipe] 6 destruction sur #{target_disks.join(", ")}"
-    rescue_conn.exec(wipe_script_multi(target_disks))
+    mode = passes > 0 ? "sécurisé #{passes} passe(s)" : "rapide (métadonnées)"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl wipe] 6 destruction (#{mode}) sur #{target_disks.join(", ")}"
+    rescue_conn.exec(wipe_script_multi(target_disks, passes))
 
     puts
     target_disks.each do |disk|
@@ -175,8 +191,8 @@ module Beryl::CLI::Wipe
     EXIT_UNEXPECTED
   end
 
-  def self.wipe_script(disk : String) : String
-    wipe_script_multi([disk])
+  def self.wipe_script(disk : String, passes : Int32 = 0) : String
+    wipe_script_multi([disk], passes)
   end
 
   # Script shell qui détruit les pools ZFS importables (une seule fois,
@@ -184,16 +200,43 @@ module Beryl::CLI::Wipe
   # argument. Le `zpool destroy`/`export` se fait globalement parce
   # qu'un même pool peut couvrir plusieurs disques : essayer de
   # l'attaquer disque par disque rate ou duplique les opérations.
-  def self.wipe_script_multi(disks : Array(String)) : String
+  #
+  # `passes` : nombre de réécritures intégrales du disque pour un
+  # effacement *sécurisé* (données irrécupérables). 0 = effacement
+  # rapide des seules métadonnées (labels ZFS + GPT + 10 Mo de tête,
+  # le défaut historique). >= 1 = `shred -n passes` sur tout le disque
+  # (fallback `dd if=/dev/urandom` si shred absent), AVANT le zap GPT
+  # final. Lent (proportionnel à la taille × passes).
+  def self.wipe_script_multi(disks : Array(String), passes : Int32 = 0) : String
     raise ArgumentError.new("wipe_script_multi : disks vide") if disks.empty?
+    raise ArgumentError.new("wipe_script_multi : passes négatif") if passes < 0
     per_disk = disks.map do |disk|
       quoted = Process.quote(disk)
+      overwrite =
+        if passes > 0
+          <<-SH
+
+          echo "effacement sécurisé : #{passes} passe(s) sur #{disk} (peut être très long)"
+          if command -v shred >/dev/null 2>&1; then
+            shred -v -f -n #{passes} #{quoted}
+          else
+            i=1
+            while [ "$i" -le #{passes} ]; do
+              echo "passe $i/#{passes} (dd urandom) sur #{disk}"
+              dd if=/dev/urandom of=#{quoted} bs=4M conv=notrunc status=progress 2>&1 | tail -1 || true
+              i=$((i + 1))
+            done
+          fi
+          SH
+        else
+          ""
+        end
       <<-BASH
       echo "--- wipe #{disk} ---"
       zpool labelclear -f #{quoted} 2>/dev/null || true
       for n in 1 2 3 4 5 6 7 8 9; do
         zpool labelclear -f #{quoted}${n} 2>/dev/null || true
-      done
+      done#{overwrite}
       sgdisk --zap-all #{quoted} 2>&1 | tail -3
       dd if=/dev/zero of=#{quoted} bs=1M count=10 conv=notrunc 2>&1 | tail -1
       BASH
