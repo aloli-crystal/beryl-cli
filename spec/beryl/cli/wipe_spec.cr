@@ -59,6 +59,14 @@ describe Beryl::CLI::Wipe do
       script.should_not contain("effacement sécurisé : 3 passe(s)")
     end
 
+    it "erase_plan : résumé par disque selon le mode (sans dumper le script)" do
+      Beryl::CLI::Wipe.erase_plan("/dev/nvme0n1", 0, true).should contain("NVMe")
+      Beryl::CLI::Wipe.erase_plan("/dev/sda", 0, true).should contain("blkdiscard")
+      Beryl::CLI::Wipe.erase_plan("/dev/sda", 0, true).should contain("shred 1")
+      Beryl::CLI::Wipe.erase_plan("/dev/sda", 3, false).should contain("3 passe(s)")
+      Beryl::CLI::Wipe.erase_plan("/dev/sda", 0, false).should contain("métadonnées")
+    end
+
     it "refuse un nombre de passes négatif" do
       expect_raises(ArgumentError, /passes négatif/) do
         Beryl::CLI::Wipe.wipe_script_multi(["/dev/sda"], -1)

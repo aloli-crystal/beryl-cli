@@ -146,10 +146,11 @@ module Beryl::CLI::Wipe
 
     if dry_run
       puts
-      puts "DRY-RUN : aucune destruction. Script qui serait exécuté via SSH :"
-      puts "─" * 60
-      puts wipe_script_multi(target_disks, passes, hardware)
-      puts "─" * 60
+      mode_label = hardware ? "matériel (adapté au support)" : (passes > 0 ? "sécurisé — #{passes} passe(s) d'écriture" : "rapide — métadonnées seules")
+      puts "DRY-RUN : aucune destruction. Plan d'effacement (#{mode_label}) :"
+      puts "  • pools ZFS importables → zpool destroy/export (global, avant les disques)"
+      target_disks.each { |disk| puts "  • #{disk} → #{erase_plan(disk, passes, hardware)}" }
+      puts "  • puis, par disque → sgdisk --zap-all + 10 Mo de zéros en tête (GPT propre)"
       puts "Pour exécuter : #{Beryl.rerun_hint("wipe", args, replace_host: {raw.not_nil!, "#{host.account_name}/#{host.fqdn}"})}"
       return EXIT_OK
     end
@@ -204,6 +205,25 @@ module Beryl::CLI::Wipe
 
   def self.wipe_script(disk : String, passes : Int32 = 0, hardware : Bool = false) : String
     wipe_script_multi([disk], passes, hardware)
+  end
+
+  # Résumé lisible de la stratégie d'effacement d'un disque (pour le
+  # dry-run). En mode matériel sur un support non-NVMe, le choix exact
+  # (blkdiscard vs shred) se fait à l'exécution selon `rotational`, donc
+  # on annonce les deux issues.
+  def self.erase_plan(disk : String, passes : Int32, hardware : Bool) : String
+    if hardware
+      if disk.starts_with?("/dev/nvme")
+        "effacement matériel NVMe (nvme format --ses=1)"
+      else
+        n = passes > 0 ? passes : 1
+        "effacement matériel : blkdiscard/TRIM si SSD, sinon shred #{n} passe(s) — choisi sur le rescue"
+      end
+    elsif passes > 0
+      "réécriture intégrale #{passes} passe(s) (shred)"
+    else
+      "métadonnées seules (labels ZFS)"
+    end
   end
 
   # Exécute `command` sur la connexion rescue en branchant stdout/stderr
