@@ -105,9 +105,21 @@ module Beryl::CLI::Wipe
       },
     )
 
-    uname = rescue_conn.exec("uname -s", raise_on_error: false).stdout.strip
+    probe = rescue_conn.exec("uname -s", raise_on_error: false)
+    uname = probe.stdout.strip
     unless uname == "Linux"
       STDERR.puts "beryl : #{Beryl.format_ssh_target(host)} n'est pas sur un rescue Linux (uname -s = #{uname.inspect})"
+      # Un uname vide n'est PAS forcément « pas de rescue » : c'est souvent
+      # une connexion SSH qui a échoué (auth, mauvaise IP, host key). On
+      # remonte le code de sortie + stderr de ssh au lieu de les avaler.
+      if uname.empty?
+        ssh_err = probe.stderr.strip
+        STDERR.puts "        ssh root@#{host.ssh_host}:#{host.port} (clé #{host.identity_file || "agent"}) → exit #{probe.exit_code}"
+        STDERR.puts "        ssh : #{ssh_err}" unless ssh_err.empty?
+        STDERR.puts "        Pistes : 255 = SSH KO (auth/clé/host injoignable). La clé du rescue"
+        STDERR.puts "                 doit être celle passée à `beryl rescue` (authorized_keys root du rescue)."
+        STDERR.puts "                 Vérifiez aussi que #{host.ssh_host} pointe bien sur l'IP publique du rescue."
+      end
       STDERR.puts "        Lancez d'abord `beryl rescue #{host.fqdn}`"
       return EXIT_NOT_IN_RESCUE
     end
