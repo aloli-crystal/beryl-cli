@@ -20,6 +20,7 @@ module Beryl::CLI::Wipe
     force = false
     dry_run = false
     passes = 0
+    hardware = false
     account_hint : String? = nil
     domain_hint : String? = nil
     positional = [] of String
@@ -39,6 +40,7 @@ module Beryl::CLI::Wipe
         end
         passes = n
       end
+      p.on("-S", "--secure-erase", "Effacement MATÉRIEL adapté au support : nvme format (NVMe), blkdiscard/TRIM (SSD), shred (HDD)") { hardware = true }
       p.on("-f", "--force", "Pas de confirmation (DANGER, scripts uniquement)") { force = true }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
       p.unknown_args { |rest, _| positional = rest }
@@ -116,7 +118,10 @@ module Beryl::CLI::Wipe
     puts "  hôte    : #{Beryl.format_ssh_target(host)}"
     puts "  disques :"
     target_disks.each { |d| puts "    - #{d}" }
-    if passes > 0
+    if hardware
+      puts "  mode    : effacement MATÉRIEL — nvme format / blkdiscard (TRIM) /"
+      puts "            shred selon le support détecté sur chaque disque"
+    elsif passes > 0
       puts "  mode    : effacement SÉCURISÉ — #{passes} passe(s) d'écriture sur"
       puts "            l'intégralité de chaque disque (peut durer des heures)"
     else
@@ -143,7 +148,7 @@ module Beryl::CLI::Wipe
       puts
       puts "DRY-RUN : aucune destruction. Script qui serait exécuté via SSH :"
       puts "─" * 60
-      puts wipe_script_multi(target_disks, passes)
+      puts wipe_script_multi(target_disks, passes, hardware)
       puts "─" * 60
       puts "Pour exécuter : #{Beryl.rerun_hint("wipe", args, replace_host: {raw.not_nil!, "#{host.account_name}/#{host.fqdn}"})}"
       return EXIT_OK
@@ -160,9 +165,15 @@ module Beryl::CLI::Wipe
     end
 
     puts
-    mode = passes > 0 ? "sécurisé #{passes} passe(s)" : "rapide (métadonnées)"
+    mode = hardware ? "matériel" : (passes > 0 ? "sécurisé #{passes} passe(s)" : "rapide (métadonnées)")
     STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl wipe] 6 destruction (#{mode}) sur #{target_disks.join(", ")}"
-    rescue_conn.exec(wipe_script_multi(target_disks, passes))
+    # Streaming live : un wipe sécurisé/matériel peut durer longtemps et
+    # `shred -v` émet sa progression au fil de l'eau — on branche la sortie
+    # SSH directement sur le terminal au lieu de la bufferiser (exec()).
+    unless stream_exec(rescue_conn, wipe_script_multi(target_disks, passes, hardware))
+      STDERR.puts "beryl : le script de wipe a signalé une erreur (voir la sortie ci-dessus)"
+      return EXIT_SSH_FAILED
+    end
 
     puts
     target_disks.each do |disk|
@@ -191,8 +202,23 @@ module Beryl::CLI::Wipe
     EXIT_UNEXPECTED
   end
 
-  def self.wipe_script(disk : String, passes : Int32 = 0) : String
-    wipe_script_multi([disk], passes)
+  def self.wipe_script(disk : String, passes : Int32 = 0, hardware : Bool = false) : String
+    wipe_script_multi([disk], passes, hardware)
+  end
+
+  # Exécute `command` sur la connexion rescue en branchant stdout/stderr
+  # DIRECTEMENT sur le terminal (pas de bufferisation comme `Connection#exec`).
+  # Indispensable pour un wipe long : la progression de `shred -v` s'affiche
+  # au fil de l'eau. `-n` ferme stdin (cf. note dans SSH::Connection#exec).
+  # Renvoie true si la commande distante s'est terminée avec succès.
+  def self.stream_exec(conn : SSH::Connection, command : String) : Bool
+    status = Process.run(
+      command: "ssh",
+      args: ["-n"] + conn.ssh_args(command),
+      output: STDOUT,
+      error: STDERR,
+    )
+    status.success?
   end
 
   # Script shell qui détruit les pools ZFS importables (une seule fois,
@@ -201,33 +227,28 @@ module Beryl::CLI::Wipe
   # qu'un même pool peut couvrir plusieurs disques : essayer de
   # l'attaquer disque par disque rate ou duplique les opérations.
   #
-  # `passes` : nombre de réécritures intégrales du disque pour un
-  # effacement *sécurisé* (données irrécupérables). 0 = effacement
-  # rapide des seules métadonnées (labels ZFS + GPT + 10 Mo de tête,
-  # le défaut historique). >= 1 = `shred -n passes` sur tout le disque
-  # (fallback `dd if=/dev/urandom` si shred absent), AVANT le zap GPT
-  # final. Lent (proportionnel à la taille × passes).
-  def self.wipe_script_multi(disks : Array(String), passes : Int32 = 0) : String
+  # Trois niveaux d'effacement (du plus rapide au plus sûr) :
+  #
+  # * défaut (`passes` 0, `hardware` false) : métadonnées seules
+  #   (labels ZFS + GPT + 10 Mo de tête). Rapide, données récupérables.
+  # * `passes` >= 1 : réécrit l'intégralité du disque N fois via `shred`
+  #   (fallback `dd if=/dev/urandom`). Lent (taille × passes).
+  # * `hardware` true : effacement *matériel* adapté au support détecté
+  #   sur le rescue — `nvme format` (NVMe), `blkdiscard` TRIM (SSD), et
+  #   repli `shred` (HDD rotatif, sans support matériel). Quasi instantané
+  #   sur SSD/NVMe. `passes` sert alors de nombre de passes du repli HDD
+  #   (défaut 1).
+  def self.wipe_script_multi(disks : Array(String), passes : Int32 = 0, hardware : Bool = false) : String
     raise ArgumentError.new("wipe_script_multi : disks vide") if disks.empty?
     raise ArgumentError.new("wipe_script_multi : passes négatif") if passes < 0
+    fallback_passes = passes > 0 ? passes : 1
     per_disk = disks.map do |disk|
       quoted = Process.quote(disk)
-      overwrite =
-        if passes > 0
-          <<-SH
-
-          echo "effacement sécurisé : #{passes} passe(s) sur #{disk} (peut être très long)"
-          if command -v shred >/dev/null 2>&1; then
-            shred -v -f -n #{passes} #{quoted}
-          else
-            i=1
-            while [ "$i" -le #{passes} ]; do
-              echo "passe $i/#{passes} (dd urandom) sur #{disk}"
-              dd if=/dev/urandom of=#{quoted} bs=4M conv=notrunc status=progress 2>&1 | tail -1 || true
-              i=$((i + 1))
-            done
-          fi
-          SH
+      erase =
+        if hardware
+          "\n" + hardware_erase_block(disk, quoted, fallback_passes)
+        elsif passes > 0
+          "\n" + overwrite_block(disk, quoted, passes)
         else
           ""
         end
@@ -236,7 +257,7 @@ module Beryl::CLI::Wipe
       zpool labelclear -f #{quoted} 2>/dev/null || true
       for n in 1 2 3 4 5 6 7 8 9; do
         zpool labelclear -f #{quoted}${n} 2>/dev/null || true
-      done#{overwrite}
+      done#{erase}
       sgdisk --zap-all #{quoted} 2>&1 | tail -3
       dd if=/dev/zero of=#{quoted} bs=1M count=10 conv=notrunc 2>&1 | tail -1
       BASH
@@ -251,5 +272,49 @@ module Beryl::CLI::Wipe
     done
     #{per_disk}
     BASH
+  end
+
+  # Réécriture logique intégrale du disque : `shred -n passes`, avec
+  # repli `dd if=/dev/urandom` en boucle si shred est absent du rescue.
+  private def self.overwrite_block(disk : String, quoted : String, passes : Int32) : String
+    <<-SH
+    echo "effacement sécurisé : #{passes} passe(s) sur #{disk} (peut être très long)"
+    if command -v shred >/dev/null 2>&1; then
+      shred -v -f -n #{passes} #{quoted}
+    else
+      i=1
+      while [ "$i" -le #{passes} ]; do
+        echo "passe $i/#{passes} (dd urandom) sur #{disk}"
+        dd if=/dev/urandom of=#{quoted} bs=4M conv=notrunc status=progress 2>&1 | tail -1 || true
+        i=$((i + 1))
+      done
+    fi
+    SH
+  end
+
+  # Effacement *matériel*, choisi à l'exécution selon le support réel :
+  #   NVMe              → `nvme format --ses=1` (efface la zone user)
+  #   SSD (rotational 0) → `blkdiscard` (TRIM intégral)
+  #   HDD rotatif        → pas de secure-erase matériel sûr → repli `shred`
+  # Chaque commande matérielle retombe sur `shred -n fallback_passes` si
+  # elle échoue (outil absent, disque gelé/frozen, contrôleur récalcitrant).
+  private def self.hardware_erase_block(disk : String, quoted : String, fallback_passes : Int32) : String
+    <<-SH
+    echo "secure-erase matériel de #{disk}"
+    __b=$(basename #{quoted})
+    if echo #{quoted} | grep -q '^/dev/nvme'; then
+      echo "  support NVMe → nvme format --ses=1"
+      nvme format #{quoted} --ses=1 --force \\
+        || nvme format #{quoted} -s 1 \\
+        || { echo "  nvme format KO → repli shred"; shred -v -f -n #{fallback_passes} #{quoted}; }
+    elif [ -e "/sys/block/$__b/queue/rotational" ] && [ "$(cat /sys/block/$__b/queue/rotational)" = "0" ]; then
+      echo "  support SSD (non rotatif) → blkdiscard (TRIM)"
+      blkdiscard -f #{quoted} \\
+        || { echo "  blkdiscard KO → repli shred"; shred -v -f -n #{fallback_passes} #{quoted}; }
+    else
+      echo "  support HDD rotatif : pas de secure-erase matériel → shred #{fallback_passes} passe(s)"
+      shred -v -f -n #{fallback_passes} #{quoted}
+    fi
+    SH
   end
 end

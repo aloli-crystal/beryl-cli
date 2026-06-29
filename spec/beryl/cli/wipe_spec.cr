@@ -40,6 +40,25 @@ describe Beryl::CLI::Wipe do
       script.scan(/sgdisk --zap-all/).size.should eq(2)
     end
 
+    it "mode matériel : nvme format + blkdiscard + repli shred, par disque" do
+      script = Beryl::CLI::Wipe.wipe_script_multi(["/dev/nvme0n1", "/dev/sda"], 0, hardware: true)
+      script.should contain("secure-erase matériel de /dev/nvme0n1")
+      script.should contain("nvme format")
+      script.should contain("blkdiscard -f")
+      script.should contain("rotational")
+      # repli shred par défaut 1 passe quand passes=0
+      script.should contain("shred -v -f -n 1")
+      # le zap GPT final reste fait
+      script.scan(/sgdisk --zap-all/).size.should eq(2)
+    end
+
+    it "mode matériel : passes>0 fixe le nombre de passes du repli HDD" do
+      script = Beryl::CLI::Wipe.wipe_script_multi(["/dev/sda"], 3, hardware: true)
+      script.should contain("shred -v -f -n 3")
+      # pas de bloc overwrite logique pur (c'est le mode matériel qui prime)
+      script.should_not contain("effacement sécurisé : 3 passe(s)")
+    end
+
     it "refuse un nombre de passes négatif" do
       expect_raises(ArgumentError, /passes négatif/) do
         Beryl::CLI::Wipe.wipe_script_multi(["/dev/sda"], -1)
