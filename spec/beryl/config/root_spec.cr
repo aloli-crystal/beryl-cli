@@ -201,6 +201,19 @@ describe Beryl::Config::ResolvedHost do
     rh.ssh_host.should eq("192.168.42.31")          # 1ʳᵉ IP vRack (caché)
   end
 
+  it "rescue_ssh_host : host caché OVH → IP publique (service_name), PAS l'IP vRack" do
+    rh = Beryl::Config::Root.load(fixture("ssh-host-override")).resolve("rescuehidden")
+    rh.hidden?.should be_true
+    rh.ssh_host.should eq("192.168.42.50")             # prod : 1ʳᵉ IP vRack
+    rh.rescue_ssh_host.should eq("ns9999.ip-1-2-3.eu") # rescue : service OVH public
+  end
+
+  it "rescue_ssh_host : host NON caché → identique à ssh_host (aucun changement)" do
+    rh = Beryl::Config::Root.load(fixture("ssh-host-override")).resolve("netbast")
+    rh.hidden?.should be_false
+    rh.rescue_ssh_host.should eq(rh.ssh_host)
+  end
+
   it "ovh.commercial_name + bloc hardware: lus pour `beryl info`" do
     rh = Beryl::Config::Root.load(fixture("ssh-host-override")).resolve("infohw")
     rh.ovh_commercial_name.should eq("Advance-2")

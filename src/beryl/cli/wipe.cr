@@ -92,8 +92,13 @@ module Beryl::CLI::Wipe
     # INDÉPENDAMMENT de host.user (qui désigne l'utilisateur du serveur
     # installé, ex. admin). Sans ça, `user: admin` cassait wipe
     # (admin@rescue → uname -s vide → « pas sur un rescue Linux »).
+    #
+    # `rescue_ssh_host` (et PAS `ssh_host`) : un host caché derrière le
+    # vRack a `ssh_host` = IP vRack, injoignable en rescue (le rescue
+    # n'a que l'IP publique, sans vRack ni ProxyJump).
+    rescue_host = host.rescue_ssh_host
     rescue_conn = SSH::Connection.new(
-      host: host.ssh_host,
+      host: rescue_host,
       user: "root",
       port: host.port,
       identity_file: host.identity_file,
@@ -114,11 +119,11 @@ module Beryl::CLI::Wipe
       # remonte le code de sortie + stderr de ssh au lieu de les avaler.
       if uname.empty?
         ssh_err = probe.stderr.strip
-        STDERR.puts "        ssh root@#{host.ssh_host}:#{host.port} (clé #{host.identity_file || "agent"}) → exit #{probe.exit_code}"
+        STDERR.puts "        ssh root@#{rescue_host}:#{host.port} (clé #{host.identity_file || "agent"}) → exit #{probe.exit_code}"
         STDERR.puts "        ssh : #{ssh_err}" unless ssh_err.empty?
         STDERR.puts "        Pistes : 255 = SSH KO (auth/clé/host injoignable). La clé du rescue"
         STDERR.puts "                 doit être celle passée à `beryl rescue` (authorized_keys root du rescue)."
-        STDERR.puts "                 Vérifiez aussi que #{host.ssh_host} pointe bien sur l'IP publique du rescue."
+        STDERR.puts "                 Vérifiez aussi que #{rescue_host} pointe bien sur l'IP publique du rescue."
       end
       STDERR.puts "        Lancez d'abord `beryl rescue #{host.fqdn}`"
       return EXIT_NOT_IN_RESCUE

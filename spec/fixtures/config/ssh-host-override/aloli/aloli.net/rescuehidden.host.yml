@@ -1,0 +1,11 @@
+provider: ovh
+user: admin
+ovh:
+  service_name: ns9999.ip-1-2-3.eu
+  ipv4: 1.2.3.4
+vrack:
+  name: pn-1049829
+  ip: [192.168.42.50, 192.168.42.150]
+  proxy_jump: admin@zsbg.aloli.net
+freebsd:
+  hostname: rescuehidden

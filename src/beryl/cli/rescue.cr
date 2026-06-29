@@ -131,7 +131,7 @@ module Beryl::CLI::Rescue
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
     host.apply_all_credentials_to_env!
 
-    unless dns_resolver.call(host.ssh_host)
+    unless dns_resolver.call(host.rescue_ssh_host)
       STDERR.puts "beryl : #{Beryl.format_ssh_target(host)} ne résout pas en DNS."
       return EXIT_DNS
     end
@@ -152,7 +152,7 @@ module Beryl::CLI::Rescue
     # Skippé en --dry-run pour que l'opérateur voie quand même
     # ce qui serait appelé.
     if !dry_run && provider && ssh_root_is_linux?(host)
-      log "4.0 #{provider} : root@#{host.ssh_host} répond déjà en Linux (kernel rescue) — rescue déjà en place, skip."
+      log "4.0 #{provider} : root@#{host.rescue_ssh_host} répond déjà en Linux (kernel rescue) — rescue déjà en place, skip."
       return EXIT_OK
     end
 
@@ -164,7 +164,7 @@ module Beryl::CLI::Rescue
       )
       if dry_run
         log "4 DRY-RUN : OVHcloud → prepare_rescue(#{service_name}, ssh_key=#{host.ovh_ssh_key_name || "<auto>"})"
-        log "4 DRY-RUN : puis wait_for_ssh(#{host.ssh_host}:#{host.port} as root, timeout #{timeout.total_minutes.to_i}m)" if wait
+        log "4 DRY-RUN : puis wait_for_ssh(#{host.rescue_ssh_host}:#{host.port} as root, timeout #{timeout.total_minutes.to_i}m)" if wait
         log "Pour exécuter : #{Beryl.rerun_hint("rescue", args, replace_host: {raw, "#{host.account_name}/#{host.fqdn}"})}"
         return EXIT_OK
       end
@@ -221,7 +221,7 @@ module Beryl::CLI::Rescue
       # Le user est ignoré par `default_wait_for_ssh` (test TCP pur) —
       # le flow provider-specifique (promote etc.) s'occupe ensuite
       # de la couche applicative.
-      ssh_ok = wait_for_ssh.call(host.ssh_host, host.port, "root", timeout, SSH_POLL_INTERVAL)
+      ssh_ok = wait_for_ssh.call(host.rescue_ssh_host, host.port, "root", timeout, SSH_POLL_INTERVAL)
       @@step_prefix = ""
       unless ssh_ok
         STDERR.puts "beryl : timeout SSH sur #{target}"
@@ -618,7 +618,7 @@ module Beryl::CLI::Rescue
     key = host.identity_file
     return false unless key
     conn = SSH::Connection.new(
-      host: host.ssh_host,
+      host: host.rescue_ssh_host,
       user: "root",
       port: host.port,
       identity_file: key,

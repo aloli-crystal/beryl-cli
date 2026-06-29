@@ -810,6 +810,33 @@ module Beryl::Config
       fqdn
     end
 
+    # Adresse SSH pour les opérations en mode RESCUE (`beryl rescue`,
+    # `beryl wipe`, phase rescue de `beryl bootstrap`).
+    #
+    # Le système de secours (rescue Linux) ne dispose QUE de l'IP
+    # publique du serveur : il n'est ni attaché au vRack ni joint à
+    # l'overlay, et n'a pas de ProxyJump. Pour un host CACHÉ, `ssh_host`
+    # renvoie l'IP vRack (injoignable en rescue) → on l'ignore et on vise
+    # l'adresse publique DNS-résoluble (service OVH) ou l'IPv4 publique.
+    #
+    # Pour tout host NON caché, on retombe sur `ssh_host` à l'identique
+    # (aucun changement de comportement). Surchargable via
+    # `rescue_ssh_host:` dans le YAML mergé.
+    def rescue_ssh_host : String
+      if explicit = @merged[YAML::Any.new("rescue_ssh_host")]?.try(&.as_s?)
+        return explicit
+      end
+      if hidden?
+        if provider == "ovh" && (sn = ovh_service_name)
+          return sn
+        end
+        if ip = ovh_ipv4
+          return ip
+        end
+      end
+      ssh_host
+    end
+
     # Vrai si l'opérateur a déclaré explicitement `ssh_host:` dans
     # un YAML du merge. Distingue le cas « override YAML » du cas
     # « nom de host hébergeur dérivé ». Utilisé par
