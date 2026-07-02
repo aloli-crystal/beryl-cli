@@ -174,6 +174,8 @@ module Beryl::CLI::Wipe
     puts
     mode = hardware ? "matériel" : (passes > 0 ? "sécurisé #{passes} passe(s)" : "rapide (métadonnées)")
     STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl wipe] 6 destruction (#{mode}) sur #{target_disks.join(", ")}"
+    log_hint = (parallel && target_disks.size > 1) ? "/tmp/beryl-wipe-*.log" : "/tmp/beryl-wipe.log"
+    STDERR.puts "  journal détaillé (sur le rescue) : tail -f #{log_hint}"
     # Exécution DÉTACHÉE (setsid) + suivi par polling : un wipe sécurisé de
     # plusieurs To dure des heures ; s'il pendait au bout de la session SSH,
     # la moindre coupure (réseau, veille du laptop) le tuerait à mi-course.
@@ -238,6 +240,13 @@ module Beryl::CLI::Wipe
   DETACH_RC          = "/tmp/beryl-wipe.rc"
   DETACH_TICK        = 1.second
   DETACH_CHECK_TICKS = 5 # interroge le rescue tous les 5 points (~5 s)
+
+  # Log dédié d'un disque en mode parallèle : `/tmp/beryl-wipe-<dev>.log`
+  # (ex. `/tmp/beryl-wipe-nvme0n1.log`). Isole chaque `shred -v` pour un
+  # `tail -f` lisible, sans entrelacement.
+  def self.detach_disk_log(disk : String) : String
+    "/tmp/beryl-wipe-#{File.basename(disk)}.log"
+  end
 
   # Commande qui lance le script wipe en session DÉTACHÉE (`setsid`) : le
   # travail survit à une coupure SSH (un shred de plusieurs To dépasse
@@ -340,7 +349,7 @@ module Beryl::CLI::Wipe
           ""
         end
       <<-BASH
-      echo "--- wipe #{disk} ---"
+      echo "=== $(date -u +%FT%TZ) wipe #{disk} ==="
       zpool labelclear -f #{quoted} 2>/dev/null || true
       for n in 1 2 3 4 5 6 7 8 9; do
         zpool labelclear -f #{quoted}${n} 2>/dev/null || true
@@ -352,7 +361,13 @@ module Beryl::CLI::Wipe
 
     disk_section =
       if parallel && bodies.size > 1
-        wrapped = bodies.map { |b| "(\n#{b}\n) &\n__pids=\"$__pids $!\"" }.join("\n")
+        # Chaque disque écrit dans SON PROPRE log (`exec >`) → plus
+        # d'entrelacement caractère-à-caractère des `shred -v` concurrents.
+        # Le log principal ne garde que l'index (« disque → son log »).
+        wrapped = disks.zip(bodies).map do |disk, body|
+          log = detach_disk_log(disk)
+          "(\necho \"[$(date -u +%FT%TZ)] #{disk} -> #{log}\"\nexec > #{log} 2>&1\n#{body}\n) &\n__pids=\"$__pids $!\""
+        end.join("\n")
         <<-BASH
         # Effacement EN PARALLÈLE : un sous-shell par disque.
         __rc=0

@@ -17,8 +17,8 @@ describe Beryl::CLI::Wipe do
 
     it "émet un bloc par disque avec labelclear + sgdisk + dd" do
       script = Beryl::CLI::Wipe.wipe_script_multi(["/dev/sda", "/dev/sdb"])
-      script.should contain("--- wipe /dev/sda ---")
-      script.should contain("--- wipe /dev/sdb ---")
+      script.should contain("wipe /dev/sda ===")
+      script.should contain("wipe /dev/sdb ===")
       script.scan(/sgdisk --zap-all/).size.should eq(2)
       script.scan(/dd if=\/dev\/zero/).size.should eq(2)
     end
@@ -75,6 +75,25 @@ describe Beryl::CLI::Wipe do
       script.should contain("exit $__rc")
       # la destruction des pools reste UNIQUE et avant (hors sous-shells)
       script.scan(/zpool destroy/).size.should eq(1)
+    end
+
+    it "parallel : chaque disque a son propre log (pas d'entrelacement)" do
+      script = Beryl::CLI::Wipe.wipe_script_multi(["/dev/sda", "/dev/nvme0n1"], 1, false, parallel: true)
+      script.should contain("exec > /tmp/beryl-wipe-sda.log 2>&1")
+      script.should contain("exec > /tmp/beryl-wipe-nvme0n1.log 2>&1")
+      script.should contain("-> /tmp/beryl-wipe-sda.log")
+      # bannière horodatée
+      script.should contain("$(date -u +%FT%TZ) wipe /dev/sda")
+    end
+
+    it "detach_disk_log : /tmp/beryl-wipe-<dev>.log" do
+      Beryl::CLI::Wipe.detach_disk_log("/dev/nvme0n1").should eq("/tmp/beryl-wipe-nvme0n1.log")
+      Beryl::CLI::Wipe.detach_disk_log("/dev/sda").should eq("/tmp/beryl-wipe-sda.log")
+    end
+
+    it "sequential : un seul log, pas de redirection par disque" do
+      script = Beryl::CLI::Wipe.wipe_script_multi(["/dev/sda", "/dev/sdb"], 1, false)
+      script.should_not contain("exec > /tmp/beryl-wipe-")
     end
 
     it "parallel ignoré pour un seul disque (rien à paralléliser)" do
