@@ -101,6 +101,9 @@ describe Beryl::CLI::Wipe do
       Beryl::CLI::Wipe.detach_poll_cmd(4096).should contain("tail -c +4097 /tmp/beryl-wipe.log")
       Beryl::CLI::Wipe.detach_poll_cmd(0).should contain("__BERYL_RC__")
       Beryl::CLI::Wipe.detach_poll_cmd(0).should contain("cat /tmp/beryl-wipe.rc")
+      # `; true` final : le poll ne doit rendre ≠0 QUE sur une vraie coupure
+      # SSH (255), jamais parce que le .rc n'existe pas encore (cat exit 1).
+      Beryl::CLI::Wipe.detach_poll_cmd(0).should end_with("; true")
     end
 
     it "refuse un nombre de passes négatif" do

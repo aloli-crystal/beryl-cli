@@ -253,9 +253,16 @@ module Beryl::CLI::Wipe
   # Commande de suivi : renvoie les octets du log au-delà de `offset`, puis
   # un marqueur et le contenu du `.rc` (vide tant que le wipe tourne). Un
   # appel court et indépendant → reconnexion-tolérant.
+  #
+  # `; true` FINAL, crucial : sinon le code de sortie de la commande est
+  # celui de `cat #{DETACH_RC}`, qui ÉCHOUE (exit 1) tant que le `.rc`
+  # n'existe pas (= wipe en cours) — et beryl le prendrait à tort pour une
+  # coupure SSH. Avec `; true`, seul un vrai échec de transport (ssh 255)
+  # rend un exit ≠ 0. La complétion se détecte par le CONTENU du `.rc`, pas
+  # par le code de sortie.
   def self.detach_poll_cmd(offset : Int32) : String
     "tail -c +#{offset + 1} #{DETACH_LOG} 2>/dev/null; " \
-    "printf '#{DETACH_MARK}'; cat #{DETACH_RC} 2>/dev/null"
+    "printf '#{DETACH_MARK}'; cat #{DETACH_RC} 2>/dev/null; true"
   end
 
   # Lance `script` sur le rescue en DÉTACHÉ puis suit sa progression par
