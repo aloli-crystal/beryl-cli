@@ -88,6 +88,21 @@ describe Beryl::CLI::Wipe do
       script.should_not contain("__pids=")
     end
 
+    it "detach_launch_cmd : setsid détaché + log + capture du code de sortie" do
+      cmd = Beryl::CLI::Wipe.detach_launch_cmd
+      cmd.should contain("setsid sh -c")
+      cmd.should contain("> /tmp/beryl-wipe.log 2>&1")
+      cmd.should contain("echo $? > /tmp/beryl-wipe.rc")
+      cmd.should contain("</dev/null >/dev/null 2>&1 &")
+    end
+
+    it "detach_poll_cmd : lit le log au-delà de l'offset + marqueur + rc" do
+      Beryl::CLI::Wipe.detach_poll_cmd(0).should contain("tail -c +1 /tmp/beryl-wipe.log")
+      Beryl::CLI::Wipe.detach_poll_cmd(4096).should contain("tail -c +4097 /tmp/beryl-wipe.log")
+      Beryl::CLI::Wipe.detach_poll_cmd(0).should contain("__BERYL_RC__")
+      Beryl::CLI::Wipe.detach_poll_cmd(0).should contain("cat /tmp/beryl-wipe.rc")
+    end
+
     it "refuse un nombre de passes négatif" do
       expect_raises(ArgumentError, /passes négatif/) do
         Beryl::CLI::Wipe.wipe_script_multi(["/dev/sda"], -1)

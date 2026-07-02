@@ -174,10 +174,11 @@ module Beryl::CLI::Wipe
     puts
     mode = hardware ? "matériel" : (passes > 0 ? "sécurisé #{passes} passe(s)" : "rapide (métadonnées)")
     STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl wipe] 6 destruction (#{mode}) sur #{target_disks.join(", ")}"
-    # Streaming live : un wipe sécurisé/matériel peut durer longtemps et
-    # `shred -v` émet sa progression au fil de l'eau — on branche la sortie
-    # SSH directement sur le terminal au lieu de la bufferiser (exec()).
-    unless stream_exec(rescue_conn, wipe_script_multi(target_disks, passes, hardware, parallel))
+    # Exécution DÉTACHÉE (setsid) + suivi par polling : un wipe sécurisé de
+    # plusieurs To dure des heures ; s'il pendait au bout de la session SSH,
+    # la moindre coupure (réseau, veille du laptop) le tuerait à mi-course.
+    # Détaché, il survit à la coupure et beryl se reconnecte pour suivre.
+    unless detached_exec(rescue_conn, wipe_script_multi(target_disks, passes, hardware, parallel))
       STDERR.puts "beryl : le script de wipe a signalé une erreur (voir la sortie ci-dessus)"
       return EXIT_SSH_FAILED
     end
@@ -232,19 +233,56 @@ module Beryl::CLI::Wipe
     end
   end
 
-  # Exécute `command` sur la connexion rescue en branchant stdout/stderr
-  # DIRECTEMENT sur le terminal (pas de bufferisation comme `Connection#exec`).
-  # Indispensable pour un wipe long : la progression de `shred -v` s'affiche
-  # au fil de l'eau. `-n` ferme stdin (cf. note dans SSH::Connection#exec).
-  # Renvoie true si la commande distante s'est terminée avec succès.
-  def self.stream_exec(conn : SSH::Connection, command : String) : Bool
-    status = Process.run(
-      command: "ssh",
-      args: ["-n"] + conn.ssh_args(command),
-      output: STDOUT,
-      error: STDERR,
-    )
-    status.success?
+  DETACH_SH   = "/tmp/beryl-wipe.sh"
+  DETACH_LOG  = "/tmp/beryl-wipe.log"
+  DETACH_RC   = "/tmp/beryl-wipe.rc"
+  DETACH_MARK = "__BERYL_RC__"
+
+  # Commande qui lance le script wipe en session DÉTACHÉE (`setsid`) : le
+  # travail survit à une coupure SSH (un shred de plusieurs To dépasse
+  # largement la durée de vie d'une session). Sortie redirigée dans un log,
+  # code de sortie écrit dans un fichier `.rc` à la fin. Tous les fds sont
+  # détachés du canal SSH (`</dev/null >/dev/null`) pour que l'appel rende
+  # la main immédiatement.
+  def self.detach_launch_cmd : String
+    "rm -f #{DETACH_RC} #{DETACH_LOG}; " \
+    "setsid sh -c 'sh #{DETACH_SH} > #{DETACH_LOG} 2>&1; echo $? > #{DETACH_RC}' " \
+    "</dev/null >/dev/null 2>&1 & echo lancé"
+  end
+
+  # Commande de suivi : renvoie les octets du log au-delà de `offset`, puis
+  # un marqueur et le contenu du `.rc` (vide tant que le wipe tourne). Un
+  # appel court et indépendant → reconnexion-tolérant.
+  def self.detach_poll_cmd(offset : Int32) : String
+    "tail -c +#{offset + 1} #{DETACH_LOG} 2>/dev/null; " \
+    "printf '#{DETACH_MARK}'; cat #{DETACH_RC} 2>/dev/null"
+  end
+
+  # Lance `script` sur le rescue en DÉTACHÉ puis suit sa progression par
+  # petits appels SSH successifs. Si un appel échoue (coupure réseau), le
+  # wipe CONTINUE côté rescue (détaché) et beryl réessaie. Renvoie true si
+  # le script s'est terminé avec le code 0.
+  def self.detached_exec(conn : SSH::Connection, script : String, poll : Time::Span = 8.seconds) : Bool
+    conn.write_file(DETACH_SH, script)
+    conn.exec(detach_launch_cmd, raise_on_error: false)
+    offset = 0
+    loop do
+      probe = conn.exec(detach_poll_cmd(offset), raise_on_error: false)
+      unless probe.success?
+        STDERR.puts "beryl : connexion au rescue perdue — le wipe CONTINUE (détaché), reprise dans #{poll.total_seconds.to_i}s…"
+        sleep poll
+        next
+      end
+      out = probe.stdout
+      idx = out.rindex(DETACH_MARK) || out.size
+      chunk = out[0...idx]
+      print chunk
+      STDOUT.flush
+      offset += chunk.bytesize
+      rc_str = idx < out.size ? out[(idx + DETACH_MARK.size)..].strip : ""
+      return rc_str == "0" unless rc_str.empty?
+      sleep poll
+    end
   end
 
   # Script shell qui détruit les pools ZFS importables (une seule fois,
