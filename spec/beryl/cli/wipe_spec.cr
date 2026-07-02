@@ -129,6 +129,37 @@ describe Beryl::CLI::Wipe do
       Beryl::CLI::Wipe.heartbeat_glyph(50).should eq("50")
     end
 
+    it "sanitize : chemin SSD durci en blkdiscard --secure (repli TRIM puis shred)" do
+      script = Beryl::CLI::Wipe.wipe_script_multi(["/dev/sda"], 0, true, false, secure: true)
+      script.should contain("blkdiscard --secure -f /dev/sda")
+      script.should contain("__method=discard")
+    end
+
+    it "sans sanitize : SSD reste en blkdiscard TRIM (pas de --secure)" do
+      script = Beryl::CLI::Wipe.wipe_script_multi(["/dev/sda"], 0, true, false)
+      script.should contain("blkdiscard -f /dev/sda")
+      script.should_not contain("blkdiscard --secure")
+    end
+
+    it "verify : fonction __verify_zeros + case par méthode, contrôle en dernier" do
+      script = Beryl::CLI::Wipe.wipe_script_multi(["/dev/sda"], 0, true, false, verify: true)
+      script.should contain("__verify_zeros() {")
+      script.should contain("VERIFY FAIL")
+      # le case de vérif est le DERNIER bloc du corps (→ code de sortie)
+      script.strip.should end_with("esac")
+      script.should contain("nvme|discard) __verify_zeros /dev/sda")
+    end
+
+    it "verify absent : pas de bloc de vérification" do
+      script = Beryl::CLI::Wipe.wipe_script_multi(["/dev/sda"], 0, true, false)
+      script.should_not contain("__verify_zeros")
+    end
+
+    it "verify hors méthode zéro (métadonnées) : contrôle non applicable" do
+      script = Beryl::CLI::Wipe.wipe_script_multi(["/dev/sda"], 0, false, false, verify: true)
+      script.should contain("métadonnées — contrôle zéro non applicable")
+    end
+
     it "refuse un nombre de passes négatif" do
       expect_raises(ArgumentError, /passes négatif/) do
         Beryl::CLI::Wipe.wipe_script_multi(["/dev/sda"], -1)

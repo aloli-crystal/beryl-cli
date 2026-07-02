@@ -22,6 +22,8 @@ module Beryl::CLI::Wipe
     passes = 0
     hardware = false
     parallel = true
+    sanitize = false
+    verify = false
     account_hint : String? = nil
     domain_hint : String? = nil
     positional = [] of String
@@ -42,6 +44,8 @@ module Beryl::CLI::Wipe
         passes = n
       end
       p.on("-S", "--secure-erase", "Effacement MATÉRIEL adapté au support : nvme format (NVMe), blkdiscard/TRIM (SSD), shred (HDD)") { hardware = true }
+      p.on("--sanitize", "Durcit le chemin SSD : blkdiscard --secure (BLKSECDISCARD, effacement physique). Implique -S") { hardware = true; sanitize = true }
+      p.on("--verify", "Après effacement, relit 7 sondages/disque et vérifie qu'ils sont à ZÉRO (valide TRIM/format ; ignoré sur shred)") { verify = true }
       p.on("--sequential", "Effacer les disques l'un après l'autre (défaut : en parallèle, un sous-shell par disque)") { parallel = false }
       p.on("-f", "--force", "Pas de confirmation (DANGER, scripts uniquement)") { force = true }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
@@ -121,7 +125,8 @@ module Beryl::CLI::Wipe
     puts "  disques :"
     target_disks.each { |d| puts "    - #{d}" }
     if hardware
-      puts "  mode    : effacement MATÉRIEL — nvme format / blkdiscard (TRIM) /"
+      disc = sanitize ? "blkdiscard --secure (BLKSECDISCARD)" : "blkdiscard (TRIM)"
+      puts "  mode    : effacement MATÉRIEL — nvme format / #{disc} /"
       puts "            shred selon le support détecté sur chaque disque"
     elsif passes > 0
       puts "  mode    : effacement SÉCURISÉ — #{passes} passe(s) d'écriture sur"
@@ -132,6 +137,7 @@ module Beryl::CLI::Wipe
     if parallel && target_disks.size > 1
       puts "  exécut. : en parallèle (#{target_disks.size} disques simultanément)"
     end
+    puts "  vérif.  : relecture de zéros après effacement (7 sondages/disque)" if verify
     puts "================================================================"
     puts
 
@@ -155,8 +161,9 @@ module Beryl::CLI::Wipe
       exec_label = (parallel && target_disks.size > 1) ? ", en parallèle" : ""
       puts "DRY-RUN : aucune destruction. Plan d'effacement (#{mode_label}#{exec_label}) :"
       puts "  • pools ZFS importables → zpool destroy/export (global, avant les disques)"
-      target_disks.each { |disk| puts "  • #{disk} → #{erase_plan(disk, passes, hardware)}" }
+      target_disks.each { |disk| puts "  • #{disk} → #{erase_plan(disk, passes, hardware, sanitize)}" }
       puts "  • puis, par disque → sgdisk --zap-all + 10 Mo de zéros en tête (GPT propre)"
+      puts "  • vérification → relecture de 7 sondages/disque, doivent être à zéro" if verify
       puts "Pour exécuter : #{Beryl.rerun_hint("wipe", args, replace_host: {raw.not_nil!, "#{host.account_name}/#{host.fqdn}"})}"
       return EXIT_OK
     end
@@ -180,7 +187,23 @@ module Beryl::CLI::Wipe
     # plusieurs To dure des heures ; s'il pendait au bout de la session SSH,
     # la moindre coupure (réseau, veille du laptop) le tuerait à mi-course.
     # Détaché, il survit à la coupure et beryl se reconnecte pour suivre.
-    unless detached_exec(rescue_conn, wipe_script_multi(target_disks, passes, hardware, parallel))
+    wipe_ok = detached_exec(rescue_conn, wipe_script_multi(target_disks, passes, hardware, parallel, secure: sanitize, verify: verify))
+
+    # --verify : un « VERIFY FAIL » dans les logs = un sondage non-nul (le
+    # disque ne relit pas des zéros). Le code de sortie du script le reflète
+    # déjà (→ wipe_ok false), mais on remonte les lignes pour dire QUEL disque.
+    if verify
+      fails = rescue_conn.exec("grep -h 'VERIFY FAIL' /tmp/beryl-wipe*.log 2>/dev/null", raise_on_error: false).stdout.strip
+      if fails.empty?
+        puts "Vérification : OK — tous les sondages relus à zéro."
+      else
+        STDERR.puts "beryl : VÉRIFICATION ÉCHOUÉE — des sondages ne sont PAS à zéro :"
+        STDERR.puts fails
+        return EXIT_SSH_FAILED
+      end
+    end
+
+    unless wipe_ok
       STDERR.puts "beryl : le script de wipe a signalé une erreur (voir la sortie ci-dessus)"
       return EXIT_SSH_FAILED
     end
@@ -220,13 +243,14 @@ module Beryl::CLI::Wipe
   # dry-run). En mode matériel sur un support non-NVMe, le choix exact
   # (blkdiscard vs shred) se fait à l'exécution selon `rotational`, donc
   # on annonce les deux issues.
-  def self.erase_plan(disk : String, passes : Int32, hardware : Bool) : String
+  def self.erase_plan(disk : String, passes : Int32, hardware : Bool, secure : Bool = false) : String
     if hardware
       if disk.starts_with?("/dev/nvme")
         "effacement matériel NVMe (nvme format --ses=1)"
       else
         n = passes > 0 ? passes : 1
-        "effacement matériel : blkdiscard/TRIM si SSD, sinon shred #{n} passe(s) — choisi sur le rescue"
+        disc = secure ? "blkdiscard --secure si SSD" : "blkdiscard/TRIM si SSD"
+        "effacement matériel : #{disc}, sinon shred #{n} passe(s) — choisi sur le rescue"
       end
     elsif passes > 0
       "réécriture intégrale #{passes} passe(s) (shred)"
@@ -334,7 +358,7 @@ module Beryl::CLI::Wipe
   # shred). La destruction des pools ZFS reste AVANT et séquentielle (un
   # pool peut couvrir plusieurs disques). On attend tous les sous-shells
   # et on propage un échec si l'un d'eux a échoué.
-  def self.wipe_script_multi(disks : Array(String), passes : Int32 = 0, hardware : Bool = false, parallel : Bool = false) : String
+  def self.wipe_script_multi(disks : Array(String), passes : Int32 = 0, hardware : Bool = false, parallel : Bool = false, secure : Bool = false, verify : Bool = false) : String
     raise ArgumentError.new("wipe_script_multi : disks vide") if disks.empty?
     raise ArgumentError.new("wipe_script_multi : passes négatif") if passes < 0
     fallback_passes = passes > 0 ? passes : 1
@@ -342,12 +366,13 @@ module Beryl::CLI::Wipe
       quoted = Process.quote(disk)
       erase =
         if hardware
-          "\n" + hardware_erase_block(disk, quoted, fallback_passes)
+          "\n" + hardware_erase_block(disk, quoted, fallback_passes, secure)
         elsif passes > 0
           "\n" + overwrite_block(disk, quoted, passes)
         else
           ""
         end
+      check = verify ? "\n" + verify_block(disk, quoted) : ""
       <<-BASH
       echo "=== $(date -u +%FT%TZ) wipe #{disk} ==="
       zpool labelclear -f #{quoted} 2>/dev/null || true
@@ -355,7 +380,7 @@ module Beryl::CLI::Wipe
         zpool labelclear -f #{quoted}${n} 2>/dev/null || true
       done#{erase}
       sgdisk --zap-all #{quoted} 2>&1 | tail -3
-      dd if=/dev/zero of=#{quoted} bs=1M count=10 conv=notrunc 2>&1 | tail -1
+      dd if=/dev/zero of=#{quoted} bs=1M count=10 conv=notrunc 2>&1 | tail -1#{check}
       BASH
     end
 
@@ -382,8 +407,10 @@ module Beryl::CLI::Wipe
         bodies.join("\n")
       end
 
+    preamble = verify ? "\n" + verify_fn : ""
     <<-BASH
     set -u
+    #{preamble}
     # Détruit d'abord tous les pools ZFS importables (un pool peut
     # recouvrir plusieurs disques, on ne peut pas le faire par disque).
     for p in $(zpool import 2>/dev/null | awk '/^ *pool:/{print $2}'); do
@@ -398,6 +425,7 @@ module Beryl::CLI::Wipe
   # repli `dd if=/dev/urandom` en boucle si shred est absent du rescue.
   private def self.overwrite_block(disk : String, quoted : String, passes : Int32) : String
     <<-SH
+    __method=shred
     echo "effacement sécurisé : #{passes} passe(s) sur #{disk} (peut être très long)"
     if command -v shred >/dev/null 2>&1; then
       shred -v -f -n #{passes} #{quoted}
@@ -414,27 +442,89 @@ module Beryl::CLI::Wipe
 
   # Effacement *matériel*, choisi à l'exécution selon le support réel :
   #   NVMe              → `nvme format --ses=1` (efface la zone user)
-  #   SSD (rotational 0) → `blkdiscard` (TRIM intégral)
+  #   SSD (rotational 0) → `blkdiscard` (TRIM) ; `--sanitize` → BLKSECDISCARD
   #   HDD rotatif        → pas de secure-erase matériel sûr → repli `shred`
   # Chaque commande matérielle retombe sur `shred -n fallback_passes` si
   # elle échoue (outil absent, disque gelé/frozen, contrôleur récalcitrant).
-  private def self.hardware_erase_block(disk : String, quoted : String, fallback_passes : Int32) : String
+  # `secure` (`--sanitize`) durcit le chemin SSD : `blkdiscard --secure`
+  # (effacement physique BLKSECDISCARD) avant le TRIM normal. `__method`
+  # (nvme|discard|shred) est posé pour la vérification `--verify`.
+  private def self.hardware_erase_block(disk : String, quoted : String, fallback_passes : Int32, secure : Bool) : String
+    ssd =
+      if secure
+        <<-SSD
+        echo "  support SSD (non rotatif) → blkdiscard --secure (BLKSECDISCARD)"
+        __method=discard
+        if blkdiscard --secure -f #{quoted} 2>/dev/null; then :
+        elif blkdiscard -f #{quoted}; then echo "  secure-discard non supporté → TRIM normal"
+        else echo "  blkdiscard KO → repli shred"; __method=shred; shred -v -f -n #{fallback_passes} #{quoted}
+        fi
+        SSD
+      else
+        <<-SSD
+        echo "  support SSD (non rotatif) → blkdiscard (TRIM)"
+        __method=discard
+        blkdiscard -f #{quoted} \\
+          || { echo "  blkdiscard KO → repli shred"; __method=shred; shred -v -f -n #{fallback_passes} #{quoted}; }
+        SSD
+      end
     <<-SH
     echo "secure-erase matériel de #{disk}"
     __b=$(basename #{quoted})
     if echo #{quoted} | grep -q '^/dev/nvme'; then
       echo "  support NVMe → nvme format --ses=1"
+      __method=nvme
       nvme format #{quoted} --ses=1 --force \\
         || nvme format #{quoted} -s 1 \\
-        || { echo "  nvme format KO → repli shred"; shred -v -f -n #{fallback_passes} #{quoted}; }
+        || { echo "  nvme format KO → repli shred"; __method=shred; shred -v -f -n #{fallback_passes} #{quoted}; }
     elif [ -e "/sys/block/$__b/queue/rotational" ] && [ "$(cat /sys/block/$__b/queue/rotational)" = "0" ]; then
-      echo "  support SSD (non rotatif) → blkdiscard (TRIM)"
-      blkdiscard -f #{quoted} \\
-        || { echo "  blkdiscard KO → repli shred"; shred -v -f -n #{fallback_passes} #{quoted}; }
+    #{ssd}
     else
       echo "  support HDD rotatif : pas de secure-erase matériel → shred #{fallback_passes} passe(s)"
+      __method=shred
       shred -v -f -n #{fallback_passes} #{quoted}
     fi
+    SH
+  end
+
+  # Fonction shell de vérification (définie une fois en préambule quand
+  # `--verify`) : lit 7 sondages répartis sur le disque et confirme qu'ils
+  # sont à ZÉRO. Valide le « Deterministic Zeroes After Trim » d'un SSD /
+  # le zéro après `nvme format`. Écrit « VERIFY FAIL … » sur toute
+  # divergence et renvoie non-zéro.
+  def self.verify_fn : String
+    <<-SH
+    __verify_zeros() {
+      __d="$1"
+      __sz=$(blockdev --getsize64 "$__d" 2>/dev/null || echo 0)
+      if [ "$__sz" -le 0 ]; then echo "verify $__d : taille inconnue, skip"; return 0; fi
+      __mib=$((__sz / 1048576))
+      __bad=0
+      for __f in 0 10 25 50 75 90 99; do
+        __off=$((__mib * __f / 100))
+        __nz=$(dd if="$__d" bs=1M skip="$__off" count=1 2>/dev/null | tr -d '\\000' | wc -c)
+        if [ "$__nz" -ne 0 ]; then
+          echo "VERIFY FAIL $__d @ ${__off}Mo : ${__nz} octet(s) non-nul(s)"
+          __bad=1
+        fi
+      done
+      [ "$__bad" -eq 0 ] && echo "verify $__d : OK (zéros aux 7 sondages)"
+      return "$__bad"
+    }
+    SH
+  end
+
+  # Bloc de vérification par disque (dernier du corps → son code de sortie
+  # devient celui du sous-shell, donc `--verify` échoue le disque en
+  # parallèle). Ne contrôle les zéros que si la méthode réelle en produit
+  # (nvme/discard) ; `shred` = réécriture aléatoire, `meta` = métadonnées.
+  private def self.verify_block(disk : String, quoted : String) : String
+    <<-SH
+    case "${__method:-meta}" in
+      nvme|discard) __verify_zeros #{quoted} ;;
+      shred) echo "verify #{disk} : shred (réécriture) — contrôle zéro non applicable" ;;
+      *) echo "verify #{disk} : métadonnées — contrôle zéro non applicable" ;;
+    esac
     SH
   end
 end
