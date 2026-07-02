@@ -96,14 +96,18 @@ describe Beryl::CLI::Wipe do
       cmd.should contain("</dev/null >/dev/null 2>&1 &")
     end
 
-    it "detach_poll_cmd : lit le log au-delà de l'offset + marqueur + rc" do
-      Beryl::CLI::Wipe.detach_poll_cmd(0).should contain("tail -c +1 /tmp/beryl-wipe.log")
-      Beryl::CLI::Wipe.detach_poll_cmd(4096).should contain("tail -c +4097 /tmp/beryl-wipe.log")
-      Beryl::CLI::Wipe.detach_poll_cmd(0).should contain("__BERYL_RC__")
-      Beryl::CLI::Wipe.detach_poll_cmd(0).should contain("cat /tmp/beryl-wipe.rc")
-      # `; true` final : le poll ne doit rendre ≠0 QUE sur une vraie coupure
-      # SSH (255), jamais parce que le .rc n'existe pas encore (cat exit 1).
-      Beryl::CLI::Wipe.detach_poll_cmd(0).should end_with("; true")
+    it "detach_rc_cmd : lit le .rc, `; true` final (ne rend ≠0 que sur coupure SSH)" do
+      cmd = Beryl::CLI::Wipe.detach_rc_cmd
+      cmd.should contain("cat /tmp/beryl-wipe.rc")
+      cmd.should end_with("; true")
+    end
+
+    it "heartbeat_glyph : point sauf aux dizaines (10/20/30/40/50)" do
+      Beryl::CLI::Wipe.heartbeat_glyph(1).should eq(".")
+      Beryl::CLI::Wipe.heartbeat_glyph(9).should eq(".")
+      Beryl::CLI::Wipe.heartbeat_glyph(10).should eq("10")
+      Beryl::CLI::Wipe.heartbeat_glyph(30).should eq("30")
+      Beryl::CLI::Wipe.heartbeat_glyph(50).should eq("50")
     end
 
     it "refuse un nombre de passes négatif" do

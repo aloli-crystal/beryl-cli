@@ -233,10 +233,11 @@ module Beryl::CLI::Wipe
     end
   end
 
-  DETACH_SH   = "/tmp/beryl-wipe.sh"
-  DETACH_LOG  = "/tmp/beryl-wipe.log"
-  DETACH_RC   = "/tmp/beryl-wipe.rc"
-  DETACH_MARK = "__BERYL_RC__"
+  DETACH_SH          = "/tmp/beryl-wipe.sh"
+  DETACH_LOG         = "/tmp/beryl-wipe.log"
+  DETACH_RC          = "/tmp/beryl-wipe.rc"
+  DETACH_TICK        = 1.second
+  DETACH_CHECK_TICKS = 5 # interroge le rescue tous les 5 points (~5 s)
 
   # Commande qui lance le script wipe en session DÉTACHÉE (`setsid`) : le
   # travail survit à une coupure SSH (un shred de plusieurs To dépasse
@@ -250,45 +251,54 @@ module Beryl::CLI::Wipe
     "</dev/null >/dev/null 2>&1 & echo lancé"
   end
 
-  # Commande de suivi : renvoie les octets du log au-delà de `offset`, puis
-  # un marqueur et le contenu du `.rc` (vide tant que le wipe tourne). Un
-  # appel court et indépendant → reconnexion-tolérant.
-  #
-  # `; true` FINAL, crucial : sinon le code de sortie de la commande est
-  # celui de `cat #{DETACH_RC}`, qui ÉCHOUE (exit 1) tant que le `.rc`
-  # n'existe pas (= wipe en cours) — et beryl le prendrait à tort pour une
-  # coupure SSH. Avec `; true`, seul un vrai échec de transport (ssh 255)
-  # rend un exit ≠ 0. La complétion se détecte par le CONTENU du `.rc`, pas
-  # par le code de sortie.
-  def self.detach_poll_cmd(offset : Int32) : String
-    "tail -c +#{offset + 1} #{DETACH_LOG} 2>/dev/null; " \
-    "printf '#{DETACH_MARK}'; cat #{DETACH_RC} 2>/dev/null; true"
+  # Commande de complétion : renvoie le contenu du `.rc` (vide tant que le
+  # wipe tourne). `; true` FINAL crucial : sinon le code de sortie est celui
+  # de `cat #{DETACH_RC}`, qui ÉCHOUE (exit 1) tant que le `.rc` n'existe pas
+  # (= wipe en cours) — beryl le prendrait à tort pour une coupure SSH. Avec
+  # `; true`, seul un vrai échec de transport (ssh 255) rend un exit ≠ 0. La
+  # complétion se lit dans le CONTENU du `.rc`, pas dans le code de sortie.
+  def self.detach_rc_cmd : String
+    "cat #{DETACH_RC} 2>/dev/null; true"
   end
 
-  # Lance `script` sur le rescue en DÉTACHÉ puis suit sa progression par
-  # petits appels SSH successifs. Si un appel échoue (coupure réseau), le
-  # wipe CONTINUE côté rescue (détaché) et beryl réessaie. Renvoie true si
-  # le script s'est terminé avec le code 0.
-  def self.detached_exec(conn : SSH::Connection, script : String, poll : Time::Span = 8.seconds) : Bool
+  # Ligne de battement : un point par seconde, le repère des dizaines (10,
+  # 20, 30, 40, 50) aux secondes rondes. `secs` va de 1 à 59 (0/60 = saut de
+  # ligne, géré par l'appelant). Exposé pour test.
+  def self.heartbeat_glyph(secs : Int32) : String
+    secs % 10 == 0 ? secs.to_s : "."
+  end
+
+  # Lance `script` sur le rescue en DÉTACHÉ puis affiche un battement :
+  #   [HH:MM:SS].........10.........20.........30.........40.........50 1mn
+  # une ligne par minute (heure au début, total en fin de ligne). Les points
+  # sont pilotés par une horloge LOCALE ; toutes les DETACH_CHECK_TICKS
+  # secondes beryl interroge le rescue pour la complétion. Un appel SSH qui
+  # échoue n'interrompt rien : le wipe est détaché, les points continuent, et
+  # la vérif reprend au tick suivant. Renvoie true si le script a fini en 0.
+  def self.detached_exec(conn : SSH::Connection, script : String) : Bool
     conn.write_file(DETACH_SH, script)
     conn.exec(detach_launch_cmd, raise_on_error: false)
-    offset = 0
+    ticks = 0
+    print "[#{Beryl.format_timestamp(Time.local)}]"
+    STDOUT.flush
     loop do
-      probe = conn.exec(detach_poll_cmd(offset), raise_on_error: false)
-      unless probe.success?
-        STDERR.puts "beryl : connexion au rescue perdue — le wipe CONTINUE (détaché), reprise dans #{poll.total_seconds.to_i}s…"
-        sleep poll
-        next
+      sleep DETACH_TICK
+      ticks += 1
+      if ticks % 60 == 0
+        print " #{ticks // 60}mn\n[#{Beryl.format_timestamp(Time.local)}]"
+      else
+        print heartbeat_glyph(ticks % 60)
       end
-      out = probe.stdout
-      idx = out.rindex(DETACH_MARK) || out.size
-      chunk = out[0...idx]
-      print chunk
       STDOUT.flush
-      offset += chunk.bytesize
-      rc_str = idx < out.size ? out[(idx + DETACH_MARK.size)..].strip : ""
-      return rc_str == "0" unless rc_str.empty?
-      sleep poll
+
+      next unless ticks % DETACH_CHECK_TICKS == 0
+      probe = conn.exec(detach_rc_cmd, raise_on_error: false)
+      next unless probe.success?
+      rc_str = probe.stdout.strip
+      next if rc_str.empty?
+      print " #{ticks // 60}mn#{ticks % 60}s\n"
+      STDOUT.flush
+      return rc_str == "0"
     end
   end
 
