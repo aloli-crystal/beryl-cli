@@ -114,6 +114,6 @@ module Beryl::CLI::FollowInstall
   end
 
   private def self.log(message : String) : Nil
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl follow-install] #{message}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl follow-install] #{Beryl.format_step(message)}"
   end
 end

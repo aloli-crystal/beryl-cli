@@ -361,6 +361,6 @@ module Beryl::CLI::ScalewayReinstall
   end
 
   private def self.log(message : String) : Nil
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl scaleway-reinstall] #{message}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl scaleway-reinstall] #{Beryl.format_step(message)}"
   end
 end

@@ -173,6 +173,6 @@ module Beryl::CLI::BootHd
   end
 
   private def self.log(message : String) : Nil
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl boot-hd] #{message}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl boot-hd] #{Beryl.format_step(message)}"
   end
 end

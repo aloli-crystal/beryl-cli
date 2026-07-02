@@ -81,7 +81,7 @@ module Beryl::CLI::Bootstrap
         mfsbsd_version = info.version
         abi = info.abi
         resolved_iso_url ||= info.image_url
-        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] 7.0 mfsBSD SE détectée : #{info.version} (#{info.image_url})"
+        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 7.0] mfsBSD SE détectée : #{info.version} (#{info.image_url})"
         # Croisement avec la dernière RELEASE FreeBSD du projet : mfsBSD SE
         # (= version installable) peut être EN RETARD (ex. FreeBSD 15.1 sortie,
         # mfsBSD SE encore en 15.0). On INFORME sans changer la version (on ne
@@ -126,7 +126,7 @@ module Beryl::CLI::Bootstrap
     Beryl::CLI::Precheck.report(host, precheck)
     unless precheck.ok
       if force
-        STDERR.puts "[beryl bootstrap] 7 --force : précheck ignoré. PROCÉDEZ AVEC PRUDENCE."
+        STDERR.puts "[beryl bootstrap] [Étape 7] --force : précheck ignoré. PROCÉDEZ AVEC PRUDENCE."
       else
         STDERR.puts
         STDERR.puts "beryl : précheck échoué. Corrigez la config ou utilisez --force."
@@ -154,7 +154,7 @@ module Beryl::CLI::Bootstrap
     all_pool_disks = disks + host.data_zpools.flat_map(&.disks)
     ashift_by_disk = detect_ashifts(rescue_conn, all_pool_disks)
     boot_ashift = disks.map { |d| ashift_by_disk[d]? || 12 }.max
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] 7 ashift natif (blockdev) : " +
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 7] ashift natif (blockdev) : " +
                 ashift_by_disk.map { |d, a| "#{d}→#{a}" }.join(", ")
 
     # Pools data : créés post-install via `zpool create` dans la VM
@@ -248,8 +248,8 @@ module Beryl::CLI::Bootstrap
     installed_user = users.first.name
 
     all_disks = disks + data_pools.flat_map(&.disks)
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] 7 cible : #{Beryl.format_ssh_target(host)} disques : #{all_disks.join(", ")}"
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] 7 FreeBSD #{freebsd_version} — users : #{users.map(&.name).join(", ")} — pools data : #{data_pools.size}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 7] cible : #{Beryl.format_ssh_target(host)} disques : #{all_disks.join(", ")}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 7] FreeBSD #{freebsd_version} — users : #{users.map(&.name).join(", ")} — pools data : #{data_pools.size}"
 
     if dry_run
       STDERR.puts
@@ -377,7 +377,7 @@ module Beryl::CLI::Bootstrap
     )
     bootstrap.run
 
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] 7 terminé pour #{host.fqdn}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 7] terminé pour #{host.fqdn}"
     EXIT_OK
   rescue ex : Beryl::Config::Root::HostNotFound
     STDERR.puts "beryl : #{ex.message}"

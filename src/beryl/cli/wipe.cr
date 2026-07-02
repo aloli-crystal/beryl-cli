@@ -180,7 +180,7 @@ module Beryl::CLI::Wipe
 
     puts
     mode = hardware ? "matériel" : (passes > 0 ? "sécurisé #{passes} passe(s)" : "rapide (métadonnées)")
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl wipe] 6 destruction (#{mode}) sur #{target_disks.join(", ")}"
+    log "6 destruction (#{mode}) sur #{target_disks.join(", ")}"
     log_hint = (parallel && target_disks.size > 1) ? "/tmp/beryl-wipe-*.log" : "/tmp/beryl-wipe.log"
     STDERR.puts "  journal détaillé (sur le rescue) : tail -f #{log_hint}"
     # Exécution DÉTACHÉE (setsid) + suivi par polling : un wipe sécurisé de
@@ -216,7 +216,7 @@ module Beryl::CLI::Wipe
     after_pool = rescue_conn.exec("zpool import 2>&1", raise_on_error: false).stdout.strip
     puts after_pool.empty? ? "Aucun pool ZFS importable." : after_pool
 
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl wipe] 6 terminé"
+    log "6 terminé"
     EXIT_OK
   rescue ex : Beryl::Config::Root::HostNotFound
     STDERR.puts "beryl : #{ex.message}"
@@ -233,6 +233,12 @@ module Beryl::CLI::Wipe
   rescue ex
     STDERR.puts "beryl : erreur inattendue — #{ex.class}: #{ex.message}"
     EXIT_UNEXPECTED
+  end
+
+  # Log horodaté d'étape. `Beryl.format_step` enveloppe le numéro de tête
+  # (« 6 … » → « [Étape 6] … »).
+  private def self.log(message : String) : Nil
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl wipe] #{Beryl.format_step(message)}"
   end
 
   def self.wipe_script(disk : String, passes : Int32 = 0, hardware : Bool = false) : String

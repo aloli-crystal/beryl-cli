@@ -747,7 +747,7 @@ module Beryl::CLI::Rescue
   end
 
   private def self.log(message : String) : Nil
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl rescue] #{message}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl rescue] #{Beryl.format_step(message)}"
   end
 
   # Message d'erreur pour quand `provider:` n'est pas résolu. Liste les

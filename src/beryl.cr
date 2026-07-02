@@ -54,6 +54,16 @@ module Beryl
     end
   end
 
+  # Rend lisible le NUMÉRO D'ÉTAPE en tête d'un message de log : un jeton
+  # `6`, `4.3`, `7.0` ou `H1` suivi d'un espace devient `[Étape 6]`, etc.
+  # (numérotation cohérente des commandes : init 1, add-provider 2,
+  # add-domain 3, rescue 4, wipe 6, bootstrap 7, follow-install 8…).
+  # Idempotent (ne re-enveloppe pas `[Étape …]`) et sans effet si le
+  # message ne commence pas par un jeton d'étape.
+  def self.format_step(text : String) : String
+    text.sub(/\A(H?\d+(?:\.\d+)*)(\s)/) { "[Étape #{$1}]#{$2}" }
+  end
+
   private def self.french_locale? : Bool
     {"LC_ALL", "LC_TIME", "LANG"}.each do |var|
       v = ENV[var]?
@@ -146,7 +156,7 @@ module Beryl
   #     # ... long polling ...
   #   end
   def self.log_step(prefix : String, label : String, & : -> T) : T forall T
-    line = "[#{format_timestamp(Time.local)}] [#{prefix}] #{label}"
+    line = "[#{format_timestamp(Time.local)}] [#{prefix}] #{format_step(label)}"
     pad = pad_to(line)
     STDERR.print "#{line}#{pad}  [   0s]"
     STDERR.flush

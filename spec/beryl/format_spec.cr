@@ -6,6 +6,24 @@ private def fixture(name : String) : String
 end
 
 describe Beryl do
+  describe ".format_step" do
+    it "enveloppe le numéro d'étape de tête (simple, hiérarchique, hors-séquence)" do
+      Beryl.format_step("6 destruction").should eq("[Étape 6] destruction")
+      Beryl.format_step("4.3 ovh : tentative").should eq("[Étape 4.3] ovh : tentative")
+      Beryl.format_step("7.0 mfsBSD SE").should eq("[Étape 7.0] mfsBSD SE")
+      Beryl.format_step("H1 reinstall").should eq("[Étape H1] reinstall")
+    end
+
+    it "ne touche pas un message sans numéro de tête" do
+      Beryl.format_step("démarrage").should eq("démarrage")
+      Beryl.format_step("beryl : erreur").should eq("beryl : erreur")
+    end
+
+    it "est idempotent (ne re-enveloppe pas)" do
+      Beryl.format_step("[Étape 6] déjà").should eq("[Étape 6] déjà")
+    end
+  end
+
   describe ".format_ssh_target" do
     it "retourne le FQDN seul quand ssh_host == fqdn" do
       rh = Beryl::Config::Root.load(fixture("direct-hosts")).resolve("loulou")
