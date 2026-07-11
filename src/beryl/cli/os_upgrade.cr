@@ -214,8 +214,8 @@ module Beryl::CLI::OsUpgrade
   # Attend le retour SSH après reboot (grâce initiale + polling). True si revenu.
   private def self.wait_back(host, grace = 20, timeout = 300, interval = 15) : Bool
     sleep grace.seconds
-    deadline = Time.monotonic + timeout.seconds
-    while Time.monotonic < deadline
+    deadline = Time.instant + timeout.seconds
+    while Time.instant < deadline
       begin
         return true if host.connection.exec("uname -s", raise_on_error: false).success?
       rescue
