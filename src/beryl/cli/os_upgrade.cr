@@ -2,6 +2,7 @@ require "option_parser"
 require "../apply"
 require "../freebsd_release"
 require "./account_utils"
+require "./info"   # scoped_hosts (portée société/domaine/host)
 require "./unlock" # déverrouillage auto post-reboot (hosts chiffrés)
 
 # `beryl os-upgrade <host> [--to X.Y] [--apply] [--reboot]` — met à jour le
@@ -31,8 +32,8 @@ module Beryl::CLI::OsUpgrade
     reboot = false
     positional = [] of String
     parser = OptionParser.new do |p|
-      p.banner = "USAGE : beryl os-upgrade <host> [--to X.Y] [--apply] [--reboot]\n" \
-                 "        Met à jour le système FreeBSD. DRY-RUN par défaut."
+      p.banner = "USAGE : beryl os-upgrade <host|société|domaine> [--to X.Y] [--apply] [--reboot]\n" \
+                 "        Met à jour le système FreeBSD sur toute la portée. DRY-RUN par défaut."
       p.on("--to=VERSION", "Release cible X.Y (défaut : dernière de la branche courante)") { |v| to = v }
       p.on("--apply", "Exécute (repoint + pkg upgrade). S'arrête AVANT le reboot sauf --reboot") { apply = true }
       p.on("--reboot", "Avec --apply : reboot + attente du retour SSH (pour enchaîner une flotte)") { reboot = true }
@@ -43,17 +44,40 @@ module Beryl::CLI::OsUpgrade
     end
     parser.parse(args)
 
-    raw = positional.first?
-    unless raw
-      STDERR.puts "beryl : hôte non précisé. USAGE : beryl os-upgrade <host> [--to X.Y] [--apply] [--reboot]"
+    # Périmètre : host, société ou domaine (comme `beryl update`/`upgrade`).
+    scope = positional.first? || account_hint || domain_hint
+    unless scope
+      STDERR.puts "beryl : périmètre non précisé. USAGE : beryl os-upgrade <host|société|domaine> [--to X.Y] [--apply] [--reboot]"
       return EXIT_USAGE
     end
-    parsed = Beryl::CLI::AccountUtils.split_host_path(raw)
-    account_hint ||= parsed[:account]
-    domain_hint ||= parsed[:domain]
 
     root = Beryl::Config::Root.load(config_root)
-    host = root.resolve(parsed[:host], account_hint: account_hint, domain_hint: domain_hint)
+    hosts = Beryl::CLI::Info.scoped_hosts(root, scope).select { |h| h.os == "freebsd" && !h.virtual }
+    if hosts.empty?
+      STDERR.puts "beryl : aucun hôte FreeBSD dans le périmètre #{scope.inspect}."
+      return EXIT_USAGE
+    end
+    log "périmètre #{scope} : #{hosts.size} hôtes → #{hosts.map(&.fqdn).join(", ")}" if hosts.size > 1
+
+    # Séquentiel : avec --reboot chaque hôte est rebooté et attendu AVANT le
+    # suivant (montée de flotte sûre). Un hôte en échec n'arrête pas les autres.
+    rc = EXIT_OK
+    hosts.each do |host|
+      r = upgrade_one(config_root, host, to, apply, reboot)
+      rc = r unless r == EXIT_OK
+    end
+    rc
+  rescue ex : Beryl::Config::Root::HostNotFound | Beryl::Config::Root::AmbiguousHost | Beryl::Config::Root::UnknownDomain
+    STDERR.puts "beryl : #{ex.message}"
+    EXIT_USAGE
+  rescue ex
+    STDERR.puts "beryl : erreur inattendue — #{ex.class}: #{ex.message}"
+    EXIT_FAILED
+  end
+
+  # Montée d'UN hôte (dry-run par défaut). Chaque `return` est LOCAL à l'hôte
+  # (méthode appelée en boucle par `run` pour une portée société/domaine).
+  private def self.upgrade_one(config_root : String, host : Beryl::Config::ResolvedHost, to : String?, apply : Bool, reboot : Bool) : Int32
     unless host.os == "freebsd"
       STDERR.puts "beryl : os-upgrade = FreeBSD uniquement (host : #{host.os})."
       return EXIT_USAGE
@@ -73,11 +97,11 @@ module Beryl::CLI::OsUpgrade
       # stdout vide = la commande SSH/sudo a échoué ; on remonte le motif réel
       # au lieu de l'avaler (auth/clé, 22 fermé, sudo qui demande un mot de passe).
       err = probe.stderr.strip
-      STDERR.puts "        ssh #{host.user}@#{host.ssh_host}:#{host.port} (sudo) → exit #{probe.exit_code}"
+      STDERR.puts "        ssh #{host.connect_user}@#{host.ssh_host}:#{host.port} (sudo) → exit #{probe.exit_code}"
       STDERR.puts "        détail : #{err}" unless err.empty?
       STDERR.puts "        Pistes : 255 = SSH KO (hôte injoignable / clé / 22 public fermé) ;"
       STDERR.puts "                 `sudo: …` = sudo échoue (mot de passe requis ?)."
-      STDERR.puts "        Test direct : ssh #{host.user}@#{host.ssh_host} freebsd-version -r"
+      STDERR.puts "        Test direct : ssh #{host.connect_user}@#{host.ssh_host} freebsd-version -r"
       return EXIT_FAILED
     end
     cur_major, cur_minor, _ = cur
@@ -113,11 +137,8 @@ module Beryl::CLI::OsUpgrade
     else
       freebsd_update_flow(shell, host, cur_raw, target, tk, ck, apply)
     end
-  rescue ex : Beryl::Config::Root::HostNotFound | Beryl::Config::Root::AmbiguousHost | Beryl::Config::Root::UnknownDomain
-    STDERR.puts "beryl : #{ex.message}"
-    EXIT_USAGE
   rescue ex
-    STDERR.puts "beryl : erreur inattendue — #{ex.class}: #{ex.message}"
+    STDERR.puts "beryl : #{host.fqdn} — erreur inattendue : #{ex.class}: #{ex.message}"
     EXIT_FAILED
   end
 

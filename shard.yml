@@ -1,5 +1,5 @@
 name: beryl
-version: 0.5.130
+version: 0.5.131
 
 description: >
   Outil Crystal de gestion de configuration FreeBSD, agentless SSH.
@@ -41,6 +41,11 @@ dependencies:
   yaml-tidy:
     github: aloli-crystal/yaml-tidy
     branch: production
+
+development_dependencies:
+  ameba:
+    github: crystal-ameba/ameba
+    version: "~> 1.6"
 
 targets:
   beryl:
