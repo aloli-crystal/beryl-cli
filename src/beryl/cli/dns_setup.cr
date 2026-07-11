@@ -19,14 +19,13 @@ module Beryl::CLI::DnsSetup
     getter zone : String       # ex. example.net
     getter ipv4 : String
     getter ipv6 : String?
-    getter current_display_name : String?
 
-    def initialize(@service_name, @fqdn, @short_name, @zone, @ipv4, @ipv6, @current_display_name)
+    def initialize(@service_name, @fqdn, @short_name, @zone, @ipv4, @ipv6)
     end
   end
 
-  # Récupère les infos nécessaires (IPs, displayName actuel) pour
-  # construire un Plan cohérent. Utilise `client.dedicated_servers.info`
+  # Récupère les infos nécessaires (IPs) pour construire un Plan
+  # cohérent. Utilise `client.dedicated_servers.info`
   # et `client.dedicated_servers.ips` du shard ovh-api 0.3.0.
   def self.build_plan(
     client : OvhApi::Client,
@@ -36,7 +35,6 @@ module Beryl::CLI::DnsSetup
   ) : Plan
     server_info = client.dedicated_servers.info(service_name)
     ipv4 = server_info["ip"]?.try(&.as_s) || raise "aucune IPv4 déclarée sur #{service_name}"
-    display_name = server_info["name"]?.try(&.as_s)
 
     # Liste des IPs affectées au serveur. On cherche la première v6.
     # Format des IPs : "51.83.6.X/32" pour v4, "2001:...::/64" pour v6.
@@ -49,7 +47,7 @@ module Beryl::CLI::DnsSetup
     end
 
     fqdn = "#{short_name}.#{zone}"
-    Plan.new(service_name, fqdn, short_name, zone, ipv4, ipv6, display_name)
+    Plan.new(service_name, fqdn, short_name, zone, ipv4, ipv6)
   end
 
   # À partir d'un bloc CIDR IPv6 (ex. "2001:41d0:2:6e01::/64"), déduit
@@ -87,15 +85,5 @@ module Beryl::CLI::DnsSetup
       groups = addr.split(':')
     end
     "#{groups.first(4).join(':')}::/64"
-  end
-
-  def self.update_display_name(
-    client : OvhApi::Client,
-    service_name : String,
-    new_name : String,
-    logger : Proc(String, Nil),
-  ) : Nil
-    logger.call("renomme displayName OVH : #{service_name} → #{new_name}")
-    client.dedicated_servers.update(service_name, display_name: new_name)
   end
 end

@@ -26,6 +26,16 @@ prévisualiser ; ces flags (et `--check`) sont supprimés.
   un flag de preview).
 * Déjà conformes, inchangées : `os-upgrade`, `pkg-ops`.
 
+=== `scan --dns` / `beryl dns` : retrait du renommage OVH (displayName)
+
+L'étape « rename panel » (best-effort, qui forçait le `displayName` OVH au
+FQDN) est supprimée du cœur partagé `DnsApply`. Inutilisée, et
+contre-productive : elle écrasait les noms courts du panel (adi, bacca…) que
+`scan --discover` lit désormais pour nommer les host.yml. Code mort retiré au
+passage (`update_display_name`, `set_display_name`, champ
+`Plan.current_display_name`). Les renames Dedibox/Scaleway (mécanismes
+propres, `update_hostname` / nom serveur) sont conservés.
+
 == [0.6.0] - 2026-07-12
 
 === `beryl apply` — nouvelles primitives et variable `{{ public_ip }}`

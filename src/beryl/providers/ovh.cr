@@ -54,10 +54,6 @@ module Beryl::Providers
       client.ips.set_reverse(ip: path_ip, reverse: target, ip_reverse: ip)
     end
 
-    def set_display_name(resource_id : String, new_name : String) : Nil
-      client.dedicated_servers.update(resource_id, display_name: new_name)
-    end
-
     # --- ComputeProvider ---
 
     def request_rescue(resource_id : String, ssh_key_ref : String) : String

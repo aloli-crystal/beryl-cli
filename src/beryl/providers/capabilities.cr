@@ -45,14 +45,6 @@ module Beryl
     # Pose (ou met à jour) le reverse DNS d'une IP. `reverse` est un
     # FQDN (avec ou sans point final).
     abstract def set_reverse(ip : String, reverse : String) : Nil
-
-    # Change le nom d'affichage d'une ressource côté panel. Pour OVH,
-    # c'est le `displayName` du serveur dédié. Pour Gandi ou d'autres
-    # qui n'ont pas cette notion, no-op silencieux.
-    def set_display_name(resource_id : String, new_name : String) : Nil
-      # Par défaut : no-op. Les providers qui supportent le rename
-      # (ex: OVH) surchargent.
-    end
   end
 
   # Capability `:compute` — hébergement de serveurs.

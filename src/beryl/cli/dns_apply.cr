@@ -12,7 +12,6 @@ module Beryl::CLI
   #     (`host.dns_provider`, ex. gandi) : `ensure_record` + `refresh_zone`.
   #   - reverse PTR     → via le **compute provider** propriétaire de l'IP
   #     (`host.provider`, ex. ovh) : `set_reverse` (Gandi ne sait pas).
-  #   - rename panel    → via le compute provider (OVH displayName).
   #
   # Avant l'extraction, `scan --dns` passait par `DnsSetup` (100% OVH) :
   # une zone hébergée chez Gandi (cas acme : dns_provider=gandi,
@@ -159,15 +158,11 @@ module Beryl::CLI
       # tombent en colonne, même si dns_provider ≠ compute_provider.
       fwd = "forward (#{dns_provider_name})"
       rev = "reverse (#{compute_provider_name})"
-      ren = "rename (#{compute_provider_name})"
-      w = [fwd.size, rev.size, ren.size].max
+      w = [fwd.size, rev.size].max
       STDERR.puts "  #{fwd.ljust(w)} : A    #{short}.#{zone}  →  #{ipv4}"
       STDERR.puts "  #{fwd.ljust(w)} : AAAA #{short}.#{zone}  →  #{ipv6}" if ipv6
       STDERR.puts "  #{rev.ljust(w)} : #{ipv4}  →  #{fqdn}"
       STDERR.puts "  #{rev.ljust(w)} : #{ipv6}  →  #{fqdn}" if ipv6
-      if plan.current_display_name != fqdn
-        STDERR.puts "  #{ren.ljust(w)} : #{service_name}  →  #{fqdn}"
-      end
       STDERR.puts "─" * 60
 
       if dry_run
@@ -190,9 +185,9 @@ module Beryl::CLI
 
       # --- exécution (résiliente par étape) --------------------------------
       # Le FORWARD est le but principal (host joignable par son nom) → un
-      # échec là est bloquant. Le reverse et le rename sont secondaires :
-      # leurs échecs sont collectés mais n'annulent pas le reste (ex. le
-      # reverse IPv6 OVH peut 404 si l'IP devinée n'est pas la bonne).
+      # échec là est bloquant. Le reverse est secondaire : ses échecs sont
+      # collectés mais n'annulent pas le reste (ex. le reverse IPv6 OVH peut
+      # 404 si l'IP devinée n'est pas la bonne).
       warnings = [] of String
 
       # 1. forward via le dns_provider de la zone (BLOQUANT)
@@ -238,24 +233,15 @@ module Beryl::CLI
         warnings << "reverse non posé : `#{compute_provider_name}` n'expose pas le reverse DNS."
       end
 
-      # 3. rename panel (best-effort, OVH displayName)
-      if plan.current_display_name != fqdn
-        begin
-          Beryl::CLI::DnsSetup.update_display_name(ovh, service_name, fqdn, log)
-        rescue ex
-          warnings << "rename (#{compute_provider_name}) : #{ex.message}"
-        end
-      end
-
       # --- bilan -----------------------------------------------------------
       if warnings.empty?
-        log.call("terminé : #{fqdn} (forward + reverse + rename)")
+        log.call("terminé : #{fqdn} (forward + reverse)")
       else
         STDERR.puts
         STDERR.puts "#{cmd} : forward DNS posé ✓, mais des étapes SECONDAIRES ont échoué :"
         warnings.each { |msg| STDERR.puts "  ⚠ #{msg}" }
         STDERR.puts "  (Le host reste joignable par son nom — ces étapes sont secondaires.)"
-        STDERR.puts "  → pour rejouer le reverse + rename quand l'API répond : beryl dns #{fqdn}"
+        STDERR.puts "  → pour rejouer le reverse quand l'API répond : beryl dns #{fqdn}"
       end
       Result.new(Outcome::Applied, short, warnings)
     end

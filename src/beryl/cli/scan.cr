@@ -1370,7 +1370,6 @@ module Beryl::CLI::Scan
       zone: zone,
       ipv4: ipv4,
       ipv6: ipv6,
-      current_display_name: current_hostname,
     )
     STDERR.puts
     STDERR.puts "Actions DNS + Dedibox prévues pour serveur #{server_id} :"
@@ -1474,7 +1473,6 @@ module Beryl::CLI::Scan
       zone: dns_zone,
       ipv4: ipv4,
       ipv6: ipv6,
-      current_display_name: current_name,
     )
     STDERR.puts
     STDERR.puts "Actions DNS + Scaleway prévues pour serveur #{server_id} (zone #{scw_zone}) :"
