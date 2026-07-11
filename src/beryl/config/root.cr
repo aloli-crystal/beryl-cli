@@ -580,26 +580,33 @@ module Beryl::Config
     # hôtes durcis le root SSH est fermé → beryl entre par ce compte. Aligné sur
     # `beryl apply`/`vrack` (qui dérivaient cette logique chacun de leur côté).
     def connect_user : String
-      # 1. Override EXPLICITE : `freebsd.user` (colocalisé avec freebsd.users)
-      #    ou `user` (racine, legacy). Prime sur l'auto-sélection.
+      connect_users.first
+    end
+
+    # Liste ORDONNÉE des users de connexion à tenter (le 1er = `connect_user`).
+    # Utile aux commandes qui essaient les users en cascade quand la clé du
+    # premier est refusée (parc hétérogène : certains hôtes n'ont pas `admin`).
+    #
+    #   1. override EXPLICITE `freebsd.user` (ou `user` racine) → LUI SEUL ;
+    #   2. sinon tous les users sudo-capables (`wheel`/`sudo:true`) de
+    #      `freebsd.users`, dans l'ordre ;
+    #   3. + `root` en dernier recours.
+    def connect_users : Array(String)
       if u = freebsd_string("user") || @merged[YAML::Any.new("user")]?.try(&.as_s?)
-        return u
+        return [u]
       end
-      # 2. Premier user sudo-capable (`wheel` ou `sudo: true`) de
-      #    `freebsd.users`. Sur les hôtes durcis, root SSH est fermé → beryl
-      #    entre par ce compte. S'il n'y a qu'UN user déclaré (sudo-capable),
-      #    c'est lui, sans rien à configurer.
+      cands = [] of String
       if users = freebsd_hash[YAML::Any.new("users")]?.try(&.as_a?)
         Beryl::Config::Users.list(users).each do |e|
           wheel = {"groups", "secondary_groups"}.any? do |k|
             e.fields[YAML::Any.new(k)]?.try(&.as_a?).try(&.any? { |g| g.as_s? == "wheel" })
           end
           sudo = e.fields[YAML::Any.new("sudo")]?.try(&.as_bool?) == true
-          return e.name if wheel || sudo
+          cands << e.name if wheel || sudo
         end
       end
-      # 3. Défaut : root (aucun user sudo-capable déclaré).
-      "root"
+      cands << "root"
+      cands.uniq
     end
 
     # Hôte de rebond SSH (bastion) pour joindre ce host, ex.

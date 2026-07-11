@@ -93,23 +93,20 @@ module Beryl::CLI::OsUpgrade
       return EXIT_OK
     end
 
-    shell = Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(host.connection))
-
-    probe = shell.exec("freebsd-version -r", raise_on_error: false)
+    # Trouve le user qui répond (cascade connect_users : admin, deploy… puis
+    # root), avec la version déjà lue. Puis SudoShell sur CE user.
+    user, probe = probe_reachable(host)
     cur_raw = probe.stdout.strip
     cur = parse_version(cur_raw)
-    unless cur
-      STDERR.puts "beryl : impossible de lire la version FreeBSD de #{host.fqdn} (`freebsd-version -r` → #{cur_raw.inspect})."
-      # stdout vide = la commande SSH/sudo a échoué ; on remonte le motif réel
-      # au lieu de l'avaler (auth/clé, 22 fermé, sudo qui demande un mot de passe).
-      err = probe.stderr.strip
-      STDERR.puts "        ssh #{host.connect_user}@#{host.ssh_host}:#{host.port} (sudo) → exit #{probe.exit_code}"
-      STDERR.puts "        détail : #{err}" unless err.empty?
-      STDERR.puts "        Pistes : 255 = SSH KO (hôte injoignable / clé / 22 public fermé) ;"
-      STDERR.puts "                 `sudo: …` = sudo échoue (mot de passe requis ?)."
-      STDERR.puts "        Test direct : ssh #{host.connect_user}@#{host.ssh_host} freebsd-version -r"
+    unless user && cur
+      STDERR.puts "beryl : #{host.fqdn} injoignable en SSH (users tentés : #{host.connect_users.join(", ")})."
+      STDERR.puts "        #{host.ssh_host}:#{host.port} → #{compact_ssh_error(probe.stderr, probe.exit_code)} (exit #{probe.exit_code})"
+      if d = probe.stderr.strip.lines.first?
+        STDERR.puts "        détail : #{d}"
+      end
       return EXIT_FAILED
     end
+    shell = Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(host.connection(user)))
     cur_major, cur_minor, _ = cur
 
     target =
@@ -163,8 +160,8 @@ module Beryl::CLI::OsUpgrade
       ver = st.current ? (st.target ? "#{st.current} → #{st.target}" : st.current.not_nil!) : "—"
       puts "  #{st.fqdn.ljust(w)}  #{ver.ljust(26)}  #{st.note}"
     end
-    up = states.count { |s| s.note == NOTE_UP }
-    ready = states.count { |s| s.note == NOTE_OK }
+    up = states.count { |s| s.note.starts_with?(NOTE_UP) }
+    ready = states.count { |s| s.note.starts_with?(NOTE_OK) }
     ko = states.count { |s| !s.ok }
     puts ""
     puts "Résumé : #{up} à monter · #{ready} à jour · #{ko} injoignables (sur #{states.size})."
@@ -174,23 +171,47 @@ module Beryl::CLI::OsUpgrade
 
   # Lecture SEULE (pas de sudo) de l'état d'un hôte, pour le résumé de flotte.
   private def self.probe_one(host, to) : HostState
-    probe = Beryl::Apply::SshShell.new(host.connection).exec("freebsd-version -r", raise_on_error: false)
+    user, probe = probe_reachable(host)
     cur_raw = probe.stdout.strip
     cur = parse_version(cur_raw)
-    unless cur
+    unless user && cur
       return HostState.new(host.fqdn, false, nil, nil, "SSH KO : #{compact_ssh_error(probe.stderr, probe.exit_code)}")
     end
+    via = user == host.connect_user ? "" : " (via #{user})"
     cur_major, cur_minor, _ = cur
     target = to || begin
       Beryl::FreebsdRelease.latest_by_branch[cur_major]?
     rescue
       nil
     end
-    return HostState.new(host.fqdn, true, cur_raw, nil, "cible indéterminée (réseau ?)") unless target
+    unless target
+      return HostState.new(host.fqdn, true, cur_raw, nil, "majeur #{cur_major} sans cible (branche EOL ?)#{via}")
+    end
     up_needed = Beryl::FreebsdRelease.version_key(target) > {cur_major, cur_minor} || !to.nil?
-    HostState.new(host.fqdn, true, cur_raw, target, up_needed ? NOTE_UP : NOTE_OK)
+    HostState.new(host.fqdn, true, cur_raw, target, "#{up_needed ? NOTE_UP : NOTE_OK}#{via}")
   rescue ex
     HostState.new(host.fqdn, false, nil, nil, "erreur : #{ex.message}")
+  end
+
+  # Tente les users de connexion en cascade (`connect_users`) et renvoie le
+  # PREMIER qui répond, avec le `freebsd-version -r`. S'arrête dès une erreur
+  # RÉSEAU (timeout/refus/DNS) : inutile de tester d'autres users sur un hôte
+  # injoignable. Renvoie {user_ok | nil, dernier_résultat}.
+  private def self.probe_reachable(host) : {String?, SSH::Result}
+    last = SSH::Result.new("", "", 255)
+    host.connect_users.each do |u|
+      res = Beryl::Apply::SshShell.new(host.connection(u)).exec("freebsd-version -r", raise_on_error: false)
+      return {u, res} if res.success? && !res.stdout.strip.empty?
+      last = res
+      break if network_error?(res.stderr)
+    end
+    {nil, last}
+  end
+
+  private def self.network_error?(stderr : String) : Bool
+    s = stderr.downcase
+    s.includes?("timed out") || s.includes?("timeout") || s.includes?("banner exchange") ||
+      s.includes?("connection refused") || s.includes?("could not resolve") || s.includes?("name or service")
   end
 
   # Motif SSH lisible en une ligne (sans le préfixe `user@host:`).

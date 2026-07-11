@@ -226,6 +226,13 @@ describe Beryl::Config::ResolvedHost do
     rh.connection.user.should eq("opsguy")
   end
 
+  it "connect_users : cascade des users sudo-capables + root, override seul si explicite" do
+    root = Beryl::Config::Root.load(fixture("ssh-host-override"))
+    root.resolve("connectuser").connect_users.should eq(["admin", "deploy", "root"])
+    root.resolve("explicituser").connect_users.should eq(["opsguy"])
+    Beryl::Config::Root.load(fixture("direct-hosts")).resolve("loulou").connect_users.should eq(["root"])
+  end
+
   it "connect_user : root par défaut si aucun user sudo-capable déclaré" do
     rh = Beryl::Config::Root.load(fixture("direct-hosts")).resolve("loulou")
     rh.connect_user.should eq("root")
