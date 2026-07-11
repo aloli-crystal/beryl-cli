@@ -4,6 +4,16 @@ require "../../../src/beryl/cli/info"
 private FIXTURES = File.expand_path(File.join(__DIR__, "..", "..", "fixtures", "config"))
 
 describe Beryl::CLI::Info do
+  describe ".scoped_hosts" do
+    it "résout société, nom court ET la forme chemin société/host" do
+      root = Beryl::Config::Root.load(File.join(FIXTURES, "direct-hosts"))
+      Beryl::CLI::Info.scoped_hosts(root, "aloli").map(&.short_name).should contain("loulou")
+      Beryl::CLI::Info.scoped_hosts(root, "loulou").map(&.short_name).should eq(["loulou"])
+      Beryl::CLI::Info.scoped_hosts(root, "aloli/loulou").map(&.short_name).should eq(["loulou"])
+      Beryl::CLI::Info.scoped_hosts(root, "aloli/inconnu").should be_empty
+    end
+  end
+
   describe ".build_adoc" do
     it "produit un doc AsciiDoc sectionné (synthèse + matériel + réseau)" do
       root = Beryl::Config::Root.load(File.join(FIXTURES, "ssh-host-override"))

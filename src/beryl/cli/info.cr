@@ -616,6 +616,17 @@ module Beryl::CLI
         end
       end
       return hosts unless (s = scope)
+      # Forme CHEMIN `société[/domaine]/host` (ex. `quimeo/pkg`) : on filtre
+      # par composants (l'host par nom court OU fqdn).
+      if s.includes?("/")
+        p = Beryl::CLI::AccountUtils.split_host_path(s)
+        return hosts.select do |h|
+          (p[:account].nil? || h.account_name == p[:account]) &&
+            (p[:domain].nil? || h.domain_name == p[:domain]) &&
+            {h.short_name, h.fqdn}.includes?(p[:host])
+        end
+      end
+      # Forme simple : société, domaine, fqdn ou nom court.
       hosts.select { |h| {h.account_name, h.domain_name, h.fqdn, h.short_name}.includes?(s) }
     end
 
