@@ -23,6 +23,10 @@ module Beryl::CLI::OsUpgrade
   EXIT_FAILED = 2
 
   BASE_REPO = "FreeBSD-base"
+  # Franchir un `__FreeBSD_version` plus récent (les paquets base de la release
+  # cible sont plus récents que le noyau courant) : mécanisme standard pkgbase.
+  # Sans lui : `pkg: repository … contains packages for wrong OS version`.
+  IGNORE_OSV = "IGNORE_OSVERSION=yes"
 
   def self.run(config_root : String, args : Array(String)) : Int32
     account_hint : String? = nil
@@ -233,7 +237,7 @@ module Beryl::CLI::OsUpgrade
       # Même release : pas de repoint, juste d'éventuels errata.
       cmd = apply ? "pkg upgrade -y -r #{BASE_REPO}" : "pkg upgrade -n -r #{BASE_REPO}"
       log "#{host.fqdn} : pkgbase, même release → #{cmd}"
-      res = shell.exec("pkg update -f -r #{BASE_REPO} ; #{cmd}", raise_on_error: false)
+      res = shell.exec("#{IGNORE_OSV} pkg update -f -r #{BASE_REPO} ; #{IGNORE_OSV} #{cmd}", raise_on_error: false)
       puts res.stdout.strip
       return EXIT_OK
     end
@@ -251,8 +255,8 @@ module Beryl::CLI::OsUpgrade
       puts ""
       puts "Montée pkgbase #{cur_major}.#{cur_minor} → #{target} sur #{host.fqdn} (dry-run) :"
       puts "  1. repoint #{conf} : #{cur_branch} → #{branch}"
-      puts "  2. pkg update -f -r #{BASE_REPO}"
-      puts "  3. pkg upgrade -r #{BASE_REPO}        # voir le plan : --apply le montre réellement"
+      puts "  2. #{IGNORE_OSV} pkg update -f -r #{BASE_REPO}"
+      puts "  3. #{IGNORE_OSV} pkg upgrade -r #{BASE_REPO}   # voir le plan : --apply le montre réellement"
       puts "  4. shutdown -r now                    # (--reboot l'automatise)"
       puts ""
       puts "→ `beryl os-upgrade #{host.short_name} --to #{target} --apply` exécute 1-3 (s'arrête avant 4)."
@@ -266,7 +270,7 @@ module Beryl::CLI::OsUpgrade
     # on ROLLBACK le repoint pour ne pas laisser le host sur une branche morte.
     log "#{host.fqdn} : repoint #{cur_branch} → #{branch} (#{conf})"
     shell.exec("sed -i '' -E 's/base_release_[0-9]+/#{branch}/g' #{conf}", raise_on_error: false)
-    upd = shell.exec("pkg update -f -r #{BASE_REPO}", raise_on_error: false)
+    upd = shell.exec("#{IGNORE_OSV} pkg update -f -r #{BASE_REPO}", raise_on_error: false)
     unless upd.success?
       log "#{host.fqdn} : `pkg update` a échoué sur #{branch} (release pas encore publiée ?) → ROLLBACK vers #{cur_branch}."
       shell.exec("sed -i '' -E 's/base_release_[0-9]+/#{cur_branch}/g' #{conf}", raise_on_error: false)
@@ -275,7 +279,7 @@ module Beryl::CLI::OsUpgrade
     end
 
     log "#{host.fqdn} : pkg upgrade -y -r #{BASE_REPO}…"
-    up = shell.exec("pkg upgrade -y -r #{BASE_REPO}", raise_on_error: false)
+    up = shell.exec("#{IGNORE_OSV} pkg upgrade -y -r #{BASE_REPO}", raise_on_error: false)
     puts up.stdout.strip
     unless up.success?
       STDERR.puts "beryl : pkg upgrade a échoué — #{up.stderr.strip.lines.last?}"
