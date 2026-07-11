@@ -9,6 +9,44 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+== [0.6.0] - 2026-07-12
+
+=== `beryl apply` — nouvelles primitives et variable `{{ public_ip }}`
+
+* Primitives : `poudriere-build` (dépôt pkg auto-suivi par ABI), `directory`,
+  `symlink`, `mariadb-secure`, `github-ssh-key`.
+* Variable de recette `{{ public_ip }}` : l'IPv4 publique de l'hôte (champ
+  `ovh.ipv4`), pour binder un service public sans coder l'IP en dur (ex.
+  `listen {{ public_ip }}:443`). Absente (échec explicite `UnknownVariable`)
+  si l'IP publique n'est pas connue.
+
+=== `beryl os-upgrade` — mode flotte
+
+Accepte une portée `société|domaine|host` (plus seulement un host) et met à
+jour tout le périmètre. Résumé de flotte en tableau lisible, connexions
+fail-fast, et remontée du vrai motif quand `freebsd-version` revient vide.
+
+=== `beryl wipe` — effacement sécurisé
+
+* `--sanitize` : `blkdiscard --secure` (effacement cryptographique du SSD).
+* `--verify` : relecture de zéros après effacement.
+* Un log horodaté par disque, en parallèle.
+
+=== Connexions SSH — cascade des utilisateurs
+
+`connect_users` : cascade d'utilisateurs SSH pour la connexion (défaut
+`connect_user`, puis root). Notes de flotte plus claires.
+
+=== Qualité — conformité ameba
+
+beryl passe désormais ameba en CI (fin de l'exclusion) : `.ameba.yml` commun
+de l'écosystème, étape linter `bin/ameba`, et correction des 23 infractions
+historiques.
+
+=== Logs — numéro d'étape
+
+Préfixe `[Étape N]` lisible dans les logs.
+
 === `beryl scan --discover` : découverte de parc OVH
 
 Nouvelle capacité de découverte : `beryl scan --discover <société>` (ou
