@@ -59,8 +59,8 @@ describe Beryl::Providers::Ovh do
       vars = Beryl::Providers::Ovh.new.credentials_env_vars
       required = vars.reject(&.optional).map(&.name)
       required.should eq(["OVH_APPLICATION_KEY", "OVH_APPLICATION_SECRET"])
-      vars.find { |v| v.name == "OVH_CONSUMER_KEY" }.not_nil!.optional.should be_true
-      vars.find { |v| v.name == "OVH_ENDPOINT" }.not_nil!.optional.should be_true
+      vars.find! { |v| v.name == "OVH_CONSUMER_KEY" }.optional.should be_true
+      vars.find! { |v| v.name == "OVH_ENDPOINT" }.optional.should be_true
     end
   end
 

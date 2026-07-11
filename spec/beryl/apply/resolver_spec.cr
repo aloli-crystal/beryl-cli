@@ -62,7 +62,7 @@ describe Beryl::Apply::Resolver do
     it "tombe sur le générique (fallback) pour une recette absente du privé" do
       recipes = Beryl::Apply::Resolver.new([private_dir, CENTRAL_DIR]).resolve(["shell-tools"])
       recipes.map(&.name).should contain("shell-tools")
-      recipes.find { |r| r.name == "shell-tools" }.not_nil!.source_path.should contain("/central/")
+      recipes.find! { |r| r.name == "shell-tools" }.source_path.should contain("/central/")
     end
 
     it "RecipeNotFound liste TOUS les dossiers cherchés" do

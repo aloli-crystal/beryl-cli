@@ -252,7 +252,7 @@ module Beryl::Config
         @data.keys.sort.each_with_index do |account, i|
           io << '\n'
           io << account << ":\n"
-          @data[account].keys.sort.each_with_index do |provider, _|
+          @data[account].keys.sort.each do |provider|
             io << "  " << provider << ":\n"
             @data[account][provider].keys.sort.each do |var|
               value = @data[account][provider][var]

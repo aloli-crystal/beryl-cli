@@ -56,12 +56,12 @@ describe Beryl::Config::ResolvedHost do
       pools = rh.zpools
       pools.size.should eq(2)
 
-      zroot = pools.find { |p| p.name == "zroot" }.not_nil!
+      zroot = pools.find! { |p| p.name == "zroot" }
       zroot.boot.should be_true
       zroot.raid.should eq(0)
       zroot.disks.should eq(["/dev/sda"])
 
-      zdata = pools.find { |p| p.name == "zdata" }.not_nil!
+      zdata = pools.find! { |p| p.name == "zdata" }
       zdata.boot.should be_false
       zdata.raid.should eq(10)
       zdata.disks.size.should eq(4)
@@ -328,7 +328,7 @@ describe Beryl::Config::Pool do
       ds = p.system_datasets
       ds.map(&.mountpoint).should eq(["/home", "/opt", "/usr/local/etc", "/var/log"])
       ds.select(&.encrypted).map(&.mountpoint).should eq(["/home", "/opt", "/usr/local/etc"])
-      zlog = ds.find { |d| d.mountpoint == "/var/log" }.not_nil!
+      zlog = ds.find! { |d| d.mountpoint == "/var/log" }
       zlog.encrypted.should be_false
       zlog.compression.should eq("zstd-3")
       # Encryptionroot partagé : un seul unlock ouvre les 3.

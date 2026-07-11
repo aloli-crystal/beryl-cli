@@ -245,9 +245,9 @@ module Beryl::CLI::AddProvider
     end
 
     chosen = if projects.size == 1
-               p = projects.first
-               STDERR.puts "[beryl add-provider] 2 Scaleway : 1 seul projet, auto-sélectionné : #{p.name} (#{p.id})"
-               p
+               proj = projects.first
+               STDERR.puts "[beryl add-provider] 2 Scaleway : 1 seul projet, auto-sélectionné : #{proj.name} (#{proj.id})"
+               proj
              elsif non_interactive
                STDERR.puts "[beryl add-provider] 2 Scaleway : #{projects.size} projets disponibles, mais --non-interactive → ajoutez SCW_DEFAULT_PROJECT_ID manuellement dans .env.yml :"
                projects.each { |p| STDERR.puts "  - #{p.name.ljust(20)} #{p.id}#{p.default? ? " (default)" : ""}" }

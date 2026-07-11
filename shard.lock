@@ -1,5 +1,9 @@
 version: 2.0
 shards:
+  ameba:
+    git: https://github.com/crystal-ameba/ameba.git
+    version: 1.6.4
+
   api-dedibox:
     git: https://github.com/aloli-crystal/api-dedibox.git
     version: 0.1.6+git.commit.2906a0e81cd38b3ab8ce4c5ad6d9f9972a4a1cbf

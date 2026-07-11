@@ -276,7 +276,7 @@ module Beryl::CLI::Unlock
       raise_on_error: false,
     )
     if mounted.success?
-      mounted.stdout.lines.each do |line|
+      mounted.stdout.each_line do |line|
         log "H4     #{line.strip}"
       end
     end
@@ -316,7 +316,7 @@ module Beryl::CLI::Unlock
       raise_on_error: false,
     )
     if mounted.success?
-      mounted.stdout.lines.each do |line|
+      mounted.stdout.each_line do |line|
         log "H4     #{line.strip}"
       end
     end

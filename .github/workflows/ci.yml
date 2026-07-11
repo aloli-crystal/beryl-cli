@@ -28,6 +28,8 @@ jobs:
         run: shards install
       - name: Compile
         run: shards build
+      - name: Ameba (linter)
+        run: bin/ameba
       - name: Prépare les fixtures .env.yml (copie des .sample)
         # Les fixtures secrets-like sont versionnées en .env.yml.sample
         # (valeurs bidon xxx/yyy/zzz) ; beryl les cherche sous leur

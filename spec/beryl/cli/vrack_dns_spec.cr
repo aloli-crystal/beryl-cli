@@ -10,7 +10,7 @@ describe Beryl::CLI::VrackDns do
       data.should contain(%(local-data-ptr: "192.168.42.30 bi.vrack.popi.net."))
       data.should contain(%(local-data: "zsbg.vrack.popi.net. IN A 192.168.42.3"))
       # tri alpha : bi avant zsbg
-      data.index("bi.vrack").not_nil!.should be < data.index("zsbg.vrack").not_nil!
+      data.index!("bi.vrack").should be < data.index!("zsbg.vrack")
     end
 
     it "vide si aucun enregistrement" do

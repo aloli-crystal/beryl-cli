@@ -149,7 +149,7 @@ module Beryl::CLI::Status
     if mounted.success?
       total = 0
       yes = 0
-      mounted.stdout.lines.each do |line|
+      mounted.stdout.each_line do |line|
         next if line.strip.empty?
         total += 1
         yes += 1 if line.includes?("\tyes") || line.includes?(" yes")
@@ -193,7 +193,7 @@ module Beryl::CLI::Status
     if mounted.success?
       total = 0
       yes = 0
-      mounted.stdout.lines.each do |line|
+      mounted.stdout.each_line do |line|
         next if line.strip.empty?
         next if line.split(/\s+/).first? == enc_root
         total += 1

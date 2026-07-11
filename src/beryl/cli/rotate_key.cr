@@ -178,8 +178,8 @@ module Beryl::CLI::RotateKey
       each_pair(arr) { |a, s| pairs << Pair.new(nil, a, s) }
     end
     users = raw[YAML::Any.new("freebsd")]?.try(&.as_h?).try(&.[YAML::Any.new("users")]?).try(&.as_a?)
-    users.try do |arr|
-      Beryl::Config::Users.list(arr).each do |e|
+    users.try do |user_list|
+      Beryl::Config::Users.list(user_list).each do |e|
         if keys = e.fields[YAML::Any.new("ssh_keys")]?.try(&.as_a?)
           each_pair(keys) { |a, s| pairs << Pair.new(e.name, a, s) }
         end

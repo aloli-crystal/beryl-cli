@@ -72,14 +72,14 @@ describe Beryl::Config::Root do
       rh = root.resolve("rails01.aloli.net")
       users = Beryl::Config::Users.list(rh.freebsd_hash[YAML::Any.new("users")].as_a)
 
-      admin = users.find { |e| e.name == "admin" }.not_nil!
+      admin = users.find! { |e| e.name == "admin" }
       admin_keys = admin.fields[YAML::Any.new("ssh_keys")].as_a.map(&.as_s)
       # admin hérite UNIQUEMENT de la clé domaine (lue depuis
       # philippe.aloli.fr.pub).
       admin_keys.size.should eq(1)
       admin_keys.first.should contain("philippe@aloli.fr")
 
-      deploy = users.find { |e| e.name == "deploy" }.not_nil!
+      deploy = users.find! { |e| e.name == "deploy" }
       deploy_keys = deploy.fields[YAML::Any.new("ssh_keys")].as_a.map(&.as_s)
       # deploy a la clé domaine + dev2.pub référencée par le host
       deploy_keys.size.should eq(2)

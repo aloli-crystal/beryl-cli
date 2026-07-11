@@ -96,7 +96,7 @@ describe Beryl::CLI::VrackIp do
     it "génère un vrack.yml trié par IP, relisible" do
       yaml = Beryl::CLI::VrackIp.render("pn-1049829", "192.168.42.0/24",
         [entry("obi", "192.168.42.41"), entry("zgra", "192.168.42.1")])
-      yaml.index("zgra").not_nil!.should be < yaml.index("obi").not_nil!
+      yaml.index!("zgra").should be < yaml.index!("obi")
       reg = Beryl::CLI::VrackIp.parse_registry(yaml)
       reg["zgra"].should eq("192.168.42.1")
       reg["obi"].should eq("192.168.42.41")

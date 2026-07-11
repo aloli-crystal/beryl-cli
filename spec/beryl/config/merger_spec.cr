@@ -284,7 +284,7 @@ describe Beryl::Config::Merger do
       override = YAML.parse("- deploy:\n    shell: oh-my-zsh\n- admin:\n    groups: [wheel]\n").as_a
       users = Beryl::Config::Users.list(Beryl::Config::Merger.merge_users(base, override))
       users.map(&.name).should eq(["deploy", "admin"]) # ordre préservé, admin ajouté
-      deploy = users.find { |e| e.name == "deploy" }.not_nil!
+      deploy = users.find! { |e| e.name == "deploy" }
       deploy.shell.should eq("oh-my-zsh")                                          # override gagne
       deploy.fields[YAML::Any.new("groups")].as_a.map(&.as_s).should eq(["wheel"]) # base conservé
     end
