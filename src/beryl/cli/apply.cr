@@ -221,6 +221,14 @@ module Beryl::CLI::Apply
     if vip = host.vrack_ip
       vars["vrack_ip"] = vip
     end
+    # IP publique (IPv4) de l'hôte (champ `ovh.ipv4`, renseigné par
+    # `beryl info --refresh`) → `{{ public_ip }}`. Permet aux recettes de
+    # binder un service public sans coder l'IP en dur (ex. `listen
+    # {{ public_ip }}:443`). Chaque hôte fournit LA sienne. Absente (donc
+    # UnknownVariable explicite) si l'IP publique n'est pas connue.
+    if pip = host.ovh_ipv4
+      vars["public_ip"] = pip
+    end
     context = Beryl::Apply::Context.new(
       protected_keys: connecting_pubkeys(host),
       vars: vars,
