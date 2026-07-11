@@ -230,6 +230,38 @@ module Beryl::Providers
       nil
     end
 
+    # Liste les `serviceName` de TOUS les serveurs dédiés du compte
+    # (`GET /dedicated/server`). Sert à `beryl scan --discover`.
+    def dedicated_server_names : Array(String)
+      client.dedicated_servers.list
+    end
+
+    # Bloc IPv6 /64 public du serveur (ex. "2001:41d0:250:dd00::"), extrait
+    # de `GET /dedicated/server/{s}/ips` (première IP contenant ':'). Le
+    # suffixe `/64` éventuel est retiré. nil si aucune IPv6. Best-effort.
+    def ipv6_block(service_name : String) : String?
+      client.dedicated_servers.ips(service_name)
+        .find(&.includes?(':')).try(&.split('/').first)
+    rescue
+      nil
+    end
+
+    # `displayName` OVH du serveur (nom convivial du panel, ex. "adi"), via
+    # `serviceInfos` → `serviceId` → `GET /services/{id}`. nil si non défini,
+    # égal au serviceName, ou droit `GET /services/*` absent. Best-effort.
+    def server_display_name(service_name : String) : String?
+      infos = client.call("GET", "/dedicated/server/#{service_name}/serviceInfos")
+      sid = infos.try(&.["serviceId"]?).try(&.as_i?)
+      return nil unless sid
+      svc = client.call("GET", "/services/#{sid}")
+      name = svc.try(&.["resource"]?).try(&.["displayName"]?).try(&.as_s?) ||
+             svc.try(&.["displayName"]?).try(&.as_s?)
+      return nil if name.nil? || name.empty? || name == service_name
+      name
+    rescue
+      nil
+    end
+
     # Index { IP principale => service_name } de TOUS les serveurs dédiés du
     # compte, en UNE passe (liste + un GET par serveur). Sert au batch
     # `beryl info --refresh` : résoudre le service_name de chaque host par son

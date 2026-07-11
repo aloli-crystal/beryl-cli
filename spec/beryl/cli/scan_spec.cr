@@ -517,4 +517,22 @@ describe Beryl::CLI::Scan do
       Beryl::CLI::Scan.rerun_with_write(args, "loulou").should_not contain("--dry-run")
     end
   end
+
+  describe ".discover_short_name" do
+    it "utilise le displayName OVH tel quel quand il est déjà un slug" do
+      Beryl::CLI::Scan.discover_short_name("adi", "ns3256068.ip-79-137-99.eu").should eq("adi")
+    end
+
+    it "slugifie un displayName avec espaces/majuscules" do
+      Beryl::CLI::Scan.discover_short_name("Web Server 01", "ns1.ip-1-2-3.eu").should eq("web-server-01")
+    end
+
+    it "retombe sur new-<ns> quand le displayName est absent" do
+      Beryl::CLI::Scan.discover_short_name(nil, "ns3256068.ip-79-137-99.eu").should eq("new-ns3256068")
+    end
+
+    it "retombe sur new-<ns> quand le displayName est vide" do
+      Beryl::CLI::Scan.discover_short_name("   ", "ns42.ip-9-9-9.eu").should eq("new-ns42")
+    end
+  end
 end

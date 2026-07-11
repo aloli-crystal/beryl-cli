@@ -9,6 +9,23 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl scan --discover` : découverte de parc OVH
+
+Nouvelle capacité de découverte : `beryl scan --discover <société>` (ou
+`--account=<société>`) liste les serveurs dédiés OVH du compte via l'API
+(SANS SSH ni rescue), repère ceux absents de la config, et écrit un
+`host.yml` MINIMAL pour chacun sous `~/.config/beryl/<société>/<domaine>/`.
+
+* Contenu du squelette : `provider: ovh` + bloc `ovh:` (service_name,
+  gamme, rack, IPv4, IPv6, prix/mois) — métadonnées récupérées par l'API.
+* Nom du fichier : le `displayName` OVH nettoyé (ex. « adi » →
+  `adi.host.yml`), sinon un placeholder `new-<ns…>` à renommer.
+* N'écrase jamais un `host.yml` existant ; `--dry-run` pour prévisualiser.
+* Disques/ZFS/hardware restent à compléter ensuite via
+  `beryl scan <host> --write` en mode rescue.
+* Nouvelles méthodes du provider OVH : `dedicated_server_names`,
+  `ipv6_block`, `server_display_name`.
+
 === Provider Gandi (DNS)
 
 Nouveau provider `gandi` (capability `:dns` uniquement), pour les

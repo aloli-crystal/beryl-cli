@@ -142,6 +142,7 @@ module Beryl::CLI::Scan
     domain_hint : String? = nil
     non_interactive = false
     no_commit = false
+    discover = false
     positional = [] of String
 
     parser = OptionParser.new do |p|
@@ -162,10 +163,22 @@ module Beryl::CLI::Scan
       p.on("-D", "--dns", "Pose records DNS + reverse + rename OVH") { dns_setup = true }
       p.on("-N", "--non-interactive", "Refuse toute invite") { non_interactive = true }
       p.on("--no-commit", "N'auto-commite pas le YAML dans le dépôt git de config") { no_commit = true }
+      p.on("--discover", "Découvre les serveurs OVH du compte et écrit un host.yml minimal par NOUVEAU serveur (société : positionnel ou --account). Sans SSH ni rescue.") { discover = true }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
       p.unknown_args { |rest, _| positional = rest }
     end
     parser.parse(args)
+
+    # `--discover <société>` : découverte de parc OVH → squelettes host.yml.
+    # Court-circuite le flux normal (qui exige un <host> + rescue).
+    if discover
+      account = account_hint || positional.first?
+      unless account
+        STDERR.puts "beryl : `--discover` exige une société (positionnel « <société> » ou --account=NOM)."
+        return EXIT_USAGE
+      end
+      return discover_servers(Beryl::Config::Root.load(config_root), config_root, account, dry_run)
+    end
 
     raw = positional.first?
     unless raw
@@ -1186,6 +1199,104 @@ module Beryl::CLI::Scan
 
   def self.default_hostname(fqdn : String) : String
     fqdn.split('.').first
+  end
+
+  # `beryl scan --discover <société>` : liste les serveurs dédiés OVH du
+  # compte (API, SANS SSH ni rescue), repère ceux absents de la config, et
+  # écrit un host.yml MINIMAL (provider + bloc ovh) pour chacun. Les
+  # disques/ZFS/hardware restent à compléter via `beryl scan <host> --write`
+  # en mode rescue. N'écrase jamais un host.yml existant.
+  private def self.discover_servers(root : Beryl::Config::Root, config_root : String,
+                                    account : String, dry_run : Bool) : Int32
+    acct = root.account?(account)
+    unless acct
+      STDERR.puts "beryl : société inconnue : #{account}. Connues : #{root.accounts.keys.sort.join(", ")}"
+      return EXIT_USAGE
+    end
+    domains = acct.domains.keys.sort
+    if domains.empty?
+      STDERR.puts "beryl : la société #{account} n'a aucun domaine — impossible de placer les host.yml."
+      return EXIT_USAGE
+    end
+    domain = domains.first
+    puts "⚠ #{account} a plusieurs domaines (#{domains.join(", ")}) : squelettes sous « #{domain} », déplacez au besoin." if domains.size > 1
+
+    root.env_file.apply_all_to_env(account, overwrite: true)
+    ovh = Beryl::Providers::Ovh.new
+    unless ovh.available?
+      STDERR.puts "beryl : credentials OVH absents pour #{account} (voir `beryl add-provider`)."
+      return EXIT_BAD_CREDS
+    end
+
+    puts "#{account} : liste des serveurs OVH (API)…"
+    all = ovh.dedicated_server_names
+    index = ovh.ip_to_service_index
+    known = Beryl::CLI::Info.scoped_hosts(root, account).select(&.provider.==("ovh")).compact_map do |h|
+      h.ovh_service_name || ((ip = resolve_host_ipv4(h.ssh_host)) ? index[ip]? : nil)
+    end
+    new_servers = all.reject { |sn| known.includes?(sn) }.sort
+
+    if new_servers.empty?
+      puts "#{account} : aucun nouveau serveur (#{all.size} déjà connu(s))."
+      return EXIT_OK
+    end
+    puts "#{account} : #{new_servers.size} nouveau(x) serveur(s) sur #{all.size} — récupération des métadonnées…"
+
+    written = 0
+    new_servers.each do |sn|
+      detail = ovh.server_detail(sn)
+      ipv6 = ovh.ipv6_block(sn)
+      price = ovh.monthly_price(sn)
+      short = discover_short_name(ovh.server_display_name(sn), sn)
+      path = File.join(config_root, account, domain, "#{short}.host.yml")
+      if File.exists?(path)
+        puts "  ↷ #{sn} → #{short} : #{path} existe déjà, ignoré."
+        next
+      end
+      if dry_run
+        puts "  [dry-run] écrirait #{path} (#{detail[:commercial] || "gamme ?"}#{price ? ", #{price} €/mois" : ""})"
+        next
+      end
+      Dir.mkdir_p(File.dirname(path))
+      File.write(path, discover_skeleton(short, domain, sn, detail, ipv6, price))
+      written += 1
+      puts "  ✓ #{sn} → #{short}.host.yml (#{detail[:commercial] || "gamme ?"}#{price ? ", #{price} €/mois" : ""})"
+    end
+
+    puts
+    puts "#{written} squelette(s) écrit(s) sous #{config_root}/#{account}/#{domain}/."
+    puts "Renommez si besoin, puis complétez disques/ZFS via `beryl scan <host> --write` (mode rescue)."
+    EXIT_OK
+  end
+
+  # Nom court d'un serveur découvert : le displayName OVH nettoyé s'il
+  # existe, sinon un placeholder `new-<id>` (partie ns du serviceName) à
+  # renommer par l'opérateur.
+  def self.discover_short_name(display : String?, service_name : String) : String
+    if (d = display) && !d.strip.empty?
+      slug = d.strip.downcase.gsub(/[^a-z0-9]+/, "-").strip('-')
+      return slug unless slug.empty?
+    end
+    "new-#{service_name.split('.').first}"
+  end
+
+  # Squelette host.yml minimal : en-tête + provider + bloc ovh (API, sans
+  # rescue). Réutilise `Info.ovh_block`. Les disques/ZFS/hardware seront
+  # ajoutés plus tard par `beryl scan <host> --write`.
+  private def self.discover_skeleton(short : String, domain : String, service_name : String,
+                                     detail : NamedTuple(commercial: String?, rack: String?, ipv4: String?),
+                                     ipv6 : String?, price : String?) : String
+    stamp = Time.local.to_s("%d/%m/%Y %Hh%Mm%S")
+    lines = [
+      "# #{short}.#{domain}",
+      "# Généré par `beryl scan --discover` le #{stamp} — SQUELETTE minimal.",
+      "# Métadonnées OVH via API (sans rescue). Complétez disques/ZFS/hardware",
+      "# via `beryl scan #{short}.#{domain} --write` en mode rescue.",
+      "",
+      "provider: ovh",
+    ]
+    lines.concat(Beryl::CLI::Info.ovh_block(service_name, detail[:commercial], detail[:rack], detail[:ipv4], ipv6, price))
+    lines.join('\n') + "\n"
   end
 
   def self.resolve_write_target(explicit : String?, auto : Bool, config_root : String, account_name : String, domain_name : String, short : String) : String?
