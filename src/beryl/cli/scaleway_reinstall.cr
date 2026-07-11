@@ -58,7 +58,7 @@ module Beryl::CLI::ScalewayReinstall
     domain_hint : String? = nil
     os_prefix : String? = nil
     non_interactive = false
-    dry_run = false
+    dry_run = true
     positional = [] of String
 
     parser = OptionParser.new do |p|
@@ -71,7 +71,7 @@ module Beryl::CLI::ScalewayReinstall
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
       p.on("--os-prefix=PREFIX", "Slug OS Scaleway à installer (défaut : #{DEFAULT_OS_PREFIX})") { |v| os_prefix = v }
       p.on("-N", "--non-interactive", "Pas de prompt de confirmation (à combiner avec --yes)") { non_interactive = true }
-      p.on("-n", "--dry-run", "Affiche le plan sans rien installer") { dry_run = true }
+      p.on("--apply", "Applique réellement les changements (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
       p.unknown_args { |rest, _| positional = rest }
     end

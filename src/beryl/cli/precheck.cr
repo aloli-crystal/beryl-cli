@@ -5,7 +5,7 @@ require "ssh"
 # config YAML est cohérente ET que les disques déclarés correspondent
 # bien à ceux physiquement présents sur le serveur en rescue.
 #
-# Les commandes `bootstrap` et `bootstrap --dry-run` passent toutes
+# Les commandes `bootstrap` (dry-run) et `bootstrap --apply` passent toutes
 # les deux par `Precheck.run`. Seul `--force` bypass les vérifs
 # disques (pas la validation config YAML, qui reste gratuite et
 # sans danger).

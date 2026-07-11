@@ -30,7 +30,7 @@ module Beryl::CLI
       zone_flag : String? = nil
       account_hint : String? = nil
       domain_hint : String? = nil
-      dry_run = false
+      dry_run = true
       positional = [] of String
 
       parser = OptionParser.new do |p|
@@ -41,7 +41,7 @@ module Beryl::CLI
         p.on("-z ZONE", "--zone=ZONE", "Zone DNS (défaut : domaine du host)") { |v| zone_flag = v }
         p.on("-a ACCOUNT", "--account=ACCOUNT", "Société (sinon déduite)") { |v| account_hint = v }
         p.on("-d DOMAIN", "--domain=DOMAIN", "Domaine (sinon déduit)") { |v| domain_hint = v }
-        p.on("-n", "--dry-run", "Affiche le plan sans appel API") { dry_run = true }
+        p.on("--apply", "Applique réellement les changements (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false }
         p.on("-h", "--help", "Aide") { puts p; exit 0 }
         p.unknown_args { |rest, _| positional = rest }
       end

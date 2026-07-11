@@ -61,7 +61,7 @@ module Beryl::CLI::Rescue
     domain_hint : String? = nil
     provider_override : String? = nil
     server_id_flag : String? = nil
-    dry_run = false
+    dry_run = true
     positional = [] of String
 
     parser = OptionParser.new do |p|
@@ -70,7 +70,7 @@ module Beryl::CLI::Rescue
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine (sinon déduit du FQDN)") { |v| domain_hint = v }
       p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (ex: dedibox, ovh, scaleway)") { |v| provider_override = v }
       p.on("-I ID", "--server-id=ID", "ID serveur côté hébergeur (Dedibox entier, Scaleway UUID). Inutile pour OVH") { |v| server_id_flag = v }
-      p.on("-n", "--dry-run", "Affiche l'appel API sans le déclencher") { dry_run = true }
+      p.on("--apply", "Applique réellement les changements (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false }
       p.on("-W", "--no-wait", "Ne pas attendre le retour SSH après l'appel API") { wait = false }
       p.on("-t MIN", "--timeout=MIN", "Timeout SSH en minutes (défaut : #{DEFAULT_SSH_WAIT_TIMEOUT.total_minutes.to_i})") { |v| timeout = v.to_i.minutes }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
@@ -149,7 +149,7 @@ module Beryl::CLI::Rescue
     # Si FreeBSD est installé, `uname -s` répond "FreeBSD" donc
     # on ne skippe pas et on relance bien le rescue.
     #
-    # Skippé en --dry-run pour que l'opérateur voie quand même
+    # Skippé en dry-run pour que l'opérateur voie quand même
     # ce qui serait appelé.
     if !dry_run && provider && ssh_root_is_linux?(host)
       log "4.0 #{provider} : root@#{host.rescue_ssh_host} répond déjà en Linux (kernel rescue) — rescue déjà en place, skip."

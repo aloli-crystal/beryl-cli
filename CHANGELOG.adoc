@@ -9,6 +9,23 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Convention `--dry-run` / `--apply` unifiée (BREAKING)
+
+Toutes les commandes qui MODIFIENT (config, API, serveur) sont désormais en
+**dry-run par défaut** et exigent **`--apply`** pour agir — une seule façon
+de faire. Avant, la plupart appliquaient par défaut avec `-n/--dry-run` pour
+prévisualiser ; ces flags (et `--check`) sont supprimés.
+
+* Commandes basculées : `add-domain`, `add-provider`, `apply`, `boot-hd`,
+  `bootstrap`, `dns`, `dns-alias`, `headscale-authkey`, `init`, `lock`,
+  `reboot`, `rescue`, `scaleway-reinstall`, `tang-enroll`, `unlock`, `wipe`,
+  `scan`.
+* `scan` : `--write`/`-w` remplacé par `--apply` (écrit le host.yml au
+  chemin auto) ; `--write-to` implique `--apply`.
+* Les suggestions « pour exécuter » ajoutent `--apply` (au lieu de retirer
+  un flag de preview).
+* Déjà conformes, inchangées : `os-upgrade`, `pkg-ops`.
+
 == [0.6.0] - 2026-07-12
 
 === `beryl apply` — nouvelles primitives et variable `{{ public_ip }}`

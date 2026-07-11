@@ -110,11 +110,11 @@ module Beryl
     end
   end
 
-  # Construit la commande shell à afficher à la fin d'un `--dry-run`
-  # pour que l'utilisateur voie exactement quoi relancer (copy-paste
-  # friendly). Retire les flags `--dry-run` / `-n` des args originaux
-  # et concatène d'éventuels arguments additionnels (ex: `--hostname`
-  # pour scan, qui a pu être résolu interactivement pendant le dry-run).
+  # Construit la commande shell à afficher à la fin d'un dry-run pour que
+  # l'utilisateur voie exactement quoi relancer (copy-paste friendly).
+  # Convention : dry-run par défaut → la suggestion AJOUTE `--apply`, et
+  # concatène d'éventuels arguments additionnels (ex: `--hostname` pour
+  # scan, qui a pu être résolu interactivement pendant le dry-run).
   #
   # Philippe 23 avril 2026 : option B — zéro automatisme, zéro clic
   # enchaîné, l'utilisateur lit et relance lui-même.
@@ -124,7 +124,11 @@ module Beryl
     extras : Array(String) = [] of String,
     replace_host : {String, String}? = nil,
   ) : String
-    filtered = args.reject { |a| a == "--dry-run" || a == "-n" }
+    # Convention : dry-run par défaut, `--apply` pour exécuter. La
+    # suggestion « pour exécuter » AJOUTE donc `--apply` (idempotent s'il
+    # est déjà là), au lieu de retirer un flag de preview.
+    filtered = args.dup
+    filtered << "--apply" unless filtered.includes?("--apply")
     # Remplace le positional host par sa forme path-like complète
     # `<société>/<fqdn>` — utile pour que la suggestion fonctionne
     # même depuis un autre contexte (autre société avec collision de

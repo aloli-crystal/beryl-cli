@@ -20,8 +20,8 @@ require "./account_utils"
 #     (défaut `<config>/recipes/recipes/`).
 #
 # Priorité de résolution : dossier host > dépôt central. Idempotence :
-# chaque primitive lit l'état réel via SSH avant d'agir. `--dry-run`
-# (alias `--check`) calcule sans rien modifier.
+# chaque primitive lit l'état réel via SSH avant d'agir. Dry-run par
+# défaut (calcule le plan sans rien modifier) ; `--apply` pour appliquer.
 module Beryl::CLI::Apply
   EXIT_OK         =  0
   EXIT_USAGE      =  1
@@ -31,7 +31,7 @@ module Beryl::CLI::Apply
   EXIT_RECIPE     = 11
 
   def self.run(config_root : String, args : Array(String)) : Int32
-    dry_run = false
+    dry_run = true
     account_hint : String? = nil
     domain_hint : String? = nil
     positional = [] of String
@@ -40,8 +40,7 @@ module Beryl::CLI::Apply
       p.banner = "USAGE : beryl apply <host|domaine|société> [recette] [options]"
       p.on("-a NAME", "--account=NAME", "Forcer la société (si ambiguë)") { |v| account_hint = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
-      p.on("-n", "--dry-run", "Affiche ce qui changerait sans l'appliquer") { dry_run = true }
-      p.on("--check", "Synonyme de --dry-run (lecture seule)") { dry_run = true }
+      p.on("--apply", "Applique réellement les changements (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
       p.unknown_args { |rest, _| positional = rest }
     end
@@ -140,7 +139,7 @@ module Beryl::CLI::Apply
     # dry-run (plan, lecture seule) reste permis. Pour les serveurs sensibles
     # (cible de pentest, gelés). Générique — aucun nom d'hôte en dur (libre).
     if !dry_run && host.protected?
-      log "#{host.fqdn} : protégé (protected: true) → apply RÉEL refusé (utilisez --dry-run pour le plan)."
+      log "#{host.fqdn} : protégé (protected: true) → apply RÉEL refusé (le plan est le défaut, sans --apply)."
       return EXIT_OK
     end
 

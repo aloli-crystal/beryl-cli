@@ -51,14 +51,14 @@ module Beryl::CLI::Unlock
   def self.run(config_root : String, args : Array(String)) : Int32
     account_hint : String? = nil
     domain_hint : String? = nil
-    dry_run = false
+    dry_run = true
     positional = [] of String
 
     parser = OptionParser.new do |p|
       p.banner = "USAGE : beryl unlock <host> [options]"
       p.on("-a NAME", "--account=NAME", "Forcer la société (si ambiguë)") { |v| account_hint = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
-      p.on("-n", "--dry-run", "Affiche les commandes sans les exécuter") { dry_run = true }
+      p.on("--apply", "Applique réellement les changements (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
       p.unknown_args { |rest, _| positional = rest }
     end

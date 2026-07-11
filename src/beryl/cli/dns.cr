@@ -24,7 +24,7 @@ module Beryl::CLI
     EXIT_RUNTIME = 10
 
     def self.run(config_root : String, args : Array(String)) : Int32
-      dry_run = false
+      dry_run = true
       non_interactive = false
       hostname_flag : String? = nil
       zone_flag : String? = nil
@@ -36,7 +36,7 @@ module Beryl::CLI
         p.banner = "Usage: beryl dns <host> [options]\n\n" \
                    "Pose les records DNS d'un host : forward (A/AAAA) via le dns_provider\n" \
                    "de la zone, reverse (PTR) + rename via le compute provider."
-        p.on("-n", "--dry-run", "Affiche le plan sans appel API") { dry_run = true }
+        p.on("--apply", "Applique réellement les changements (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false }
         p.on("-H NAME", "--hostname=NAME", "Nom court (défaut : nom du host)") { |v| hostname_flag = v }
         p.on("-z ZONE", "--zone=ZONE", "Zone DNS (défaut : le domaine du host)") { |v| zone_flag = v }
         p.on("-a ACCOUNT", "--account=ACCOUNT", "Société (sinon déduite du chemin host)") { |v| account_hint = v }

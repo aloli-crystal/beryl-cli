@@ -28,7 +28,7 @@ module Beryl::CLI::Bootstrap
     # `MfsBSDRelease.latest` pour détecter la dernière disponible sur
     # GitHub (aucun défaut en dur — règle « pas de version figée »).
     freebsd_version_flag : String? = nil
-    dry_run = false
+    dry_run = true
     force = false
     positional = [] of String
 
@@ -37,7 +37,7 @@ module Beryl::CLI::Bootstrap
       p.on("-a NAME", "--account=NAME", "Forcer la société (si ambiguë)") { |v| account_hint = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
       p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (ex: dedibox, ovh, scaleway)") { |v| provider_override = v }
-      p.on("-n", "--dry-run", "Affiche le plan d'install sans lancer QEMU/bsdinstall") { dry_run = true }
+      p.on("--apply", "Applique réellement les changements (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false }
       p.on("-f", "--force", "Bypass le précheck (disques déclarés != physiques)") { force = true }
       p.on("-i URL", "--iso-url=URL", "URL mfsBSD (override)") { |v| iso_url_override = v }
       p.on("-v VER", "--freebsd-version=VER", "Version FreeBSD à installer (défaut : dernière mfsBSD SE détectée sur GitHub)") { |v| freebsd_version_flag = v }

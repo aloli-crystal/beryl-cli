@@ -18,7 +18,7 @@ module Beryl::CLI::Wipe
     target_disks = [] of String
     all_declared = false
     force = false
-    dry_run = false
+    dry_run = true
     passes = 0
     hardware = false
     parallel = true
@@ -34,7 +34,7 @@ module Beryl::CLI::Wipe
       p.on("-A", "--all-declared", "Efface tous les disques déclarés dans freebsd.zfs.*") { all_declared = true }
       p.on("-a NAME", "--account=NAME", "Forcer la société (si ambiguë)") { |v| account_hint = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
-      p.on("-n", "--dry-run", "Affiche les commandes sans les exécuter") { dry_run = true }
+      p.on("--apply", "Applique réellement les changements (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false }
       p.on("-p N", "--passes=N", "Effacement SÉCURISÉ : réécrit tout le disque N fois (défaut 0 = métadonnées seules, rapide)") do |v|
         n = v.to_i?
         unless n && n >= 0

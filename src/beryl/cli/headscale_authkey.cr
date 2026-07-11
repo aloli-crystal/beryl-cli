@@ -42,7 +42,7 @@ module Beryl::CLI::HeadscaleAuthkey
     reusable = false
     create_user = false
     quiet = false
-    dry_run = false
+    dry_run = true
     positional = [] of String
 
     parser = OptionParser.new do |p|
@@ -56,7 +56,7 @@ module Beryl::CLI::HeadscaleAuthkey
       p.on("--reusable", "Clé réutilisable (plusieurs nodes — sinon usage unique)") { reusable = true }
       p.on("--create-user", "Crée le user Headscale d'abord (idempotent)") { create_user = true }
       p.on("-q", "--quiet", "N'affiche QUE la clé (pour pipe/script)") { quiet = true }
-      p.on("-n", "--dry-run", "Affiche la commande sans l'exécuter") { dry_run = true }
+      p.on("--apply", "Applique réellement les changements (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
       p.unknown_args { |rest, _| positional = rest }
     end

@@ -29,7 +29,7 @@ module Beryl::CLI::AddProvider
     account_flag : String? = nil
     regen_credentials = false
     non_interactive = false
-    dry_run = false
+    dry_run = true
     no_commit = false
     positional = [] of String
 
@@ -40,7 +40,7 @@ module Beryl::CLI::AddProvider
                  "Ajoute un fournisseur à une société et stocke ses credentials\n" \
                  "dans ~/.config/beryl/.env.yml[<société>][<provider>]."
       p.on("-a NAME", "--account=NAME", "Société cible (si ambiguë)") { |v| account_flag = v }
-      p.on("-n", "--dry-run", "Affiche ce qui serait fait sans écrire ni appeler d'API") { dry_run = true }
+      p.on("--apply", "Applique réellement les changements (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false }
       p.on("-r", "--regen-credentials", "Force la régénération des credentials dérivés (ex: OVH consumer key)") { regen_credentials = true }
       p.on("-N", "--non-interactive", "Refuse tout prompt") { non_interactive = true }
       p.on("--no-commit", "N'auto-commite pas le coffre chiffré dans le dépôt git de config") { no_commit = true }

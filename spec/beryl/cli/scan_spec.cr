@@ -480,10 +480,10 @@ describe Beryl::CLI::Scan do
     # à relancer pour que beryl écrive lui-même le fichier. Standard
     # Aloli : toute interaction qui suggère un état suivant doit
     # proposer la commande précise à copier-coller.
-    it "ajoute --write quand il n'est pas déjà dans les args" do
+    it "ajoute --apply quand il n'est pas déjà dans les args" do
       args = ["aloli/ns3156789.ip-51-83-6.eu", "--hostname=loulou", "--raid=0"]
       result = Beryl::CLI::Scan.rerun_with_write(args, "loulou")
-      result.should contain("--write")
+      result.should contain("--apply")
       result.should contain("aloli/ns3156789.ip-51-83-6.eu")
       result.should contain("--hostname=loulou")
       result.should contain("--raid=0")
@@ -506,15 +506,10 @@ describe Beryl::CLI::Scan do
       Beryl::CLI::Scan.rerun_with_write(args, "loulou").should contain("--hostname=loulou")
     end
 
-    it "ne duplique pas --write si déjà passé" do
-      args = ["host", "--write"]
+    it "ne duplique pas --apply si déjà passé" do
+      args = ["host", "--apply"]
       result = Beryl::CLI::Scan.rerun_with_write(args, "loulou")
-      result.scan("--write").size.should eq(1)
-    end
-
-    it "retire --dry-run / -n s'ils étaient présents" do
-      args = ["host", "--dry-run"]
-      Beryl::CLI::Scan.rerun_with_write(args, "loulou").should_not contain("--dry-run")
+      result.scan("--apply").size.should eq(1)
     end
   end
 

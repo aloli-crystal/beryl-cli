@@ -17,11 +17,12 @@ require "./raid_controller"
 # détecte les disques, propose un YAML pour le fichier host.
 #
 # Forme typique :
-#   beryl scan ns3156789.ip-51-83-6.eu --domain=example.net --dns --write
+#   beryl scan ns3156789.ip-51-83-6.eu --domain=example.net --dns --apply
 #
-# Avec `--dns` : pose les records DNS (CNAME vers le FQDN OVH),
-# le reverse DNS IPv4/IPv6 et renomme le serveur côté panel OVH.
-# Avec `--write` : écrit ~/.config/beryl/<domaine>/<nom>.yml (nom court
+# Avec `--dns` : pose les records DNS (CNAME vers le FQDN OVH) + le
+# reverse DNS IPv4/IPv6.
+# Défaut : dry-run (affiche le YAML sans rien écrire). Avec `--apply` :
+# écrit ~/.config/beryl/<domaine>/<nom>.yml (nom court
 # demandé interactivement ou via --hostname).
 module Beryl::CLI::Scan
   EXIT_OK           =  0
@@ -137,7 +138,7 @@ module Beryl::CLI::Scan
     provider_override : String? = nil
     server_id_flag : String? = nil
     dns_setup = false
-    dry_run = false
+    dry_run = true
     account_hint : String? = nil
     domain_hint : String? = nil
     non_interactive = false
@@ -151,9 +152,8 @@ module Beryl::CLI::Scan
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
       p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (ex: dedibox, ovh, scaleway)") { |v| provider_override = v }
       p.on("-I ID", "--server-id=ID", "ID serveur côté hébergeur (ex: Dedibox entier, Scaleway UUID). Inutile pour OVH (le FQDN est le service_name)") { |v| server_id_flag = v }
-      p.on("-n", "--dry-run", "Affiche ce qui serait fait sans écrire ni appeler d'API") { dry_run = true }
-      p.on("-w", "--write", "Écrit ~/.config/beryl/<domaine>/<nom>.yml") { write_auto = true }
-      p.on("-W PATH", "--write-to=PATH", "Écrit dans le chemin explicite") { |v| write_path = File.expand_path(v, home: true) }
+      p.on("--apply", "Applique : écrit le host.yml (chemin auto) + actions --dns (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false; write_auto = true }
+      p.on("-W PATH", "--write-to=PATH", "Écrit dans un chemin explicite (implique --apply)") { |v| write_path = File.expand_path(v, home: true); dry_run = false }
       p.on("-k LIST", "--disks=LIST", "Disques du pool zroot (ex: sda,sdb | 'all')") { |v| disks_flag = v }
       p.on("-r N", "--raid=N", "Niveau RAID du pool zroot (0|1|5|6|7|10)") { |v| raid_flag = v }
       p.on("--pool=SPEC", "Pool additionnel NAME:DISKS:RAID (répétable, ex: zdata:sda,sdb:10)") { |v| pool_specs << v }
@@ -341,7 +341,7 @@ module Beryl::CLI::Scan
       if target
         STDERR.puts "  - Écriture YAML dans : #{target}"
       else
-        STDERR.puts "  - YAML affiché à l'écran (pas de --write / --write-to)"
+        STDERR.puts "  - YAML affiché à l'écran (dry-run — --apply ou --write-to pour écrire)"
       end
       STDERR.puts "DRY-RUN : aucune action exécutée."
       # Afficher la commande à relancer avec --hostname=<short> pour
@@ -1319,12 +1319,8 @@ module Beryl::CLI::Scan
     unless args.any? { |a| a.starts_with?("--hostname") || a == "-H" }
       extras << "--hostname=#{short}"
     end
-    unless args.any? { |a|
-             a == "--write" || a == "-w" ||
-             a.starts_with?("--write-to") || a == "-W"
-           }
-      extras << "--write"
-    end
+    # `--apply` est ajouté par `Beryl.rerun_hint` (convention : dry-run par
+    # défaut, `--apply` pour écrire le host.yml + actions --dns).
     replace = if raw_host && normalized_host
                 {raw_host, normalized_host}
               else

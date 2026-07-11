@@ -32,7 +32,7 @@ module Beryl::CLI::AddDomain
     admin_key_file : String? = nil
     force = false
     non_interactive = false
-    dry_run = false
+    dry_run = true
     no_commit = false
     positional = [] of String
 
@@ -42,7 +42,7 @@ module Beryl::CLI::AddDomain
                  "  beryl add-domain <domaine> [--account=NAME]\n\n" \
                  "Crée ~/.config/beryl/<société>/<domaine>.yml."
       p.on("-a NAME", "--account=NAME", "Société cible") { |v| account_flag = v }
-      p.on("-n", "--dry-run", "Affiche ce qui serait fait sans écrire ni appeler d'API") { dry_run = true }
+      p.on("--apply", "Applique réellement les changements (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false }
       p.on("-D NAME", "--dns-provider=NAME", "Gestionnaire DNS (cloudflare, gandi, ovh…)") { |v| dns_provider_flag = v }
       p.on("-P NAME", "--provider=NAME", "Hébergeur par défaut (dedibox, ovh, scaleway…)") { |v| provider_flag = v }
       p.on("-s NAME", "--ssh-key-name=NAME", "Label clé SSH chez le provider (auto sinon)") { |v| ssh_key_name_flag = v }

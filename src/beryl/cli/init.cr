@@ -32,7 +32,7 @@ module Beryl::CLI::Init
   def self.run(config_root : String, args : Array(String)) : Int32
     force = false
     non_interactive = false
-    dry_run = false
+    dry_run = true
     no_commit = false
     positional = [] of String
 
@@ -45,7 +45,7 @@ module Beryl::CLI::Init
                  "Enchaînements possibles :\n" \
                  "  beryl add-provider <société>/<provider>\n" \
                  "  beryl add-domain   <société>/<domaine>"
-      p.on("-n", "--dry-run", "Affiche ce qui serait créé sans rien écrire") { dry_run = true }
+      p.on("--apply", "Applique réellement les changements (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false }
       p.on("-f", "--force", "Écrase _account.yml si existant") { force = true }
       p.on("-N", "--non-interactive", "Refuse tout prompt") { non_interactive = true }
       p.on("--no-commit", "N'auto-commite pas _account.yml dans le dépôt git de config") { no_commit = true }

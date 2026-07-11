@@ -35,7 +35,7 @@ module Beryl::CLI::Lock
   def self.run(config_root : String, args : Array(String)) : Int32
     account_hint : String? = nil
     domain_hint : String? = nil
-    dry_run = false
+    dry_run = true
     force = false
     positional = [] of String
 
@@ -43,7 +43,7 @@ module Beryl::CLI::Lock
       p.banner = "USAGE : beryl lock <host> [options]"
       p.on("-a NAME", "--account=NAME", "Forcer la société (si ambiguë)") { |v| account_hint = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
-      p.on("-n", "--dry-run", "Affiche les commandes sans les exécuter") { dry_run = true }
+      p.on("--apply", "Applique réellement les changements (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false }
       p.on("-f", "--force", "Force l'export même si des datasets sont occupés (zpool export -f)") { force = true }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
       p.unknown_args { |rest, _| positional = rest }

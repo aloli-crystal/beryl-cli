@@ -73,7 +73,7 @@ module Beryl::CLI::TangEnroll
   def self.run(config_root : String, args : Array(String)) : Int32
     account_hint : String? = nil
     domain_hint : String? = nil
-    dry_run = false
+    dry_run = true
     skip_rc_conf = false
     positional = [] of String
 
@@ -81,7 +81,7 @@ module Beryl::CLI::TangEnroll
       p.banner = "USAGE : beryl tang-enroll <host> [options]"
       p.on("-a NAME", "--account=NAME", "Forcer la société (si ambiguë)") { |v| account_hint = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
-      p.on("-n", "--dry-run", "Affiche les actions sans les exécuter") { dry_run = true }
+      p.on("--apply", "Applique réellement les changements (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false }
       p.on("-R", "--skip-rc-conf", "Ne touche pas à /etc/rc.conf (utile pour debug)") { skip_rc_conf = true }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
       p.unknown_args { |rest, _| positional = rest }

@@ -49,7 +49,7 @@ module Beryl::CLI::Reboot
     account_hint : String? = nil
     domain_hint : String? = nil
     provider_override : String? = nil
-    dry_run = false
+    dry_run = true
     positional = [] of String
 
     parser = OptionParser.new do |p|
@@ -59,7 +59,7 @@ module Beryl::CLI::Reboot
       p.on("-a NAME", "--account=NAME", "Forcer la société (si ambiguë)") { |v| account_hint = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
       p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (utilisé pour --hard)") { |v| provider_override = v }
-      p.on("-n", "--dry-run", "Affiche les actions sans les exécuter") { dry_run = true }
+      p.on("--apply", "Applique réellement les changements (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false }
       p.on("-W", "--no-wait", "Ne pas attendre le retour SSH") { wait = false }
       p.on("-U", "--no-unlock", "Ne pas tenter de déverrouiller les pools chiffrés après reboot") { skip_unlock = true }
       p.on("-t MIN", "--timeout=MIN", "Timeout SSH en minutes (défaut : #{DEFAULT_SSH_WAIT_TIMEOUT.total_minutes.to_i})") { |v| timeout = v.to_i.minutes }
