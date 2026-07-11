@@ -1023,7 +1023,10 @@ module Beryl::Config
       # toutes les commandes de prod (os-upgrade, reboot, status, unlock…)
       # sur apply/vrack, qui dérivaient cette logique de leur côté.
       eff_user = user_override || connect_user
-      opts = {} of String => String
+      # Fail-fast : un hôte injoignable ne doit pas bloquer ~1 min (défaut
+      # SSH), surtout en boucle de flotte. BatchMode : jamais de prompt de
+      # mot de passe (beryl est non-interactif, auth par clé).
+      opts = {"ConnectTimeout" => "10", "BatchMode" => "yes"}
       if pj = proxy_jump(eff_user)
         opts["ProxyJump"] = pj
       end

@@ -57,6 +57,12 @@ module Beryl::CLI::OsUpgrade
       STDERR.puts "beryl : aucun hôte FreeBSD dans le périmètre #{scope.inspect}."
       return EXIT_USAGE
     end
+    # Portée multi-hôtes en DRY-RUN → tableau compact (état du parc), et non
+    # le plan détaillé de chacun (illisible à 20 hôtes). Le détail reste
+    # disponible hôte par hôte, ou en --apply.
+    if hosts.size > 1 && !apply
+      return fleet_summary(hosts, to)
+    end
     log "périmètre #{scope} : #{hosts.size} hôtes → #{hosts.map(&.fqdn).join(", ")}" if hosts.size > 1
 
     # Séquentiel : avec --reboot chaque hôte est rebooté et attendu AVANT le
@@ -140,6 +146,61 @@ module Beryl::CLI::OsUpgrade
   rescue ex
     STDERR.puts "beryl : #{host.fqdn} — erreur inattendue : #{ex.class}: #{ex.message}"
     EXIT_FAILED
+  end
+
+  NOTE_UP = "montée dispo"
+  NOTE_OK = "à jour"
+
+  record HostState, fqdn : String, ok : Bool, current : String?, target : String?, note : String
+
+  # Résumé compact d'une portée multi-hôtes (dry-run) : une ligne par hôte
+  # (version → cible, ou motif d'échec) + un décompte. Lisible à 20 hôtes.
+  private def self.fleet_summary(hosts, to) : Int32
+    states = hosts.map { |h| probe_one(h, to) }
+    w = states.map(&.fqdn.size).max? || 20
+    puts ""
+    states.each do |st|
+      ver = st.current ? (st.target ? "#{st.current} → #{st.target}" : st.current.not_nil!) : "—"
+      puts "  #{st.fqdn.ljust(w)}  #{ver.ljust(26)}  #{st.note}"
+    end
+    up = states.count { |s| s.note == NOTE_UP }
+    ready = states.count { |s| s.note == NOTE_OK }
+    ko = states.count { |s| !s.ok }
+    puts ""
+    puts "Résumé : #{up} à monter · #{ready} à jour · #{ko} injoignables (sur #{states.size})."
+    puts "→ détail : `beryl os-upgrade <host>` ; monter : `beryl os-upgrade <host> --apply [--reboot]`."
+    EXIT_OK
+  end
+
+  # Lecture SEULE (pas de sudo) de l'état d'un hôte, pour le résumé de flotte.
+  private def self.probe_one(host, to) : HostState
+    probe = Beryl::Apply::SshShell.new(host.connection).exec("freebsd-version -r", raise_on_error: false)
+    cur_raw = probe.stdout.strip
+    cur = parse_version(cur_raw)
+    unless cur
+      return HostState.new(host.fqdn, false, nil, nil, "SSH KO : #{compact_ssh_error(probe.stderr, probe.exit_code)}")
+    end
+    cur_major, cur_minor, _ = cur
+    target = to || begin
+      Beryl::FreebsdRelease.latest_by_branch[cur_major]?
+    rescue
+      nil
+    end
+    return HostState.new(host.fqdn, true, cur_raw, nil, "cible indéterminée (réseau ?)") unless target
+    up_needed = Beryl::FreebsdRelease.version_key(target) > {cur_major, cur_minor} || !to.nil?
+    HostState.new(host.fqdn, true, cur_raw, target, up_needed ? NOTE_UP : NOTE_OK)
+  rescue ex
+    HostState.new(host.fqdn, false, nil, nil, "erreur : #{ex.message}")
+  end
+
+  # Motif SSH lisible en une ligne (sans le préfixe `user@host:`).
+  private def self.compact_ssh_error(stderr : String, exit_code : Int32) : String
+    s = stderr.downcase
+    return "clé refusée (publickey)" if s.includes?("permission denied")
+    return "timeout / injoignable" if s.includes?("timed out") || s.includes?("timeout") || s.includes?("banner exchange")
+    return "hôte inconnu (DNS)" if s.includes?("could not resolve") || s.includes?("name or service")
+    return "connexion refusée" if s.includes?("connection refused")
+    "SSH exit #{exit_code}"
   end
 
   # ── PKGBASE : repoint `base_release_<minor>` + pkg upgrade (+ reboot) ────────
