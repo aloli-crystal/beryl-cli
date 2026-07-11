@@ -228,6 +228,19 @@ module Beryl::CLI::OsUpgrade
     "SSH exit #{exit_code}"
   end
 
+  # Après une montée pkgbase, certaines confs de services base deviennent
+  # incompatibles → à régénérer AVANT le reboot, sinon le service repart sur
+  # une conf périmée. `local_unbound` (résolveur DNS local) : `setup` régénère
+  # sa conf ; sans ça le DNS de l'hôte peut casser au redémarrage (message pkg
+  # « run service local_unbound setup before restarting »).
+  private def self.reconfigure_base_services(shell, host) : Nil
+    enabled = shell.exec("sysrc -n local_unbound_enable 2>/dev/null", raise_on_error: false).stdout.strip.upcase
+    return unless enabled == "YES"
+    log "#{host.fqdn} : local_unbound activé → `service local_unbound setup` (régénération de la conf)"
+    res = shell.exec("service local_unbound setup", raise_on_error: false)
+    log "#{host.fqdn} : ⚠ `local_unbound setup` a échoué (#{res.stderr.strip.lines.last?}) — vérifiez le DNS après reboot." unless res.success?
+  end
+
   # ── PKGBASE : repoint `base_release_<minor>` + pkg upgrade (+ reboot) ────────
   private def self.pkgbase_upgrade(config_root, shell, host, cur_major, cur_minor, target, tk, ck, apply, reboot) : Int32
     target_minor = tk[1]
@@ -285,6 +298,8 @@ module Beryl::CLI::OsUpgrade
       STDERR.puts "beryl : pkg upgrade a échoué — #{up.stderr.strip.lines.last?}"
       return EXIT_FAILED
     end
+
+    reconfigure_base_services(shell, host)
 
     # Thin jails : le base host vient d'être patché, MAIS le base partagé des
     # jails (/jails/.base) est distinct → il faut le rafraîchir aussi, puis
