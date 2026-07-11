@@ -580,7 +580,16 @@ module Beryl::Config
     # hôtes durcis le root SSH est fermé → beryl entre par ce compte. Aligné sur
     # `beryl apply`/`vrack` (qui dérivaient cette logique chacun de leur côté).
     def connect_user : String
-      if users = @merged[YAML::Any.new("freebsd")]?.try(&.as_h?).try(&.[YAML::Any.new("users")]?).try(&.as_a?)
+      # 1. Override EXPLICITE : `freebsd.user` (colocalisé avec freebsd.users)
+      #    ou `user` (racine, legacy). Prime sur l'auto-sélection.
+      if u = freebsd_string("user") || @merged[YAML::Any.new("user")]?.try(&.as_s?)
+        return u
+      end
+      # 2. Premier user sudo-capable (`wheel` ou `sudo: true`) de
+      #    `freebsd.users`. Sur les hôtes durcis, root SSH est fermé → beryl
+      #    entre par ce compte. S'il n'y a qu'UN user déclaré (sudo-capable),
+      #    c'est lui, sans rien à configurer.
+      if users = freebsd_hash[YAML::Any.new("users")]?.try(&.as_a?)
         Beryl::Config::Users.list(users).each do |e|
           wheel = {"groups", "secondary_groups"}.any? do |k|
             e.fields[YAML::Any.new(k)]?.try(&.as_a?).try(&.any? { |g| g.as_s? == "wheel" })
@@ -589,7 +598,8 @@ module Beryl::Config
           return e.name if wheel || sudo
         end
       end
-      user
+      # 3. Défaut : root (aucun user sudo-capable déclaré).
+      "root"
     end
 
     # Hôte de rebond SSH (bastion) pour joindre ce host, ex.
@@ -1008,7 +1018,11 @@ module Beryl::Config
     # Construit une `SSH::Connection` prête à l'emploi.
     def connection(user_override : String? = nil) : SSH::Connection
       warn_ssh_key_once
-      eff_user = user_override || user
+      # Défaut = `connect_user` (user sudo-capable déclaré, ex. admin), PAS
+      # `user` (root) : sur les hôtes durcis root SSH est fermé. Aligne
+      # toutes les commandes de prod (os-upgrade, reboot, status, unlock…)
+      # sur apply/vrack, qui dérivaient cette logique de leur côté.
+      eff_user = user_override || connect_user
       opts = {} of String => String
       if pj = proxy_jump(eff_user)
         opts["ProxyJump"] = pj

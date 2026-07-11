@@ -214,6 +214,23 @@ describe Beryl::Config::ResolvedHost do
     rh.rescue_ssh_host.should eq(rh.ssh_host)
   end
 
+  it "connect_user : premier user sudo-capable de freebsd.users (auto)" do
+    rh = Beryl::Config::Root.load(fixture("ssh-host-override")).resolve("connectuser")
+    rh.connect_user.should eq("admin")
+    rh.connection.user.should eq("admin") # la connexion de PROD suit connect_user
+  end
+
+  it "connect_user : override explicite freebsd.user prime sur l'auto-pick" do
+    rh = Beryl::Config::Root.load(fixture("ssh-host-override")).resolve("explicituser")
+    rh.connect_user.should eq("opsguy")
+    rh.connection.user.should eq("opsguy")
+  end
+
+  it "connect_user : root par défaut si aucun user sudo-capable déclaré" do
+    rh = Beryl::Config::Root.load(fixture("direct-hosts")).resolve("loulou")
+    rh.connect_user.should eq("root")
+  end
+
   it "rescue_connection : root + IP publique (jamais le vRack) pour un host caché" do
     rh = Beryl::Config::Root.load(fixture("ssh-host-override")).resolve("rescuehidden")
     conn = rh.rescue_connection

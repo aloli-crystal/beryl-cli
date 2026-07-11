@@ -1,0 +1,6 @@
+provider: local
+freebsd:
+  user: opsguy
+  users:
+    - admin:
+        groups: [wheel]

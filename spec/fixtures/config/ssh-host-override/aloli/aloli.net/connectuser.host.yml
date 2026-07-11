@@ -1,0 +1,7 @@
+provider: local
+freebsd:
+  users:
+    - admin:
+        groups: [www, wheel]
+    - deploy:
+        groups: [www, wheel]
