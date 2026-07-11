@@ -65,10 +65,19 @@ module Beryl::CLI::OsUpgrade
 
     shell = Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(host.connection))
 
-    cur_raw = shell.exec("freebsd-version -r", raise_on_error: false).stdout.strip
+    probe = shell.exec("freebsd-version -r", raise_on_error: false)
+    cur_raw = probe.stdout.strip
     cur = parse_version(cur_raw)
     unless cur
       STDERR.puts "beryl : impossible de lire la version FreeBSD de #{host.fqdn} (`freebsd-version -r` → #{cur_raw.inspect})."
+      # stdout vide = la commande SSH/sudo a échoué ; on remonte le motif réel
+      # au lieu de l'avaler (auth/clé, 22 fermé, sudo qui demande un mot de passe).
+      err = probe.stderr.strip
+      STDERR.puts "        ssh #{host.user}@#{host.ssh_host}:#{host.port} (sudo) → exit #{probe.exit_code}"
+      STDERR.puts "        détail : #{err}" unless err.empty?
+      STDERR.puts "        Pistes : 255 = SSH KO (hôte injoignable / clé / 22 public fermé) ;"
+      STDERR.puts "                 `sudo: …` = sudo échoue (mot de passe requis ?)."
+      STDERR.puts "        Test direct : ssh #{host.user}@#{host.ssh_host} freebsd-version -r"
       return EXIT_FAILED
     end
     cur_major, cur_minor, _ = cur
