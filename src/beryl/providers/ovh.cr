@@ -434,6 +434,8 @@ module Beryl::Providers
         {verb: "GET", path: "/domain/zone"},   # liste des zones
         {verb: "GET", path: "/domain/zone/*"}, # records d'une zone
         {verb: "POST", path: "/domain/zone/*/record"},
+        {verb: "PUT", path: "/domain/zone/*/record/*"},    # màj d'un record (ensure_record)
+        {verb: "DELETE", path: "/domain/zone/*/record/*"}, # suppression d'un record
         {verb: "POST", path: "/domain/zone/*/refresh"},
         {verb: "PUT", path: "/ip/*/reverse"},
         {verb: "POST", path: "/ip/*/reverse"},

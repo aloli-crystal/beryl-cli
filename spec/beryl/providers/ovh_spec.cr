@@ -142,6 +142,15 @@ describe Beryl::Providers::Ovh do
       paths.should contain("/dedicated/server")
       paths.should contain("/domain/zone")
     end
+
+    it "autorise màj/suppression de records (PUT/DELETE), pas seulement la création" do
+      # ensure_record fait un PUT quand un record existe avec une autre cible :
+      # sans PUT /domain/zone/*/record/*, tout CHANGEMENT de record est refusé
+      # (403 « not granted »), constaté sur pkg (AAAA :: → ::1, 12 juil. 2026).
+      rules = Beryl::Providers::Ovh.new.required_access_rules
+      rules.should contain({verb: "PUT", path: "/domain/zone/*/record/*"})
+      rules.should contain({verb: "DELETE", path: "/domain/zone/*/record/*"})
+    end
   end
 
   describe "#credentials_help_details" do
