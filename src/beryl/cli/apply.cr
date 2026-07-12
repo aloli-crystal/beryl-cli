@@ -228,6 +228,12 @@ module Beryl::CLI::Apply
     if pip = host.ovh_ipv4
       vars["public_ip"] = pip
     end
+    # IP publique IPv6 (champ `ovh.ipv6`) → `{{ public_ip6 }}`, pour binder un
+    # service en dual-stack (ex. `listen [{{ public_ip6 }}]:443`). Absente
+    # (UnknownVariable explicite) si l'hôte n'a pas d'IPv6 connue.
+    if pip6 = host.ovh_ipv6
+      vars["public_ip6"] = pip6
+    end
     context = Beryl::Apply::Context.new(
       protected_keys: connecting_pubkeys(host),
       vars: vars,
