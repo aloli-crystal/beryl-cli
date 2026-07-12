@@ -106,22 +106,39 @@ module Beryl::Apply
         if (env_name = dh[YAML::Any.new("from_env")]?.try(&.as_s?)) && (v = ENV[env_name]?) && !v.empty?
           vars[key] = v
         elsif default = dh[YAML::Any.new("default")]?.try(&.as_s?)
-          vars[key] = default
+          vars[key] = resolve_builtins(default)
         end
       end
       recipe.arguments.each do |key, value|
         if s = value.as_s?
-          vars[key] = s
+          vars[key] = resolve_builtins(s)
         end
       end
       # Arguments fournis par l'hôte (apply_recipes forme map) : priorité max.
-      extra.each { |k, v| vars[k] = v }
+      extra.each { |k, v| vars[k] = resolve_builtins(v) }
       # Forme positionnelle (`- pkg-add: htop`) : la valeur réservée est
       # re-mappée sur le paramètre `positional:` déclaré par la recette.
       if (pos = recipe.positional) && (pv = extra[Recipe::POSITIONAL_ARG]?)
         vars[pos] = pv
       end
       vars
+    end
+
+    # Résout les variables BUILT-IN de beryl (`company`, `fqdn`, `hostname`,
+    # `domain`, `vrack_ip`, `public_ip` — cf. `Apply::Context.vars`) dans une
+    # valeur de `default:` ou d'argument `apply_recipes`. Permet à une recette
+    # de défaut-er un paramètre sur un fait du host sans le dupliquer côté YAML :
+    #
+    #     parameters:
+    #       ip: { default: "{{ vrack_ip }}" }   # → lit `vrack.ip` du host
+    #
+    # Seuls les built-in (fournis par le CLI) sont visibles ici — pas les
+    # autres paramètres de la recette, pour éviter toute dépendance d'ordre.
+    # Une valeur sans `{{ … }}` passe inchangée ; un placeholder inconnu lève
+    # `Template::UnknownVariable` (le host ne fournit pas ce fait).
+    private def resolve_builtins(value : String) : String
+      return value unless Template.has_placeholder?(value)
+      Template.render(value, @context.vars)
     end
 
     # Interpole les valeurs string contenant `{{ … }}`. Les autres

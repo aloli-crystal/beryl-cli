@@ -87,6 +87,41 @@ describe Beryl::Apply::Executor do
     end
   end
 
+  it "résout une variable built-in dans un `default:` (ex. ip défaut = {{ vrack_ip }})" do
+    shell = FakeShell.new
+    recipe = Beryl::Apply::Recipe.new(
+      name: "bi-default",
+      description: "",
+      requires: [] of String,
+      parameters: {"ip" => YAML.parse("default: \"{{ vrack_ip }}\"")},
+      arguments: {} of String => YAML::Any,
+      steps: [Beryl::Apply::Step.new("test-record", {"value" => YAML::Any.new("{{ ip }}")})],
+      source_path: "/tmp/bi-default.recipe.yml",
+      positional: nil,
+    )
+    ctx = Beryl::Apply::Context.new(vars: {"vrack_ip" => "192.168.42.4"})
+    Beryl::Apply::Executor.new(shell, dry_run: false, context: ctx).run([recipe])
+    TestRecorder.last_params["value"].as_s.should eq("192.168.42.4")
+  end
+
+  it "résout une variable built-in dans un argument apply_recipes" do
+    shell = FakeShell.new
+    recipe = Beryl::Apply::Recipe.new(
+      name: "bi-arg",
+      description: "",
+      requires: [] of String,
+      parameters: {} of String => YAML::Any,
+      arguments: {} of String => YAML::Any,
+      steps: [Beryl::Apply::Step.new("test-record", {"value" => YAML::Any.new("{{ ip }}")})],
+      source_path: "/tmp/bi-arg.recipe.yml",
+      positional: nil,
+    )
+    ctx = Beryl::Apply::Context.new(vars: {"vrack_ip" => "192.168.42.9"})
+    Beryl::Apply::Executor.new(shell, dry_run: false, context: ctx).run(
+      [recipe], {"bi-arg" => [{"ip" => "{{ vrack_ip }}"}]})
+    TestRecorder.last_params["value"].as_s.should eq("192.168.42.9")
+  end
+
   it "interpole {{ var }} depuis arguments (qui priment sur parameters.default)" do
     shell = FakeShell.new
     Beryl::Apply::Executor.new(shell, dry_run: false).run([central_recipe("recorder")])
