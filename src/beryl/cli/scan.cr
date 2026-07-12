@@ -1263,7 +1263,7 @@ module Beryl::CLI::Scan
     written = 0
     new_servers.each do |sn|
       detail = ovh.server_detail(sn)
-      ipv6 = ovh.ipv6_block(sn)
+      ipv6 = ovh.ipv6_address(sn)
       price = ovh.monthly_price(sn)
       short = discover_short_name(ovh.server_display_name(sn), sn)
       path = File.join(config_root, account, domain, "#{short}.host.yml")

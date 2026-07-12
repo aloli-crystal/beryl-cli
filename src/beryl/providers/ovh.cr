@@ -232,12 +232,16 @@ module Beryl::Providers
       client.dedicated_servers.list
     end
 
-    # Bloc IPv6 /64 public du serveur (ex. "2001:41d0:250:dd00::"), extrait
-    # de `GET /dedicated/server/{s}/ips` (première IP contenant ':'). Le
-    # suffixe `/64` éventuel est retiré. nil si aucune IPv6. Best-effort.
-    def ipv6_block(service_name : String) : String?
-      client.dedicated_servers.ips(service_name)
+    # Adresse IPv6 publique HÔTE du serveur (ex. "2001:41d0:250:dd00::1"),
+    # dérivée du bloc `GET /dedicated/server/{s}/ips` (1ʳᵉ IP contenant ':',
+    # suffixe `/64` retiré). On force le suffixe hôte `::1` : le bloc nu
+    # `…dd00::` est l'anycast Subnet-Router (reste en DAD `tentative`,
+    # inutilisable) — cf. primitive `netif6`. nil si aucune IPv6. Best-effort.
+    def ipv6_address(service_name : String) : String?
+      block = client.dedicated_servers.ips(service_name)
         .find(&.includes?(':')).try(&.split('/').first)
+      return nil unless block
+      block.ends_with?("::") ? "#{block}1" : block
     rescue
       nil
     end
