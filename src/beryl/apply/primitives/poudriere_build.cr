@@ -9,7 +9,7 @@ module Beryl::Apply
   #
   # Idempotent & réconciliateur : à chaque apply, compare la dernière
   # release de la branche (`FreebsdRelease.latest_by_branch`) à ce que vise
-  # l'alias. Égal → skip. Plus récent → build en DÉTACHÉ (setsid + log +
+  # l'alias. Égal → skip. Plus récent → build en DÉTACHÉ (daemon -f + log +
   # lock anti-double-build), qui crée la jail au besoin, `poudriere bulk` la
   # build-list (overlay), puis repointe l'alias.
   #
@@ -117,9 +117,11 @@ module Beryl::Apply
       # détaché retire le lock à la fin (succès ou échec).
       shell.exec("touch #{Process.quote(lock)}")
       log = "#{pkgdir}/.beryl-build-#{major}.log"
+      # Détachement via `daemon -f` (FreeBSD n'a PAS `setsid`) : fork + nouvelle
+      # session, survit à la fermeture SSH ; `daemon` rend la main aussitôt. Le
+      # script redirige lui-même sa sortie vers `log` et retire le `lock` à la fin.
       shell.exec(
-        "setsid sh -c 'sh #{Process.quote(script_path)} > #{Process.quote(log)} 2>&1; rm -f #{Process.quote(lock)}' " \
-        "</dev/null >/dev/null 2>&1 & echo lancé",
+        "daemon -f sh -c 'sh #{Process.quote(script_path)} > #{Process.quote(log)} 2>&1; rm -f #{Process.quote(lock)}'; echo lancé",
       )
       StepResult.applied("#{msg} lancé en détaché — suivi : tail -f #{log}")
     end
