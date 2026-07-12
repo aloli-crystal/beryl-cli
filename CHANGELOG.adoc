@@ -36,6 +36,14 @@ passage (`update_display_name`, `set_display_name`, champ
 `Plan.current_display_name`). Les renames Dedibox/Scaleway (mécanismes
 propres, `update_hostname` / nom serveur) sont conservés.
 
+=== Fix : les dossiers de service ne sont plus pris pour des domaines
+
+`Loader.load_domains` ne retient un sous-dossier de société comme domaine
+que s'il **contient un point** (un domaine est un FQDN). Les dossiers de
+service (`recipes`, `info`, …) n'en sont plus considérés — `beryl scan
+--discover <société>` et les commandes ciblant un domaine ne listent plus
+`recipes`/`info` par erreur. Aucune liste d'exceptions à maintenir.
+
 == [0.6.0] - 2026-07-12
 
 === `beryl apply` — nouvelles primitives et variable `{{ public_ip }}`

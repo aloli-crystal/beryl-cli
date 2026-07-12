@@ -129,11 +129,16 @@ module Beryl::Config
     #   * des SOUS-DOSSIERS `<domaine>/` (nouvelle convention : le dossier
     #     EST le domaine, son défaut est `<domaine>/_default.yml`) ;
     #   * des fichiers `<domaine>.domain.yml` (ancien, rétro-compat).
-    # Hors `_*` et fichiers/dossiers cachés.
+    # Hors `_*`, fichiers/dossiers cachés, et sous-dossiers SANS point (un
+    # domaine est un FQDN ; `recipes`/`info` sont des dossiers de service).
     def self.load_domains(account_dir : String) : Hash(String, Domain)
       names = Set(String).new
       Dir.children(account_dir).each do |entry|
         next if entry.starts_with?("_") || entry.starts_with?(".")
+        # Un domaine est un FQDN → il CONTIENT un point (`quimeo.net`). Les
+        # sous-dossiers de SERVICE (`recipes`, `info`, futurs…) n'en ont pas
+        # et sont donc ignorés — sans liste d'exceptions à maintenir.
+        next unless entry.includes?('.')
         names << entry if File.directory?(File.join(account_dir, entry))
       end
       Dir.glob(File.join(account_dir, "*#{DOMAIN_SUFFIX}")).each do |yml_path|
