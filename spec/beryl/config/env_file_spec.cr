@@ -220,6 +220,18 @@ describe Beryl::Config::EnvFile do
       parsed = Beryl::Config::EnvFile.parse_vault_toml(toml)
       parsed["ovh"]["WEIRD"].should eq(%(value with "quotes" and \\backslash))
     end
+
+    it "round-trip d'une valeur MULTI-LIGNES (PEM) sans corrompre le TOML" do
+      pem = "-----BEGIN CERTIFICATE-----\nMIIB...\nAbCd/1+2==\n-----END CERTIFICATE-----\n"
+      providers = {
+        "gandi" => {"GANDI_FULLCHAIN" => pem, "GANDI_API_KEY" => "single-line"},
+      } of String => Hash(String, String)
+      toml = Beryl::Config::EnvFile.serialize_account_to_toml(providers)
+      toml.should contain("'''") # string littérale multi-lignes, pas "..." basique
+      parsed = Beryl::Config::EnvFile.parse_vault_toml(toml)
+      parsed["gandi"]["GANDI_FULLCHAIN"].should eq(pem)
+      parsed["gandi"]["GANDI_API_KEY"].should eq("single-line")
+    end
   end
 
   describe "#set_account / #clear_account" do

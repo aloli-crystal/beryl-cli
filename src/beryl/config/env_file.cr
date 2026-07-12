@@ -221,9 +221,19 @@ module Beryl::Config
           io << '[' << provider << "]\n"
           providers[provider].keys.sort.each do |var|
             value = providers[provider][var]
-            # TOML basic string: escape backslashes and double quotes.
-            escaped = value.gsub('\\', "\\\\").gsub('"', "\\\"")
-            io << var << " = \"" << escaped << "\"\n"
+            if value.includes?('\n')
+              # Valeur MULTI-LIGNES (ex. PEM Gandi) → string LITTÉRALE
+              # multi-lignes TOML (`'''…'''`), sans échappement. Une string
+              # basique `"…"` ne peut PAS contenir de retour-ligne littéral :
+              # l'écrire ainsi produisait un TOML invalide (coffre corrompu).
+              # Le `\n` d'amorce après `'''` est retiré par TOML → on round-trip
+              # la valeur exacte.
+              io << var << " = '''\n" << value << "'''\n"
+            else
+              # TOML basic string: escape backslashes and double quotes.
+              escaped = value.gsub('\\', "\\\\").gsub('"', "\\\"")
+              io << var << " = \"" << escaped << "\"\n"
+            end
           end
         end
       end
