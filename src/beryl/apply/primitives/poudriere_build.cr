@@ -71,6 +71,16 @@ module Beryl::Apply
       if ! poudriere jail -l -q 2>/dev/null | awk '{print $1}' | grep -qx #{Process.quote(jail)}; then
         poudriere jail -c -j #{Process.quote(jail)} -v #{Process.quote("#{version}-RELEASE")} -a #{Process.quote(arch)}
       fi
+      # Arbre de ports PROPRE avant le git pull : un `reapply` précédent laisse
+      # des modifs non commitées → `poudriere ports -u` (git pull --rebase)
+      # échoue (« You have unstaged changes »). On remet l'arbre à l'état git
+      # (les patches seront ré-appliqués juste après par le reapply).
+      PTDIR=$(poudriere ports -lq 2>/dev/null | awk -v p=#{Process.quote(ports)} '$1==p{print $NF}')
+      [ -d "$PTDIR/.git" ] || PTDIR=/usr/local/poudriere/ports/#{Process.quote(ports)}
+      if [ -d "$PTDIR/.git" ]; then
+        git -C "$PTDIR" reset -q --hard 2>/dev/null || true
+        git -C "$PTDIR" clean -qfd 2>/dev/null || true
+      fi
       poudriere ports -u -p #{Process.quote(ports)}
       #{reapply_line}
       poudriere bulk -j #{Process.quote(jail)} -p #{Process.quote(ports)} -O #{Process.quote(overlay)} -f #{Process.quote(pkglist)}

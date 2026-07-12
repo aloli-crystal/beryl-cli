@@ -23,6 +23,10 @@ describe Beryl::Apply::PoudriereBuild do
     s.should contain("poudriere jail -c -j fbsd151amd64 -v 15.1-RELEASE -a amd64")
     s.should contain("poudriere bulk -j fbsd151amd64 -p default -O quimeo -f /etc/pkglist")
     s.should contain("ln -sfh fbsd151amd64-default /pkg/FreeBSD:15:amd64")
+    # Arbre de ports remis à l'état git AVANT le pull (sinon `ports -u` échoue
+    # sur les modifs non commitées d'un reapply précédent).
+    s.should contain("git -C \"$PTDIR\" reset -q --hard")
+    (s.index("reset -q --hard").not_nil! < s.index("poudriere ports -u -p default").not_nil!).should be_true
   end
 
   it "build_script : intègre le reapply si fourni" do
