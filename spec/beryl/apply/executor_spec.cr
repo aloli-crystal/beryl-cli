@@ -122,6 +122,24 @@ describe Beryl::Apply::Executor do
     TestRecorder.last_params["value"].as_s.should eq("192.168.42.9")
   end
 
+  it "interpole {{ var }} DANS les éléments d'une liste (ex. domains)" do
+    shell = FakeShell.new
+    recipe = Beryl::Apply::Recipe.new(
+      name: "list-interp",
+      description: "",
+      requires: [] of String,
+      parameters: {} of String => YAML::Any,
+      arguments: {} of String => YAML::Any,
+      steps: [Beryl::Apply::Step.new("test-record",
+        {"names" => YAML.parse("[\"{{ hostname }}.quimeo.net\", \"{{ hostname }}.aloli.net\"]")})],
+      source_path: "/tmp/list-interp.recipe.yml",
+      positional: nil,
+    )
+    ctx = Beryl::Apply::Context.new(vars: {"hostname" => "pkg"})
+    Beryl::Apply::Executor.new(shell, dry_run: false, context: ctx).run([recipe])
+    TestRecorder.last_params["names"].as_a.map(&.as_s).should eq(["pkg.quimeo.net", "pkg.aloli.net"])
+  end
+
   it "interpole {{ var }} depuis arguments (qui priment sur parameters.default)" do
     shell = FakeShell.new
     Beryl::Apply::Executor.new(shell, dry_run: false).run([central_recipe("recorder")])

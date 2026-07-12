@@ -141,18 +141,28 @@ module Beryl::Apply
       Template.render(value, @context.vars)
     end
 
-    # Interpole les valeurs string contenant `{{ … }}`. Les autres
-    # valeurs (listes, scalaires sans placeholder) passent inchangées.
+    # Interpole les `{{ … }}` de chaque valeur string des params, EN DESCENDANT
+    # récursivement dans les listes et les maps imbriquées (ex. `domains: [
+    # "{{ hostname }}.quimeo.net", … ]`). Les scalaires non-string et les
+    # strings sans placeholder passent inchangés.
     private def interpolate(params : Hash(String, YAML::Any), vars : Hash(String, String)) : Hash(String, YAML::Any)
       out = {} of String => YAML::Any
-      params.each do |key, value|
-        if (s = value.as_s?) && Template.has_placeholder?(s)
-          out[key] = YAML::Any.new(Template.render(s, vars))
-        else
-          out[key] = value
-        end
-      end
+      params.each { |key, value| out[key] = interpolate_value(value, vars) }
       out
+    end
+
+    private def interpolate_value(value : YAML::Any, vars : Hash(String, String)) : YAML::Any
+      if s = value.as_s?
+        Template.has_placeholder?(s) ? YAML::Any.new(Template.render(s, vars)) : value
+      elsif arr = value.as_a?
+        YAML::Any.new(arr.map { |e| interpolate_value(e, vars) })
+      elsif h = value.as_h?
+        interpolated = {} of YAML::Any => YAML::Any
+        h.each { |k, v| interpolated[k] = interpolate_value(v, vars) }
+        YAML::Any.new(interpolated)
+      else
+        value
+      end
     end
 
     private def describe(result : StepResult) : String
