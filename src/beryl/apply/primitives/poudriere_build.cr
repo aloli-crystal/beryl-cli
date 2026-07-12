@@ -64,7 +64,17 @@ module Beryl::Apply
       jail = jail_name(version, arch)
       set = set_name(version, arch, ports)
       ali = "#{pkgdir}/#{alias_name(major, arch)}"
-      reapply_line = reapply ? "[ -x #{Process.quote(reapply)} ] && #{Process.quote(reapply)} || true" : "true"
+      # reapply : ré-applique les patches quimeo sur l'arbre base APRÈS le pull
+      # (ex. retirer du MOVED les ports expirés que l'overlay ré-introduit). On
+      # lui passe le chemin de l'arbre ($PTDIR) et on PRÉVIENT dans le log s'il
+      # est configuré mais absent/non exécutable (au lieu d'un skip silencieux).
+      reapply_line =
+        if reapply
+          r = Process.quote(reapply)
+          "if [ -x #{r} ]; then #{r} \"$PTDIR\"; else echo \"beryl: reapply absent ou non exécutable, patches base NON appliqués : #{reapply}\"; fi"
+        else
+          "true"
+        end
       <<-SH
       #!/bin/sh
       set -eu
