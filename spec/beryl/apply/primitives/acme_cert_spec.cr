@@ -24,7 +24,7 @@ describe Beryl::Apply::AcmeCert do
     it "standalone : issue multi-SAN, install --ecc, reloadcmd, trap restart" do
       s = Beryl::Apply::AcmeCert.issue_script(
         ["pkg.quimeo.net", "pkg.aloli.net"], "/ssl/fc.pem", "/ssl/key.pem",
-        "service nginx reload", "/home/acme", "letsencrypt", "standalone", nil, "nginx", "ec-256")
+        "service nginx reload", "/home/acme", "letsencrypt", "standalone", nil, "nginx", "ec-256", nil, nil)
       s.should contain("--issue --server letsencrypt -d pkg.quimeo.net -d pkg.aloli.net --standalone --home /home/acme")
       s.should contain("--install-cert -d pkg.quimeo.net --ecc")
       s.should contain("--fullchain-file \"$FC\"")
@@ -36,9 +36,17 @@ describe Beryl::Apply::AcmeCert do
       s.should contain(%([ "$rc" != 0 ] && [ "$rc" != 2 ]))
     end
 
+    it "hooks persistés (pre/post) sur --issue, pour le renouvellement du cron" do
+      s = Beryl::Apply::AcmeCert.issue_script(
+        ["pkg.quimeo.net"], "/fc", "/k", "service nginx reload", "/h", "letsencrypt",
+        "standalone", nil, nil, "ec-256", "service nginx stop", "service nginx start")
+      s.should contain("--pre-hook 'service nginx stop'")
+      s.should contain("--post-hook 'service nginx start'")
+    end
+
     it "webroot + RSA : -w <racine>, pas de --standalone, pas de --ecc, sans stop_service" do
       s = Beryl::Apply::AcmeCert.issue_script(
-        ["ex.net"], "/fc", "/k", nil, "/h", "letsencrypt", "webroot", "/var/www", nil, "2048")
+        ["ex.net"], "/fc", "/k", nil, "/h", "letsencrypt", "webroot", "/var/www", nil, "2048", nil, nil)
       s.should contain("-w /var/www")
       s.should_not contain("--standalone")
       s.should_not contain("--ecc")

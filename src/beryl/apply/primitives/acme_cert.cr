@@ -39,11 +39,18 @@ module Beryl::Apply
     def self.issue_script(domains : Array(String), fullchain : String, key : String,
                           reloadcmd : String?, home : String, server : String,
                           method : String, webroot : String?, stop_service : String?,
-                          keylength : String) : String
+                          keylength : String, pre_hook : String?, post_hook : String?) : String
       dflags = domains.map { |d| "-d #{Process.quote(d)}" }.join(' ')
       challenge = method == "webroot" ? "-w #{Process.quote(webroot || "")}" : "--standalone"
       ecc = keylength.starts_with?("ec") ? " --ecc" : ""
       reload = reloadcmd ? " --reloadcmd #{Process.quote(reloadcmd)}" : ""
+      # Hooks PERSISTÉS par acme.sh (rejoués à chaque renouvellement du cron) :
+      # ils libèrent puis restaurent le service qui tient le port 80, ce que le
+      # trap `stop_service` (émission ponctuelle) ne fait pas au renouvellement.
+      hooks = String.build do |s|
+        s << " --pre-hook " << Process.quote(pre_hook) if pre_hook
+        s << " --post-hook " << Process.quote(post_hook) if post_hook
+      end
       guard = if ss = stop_service
                 <<-GUARD
                 trap 'service #{Process.quote(ss)} onestart >/dev/null 2>&1 || true' EXIT
@@ -59,7 +66,7 @@ module Beryl::Apply
       KEY=#{Process.quote(key)}
       mkdir -p "$(dirname "$FC")" "$(dirname "$KEY")"
       #{guard}
-      #{Process.quote(ACME_BIN)} --issue --server #{Process.quote(server)} #{dflags} #{challenge} --home #{Process.quote(home)} --keylength #{Process.quote(keylength)}
+      #{Process.quote(ACME_BIN)} --issue --server #{Process.quote(server)} #{dflags} #{challenge} --home #{Process.quote(home)} --keylength #{Process.quote(keylength)}#{hooks}
       rc=$?
       if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then exit "$rc"; fi
       #{Process.quote(ACME_BIN)} --install-cert -d #{Process.quote(domains.first)}#{ecc} --home #{Process.quote(home)} --fullchain-file "$FC" --key-file "$KEY"#{reload}
@@ -78,6 +85,8 @@ module Beryl::Apply
       webroot = string(params, "webroot")
       stop_service = string(params, "stop_service")
       keylength = string(params, "keylength") || "ec-256"
+      pre_hook = string(params, "pre_hook")
+      post_hook = string(params, "post_hook")
       renew_days = (string(params, "renew_days") || "30").to_i? || 30
 
       if method == "webroot" && (webroot.nil? || webroot.empty?)
@@ -103,7 +112,7 @@ module Beryl::Apply
         return StepResult.applied("émettrait le cert Let's Encrypt (#{server}) pour #{names} → #{fullchain} (dry-run)")
       end
 
-      script = self.class.issue_script(domains, fullchain, key, reloadcmd, home, server, method, webroot, stop_service, keylength)
+      script = self.class.issue_script(domains, fullchain, key, reloadcmd, home, server, method, webroot, stop_service, keylength, pre_hook, post_hook)
       shell.write_file("/tmp/beryl-acme-cert.sh", script, "0755")
       res = shell.exec("sh /tmp/beryl-acme-cert.sh", raise_on_error: false)
       if res.success?
