@@ -44,6 +44,12 @@ service (`recipes`, `info`, …) n'en sont plus considérés — `beryl scan
 --discover <société>` et les commandes ciblant un domaine ne listent plus
 `recipes`/`info` par erreur. Aucune liste d'exceptions à maintenir.
 
+=== `scan --discover` : choix du domaine cible quand il y en a plusieurs
+
+Un seul domaine → choisi d'office. Plusieurs → `--domain` s'il est fourni,
+sinon on le DEMANDE interactivement (liste numérotée), ou on REFUSE en
+`--non-interactive` (avec la liste) pour rester scriptable.
+
 == [0.6.0] - 2026-07-12
 
 === `beryl apply` — nouvelles primitives et variable `{{ public_ip }}`

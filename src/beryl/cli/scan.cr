@@ -177,7 +177,7 @@ module Beryl::CLI::Scan
         STDERR.puts "beryl : `--discover` exige une société (positionnel « <société> » ou --account=NOM)."
         return EXIT_USAGE
       end
-      return discover_servers(Beryl::Config::Root.load(config_root), config_root, account, dry_run)
+      return discover_servers(Beryl::Config::Root.load(config_root), config_root, account, domain_hint, non_interactive, dry_run)
     end
 
     raw = positional.first?
@@ -1204,10 +1204,15 @@ module Beryl::CLI::Scan
   # `beryl scan --discover <société>` : liste les serveurs dédiés OVH du
   # compte (API, SANS SSH ni rescue), repère ceux absents de la config, et
   # écrit un host.yml MINIMAL (provider + bloc ovh) pour chacun. Les
-  # disques/ZFS/hardware restent à compléter via `beryl scan <host> --write`
+  # disques/ZFS/hardware restent à compléter via `beryl scan <host> --apply`
   # en mode rescue. N'écrase jamais un host.yml existant.
+  #
+  # Domaine cible : si la société n'en a qu'UN, il est choisi d'office ;
+  # si plusieurs, on prend `--domain` s'il est fourni, sinon on DEMANDE
+  # (interactif) ou on REFUSE en `--non-interactive`.
   private def self.discover_servers(root : Beryl::Config::Root, config_root : String,
-                                    account : String, dry_run : Bool) : Int32
+                                    account : String, domain_hint : String?,
+                                    non_interactive : Bool, dry_run : Bool) : Int32
     acct = root.account?(account)
     unless acct
       STDERR.puts "beryl : société inconnue : #{account}. Connues : #{root.accounts.keys.sort.join(", ")}"
@@ -1218,8 +1223,21 @@ module Beryl::CLI::Scan
       STDERR.puts "beryl : la société #{account} n'a aucun domaine — impossible de placer les host.yml."
       return EXIT_USAGE
     end
-    domain = domains.first
-    puts "⚠ #{account} a plusieurs domaines (#{domains.join(", ")}) : squelettes sous « #{domain} », déplacez au besoin." if domains.size > 1
+    domain =
+      if domains.size == 1
+        domains.first
+      elsif dh = domain_hint
+        unless domains.includes?(dh)
+          STDERR.puts "beryl : domaine « #{dh} » inconnu pour #{account}. Domaines : #{domains.join(", ")}."
+          return EXIT_USAGE
+        end
+        dh
+      elsif non_interactive
+        STDERR.puts "beryl : #{account} a #{domains.size} domaines (#{domains.join(", ")}). Précisez --domain=<domaine>."
+        return EXIT_USAGE
+      else
+        prompt_discover_domain(account, domains)
+      end
 
     root.env_file.apply_all_to_env(account, overwrite: true)
     ovh = Beryl::Providers::Ovh.new
@@ -1267,6 +1285,22 @@ module Beryl::CLI::Scan
     puts "#{written} squelette(s) écrit(s) sous #{config_root}/#{account}/#{domain}/."
     puts "Renommez si besoin, puis complétez disques/ZFS via `beryl scan <host> --write` (mode rescue)."
     EXIT_OK
+  end
+
+  # Demande interactivement dans quel domaine placer les host.yml
+  # découverts, quand la société en a plusieurs. Accepte un numéro ou le
+  # nom du domaine.
+  private def self.prompt_discover_domain(account : String, domains : Array(String)) : String
+    STDERR.puts "#{account} a plusieurs domaines — où placer les nouveaux host.yml ?"
+    domains.each_with_index { |d, i| STDERR.puts "  #{i + 1}. #{d}" }
+    loop do
+      ans = ask("Domaine (numéro ou nom) : ", default: domains.first).strip
+      if (idx = ans.to_i?) && idx >= 1 && idx <= domains.size
+        return domains[idx - 1]
+      end
+      return ans if domains.includes?(ans)
+      STDERR.puts "  réponse invalide, recommencez."
+    end
   end
 
   # Nom court d'un serveur découvert : le displayName OVH nettoyé s'il
