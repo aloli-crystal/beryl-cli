@@ -26,7 +26,7 @@ describe Beryl::Apply::PoudriereBuild do
     # Arbre de ports remis à l'état git AVANT le pull (sinon `ports -u` échoue
     # sur les modifs non commitées d'un reapply précédent).
     s.should contain("git -C \"$PTDIR\" reset -q --hard")
-    (s.index("reset -q --hard").not_nil! < s.index("poudriere ports -u -p default").not_nil!).should be_true
+    (s.index!("reset -q --hard") < s.index!("poudriere ports -u -p default")).should be_true
   end
 
   it "build_script : intègre le reapply si fourni (avec $PTDIR + garde-fou absent)" do

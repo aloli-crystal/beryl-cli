@@ -1,7 +1,7 @@
 require "../../../spec_helper"
 require "../../../support/fake_shell"
 
-private def p(h)
+private def params(h)
   res = Hash(String, YAML::Any).new
   h.each { |k, v| res[k] = v.is_a?(YAML::Any) ? v : YAML::Any.new(v) }
   res
@@ -37,7 +37,7 @@ describe Beryl::Apply::Netif6 do
     sh.stub(/netstat -rn -f inet6/, stdout: "")                         # pas de route par défaut v6
     sh.stub(/sysrc -n/, stdout: "")                                     # rc.conf vide
     r = Beryl::Apply::Netif6.new.apply(
-      sh, p({"address" => "2001:41d0:250:dd00::1"}), false, ctx)
+      sh, params({"address" => "2001:41d0:250:dd00::1"}), false, ctx)
     r.outcome.should eq(Beryl::Apply::Outcome::Applied)
     # Process.quote met l'arg sysrc (avec espaces) entre quotes → on matche l'intérieur.
     sh.ran?(/ifconfig_ice0_ipv6=inet6 2001:41d0:250:dd00::1 prefixlen 64/).should be_true
@@ -58,7 +58,7 @@ describe Beryl::Apply::Netif6 do
     sh.stub(/sysrc -n ifconfig_ice0_ipv6/, stdout: "inet6 2001:41d0:250:dd00::1 prefixlen 64\n")
     sh.stub(/sysrc -n ipv6_defaultrouter/, stdout: "fe80::1%ice0\n")
     r = Beryl::Apply::Netif6.new.apply(
-      sh, p({"address" => "2001:41d0:250:dd00::1"}), false, ctx)
+      sh, params({"address" => "2001:41d0:250:dd00::1"}), false, ctx)
     r.outcome.should eq(Beryl::Apply::Outcome::Skipped)
   end
 
@@ -69,7 +69,7 @@ describe Beryl::Apply::Netif6 do
     sh.stub(/netstat -rn -f inet6/, stdout: "")
     sh.stub(/sysrc -n/, stdout: "")
     r = Beryl::Apply::Netif6.new.apply(
-      sh, p({"address" => "2001:db8::1", "iface" => "igb0"}), false, ctx)
+      sh, params({"address" => "2001:db8::1", "iface" => "igb0"}), false, ctx)
     r.outcome.should eq(Beryl::Apply::Outcome::Applied)
     sh.ran?(/route -6 add default fe80::1%igb0/).should be_true
   end

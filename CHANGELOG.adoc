@@ -9,6 +9,24 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `acme-cert` : validation DNS-01 (wildcards, zéro coupure)
+
+Nouvelle méthode `method: dns` + `dns_provider:` (plugin `dnsapi` d'acme.sh).
+
+* **Seule méthode qui gère les wildcards** (`*.example.com`) — indispensable
+  pour couvrir N plateformes avec un seul certificat.
+* **Aucun port mobilisé → aucune coupure**, ni à l'émission ni au
+  renouvellement (contrairement à `--standalone`, qui impose d'arrêter nginx).
+* Les credentials de l'API DNS sont lus dans ceux de la **société** et
+  **traduits** vers les noms attendus par acme.sh (`OVH_APPLICATION_KEY` →
+  `OVH_AK`, et `OVH_ENDPOINT: eu` → `OVH_END_POINT: ovh-eu`, dont la *valeur*
+  diffère aussi). Providers câblés : `dns_ovh`, `dns_gandi_livedns`.
+* Le script d'émission est écrit en `0700` puis **supprimé** après exécution
+  (il porte les credentials le temps de l'appel) ; acme.sh les persiste
+  ensuite lui-même pour les renouvellements du cron.
+* Garde-fou : `method: dns` combiné à `stop_service` est refusé (ce serait
+  une coupure gratuite).
+
 === Convention `--dry-run` / `--apply` unifiée (BREAKING)
 
 Toutes les commandes qui MODIFIENT (config, API, serveur) sont désormais en
