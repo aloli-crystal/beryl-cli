@@ -13,11 +13,24 @@ module Beryl::Apply
   #     - pf-rule:
   #         rule: "block in quick proto tcp to port 23"
   #         state: present     # ou absent (défaut present)
+  #
+  # `nat: true` place la règle dans un bloc de TRANSLATION distinct, inséré
+  # AVANT les règles filtre (pf impose l'ordre options→scrub→translation→
+  # filtre ; un `nat` en fin de fichier ferait échouer `pfctl`). Pour les
+  # règles `nat`/`rdr`/`binat` (ex. NAT sortant d'un exit-node VPN) :
+  #
+  #     - pf-rule:
+  #         nat: true
+  #         rule: "nat on egress from 100.64.0.0/10 to any -> (egress)"
   class PfRule < Primitive
     PATH      = "/etc/pf.conf"
     TMP       = "/etc/pf.conf.beryl.tmp"
     BEGIN_TAG = "# >>> beryl >>>"
     END_TAG   = "# <<< beryl <<<"
+    NAT_BEGIN = "# >>> beryl nat >>>"
+    NAT_END   = "# <<< beryl nat <<<"
+    # Mots-clés de début de section FILTRE : le bloc nat s'insère juste avant.
+    FILTER_KW = /\A\s*(block|pass|match|antispoof)\b/
 
     def name : String
       "pf-rule"
@@ -26,9 +39,12 @@ module Beryl::Apply
     def apply(shell : Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Context) : StepResult
       rule = required_string(params, "rule").strip
       state = string(params, "state") || "present"
+      nat = bool(params, "nat", default: false)
+      begin_tag = nat ? NAT_BEGIN : BEGIN_TAG
+      end_tag = nat ? NAT_END : END_TAG
 
       content = shell.exec("cat #{Process.quote(PATH)} 2>/dev/null", raise_on_error: false).stdout
-      before, block, after, had_block = split_managed(content)
+      before, block, after, had_block = split_managed(content, begin_tag, end_tag)
 
       present = block.includes?(rule)
       case state
@@ -48,10 +64,10 @@ module Beryl::Apply
         raise MissingParam.new("`state` doit valoir present ou absent (reçu #{state.inspect}).")
       end
 
-      msg = "pf : #{verb} « #{rule} »"
+      msg = "pf#{nat ? " (nat)" : ""} : #{verb} « #{rule} »"
       return StepResult.applied("#{msg} (dry-run)") if dry_run
 
-      new_content = rebuild(before, block, after, had_block)
+      new_content = rebuild(before, block, after, had_block, begin_tag, end_tag, nat)
       shell.write_file(TMP, new_content)
       # Valide la conf complète AVANT de la mettre en place (échec =
       # stop net, pf.conf courant intact).
@@ -61,11 +77,12 @@ module Beryl::Apply
       StepResult.applied(msg)
     end
 
-    # Découpe le contenu en (avant, lignes du bloc, après, bloc_présent).
-    private def split_managed(content : String) : {Array(String), Array(String), Array(String), Bool}
+    # Découpe le contenu en (avant, lignes du bloc, après, bloc_présent) pour
+    # la paire de marqueurs donnée (bloc filtre OU bloc nat).
+    private def split_managed(content : String, begin_tag : String, end_tag : String) : {Array(String), Array(String), Array(String), Bool}
       lines = content.empty? ? [] of String : content.lines.map(&.chomp)
-      bi = lines.index(BEGIN_TAG)
-      ei = lines.index(END_TAG)
+      bi = lines.index(begin_tag)
+      ei = lines.index(end_tag)
       if bi && ei && ei > bi
         before = lines[0...bi]
         block = lines[(bi + 1)...ei].reject(&.strip.empty?)
@@ -76,17 +93,27 @@ module Beryl::Apply
       end
     end
 
-    # Reconstruit le fichier. Si le bloc est vide et n'existait pas, on
-    # ne l'ajoute pas (pas de churn inutile).
-    private def rebuild(before : Array(String), block : Array(String), after : Array(String), had_block : Bool) : String
-      String.build do |io|
-        before.each { |l| io << l << '\n' }
-        if !block.empty? || had_block
-          io << BEGIN_TAG << '\n'
-          block.each { |l| io << l << '\n' }
-          io << END_TAG << '\n'
+    # Reconstruit le fichier. Si le bloc est vide et n'existait pas, on ne
+    # l'ajoute pas (pas de churn inutile). Un bloc nat NOUVEAU est inséré
+    # AVANT la 1ʳᵉ règle filtre (ordre pf) ; sinon (filtre, ou bloc déjà
+    # présent) il reste à sa place / en fin de fichier.
+    private def rebuild(before : Array(String), block : Array(String), after : Array(String),
+                        had_block : Bool, begin_tag : String, end_tag : String, nat : Bool) : String
+      head, tail =
+        if nat && !had_block
+          idx = before.index { |l| l =~ FILTER_KW } || before.size
+          {before[0...idx], before[idx..] + after}
+        else
+          {before, after}
         end
-        after.each { |l| io << l << '\n' }
+      String.build do |io|
+        head.each { |l| io << l << '\n' }
+        if !block.empty? || had_block
+          io << begin_tag << '\n'
+          block.each { |l| io << l << '\n' }
+          io << end_tag << '\n'
+        end
+        tail.each { |l| io << l << '\n' }
       end
     end
   end

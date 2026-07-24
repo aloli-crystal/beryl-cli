@@ -31,4 +31,29 @@ describe Beryl::Apply::PfRule do
     result.outcome.should eq(Beryl::Apply::Outcome::Applied)
     shell.writes.first.content.should_not contain(RULE)
   end
+
+  it "nat: insère le bloc de translation AVANT la 1ʳᵉ règle filtre (ordre pf)" do
+    shell = FakeShell.new
+    # pf.conf typique : options/scrub, puis filtre.
+    shell.stub(/cat .*pf\.conf/, stdout: "set skip on lo0\nscrub in all\nblock in all\npass out all keep state\n")
+    natrule = "nat on egress from 100.64.0.0/10 to any -> (egress)"
+    result = prim("pf-rule").apply(shell, apply_params({rule: natrule, nat: true}.to_yaml), dry_run: false, context: ctx)
+    result.outcome.should eq(Beryl::Apply::Outcome::Applied)
+    content = shell.writes.first.content
+    # le nat doit précéder la 1ʳᵉ règle filtre `block`
+    (content.index(natrule).not_nil! < content.index("block in all").not_nil!).should be_true
+    # et suivre scrub (translation après normalisation)
+    (content.index("scrub in all").not_nil! < content.index(natrule).not_nil!).should be_true
+    content.should contain("# >>> beryl nat >>>")
+    shell.ran?(/pfctl -nf/).should be_true
+  end
+
+  it "nat: idempotent (skip si la règle nat est déjà dans le bloc translation)" do
+    shell = FakeShell.new
+    natrule = "nat on egress from 100.64.0.0/10 to any -> (egress)"
+    shell.stub(/cat .*pf\.conf/, stdout: "scrub in all\n# >>> beryl nat >>>\n#{natrule}\n# <<< beryl nat <<<\nblock in all\n")
+    result = prim("pf-rule").apply(shell, apply_params({rule: natrule, nat: true}.to_yaml), dry_run: false, context: ctx)
+    result.outcome.should eq(Beryl::Apply::Outcome::Skipped)
+    shell.writes.should be_empty
+  end
 end
