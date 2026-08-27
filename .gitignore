@@ -29,3 +29,13 @@ inventory.local.yml
 # macOS
 .DS_Store
 *.adoc.pdf
+
+# Binaires compilés localement pour les PoC de app/ (sources versionnées,
+# pas les exécutables ni les .o issus de leur compilation)
+app/**/*.o
+app/gui-poc/exemple_a
+app/gui-poc/exemple_b
+app/gui-poc/exemple_c
+app/gui-poc/exemple_d
+app/gui-poc/gtk4-poc/bin/
+app/gui-poc/gtk4-poc/lib/
