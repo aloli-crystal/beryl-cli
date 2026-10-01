@@ -1,4 +1,5 @@
 require "../../../spec_helper"
+require "../../../support/fake_shell"
 
 describe Beryl::Apply::PoudriereBuild do
   it "est enregistrée sous `poudriere-build`" do
@@ -19,7 +20,7 @@ describe Beryl::Apply::PoudriereBuild do
 
   it "build_script : jail conditionnelle, bulk overlay, repoint alias ABI" do
     s = Beryl::Apply::PoudriereBuild.build_script(
-      "15.1", "amd64", "default", "quimeo", "/etc/pkglist", "/pkg", nil)
+      "15.1", "amd64", "default", ["quimeo"], ["/etc/pkglist"], "/pkg", nil)
     s.should contain("poudriere jail -c -j fbsd151amd64 -v 15.1-RELEASE -a amd64")
     s.should contain("poudriere bulk -j fbsd151amd64 -p default -O quimeo -f /etc/pkglist")
     s.should contain("ln -sfh fbsd151amd64-default /pkg/FreeBSD:15:amd64")
@@ -31,8 +32,289 @@ describe Beryl::Apply::PoudriereBuild do
 
   it "build_script : intègre le reapply si fourni (avec $PTDIR + garde-fou absent)" do
     s = Beryl::Apply::PoudriereBuild.build_script(
-      "15.1", "amd64", "default", "quimeo", "/etc/pkglist", "/pkg", "/re/apply.sh")
+      "15.1", "amd64", "default", ["quimeo"], ["/etc/pkglist"], "/pkg", "/re/apply.sh")
     s.should contain("if [ -x /re/apply.sh ]; then /re/apply.sh \"$PTDIR\"")
     s.should contain("reapply absent ou non exécutable") # prévient au lieu de skip silencieux
+  end
+end
+
+private def pb_params(yaml : String) : Hash(String, YAML::Any)
+  h = {} of String => YAML::Any
+  YAML.parse(yaml).as_h.each { |k, v| h[k.as_s] = v }
+  h
+end
+
+private def pb : Beryl::Apply::Primitive
+  Beryl::Apply::Primitive["poudriere-build"]?.not_nil!
+end
+
+private def pb_ctx
+  Beryl::Apply::Context.new
+end
+
+# Fige la « dernière release » le temps d'un bloc (pas de réseau en spec).
+private def with_latest(version : String?, &)
+  saved = Beryl::Apply::PoudriereBuild.release_lookup
+  Beryl::Apply::PoudriereBuild.release_lookup = -> {
+    h = {} of Int32 => String
+    if v = version
+      h[v.split('.').first.to_i] = v
+    end
+    h
+  }
+  begin
+    yield
+  ensure
+    Beryl::Apply::PoudriereBuild.release_lookup = saved
+  end
+end
+
+private LEGACY = <<-YAML
+  major: "15"
+  pkglist: /usr/local/etc/poudriere.d/quimeo-pkglist
+  overlay: quimeo
+  YAML
+
+private TWO = <<-YAML
+  major: "15"
+  overlays:
+    - name: quimeo
+      pkglist: /usr/local/etc/poudriere.d/quimeo-pkglist
+    - name: aloli
+      git: https://github.com/aloli/aloli-ports
+      branch: production
+      pkglist: /usr/local/etc/poudriere.d/aloli-pkglist
+  YAML
+
+QUIMEO_SHA = "1111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+ALOLI_OLD  = "2222222bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+ALOLI_NEW  = "3333333ccccccccccccccccccccccccccccccccc"
+
+# Builder « à jour » : alias sur 15.1, quimeo et aloli enregistrés et
+# clonés, aloli propre sur production, état = commits courants.
+private def builder_shell : FakeShell
+  sh = FakeShell.new
+  sh.stub(/readlink/, stdout: "fbsd151amd64-default\n")
+  sh.stub(/test -f .*\.lock/, exit_code: 1)
+  sh.stub(/poudriere ports -lq/, stdout: <<-OUT)
+    default    git+https 2026-09-01 10:00:00 /usr/local/poudriere/ports/default
+    quimeo     null      2026-06-17 12:00:00 /usr/local/poudriere/quimeo-ports
+    aloli      null      2026-09-20 09:00:00 /usr/local/poudriere/aloli-ports
+    OUT
+  sh.stub(/quimeo-ports rev-parse HEAD/, stdout: "#{QUIMEO_SHA}\n")
+  sh.stub(/aloli-ports rev-parse HEAD/, stdout: "#{ALOLI_OLD}\n")
+  sh.stub(/aloli-ports symbolic-ref/, stdout: "production\n")
+  sh.stub(/aloli-ports status --porcelain/, stdout: "")
+  sh.stub(/aloli-ports rev-parse .*refs\/remotes\/origin\/production/, stdout: "#{ALOLI_OLD}\n")
+  sh.stub(/aloli-ports ls-remote/, stdout: "#{ALOLI_OLD}\trefs/heads/production\n")
+  sh.stub(/cat .*\.beryl-build-15\.overlays/, stdout: "quimeo #{QUIMEO_SHA}\naloli #{ALOLI_OLD}\n")
+  sh
+end
+
+private def launched?(sh : FakeShell) : Bool
+  sh.ran?(/daemon -f/)
+end
+
+describe "Beryl::Apply::PoudriereBuild (overlays)" do
+  it "build_script : plusieurs -O, réunion des -f, état écrit APRÈS l'alias" do
+    s = Beryl::Apply::PoudriereBuild.build_script(
+      "15.1", "amd64", "default", ["quimeo", "aloli"], ["/q.list", "/a.list"], "/pkg", nil,
+      {"quimeo" => "abc", "aloli" => "def"}, "/pkg/.beryl-build-15.overlays")
+    s.should contain("poudriere bulk -j fbsd151amd64 -p default -O quimeo -O aloli -f /q.list -f /a.list")
+    s.should contain("printf '%s\\n' 'quimeo abc' 'aloli def' > /pkg/.beryl-build-15.overlays.tmp")
+    s.should contain("mv -f /pkg/.beryl-build-15.overlays.tmp /pkg/.beryl-build-15.overlays")
+    (s.index!("ln -sfh") < s.index!("printf '%s")).should be_true
+    (s.index!("poudriere bulk") < s.index!("ln -sfh")).should be_true
+  end
+
+  it "parse_state / parse_trees" do
+    Beryl::Apply::PoudriereBuild.parse_state("quimeo abc\n\naloli def\n").should eq({"quimeo" => "abc", "aloli" => "def"})
+    Beryl::Apply::PoudriereBuild.parse_trees("aloli null 2026-09-20 09:00:00 /usr/local/poudriere/aloli-ports\n")
+      .should eq({"aloli" => "/usr/local/poudriere/aloli-ports"})
+  end
+
+  describe "ancien schéma (overlay: + pkglist:)" do
+    it "à jour, overlay non git → Skipped sans aucune commande git d'écriture" do
+      with_latest("15.1") do
+        sh = builder_shell
+        sh.stub(/test -d .*quimeo-ports\/\.git/, exit_code: 1)
+        r = pb.apply(sh, pb_params(LEGACY), false, pb_ctx)
+        r.outcome.should eq(Beryl::Apply::Outcome::Skipped)
+        r.message.should contain("déjà à jour sur 15.1")
+        sh.ran?(/git .*(fetch|clone|merge)/).should be_false
+        sh.ran?(/poudriere ports -c/).should be_false
+        launched?(sh).should be_false
+      end
+    end
+
+    it "nouvelle mineure → build -O quimeo -f <pkglist> (comme avant)" do
+      with_latest("15.2") do
+        sh = builder_shell
+        r = pb.apply(sh, pb_params(LEGACY), false, pb_ctx)
+        r.outcome.should eq(Beryl::Apply::Outcome::Applied)
+        r.message.should contain("FreeBSD 15.2 (← 15.1)")
+        script = sh.writes.first.content
+        script.should contain("poudriere bulk -j fbsd152amd64 -p default -O quimeo -f /usr/local/etc/poudriere.d/quimeo-pkglist")
+        script.should contain("'quimeo #{QUIMEO_SHA}'")
+        launched?(sh).should be_true
+      end
+    end
+
+    it "à jour et commit quimeo identique à l'état → Skipped" do
+      with_latest("15.1") do
+        sh = builder_shell
+        r = pb.apply(sh, pb_params(LEGACY), false, pb_ctx)
+        r.outcome.should eq(Beryl::Apply::Outcome::Skipped)
+      end
+    end
+  end
+
+  it "deux overlays inchangés → Skipped (fetch fait, aucune fusion, aucun build)" do
+    with_latest("15.1") do
+      sh = builder_shell
+      r = pb.apply(sh, pb_params(TWO), false, pb_ctx)
+      r.outcome.should eq(Beryl::Apply::Outcome::Skipped)
+      r.message.should contain("aloli@2222222")
+      sh.ran?(/aloli-ports fetch -q origin/).should be_true
+      sh.ran?(/merge -q --ff-only/).should be_false
+      launched?(sh).should be_false
+    end
+  end
+
+  it "overlay changé → avance rapide + build des deux overlays, sans nouvelle mineure" do
+    with_latest("15.1") do
+      sh = builder_shell
+      sh.stub(/aloli-ports rev-parse .*refs\/remotes\/origin\/production/, stdout: "#{ALOLI_NEW}\n")
+      r = pb.apply(sh, pb_params(TWO), false, pb_ctx)
+      r.outcome.should eq(Beryl::Apply::Outcome::Applied)
+      r.message.should contain("overlay aloli 2222222 → 3333333")
+      r.message.should_not contain("FreeBSD 15")
+      sh.ran?(/aloli-ports merge -q --ff-only/).should be_true
+      script = sh.writes.first.content
+      script.should contain("poudriere bulk -j fbsd151amd64 -p default -O quimeo -O aloli " \
+                            "-f /usr/local/etc/poudriere.d/quimeo-pkglist -f /usr/local/etc/poudriere.d/aloli-pkglist")
+      script.should contain("'aloli #{ALOLI_NEW}'")
+      launched?(sh).should be_true
+    end
+  end
+
+  it "état absent (premier passage) → build" do
+    with_latest("15.1") do
+      sh = builder_shell
+      sh.stub(/cat .*\.beryl-build-15\.overlays/, stdout: "", exit_code: 1)
+      r = pb.apply(sh, pb_params(TWO), false, pb_ctx)
+      r.outcome.should eq(Beryl::Apply::Outcome::Applied)
+      r.message.should contain("overlay aloli ∅ → 2222222")
+      launched?(sh).should be_true
+    end
+  end
+
+  it "overlay absent → clone + enregistrement poudriere + build" do
+    with_latest("15.1") do
+      sh = builder_shell
+      sh.stub(/poudriere ports -lq/, stdout: "quimeo null 2026-06-17 12:00:00 /usr/local/poudriere/quimeo-ports\n")
+      sh.stub(/test -d \/usr\/local\/poudriere\/aloli-ports\/\.git/, exit_code: 1)
+      sh.stub(/test -e \/usr\/local\/poudriere\/aloli-ports/, exit_code: 1)
+      sh.stub(/cat .*\.beryl-build-15\.overlays/, stdout: "quimeo #{QUIMEO_SHA}\n") # aloli jamais construit
+      r = pb.apply(sh, pb_params(TWO), false, pb_ctx)
+      r.outcome.should eq(Beryl::Apply::Outcome::Applied)
+      sh.ran?(/git clone -q -b production https:\/\/github.com\/aloli\/aloli-ports \/usr\/local\/poudriere\/aloli-ports/).should be_true
+      sh.ran?(/poudriere ports -c -p aloli -m null -M \/usr\/local\/poudriere\/aloli-ports/).should be_true
+      clone = sh.commands.index!(&.starts_with?("git clone"))
+      reg = sh.commands.index!(&.starts_with?("poudriere ports -c"))
+      (clone < reg).should be_true
+      launched?(sh).should be_true
+    end
+  end
+
+  it "dry-run : plan (clone, enregistrement, build) sans rien modifier" do
+    with_latest("15.2") do
+      sh = builder_shell
+      sh.stub(/poudriere ports -lq/, stdout: "quimeo null 2026-06-17 12:00:00 /usr/local/poudriere/quimeo-ports\n")
+      sh.stub(/test -d \/usr\/local\/poudriere\/aloli-ports\/\.git/, exit_code: 1)
+      sh.stub(/test -e \/usr\/local\/poudriere\/aloli-ports/, exit_code: 1)
+      r = pb.apply(sh, pb_params(TWO), true, pb_ctx)
+      r.outcome.should eq(Beryl::Apply::Outcome::Applied)
+      r.message.should contain("clone https://github.com/aloli/aloli-ports (production)")
+      r.message.should contain("enregistrement poudriere aloli")
+      r.message.should contain("FreeBSD 15.2")
+      r.message.should contain("dry-run")
+      sh.ran?(/git clone|poudriere ports -c|touch|daemon/).should be_false
+      sh.writes.should be_empty
+    end
+  end
+
+  it "dry-run sur overlay en retard : git ls-remote, ni fetch ni fusion" do
+    with_latest("15.1") do
+      sh = builder_shell
+      sh.stub(/aloli-ports ls-remote/, stdout: "#{ALOLI_NEW}\trefs/heads/production\n")
+      sh.stub(/merge-base --is-ancestor/, exit_code: 1)
+      r = pb.apply(sh, pb_params(TWO), true, pb_ctx)
+      r.outcome.should eq(Beryl::Apply::Outcome::Applied)
+      r.message.should contain("serait mis à jour 2222222 → 3333333")
+      sh.ran?(/fetch|merge -q|daemon/).should be_false
+    end
+  end
+
+  it "modifications locales non commitées → Failed, rien n'est écrasé" do
+    with_latest("15.1") do
+      sh = builder_shell
+      sh.stub(/aloli-ports status --porcelain/, stdout: " M finance/partiduo-app/Makefile\n")
+      r = pb.apply(sh, pb_params(TWO), false, pb_ctx)
+      r.outcome.should eq(Beryl::Apply::Outcome::Failed)
+      r.message.should contain("finance/partiduo-app/Makefile")
+      sh.ran?(/fetch|merge|reset|daemon/).should be_false
+    end
+  end
+
+  it "historique divergé → Failed" do
+    with_latest("15.1") do
+      sh = builder_shell
+      sh.stub(/aloli-ports rev-parse .*refs\/remotes\/origin\/production/, stdout: "#{ALOLI_NEW}\n")
+      sh.stub(/merge-base --is-ancestor/, exit_code: 1)
+      r = pb.apply(sh, pb_params(TWO), false, pb_ctx)
+      r.outcome.should eq(Beryl::Apply::Outcome::Failed)
+      r.message.should contain("divergé")
+      launched?(sh).should be_false
+    end
+  end
+
+  it "commits locaux en avance : conservés, pas de rebuild si déjà construits" do
+    with_latest("15.1") do
+      sh = builder_shell
+      sh.stub(/aloli-ports rev-parse .*refs\/remotes\/origin\/production/, stdout: "#{ALOLI_NEW}\n")
+      sh.stub(/merge-base --is-ancestor HEAD/, exit_code: 1) # local pas ancêtre du distant
+      r = pb.apply(sh, pb_params(TWO), false, pb_ctx)
+      r.outcome.should eq(Beryl::Apply::Outcome::Skipped)
+      r.message.should contain("non poussés")
+      sh.ran?(/merge -q/).should be_false
+    end
+  end
+
+  it "build en cours (lock) → Skipped avant toute opération git" do
+    with_latest("15.2") do
+      sh = builder_shell
+      sh.stub(/test -f .*\.lock/, exit_code: 0)
+      r = pb.apply(sh, pb_params(TWO), false, pb_ctx)
+      r.outcome.should eq(Beryl::Apply::Outcome::Skipped)
+      sh.ran?(/git /).should be_false
+    end
+  end
+
+  it "validation : overlay/overlays exclusifs, overlays vide, nom invalide, pkglist requise" do
+    with_latest("15.1") do
+      expect_raises(Beryl::Apply::Primitive::PrimitiveError, /exclusifs/) do
+        pb.apply(builder_shell, pb_params("major: \"15\"\noverlay: quimeo\noverlays: [aloli]\npkglist: /x"), true, pb_ctx)
+      end
+      expect_raises(Beryl::Apply::Primitive::MissingParam, /vide/) do
+        pb.apply(builder_shell, pb_params("major: \"15\"\noverlays: []\npkglist: /x"), true, pb_ctx)
+      end
+      expect_raises(Beryl::Apply::Primitive::PrimitiveError, /invalide/) do
+        pb.apply(builder_shell, pb_params("major: \"15\"\noverlays: [\"../x\"]\npkglist: /x"), true, pb_ctx)
+      end
+      expect_raises(Beryl::Apply::Primitive::MissingParam, /pkglist/) do
+        pb.apply(builder_shell, pb_params("major: \"15\"\noverlays: [{name: aloli}]"), true, pb_ctx)
+      end
+    end
   end
 end

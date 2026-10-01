@@ -9,6 +9,33 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Primitive `pkg-upgrade` : mise à jour de paquets publiés + relance
+
+Met à jour une liste fermée de paquets (`packages:`), seulement ceux qui
+sont installés (les autres sont ignorés et rapportés), puis relance les
+services de `restart:` qui sont activés (`<svc>_enable=YES`). Détection par
+`pkg update -q` puis `pkg version -URv -l '<'` (comparaison de versions de
+pkg lui-même). Rien en retard → skip ; dry-run → plan (versions de → vers,
+services relancés) ; échec du `pkg upgrade` ou d'un redémarrage → échec
+explicite.
+
+=== `poudriere-build` : plusieurs overlays, reconstruction sur changement
+
+* Nouveau paramètre `overlays:` (liste `{name, git, branch, path,
+  pkglist}`) : clone si absent, mise à jour git en avance rapide seulement
+  (rien n'est écrasé : modifications locales, mauvaise branche ou
+  divergence → échec), enregistrement `poudriere ports -c -m null` s'il
+  manque, un seul `poudriere bulk` avec tous les `-O` et tous les `-f`.
+* Reconstruction aussi quand le commit d'un overlay diffère de celui du
+  dernier build réussi (état par majeur dans
+  `<pkgdir>/.beryl-build-<major>.overlays`, écrit en fin de build). Le
+  premier passage après mise à jour de beryl reconstruit une fois (état
+  absent) dès qu'un overlay est un dépôt git.
+* Le lock est vérifié avant toute opération git. Si la détection des
+  releases FreeBSD échoue, un overlay changé reconstruit la mineure
+  courante.
+* Ancien schéma (`overlay:` + `pkglist:`) inchangé.
+
 === `acme-cert` : validation DNS-01 (wildcards, zéro coupure)
 
 Nouvelle méthode `method: dns` + `dns_provider:` (plugin `dnsapi` d'acme.sh).
