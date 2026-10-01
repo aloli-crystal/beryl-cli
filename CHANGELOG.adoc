@@ -9,6 +9,16 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `scan` : garde-fou zroot en stripe sur plusieurs disques
+
+Un zroot en RAID 0 sur plusieurs disques n'a aucune redondance (piège vu
+après un passage JBOD → ZFS : défaut 0 accepté d'un [Entrée], zroot de 4
+disques sans redondance). Le défaut reste 0, mais en interactif ce choix
+affiche un avertissement avec les niveaux redondants possibles pour ce
+nombre de disques et demande une confirmation (`[o/N]`, refus → la
+question du niveau est reposée). Avec `--raid=0` ou `--non-interactive`,
+avertissement seul. Les pools de données ne sont pas concernés.
+
 === Préparation VPS : champ `kind:` du host.yml + garde
 
 * Nouveau champ `kind: dedicated | vps` (défaut `dedicated`, héritable du

@@ -285,6 +285,26 @@ describe Beryl::CLI::Scan do
     end
   end
 
+  describe ".stripe_warning" do
+    it "avertit pour un zroot en stripe sur plusieurs disques" do
+      w = Beryl::CLI::Scan.stripe_warning("zroot", 4, 0).not_nil!
+      w.should contain("AUCUNE redondance")
+      w.should contain("5=raidz, 6=raidz2, 10=mirror_stripe")
+    end
+
+    it "propose seulement les niveaux possibles pour le nombre de disques" do
+      Beryl::CLI::Scan.stripe_warning("zroot", 2, 0).not_nil!.should contain("possibles ici : 1=mirror.")
+      Beryl::CLI::Scan.stripe_warning("zroot", 3, 0).not_nil!.should contain("possibles ici : 5=raidz.")
+      Beryl::CLI::Scan.stripe_warning("zroot", 5, 0).not_nil!.should contain("5=raidz, 6=raidz2.")
+    end
+
+    it "se tait pour un seul disque, un niveau redondant ou un pool de données" do
+      Beryl::CLI::Scan.stripe_warning("zroot", 1, 0).should be_nil
+      Beryl::CLI::Scan.stripe_warning("zroot", 4, 6).should be_nil
+      Beryl::CLI::Scan.stripe_warning("zcache", 4, 0).should be_nil
+    end
+  end
+
   describe ".validate_raid!" do
     it "accepte les niveaux supportés" do
       [0, 1, 5, 6, 7, 10].each do |n|

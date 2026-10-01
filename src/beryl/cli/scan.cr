@@ -941,13 +941,46 @@ module Beryl::CLI::Scan
       return DEFAULT_RAID
     end
     if flag
-      return validate_raid!(flag)
+      level = validate_raid!(flag)
+      stripe_warning(pool_name, count, level).try { |w| STDERR.puts w }
+      return level
     end
-    return DEFAULT_RAID if non_interactive
-    ask_until_valid(
-      "Niveau RAID de #{pool_name} (0=stripe 1=mirror 5=raidz 6=raidz2 7=raidz3 10=mirror_stripe) [défaut : #{DEFAULT_RAID}] : ",
-      default: DEFAULT_RAID.to_s,
-    ) { |ans| validate_raid!(ans) }
+    if non_interactive
+      stripe_warning(pool_name, count, DEFAULT_RAID).try { |w| STDERR.puts w }
+      return DEFAULT_RAID
+    end
+    loop do
+      level = ask_until_valid(
+        "Niveau RAID de #{pool_name} (0=stripe 1=mirror 5=raidz 6=raidz2 7=raidz3 10=mirror_stripe) [défaut : #{DEFAULT_RAID}] : ",
+        default: DEFAULT_RAID.to_s,
+      ) { |ans| validate_raid!(ans) }
+      warning = stripe_warning(pool_name, count, level)
+      return level unless warning
+      STDERR.puts warning
+      ans = ask("Confirmer le stripe SANS redondance sur #{count} disques ? [o/N] : ", default: "N")
+      return level if ans.downcase.starts_with?("o")
+      STDERR.puts
+    end
+  end
+
+  # Garde-fou : un zroot en stripe (RAID 0) sur plusieurs disques n'a
+  # AUCUNE redondance — un seul disque perdu = système perdu. Piège vu
+  # in vivo après un passage JBOD → ZFS : le défaut 0 accepté d'un
+  # [Entrée] a donné un zroot de 4 disques sans redondance, annulant
+  # l'intérêt du JBOD. Le défaut reste 0 (convention beryl) ; on exige
+  # seulement une confirmation explicite en interactif. Limité au
+  # zroot : un pool de données en stripe (cache…) peut être voulu.
+  # Renvoie le message d'avertissement, ou nil si rien à signaler.
+  def self.stripe_warning(pool_name : String, count : Int32, level : Int32) : String?
+    return nil unless pool_name == "zroot" && count > 1 && level == 0
+    alternatives = [] of String
+    alternatives << "1=mirror" if count == 2
+    alternatives << "5=raidz" if count >= 3
+    alternatives << "6=raidz2" if count >= 4
+    alternatives << "10=mirror_stripe" if count >= 4 && count.even?
+    "  ⚠ zroot en RAID 0 (stripe) sur #{count} disques : AUCUNE redondance, " \
+    "un seul disque perdu = système perdu.\n" \
+    "    Niveaux redondants possibles ici : #{alternatives.join(", ")}."
   end
 
   # Valide une chaîne RAID. Lève `ArgumentError` sur entrée non-numérique
