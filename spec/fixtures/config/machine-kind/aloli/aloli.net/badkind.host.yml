@@ -1,0 +1,4 @@
+freebsd:
+  hostname: badkind
+kind: cloud
+provider: local

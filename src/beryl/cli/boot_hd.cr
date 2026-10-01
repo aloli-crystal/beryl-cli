@@ -5,6 +5,7 @@ require "ssh"
 require "./account_utils"
 require "./credentials"
 require "./rescue"
+require "./machine_kind"
 
 # Sous-commande `beryl boot-hd <host>` : bascule OVH sur le boot
 # disque (inverse de rescue) et attend le retour SSH de l'OS installé.
@@ -73,6 +74,7 @@ module Beryl::CLI::BootHd
 
     root = Beryl::Config::Root.load(config_root)
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
+    return EXIT_BAD_PROVIDER if Beryl::CLI::MachineKind.refuse_vps(host, "boot-hd")
     host.apply_all_credentials_to_env!
 
     # Résolution du provider : --provider CLI gagne, sinon celui du merge.

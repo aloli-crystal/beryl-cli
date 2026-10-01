@@ -8,6 +8,7 @@ require "ssh"
 require "./account_utils"
 require "./credentials"
 require "./provider_shortcut"
+require "./machine_kind"
 
 # Sous-commande `beryl rescue <host> [options]` : bascule un hôte en
 # rescue via l'API de l'hébergeur (OVH ou Scaleway) puis attend le
@@ -129,6 +130,7 @@ module Beryl::CLI::Rescue
     end
 
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
+    return EXIT_BAD_PROVIDER if Beryl::CLI::MachineKind.refuse_vps(host, "rescue")
     host.apply_all_credentials_to_env!
 
     unless dns_resolver.call(host.rescue_ssh_host)

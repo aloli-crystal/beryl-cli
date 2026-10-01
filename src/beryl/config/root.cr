@@ -439,6 +439,28 @@ module Beryl::Config
       @merged[YAML::Any.new("dns_provider")]?.try(&.as_s?)
     end
 
+    # Nature de la machine : `dedicated` (défaut, serveur physique) ou `vps`
+    # (machine virtuelle). Lu dans le champ `kind:` du merged (héritable du
+    # groupe/domaine). Les commandes qui pilotent l'API « serveur dédié » de
+    # l'hébergeur (rescue, boot-hd, vRack…) refusent un VPS via
+    # `Beryl::CLI::MachineKind.refuse_vps`, au lieu d'échouer en 404 API.
+    def kind : String
+      raw = @merged[YAML::Any.new("kind")]?.try(&.as_s?) || "dedicated"
+      return raw if MACHINE_KINDS.includes?(raw)
+      raise UnknownMachineKind.new(
+        "#{fqdn} : `kind: #{raw}` inconnu (attendu : #{MACHINE_KINDS.join(" | ")})"
+      )
+    end
+
+    def vps? : Bool
+      kind == "vps"
+    end
+
+    MACHINE_KINDS = %w[dedicated vps]
+
+    class UnknownMachineKind < Exception
+    end
+
     # Noms des blocs providers présents dans le merged. Utile pour
     # les messages d'erreur quand `provider:` n'est pas déclaré.
     def present_provider_blocks : Array(String)

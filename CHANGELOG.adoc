@@ -9,6 +9,18 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Préparation VPS : champ `kind:` du host.yml + garde
+
+* Nouveau champ `kind: dedicated | vps` (défaut `dedicated`, héritable du
+  groupe/domaine) ; valeur inconnue → erreur explicite.
+* Les commandes qui pilotent l'API « serveur dédié » de l'hébergeur
+  refusent un VPS avec un message clair au lieu d'un 404 API : `rescue`,
+  `boot-hd`, `reboot --hard`, `bootstrap`, `vrack`, `dns`, `dns-alias`.
+* `scan` saute l'enrichissement OVH dédié (gamme, matériel, recherche du
+  service par IP) pour un VPS ; `info --refresh` l'ignore.
+* `apply`, `os-upgrade`, `reboot` (soft) et tout ce qui passe par SSH
+  fonctionnent déjà sur un VPS. Feuille de route : `adoc/vps-support.adoc`.
+
 === Primitive `pkg-upgrade` : mise à jour de paquets publiés + relance
 
 Met à jour une liste fermée de paquets (`packages:`), seulement ceux qui

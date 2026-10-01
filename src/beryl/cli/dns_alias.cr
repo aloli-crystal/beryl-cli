@@ -4,6 +4,7 @@ require "./dns_setup"
 require "./credentials"
 require "./account_utils"
 require "../config"
+require "./machine_kind"
 
 module Beryl::CLI
   # `beryl dns-alias <host> --name <label>` — pose un ALIAS DNS A/AAAA pointant
@@ -65,6 +66,7 @@ module Beryl::CLI
 
       root = Beryl::Config::Root.load(config_root)
       host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
+      return EXIT_USAGE if Beryl::CLI::MachineKind.refuse_vps(host, "dns-alias")
 
       zone = zone_flag || host.domain_name
       if zone.nil? || zone.empty?

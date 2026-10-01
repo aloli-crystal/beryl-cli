@@ -2,6 +2,7 @@ require "option_parser"
 require "../apply"
 require "../freebsd_release" # RELEASE FreeBSD disponibles en amont (--freebsd)
 require "./apply"            # Beryl::CLI::Apply.recipes_search_path (paquets gérés par recettes)
+require "./machine_kind"
 
 module Beryl::CLI
   # `beryl info [host] [--usage]` : inventaire des serveurs.
@@ -632,6 +633,8 @@ module Beryl::CLI
 
     private def self.refresh_metadata(root : Beryl::Config::Root, scope : String?) : Int32
       ovh_targets = scoped_hosts(root, scope).reject(&.virtual).select { |h| h.provider == "ovh" }
+      vps, ovh_targets = ovh_targets.partition(&.vps?)
+      vps.each { |h| puts "  ⚠ #{h.short_name} : VPS (kind: vps) — métadonnées « serveur dédié » non applicables, ignoré." }
       if ovh_targets.empty?
         puts "Aucun host OVH dans le périmètre #{scope || "(tous)"}."
         return EXIT_OK

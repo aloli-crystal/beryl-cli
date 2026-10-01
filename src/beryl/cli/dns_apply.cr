@@ -2,6 +2,7 @@ require "../config"
 require "../providers"
 require "./credentials"
 require "./dns_setup"
+require "./machine_kind"
 
 module Beryl::CLI
   # Cœur partagé du nommage DNS multi-provider (ADR-014), extrait de
@@ -136,6 +137,7 @@ module Beryl::CLI
                     "(OVH seulement aujourd'hui). Scaleway/Dedibox à venir."
         return Result.new(Outcome::Usage, short)
       end
+      return Result.new(Outcome::Usage, short) if Beryl::CLI::MachineKind.refuse_vps(host, cmd)
       maybe_service = host.ovh_service_name
       if maybe_service.nil?
         STDERR.puts "#{cmd} : host OVH sans `ovh.service_name`."

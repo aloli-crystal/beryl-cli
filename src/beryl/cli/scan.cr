@@ -12,6 +12,7 @@ require "./dns_apply"
 require "./provider_shortcut"
 require "./config_git"
 require "./raid_controller"
+require "./machine_kind"
 
 # Sous-commande `beryl scan <host>` : se connecte au rescue Linux,
 # détecte les disques, propose un YAML pour le fichier host.
@@ -1146,6 +1147,7 @@ module Beryl::CLI::Scan
   private def self.fetch_ovh_specs(
     host : Beryl::Config::ResolvedHost, service_name : String,
   ) : Tuple(String?, Beryl::HardwareSpec?)
+    return {nil, nil} if host.vps?
     host.apply_all_credentials_to_env!
     ovh = Beryl::Providers::Ovh.new
     return {nil, nil} unless ovh.available?
@@ -1160,6 +1162,7 @@ module Beryl::CLI::Scan
   # (match de l'IP principale). nil si non joignable, credentials absents,
   # IP non résolue, ou aucun match. JAMAIS bloquant.
   private def self.resolve_ovh_service_name(host : Beryl::Config::ResolvedHost) : String?
+    return nil if host.vps?
     # IP PUBLIQUE (rescue_ssh_host), jamais le vRack : l'API OVH matche un
     # serveur sur son IP publique, pas sur une IP vRack privée.
     ip = resolve_host_ipv4(host.rescue_ssh_host)

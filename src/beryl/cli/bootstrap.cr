@@ -4,6 +4,7 @@ require "../bootstrap"
 require "./account_utils"
 require "./credentials"
 require "./precheck"
+require "./machine_kind"
 
 # Sous-commande `beryl bootstrap <host>` : installe FreeBSD 15 sur un
 # hôte actuellement en rescue Linux (voie mfsBSD-in-QEMU, ADR-012/013).
@@ -58,6 +59,7 @@ module Beryl::CLI::Bootstrap
 
     root = Beryl::Config::Root.load(config_root)
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
+    return EXIT_USAGE if Beryl::CLI::MachineKind.refuse_vps(host, "bootstrap")
     host.apply_all_credentials_to_env!
 
     # Résolution de la version FreeBSD + URL mfsBSD. Règle « pas de

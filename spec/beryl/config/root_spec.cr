@@ -262,6 +262,24 @@ describe Beryl::Config::ResolvedHost do
     hw.disks.should eq(["2 x 960 GB SSD", "4 x 7680 GB SSD"])
   end
 
+  it "kind : dedicated par défaut (champ absent)" do
+    rh = Beryl::Config::Root.load(fixture("machine-kind")).resolve("netbast")
+    rh.kind.should eq("dedicated")
+    rh.vps?.should be_false
+  end
+
+  it "kind: vps → vps? vrai" do
+    rh = Beryl::Config::Root.load(fixture("machine-kind")).resolve("vpsbox")
+    rh.kind.should eq("vps")
+    rh.vps?.should be_true
+  end
+
+  it "kind inconnu → UnknownMachineKind (message cite les valeurs admises)" do
+    rh = Beryl::Config::Root.load(fixture("machine-kind")).resolve("badkind")
+    ex = expect_raises(Beryl::Config::ResolvedHost::UnknownMachineKind) { rh.kind }
+    ex.message.not_nil!.should contain("dedicated | vps")
+  end
+
   it "hardware = nil si le host n'a pas été scanné (pas de bloc hardware:)" do
     rh = Beryl::Config::Root.load(fixture("ssh-host-override")).resolve("netbast")
     rh.hardware.should be_nil

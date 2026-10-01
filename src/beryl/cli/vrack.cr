@@ -1,6 +1,7 @@
 require "option_parser"
 require "../providers/ovh"
 require "../apply"
+require "./machine_kind"
 
 module Beryl::CLI
   # `beryl vrack <host> [--attach]` : interroge l'API OVH pour savoir si le
@@ -47,6 +48,7 @@ module Beryl::CLI
 
       root = Beryl::Config::Root.load(config_root)
       host = root.resolve(parsed[:host], account_hint: account_hint, domain_hint: domain_hint)
+      return EXIT_USAGE if Beryl::CLI::MachineKind.refuse_vps(host, "vrack")
       host.apply_all_credentials_to_env!
 
       service = host.ovh_service_name

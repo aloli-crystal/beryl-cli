@@ -1,0 +1,4 @@
+freebsd:
+  hostname: vpsbox
+kind: vps
+provider: ovh

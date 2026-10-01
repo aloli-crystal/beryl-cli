@@ -7,6 +7,7 @@ require "./account_utils"
 require "./credentials"
 require "./rescue"
 require "./unlock"
+require "./machine_kind"
 
 # Sous-commande `beryl reboot <host> [--soft|--hard]` (étape H3) :
 # redémarre un host puis (optionnellement) déverrouille les pools
@@ -80,6 +81,7 @@ module Beryl::CLI::Reboot
 
     root = Beryl::Config::Root.load(config_root)
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
+    return EXIT_BAD_PROVIDER if mode == :hard && Beryl::CLI::MachineKind.refuse_vps(host, "reboot --hard")
     host.apply_all_credentials_to_env!
 
     target = Beryl.format_ssh_target(host)
