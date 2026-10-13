@@ -9,6 +9,22 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `update` / `upgrade` : cascade d'utilisateurs SSH et serveurs pas encore installés
+
+`beryl update` et `beryl upgrade` se connectaient seulement avec l'utilisateur
+par défaut et affichaient le refus SSH brut (`admin@ns…: Permission denied`).
+Ils essaient maintenant, comme `os-upgrade`, les utilisateurs de connexion
+l'un après l'autre (admin… puis root) et résument un échec en une ligne
+(« SSH KO — clé refusée (publickey) (users tentés : admin, root) ») ; un
+serveur injoignable fait échouer la commande, avec un décompte final. Code
+commun dans `Beryl::CLI::SshProbe`.
+
+Nouveau champ `installed: false` du host.yml : serveur pas encore installé
+par `beryl bootstrap`. `update`, `upgrade` et `os-upgrade` le sautent au lieu
+d'échouer en SSH. `scan --discover` l'écrit dans les squelettes et
+`bootstrap` le retire (et commite le host.yml) une fois FreeBSD installé.
+Absent = installé : rien ne change pour les serveurs existants.
+
 === `os-upgrade` : correctifs de la release courante sans `--to`
 
 Un serveur déjà sur la dernière release s'arrêtait sur « rien à faire » sans

@@ -233,6 +233,13 @@ describe Beryl::Config::ResolvedHost do
     Beryl::Config::Root.load(fixture("direct-hosts")).resolve("loulou").connect_users.should eq(["root"])
   end
 
+  it "installed? : faux seulement si `installed: false` (absent = installé)" do
+    root = Beryl::Config::Root.load(fixture("installed-flag"))
+    root.resolve("pending").installed?.should be_false
+    root.resolve("ready").installed?.should be_true
+    root.resolve("explicit").installed?.should be_true
+  end
+
   it "connect_user : root par défaut si aucun user sudo-capable déclaré" do
     rh = Beryl::Config::Root.load(fixture("direct-hosts")).resolve("loulou")
     rh.connect_user.should eq("root")

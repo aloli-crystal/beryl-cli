@@ -5,6 +5,7 @@ require "./account_utils"
 require "./credentials"
 require "./precheck"
 require "./machine_kind"
+require "./config_git"
 
 # Sous-commande `beryl bootstrap <host>` : installe FreeBSD 15 sur un
 # hôte actuellement en rescue Linux (voie mfsBSD-in-QEMU, ADR-012/013).
@@ -380,6 +381,7 @@ module Beryl::CLI::Bootstrap
     bootstrap.run
 
     STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 7] terminé pour #{host.fqdn}"
+    mark_installed(host)
     EXIT_OK
   rescue ex : Beryl::Config::Root::HostNotFound
     STDERR.puts "beryl : #{ex.message}"
@@ -405,6 +407,27 @@ module Beryl::CLI::Bootstrap
   rescue ex
     STDERR.puts "beryl : erreur inattendue — #{ex.class}: #{ex.message}"
     EXIT_UNEXPECTED
+  end
+
+  # FreeBSD installé → retire `installed: false` du host.yml (les commandes de
+  # flotte cessent de sauter ce serveur) et commite si la config est sous git.
+  # No-op si la clé est absente. Un échec d'écriture n'invalide pas le bootstrap.
+  private def self.mark_installed(host : Beryl::Config::ResolvedHost) : Nil
+    path = host.node.source_path
+    before = File.read(path)
+    after = drop_installed_false(before)
+    return if after == before
+    File.write(path, after)
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] #{File.basename(path)} : `installed: false` retiré"
+    Beryl::CLI::ConfigGit.commit([path], "bootstrap : #{host.fqdn} installé", false)
+  rescue ex
+    STDERR.puts "beryl : ⚠ #{host.fqdn} installé, mais `installed: false` n'a pas pu être retiré du host.yml (#{ex.message}) — retirez-le à la main."
+  end
+
+  # Retire la ligne de PREMIER NIVEAU `installed: false` (commentaire de fin de
+  # ligne toléré) ; le reste du fichier est inchangé. Fonction pure.
+  def self.drop_installed_false(content : String) : String
+    content.gsub(/^installed:[ \t]*false[ \t]*(#[^\n]*)?\n?/m, "")
   end
 
   # Convertit les users du merge YAML en `Beryl::Bootstrap::UserSpec`

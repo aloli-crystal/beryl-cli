@@ -4,6 +4,7 @@ require "../freebsd_release"
 require "./account_utils"
 require "./info"   # scoped_hosts (portée société/domaine/host)
 require "./unlock" # déverrouillage auto post-reboot (hosts chiffrés)
+require "./ssh_probe"
 
 # `beryl os-upgrade <host> [--to X.Y] [--apply] [--reboot]` — met à jour le
 # SYSTÈME FreeBSD (≠ `upgrade` = paquets seuls). CONSCIENT DU TYPE D'INSTALL :
@@ -59,6 +60,10 @@ module Beryl::CLI::OsUpgrade
 
     root = Beryl::Config::Root.load(config_root)
     hosts = Beryl::CLI::Info.scoped_hosts(root, scope).select { |h| h.os == "freebsd" && !h.virtual }
+    hosts.reject(&.installed?).each do |h|
+      log "#{h.fqdn} : pas encore installé (installed: false) → ignoré."
+    end
+    hosts = hosts.select(&.installed?)
     if hosts.empty?
       STDERR.puts "beryl : aucun hôte FreeBSD dans le périmètre #{scope.inspect}."
       return EXIT_USAGE
@@ -101,12 +106,12 @@ module Beryl::CLI::OsUpgrade
 
     # Trouve le user qui répond (cascade connect_users : admin, deploy… puis
     # root), avec la version déjà lue. Puis SudoShell sur CE user.
-    user, probe = probe_reachable(host)
+    user, probe = Beryl::CLI::SshProbe.reachable(host, "freebsd-version -r")
     cur_raw = probe.stdout.strip
     cur = parse_version(cur_raw)
     unless user && cur
       STDERR.puts "beryl : #{host.fqdn} injoignable en SSH (users tentés : #{host.connect_users.join(", ")})."
-      STDERR.puts "        #{host.ssh_host}:#{host.port} → #{compact_ssh_error(probe.stderr, probe.exit_code)} (exit #{probe.exit_code})"
+      STDERR.puts "        #{host.ssh_host}:#{host.port} → #{Beryl::CLI::SshProbe.compact_error(probe.stderr, probe.exit_code)} (exit #{probe.exit_code})"
       if d = probe.stderr.strip.lines.first?
         STDERR.puts "        détail : #{d}"
       end
@@ -179,11 +184,11 @@ module Beryl::CLI::OsUpgrade
 
   # Lecture SEULE (pas de sudo) de l'état d'un hôte, pour le résumé de flotte.
   private def self.probe_one(host, to) : HostState
-    user, probe = probe_reachable(host)
+    user, probe = Beryl::CLI::SshProbe.reachable(host, "freebsd-version -r")
     cur_raw = probe.stdout.strip
     cur = parse_version(cur_raw)
     unless user && cur
-      return HostState.new(host.fqdn, false, nil, nil, "SSH KO : #{compact_ssh_error(probe.stderr, probe.exit_code)}")
+      return HostState.new(host.fqdn, false, nil, nil, "SSH KO : #{Beryl::CLI::SshProbe.compact_error(probe.stderr, probe.exit_code)}")
     end
     via = user == host.connect_user ? "" : " (via #{user})"
     cur_major, cur_minor, _ = cur
@@ -199,37 +204,6 @@ module Beryl::CLI::OsUpgrade
     HostState.new(host.fqdn, true, cur_raw, target, "#{up_needed ? NOTE_UP : NOTE_OK}#{via}")
   rescue ex
     HostState.new(host.fqdn, false, nil, nil, "erreur : #{ex.message}")
-  end
-
-  # Tente les users de connexion en cascade (`connect_users`) et renvoie le
-  # PREMIER qui répond, avec le `freebsd-version -r`. S'arrête dès une erreur
-  # RÉSEAU (timeout/refus/DNS) : inutile de tester d'autres users sur un hôte
-  # injoignable. Renvoie {user_ok | nil, dernier_résultat}.
-  private def self.probe_reachable(host) : {String?, SSH::Result}
-    last = SSH::Result.new("", "", 255)
-    host.connect_users.each do |u|
-      res = Beryl::Apply::SshShell.new(host.connection(u)).exec("freebsd-version -r", raise_on_error: false)
-      return {u, res} if res.success? && !res.stdout.strip.empty?
-      last = res
-      break if network_error?(res.stderr)
-    end
-    {nil, last}
-  end
-
-  private def self.network_error?(stderr : String) : Bool
-    s = stderr.downcase
-    s.includes?("timed out") || s.includes?("timeout") || s.includes?("banner exchange") ||
-      s.includes?("connection refused") || s.includes?("could not resolve") || s.includes?("name or service")
-  end
-
-  # Motif SSH lisible en une ligne (sans le préfixe `user@host:`).
-  private def self.compact_ssh_error(stderr : String, exit_code : Int32) : String
-    s = stderr.downcase
-    return "clé refusée (publickey)" if s.includes?("permission denied")
-    return "timeout / injoignable" if s.includes?("timed out") || s.includes?("timeout") || s.includes?("banner exchange")
-    return "hôte inconnu (DNS)" if s.includes?("could not resolve") || s.includes?("name or service")
-    return "connexion refusée" if s.includes?("connection refused")
-    "SSH exit #{exit_code}"
   end
 
   # Après une montée pkgbase, certaines confs de services base deviennent

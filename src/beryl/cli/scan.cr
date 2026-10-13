@@ -1363,6 +1363,7 @@ module Beryl::CLI::Scan
       "# Métadonnées OVH via API (sans rescue). Complétez disques/ZFS/hardware",
       "# via `beryl scan #{short}.#{domain} --write` en mode rescue.",
       "",
+      "installed: false # sauté par update/upgrade/os-upgrade ; retiré par `beryl bootstrap`",
       "provider: ovh",
     ]
     lines.concat(Beryl::CLI::Info.ovh_block(service_name, detail[:commercial], detail[:rack], detail[:ipv4], ipv6, price))

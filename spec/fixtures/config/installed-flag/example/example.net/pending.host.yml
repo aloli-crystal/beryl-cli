@@ -1,0 +1,4 @@
+provider: local
+installed: false # sauté par update/upgrade/os-upgrade ; retiré par `beryl bootstrap`
+freebsd:
+  hostname: pending

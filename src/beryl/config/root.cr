@@ -579,6 +579,14 @@ module Beryl::Config
       @merged[YAML::Any.new("protected")]?.try(&.as_bool?) || false
     end
 
+    # `installed: false` dans le host.yml → serveur PAS ENCORE installé par
+    # `beryl bootstrap` (squelette de `scan --discover`, serveur en attente) :
+    # les commandes de flotte (`update`, `upgrade`) le sautent au lieu d'un
+    # refus SSH. Absent = installé (défaut). `bootstrap` retire la clé.
+    def installed? : Bool
+      @merged[YAML::Any.new("installed")]?.try(&.as_bool?) != false
+    end
+
     # Le host a-t-il du chiffrement ZFS (pools data chiffrés OU datasets zroot
     # chiffrés du profil Option I) ? Sert à savoir s'il faut être déverrouillé
     # avant une opération qui ÉCRIT (pkg upgrade…).
