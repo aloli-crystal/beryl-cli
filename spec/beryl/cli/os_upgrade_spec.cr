@@ -20,6 +20,33 @@ describe Beryl::CLI::OsUpgrade do
     end
   end
 
+  describe ".pending_upgrades?" do
+    it "vrai quand pkg annonce des paquets à mettre à jour" do
+      output = <<-OUT
+        Installed packages to be UPGRADED:
+        \tFreeBSD-kernel-generic: 15.1p1 -> 15.1p4 [FreeBSD-base]
+
+        Number of packages to be upgraded: 43
+
+        152 MiB to be downloaded.
+        OUT
+      Beryl::CLI::OsUpgrade.pending_upgrades?(output).should be_true
+    end
+
+    it "faux quand le base est à jour (même si le catalogue dit « up to date »)" do
+      output = <<-OUT
+        Updating FreeBSD-base repository catalogue...
+        FreeBSD-base repository is up to date.
+        FreeBSD-base is up to date.
+        Checking for upgrades (44 candidates): .......... done
+        Processing candidates (44 candidates): .......... done
+        Checking integrity... done (0 conflicting)
+        Your packages are up to date.
+        OUT
+      Beryl::CLI::OsUpgrade.pending_upgrades?(output).should be_false
+    end
+  end
+
   describe ".base_branch" do
     it "mappe X.Y → base_release_<minor> (pkgbase)" do
       Beryl::CLI::OsUpgrade.base_branch("15.1").should eq("base_release_1")

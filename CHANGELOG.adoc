@@ -9,6 +9,17 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `os-upgrade` : correctifs de la release courante sans `--to`
+
+Un serveur déjà sur la dernière release s'arrêtait sur « rien à faire » sans
+regarder les correctifs (pkg, 13 oct. 2026 : 15.1p1, 43 paquets base en retard
+dont noyau, OpenSSL, ssh). `beryl os-upgrade <host>` liste désormais les
+correctifs en attente (pkgbase : même branche, sans repoint) et `--apply` les
+installe. `pkg upgrade` est vérifié (échec → code d'erreur), `--reboot` est
+respecté (pkgbase et freebsd-update), et une cible antérieure est refusée même
+avec `--to` (jamais de descente de release). Le résumé de flotte affiche
+« release à jour », les correctifs n'étant visibles qu'au détail par serveur.
+
 === `scan` : garde-fou zroot en stripe sur plusieurs disques
 
 Un zroot en RAID 0 sur plusieurs disques n'a aucune redondance (piège vu

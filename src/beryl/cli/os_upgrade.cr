@@ -11,6 +11,8 @@ require "./unlock" # déverrouillage auto post-reboot (hosts chiffrés)
 #   * PKGBASE (base en paquets, dépôt `FreeBSD-base`) — le cas beryl par défaut :
 #     montée de release = REPOINTER le dépôt `base_release_<minor>` puis
 #     `pkg upgrade -r FreeBSD-base` + reboot. Pas de fusion /etc interactive.
+#     Déjà sur la dernière release : CORRECTIFS de celle-ci (même branche,
+#     sans repoint), sans avoir à préciser `--to`.
 #   * DISTRIBUTION_SETS (base en tarballs) : `freebsd-update` — multi-étapes +
 #     fusions interactives → beryl affiche le RUNBOOK (pas d'auto-apply).
 #
@@ -131,8 +133,10 @@ module Beryl::CLI::OsUpgrade
     ck = {cur_major, cur_minor}
     tk = Beryl::FreebsdRelease.version_key(target)
     log "#{host.fqdn} : #{cur_raw} → cible #{target}-RELEASE"
-    if tk <= ck && to.nil?
-      log "déjà sur #{cur_major}.#{cur_minor} (≥ #{target}) — rien à faire."
+    # Cible ANTÉRIEURE : jamais de descente de release (même avec --to).
+    # Cible ÉGALE : on continue → correctifs de la release courante (errata/SA).
+    if tk < ck
+      log "déjà sur #{cur_major}.#{cur_minor} (> #{target}) — rien à faire (pas de descente de release)."
       return EXIT_OK
     end
 
@@ -142,7 +146,7 @@ module Beryl::CLI::OsUpgrade
     if pkgbase
       pkgbase_upgrade(config_root, shell, host, cur_major, cur_minor, target, tk, ck, apply, reboot)
     else
-      freebsd_update_flow(shell, host, cur_raw, target, tk, ck, apply)
+      freebsd_update_flow(config_root, shell, host, cur_raw, target, tk, ck, apply, reboot)
     end
   rescue ex
     STDERR.puts "beryl : #{host.fqdn} — erreur inattendue : #{ex.class}: #{ex.message}"
@@ -150,7 +154,7 @@ module Beryl::CLI::OsUpgrade
   end
 
   NOTE_UP = "montée dispo"
-  NOTE_OK = "à jour"
+  NOTE_OK = "release à jour"
 
   record HostState, fqdn : String, ok : Bool, current : String?, target : String?, note : String
 
@@ -169,7 +173,7 @@ module Beryl::CLI::OsUpgrade
     ko = states.count { |s| !s.ok }
     puts ""
     puts "Résumé : #{up} à monter · #{ready} à jour · #{ko} injoignables (sur #{states.size})."
-    puts "→ détail : `beryl os-upgrade <host>` ; monter : `beryl os-upgrade <host> --apply [--reboot]`."
+    puts "→ détail (dont correctifs en attente, invisibles ici) : `beryl os-upgrade <host>` ; appliquer : `beryl os-upgrade <host> --apply [--reboot]`."
     EXIT_OK
   end
 
@@ -246,14 +250,7 @@ module Beryl::CLI::OsUpgrade
     target_minor = tk[1]
     branch = "base_release_#{target_minor}"
 
-    if tk == ck
-      # Même release : pas de repoint, juste d'éventuels errata.
-      cmd = apply ? "pkg upgrade -y -r #{BASE_REPO}" : "pkg upgrade -n -r #{BASE_REPO}"
-      log "#{host.fqdn} : pkgbase, même release → #{cmd}"
-      res = shell.exec("#{IGNORE_OSV} pkg update -f -r #{BASE_REPO} ; #{IGNORE_OSV} #{cmd}", raise_on_error: false)
-      puts res.stdout.strip
-      return EXIT_OK
-    end
+    return pkgbase_patch(config_root, shell, host, target, apply, reboot) if tk == ck
 
     # Localise le fichier de conf du dépôt FreeBSD-base (beryl : /usr/local/etc/
     # pkg/repos/FreeBSD-base.conf ; on cherche large). SudoShell → `sh -c`.
@@ -299,18 +296,68 @@ module Beryl::CLI::OsUpgrade
       return EXIT_FAILED
     end
 
-    reconfigure_base_services(shell, host)
+    after_base_upgrade(shell, host)
+    finish(config_root, shell, host, "base #{target} installée", reboot)
+  end
 
-    # Thin jails : le base host vient d'être patché, MAIS le base partagé des
-    # jails (/jails/.base) est distinct → il faut le rafraîchir aussi, puis
-    # redémarrer les jails (elles le montent en nullfs RO).
+  # Correctifs de la release COURANTE (pkgbase, même branche base_release_<minor>) :
+  # pas de repoint. Dry-run = `pkg upgrade -n` (liste des correctifs en attente) ;
+  # --apply = `pkg upgrade -y` VÉRIFIÉ, puis reboot si --reboot.
+  private def self.pkgbase_patch(config_root, shell, host, target, apply, reboot) : Int32
+    upd = shell.exec("#{IGNORE_OSV} pkg update -f -r #{BASE_REPO}", raise_on_error: false)
+    unless upd.success?
+      STDERR.puts "beryl : #{host.fqdn} — `pkg update -r #{BASE_REPO}` a échoué : #{upd.stderr.strip.lines.last?}"
+      return EXIT_FAILED
+    end
+    plan = shell.exec("#{IGNORE_OSV} pkg upgrade -n -r #{BASE_REPO}", raise_on_error: false)
+    unless pending_upgrades?(plan.stdout)
+      log "#{host.fqdn} : #{target}-RELEASE, aucun correctif en attente — rien à faire."
+      return EXIT_OK
+    end
+
+    unless apply
+      log "#{host.fqdn} : correctifs #{target}-RELEASE en attente (dry-run) :"
+      puts plan.stdout.strip
+      puts ""
+      puts "→ `beryl os-upgrade #{host.short_name} --apply` les installe (s'arrête avant le reboot)."
+      puts "  Ajoutez `--reboot` pour enchaîner le reboot + attente SSH."
+      return EXIT_OK
+    end
+
+    log "#{host.fqdn} : correctifs #{target}-RELEASE → pkg upgrade -y -r #{BASE_REPO}…"
+    up = shell.exec("#{IGNORE_OSV} pkg upgrade -y -r #{BASE_REPO}", raise_on_error: false)
+    puts up.stdout.strip
+    unless up.success?
+      STDERR.puts "beryl : #{host.fqdn} — pkg upgrade a échoué : #{up.stderr.strip.lines.last?}"
+      return EXIT_FAILED
+    end
+
+    after_base_upgrade(shell, host)
+    finish(config_root, shell, host, "correctifs #{target}-RELEASE installés", reboot)
+  end
+
+  # Vrai si la sortie d'un `pkg upgrade -n` annonce des paquets à modifier
+  # (« Number of packages to be upgraded: 43 ») ; faux si « … is up to date ».
+  def self.pending_upgrades?(dry_run_output : String) : Bool
+    dry_run_output.matches?(/^Number of packages to be (upgraded|installed|reinstalled|removed)/m)
+  end
+
+  # Après tout `pkg upgrade` du base : confs de services à régénérer + rappel
+  # thin jails (leur base partagé /jails/.base est distinct du base host → à
+  # rafraîchir, puis redémarrer les jails qui le montent en nullfs RO).
+  private def self.after_base_upgrade(shell, host) : Nil
+    reconfigure_base_services(shell, host)
     if shell.exec("test -d /jails/.base", raise_on_error: false).success?
       log "#{host.fqdn} : des thin jails partagent /jails/.base → rafraîchissez-le " \
           "(`beryl apply #{host.short_name} jail-base`) puis redémarrez les jails (`service jail restart`)."
     end
+  end
 
+  # Fin commune d'une mise à jour système : sans --reboot, rappel du reboot ;
+  # avec --reboot, reboot + attente du retour SSH (+ déverrouillage si chiffré).
+  private def self.finish(config_root, shell, host, done : String, reboot : Bool) : Int32
     unless reboot
-      log "#{host.fqdn} : base #{target} installée. REBOOTEZ pour démarrer dessus : `shutdown -r now`."
+      log "#{host.fqdn} : #{done}. REBOOTEZ pour démarrer dessus : `shutdown -r now`."
       return EXIT_OK
     end
 
@@ -349,15 +396,14 @@ module Beryl::CLI::OsUpgrade
   end
 
   # ── DISTRIBUTION_SETS : freebsd-update (runbook ; patchs auto via --apply) ───
-  private def self.freebsd_update_flow(shell, host, cur_raw, target, tk, ck, apply) : Int32
+  private def self.freebsd_update_flow(config_root, shell, host, cur_raw, target, tk, ck, apply, reboot) : Int32
     if tk == ck
       if apply
         log "#{host.fqdn} : freebsd-update fetch install (correctifs)…"
         res = shell.exec("freebsd-update --not-running-from-cron fetch install", raise_on_error: false)
         puts res.stdout.strip unless res.stdout.strip.empty?
         return EXIT_FAILED unless res.success?
-        log "#{host.fqdn} : correctifs appliqués. Rebootez si nouveau noyau (`shutdown -r now`)."
-        return EXIT_OK
+        return finish(config_root, shell, host, "correctifs appliqués (reboot utile si nouveau noyau)", reboot)
       end
       puts ""
       puts "Correctifs FreeBSD (#{target}-RELEASE) — runbook :"
