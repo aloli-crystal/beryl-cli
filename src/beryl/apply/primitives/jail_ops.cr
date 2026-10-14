@@ -51,7 +51,7 @@ module Beryl::Apply
   end
 
   # `jail-proxy` : pose le bloc nginx (host) qui reverse-proxy `server_name` vers
-  # la jail (loopback) + recharge nginx. TLS via les recettes nginx/letsencrypt.
+  # la jail (loopback) + recharge nginx. TLS via les recettes nginx/acme.
   #
   #     - jail-proxy: { name: myapp, ip: 127.0.1.5, port: 3000, server_name: app.example.net }
   class JailProxy < Primitive

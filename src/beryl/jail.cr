@@ -90,7 +90,7 @@ module Beryl
     end
 
     # Bloc nginx (host) qui reverse-proxy `server_name` vers la jail (loopback).
-    # TLS/certbot gérés séparément (recettes nginx/letsencrypt). PUR → testable.
+    # TLS géré séparément (recettes nginx/acme). PUR → testable.
     def self.nginx_proxy(server_name : String, ip : String, port : Int32) : String
       <<-NGINX
       # Géré par beryl (primitive jail-proxy). Édition manuelle écrasée.
