@@ -1,5 +1,5 @@
 #!/bin/bash
-# Script "au réveil" : installe FreeBSD 15 sur loulou.aloli.net via beryl.
+# Script "au réveil" : installe FreeBSD 15 sur loulou.initech.example via beryl.
 #
 # Pré-requis :
 #   - ns3156789.ip-51-83-6.eu est EN RESCUE (via beryl rescue fait hier)
@@ -9,7 +9,7 @@
 #
 # Flux (minutes indicatives) :
 #   1. scan --dns --write : DNS A + AAAA, reverses, rename OVH,       ~2 min
-#      écriture ~/.config/beryl/aloli.net/loulou.yml avec RAID 0 sur sda
+#      écriture ~/.config/beryl/initech.example/loulou.yml avec RAID 0 sur sda
 #   2. bootstrap loulou   : mfsBSD-in-QEMU + bsdinstall no-chroot,    ~25 min
 #      reboot sur disque, attente SSH admin
 #
@@ -20,7 +20,7 @@ set -euo pipefail
 
 BERYL="/Users/philippe/prod-crystal/beryl/bin/beryl"
 HOST="ns3156789.ip-51-83-6.eu"
-DOMAIN="aloli.net"
+DOMAIN="initech.example"
 SHORT="loulou"
 LOG="/tmp/beryl-$(date +%Y%m%d-%H%M%S).log"
 

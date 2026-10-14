@@ -7,7 +7,7 @@ private SSH_FIXTURES = File.expand_path(File.join(__DIR__, "..", "..", "fixtures
 describe Beryl::Config do
   describe ".resolve_ssh_key" do
     it "retourne tel quel une clé inline (ssh-ed25519 ...)" do
-      line = "ssh-ed25519 AAAA... philippe@aloli.fr"
+      line = "ssh-ed25519 AAAA... philippe@initech-fr.example"
       Beryl::Config.resolve_ssh_key(line, ssh_dir: SSH_FIXTURES).should eq(line)
     end
 
@@ -21,9 +21,9 @@ describe Beryl::Config do
     end
 
     it "lit un fichier .pub depuis ssh_dir pour un nom de fichier" do
-      content = Beryl::Config.resolve_ssh_key("philippe.aloli.fr.pub", ssh_dir: SSH_FIXTURES)
+      content = Beryl::Config.resolve_ssh_key("philippe.initech-fr.example.pub", ssh_dir: SSH_FIXTURES)
       content.should start_with("ssh-ed25519")
-      content.should contain("philippe@aloli.fr")
+      content.should contain("philippe@initech-fr.example")
     end
 
     it "ignore les commentaires en tête du fichier .pub" do
@@ -42,18 +42,18 @@ describe Beryl::Config do
   describe ".resolve_ssh_keys" do
     it "résout une liste mixte (nom de fichier + inline)" do
       result = Beryl::Config.resolve_ssh_keys(
-        ["philippe.aloli.fr.pub", "ssh-ed25519 AAAA inline"],
+        ["philippe.initech-fr.example.pub", "ssh-ed25519 AAAA inline"],
         ssh_dir: SSH_FIXTURES,
       )
-      result[0].should contain("philippe@aloli.fr")
+      result[0].should contain("philippe@initech-fr.example")
       result[1].should eq("ssh-ed25519 AAAA inline")
     end
   end
 
   describe ".deployed_key_names" do
     it "garde une clé string telle quelle" do
-      entries = [YAML::Any.new("philippe.aloli.fr.pub"), YAML::Any.new("ssh-ed25519 AAAA inline")]
-      Beryl::Config.deployed_key_names(entries).should eq(["philippe.aloli.fr.pub", "ssh-ed25519 AAAA inline"])
+      entries = [YAML::Any.new("philippe.initech-fr.example.pub"), YAML::Any.new("ssh-ed25519 AAAA inline")]
+      Beryl::Config.deployed_key_names(entries).should eq(["philippe.initech-fr.example.pub", "ssh-ed25519 AAAA inline"])
     end
 
     it "ne garde que la 1ère (active) d'une paire de rotation [active, suivante]" do
@@ -69,22 +69,22 @@ describe Beryl::Config::Root do
     it "résout la clé domaine et les clés de host depuis les .pub" do
       fixtures_config = File.expand_path(File.join(__DIR__, "..", "..", "fixtures", "config", "ssh-key-by-filename"))
       root = Beryl::Config::Root.load(fixtures_config, ssh_dir: SSH_FIXTURES)
-      rh = root.resolve("rails01.aloli.net")
+      rh = root.resolve("rails01.initech.example")
       users = Beryl::Config::Users.list(rh.freebsd_hash[YAML::Any.new("users")].as_a)
 
       admin = users.find! { |e| e.name == "admin" }
       admin_keys = admin.fields[YAML::Any.new("ssh_keys")].as_a.map(&.as_s)
       # admin hérite UNIQUEMENT de la clé domaine (lue depuis
-      # philippe.aloli.fr.pub).
+      # philippe.initech-fr.example.pub).
       admin_keys.size.should eq(1)
-      admin_keys.first.should contain("philippe@aloli.fr")
+      admin_keys.first.should contain("philippe@initech-fr.example")
 
       deploy = users.find! { |e| e.name == "deploy" }
       deploy_keys = deploy.fields[YAML::Any.new("ssh_keys")].as_a.map(&.as_s)
       # deploy a la clé domaine + dev2.pub référencée par le host
       deploy_keys.size.should eq(2)
-      deploy_keys[0].should contain("philippe@aloli.fr")
-      deploy_keys[1].should contain("dev2@aloli.fr")
+      deploy_keys[0].should contain("philippe@initech-fr.example")
+      deploy_keys[1].should contain("dev2@initech-fr.example")
     end
   end
 end

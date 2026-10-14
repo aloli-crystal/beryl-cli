@@ -21,29 +21,29 @@ describe Beryl::Config::Root do
   describe ".load" do
     it "charge une arborescence minimale (une société avec un domaine)" do
       cfg = Beryl::Config::Root.load(fixture("minimal-domain"))
-      cfg.account_names.should eq(["aloli"])
-      aloli = cfg.account?("aloli").not_nil!
-      aloli.domain_names.should eq(["aloli.net"])
-      aloli.domain?("aloli.net").not_nil!.ssh_keys.should eq(["ssh-ed25519 AAAA philippe@aloli.fr"])
+      cfg.account_names.should eq(["initech"])
+      initech = cfg.account?("initech").not_nil!
+      initech.domain_names.should eq(["initech.example"])
+      initech.domain?("initech.example").not_nil!.ssh_keys.should eq(["ssh-ed25519 AAAA philippe@initech-fr.example"])
     end
 
     it "ignore _default.yml (à la racine) et .env.yml comme sociétés" do
       cfg = Beryl::Config::Root.load(fixture("with-defaults-and-env"))
-      cfg.account_names.should eq(["aloli"])
+      cfg.account_names.should eq(["initech"])
       cfg.defaults[YAML::Any.new("freebsd")].as_h[YAML::Any.new("timezone")].as_s.should eq("Europe/Paris")
-      cfg.env_file.for_account_provider("aloli", "ovh")["OVH_APPLICATION_KEY"].should eq("xxx")
+      cfg.env_file.for_account_provider("initech", "ovh")["OVH_APPLICATION_KEY"].should eq("xxx")
     end
 
     it "charge des hosts directs dans un domaine" do
-      aloli = Beryl::Config::Root.load(fixture("direct-hosts")).account?("aloli").not_nil!
-      domain = aloli.domain?("aloli.net").not_nil!
+      initech = Beryl::Config::Root.load(fixture("direct-hosts")).account?("initech").not_nil!
+      domain = initech.domain?("initech.example").not_nil!
       domain.direct_hosts.size.should eq(1)
       domain.direct_hosts["loulou"].name.should eq("loulou")
     end
 
     it "charge des groupes avec fichier + dossier" do
-      aloli = Beryl::Config::Root.load(fixture("with-group")).account?("aloli").not_nil!
-      domain = aloli.domain?("aloli.net").not_nil!
+      initech = Beryl::Config::Root.load(fixture("with-group")).account?("initech").not_nil!
+      domain = initech.domain?("initech.example").not_nil!
       domain.direct_hosts.should be_empty
       domain.groups.size.should eq(1)
       web = domain.groups["web"]
@@ -52,8 +52,8 @@ describe Beryl::Config::Root do
     end
 
     it "charge un groupe à définition vide (api.group.yml sans contenu)" do
-      aloli = Beryl::Config::Root.load(fixture("group-dir-without-yml")).account?("aloli").not_nil!
-      domain = aloli.domain?("aloli.net").not_nil!
+      initech = Beryl::Config::Root.load(fixture("group-dir-without-yml")).account?("initech").not_nil!
+      domain = initech.domain?("initech.example").not_nil!
       api = domain.groups["api"]
       api.raw.should be_empty
       api.source_path.should_not be_nil
@@ -62,8 +62,8 @@ describe Beryl::Config::Root do
 
     it "supporte plusieurs sociétés en parallèle" do
       cfg = Beryl::Config::Root.load(fixture("multi-domains"))
-      cfg.account_names.should eq(["aloli", "popi"])
-      cfg.account?("aloli").not_nil!.domain_names.should eq(["aloli.net"])
+      cfg.account_names.should eq(["initech", "popi"])
+      cfg.account?("initech").not_nil!.domain_names.should eq(["initech.example"])
       cfg.account?("popi").not_nil!.domain_names.should eq(["popi.fr"])
     end
 
@@ -76,24 +76,24 @@ describe Beryl::Config::Root do
   describe "#resolve" do
     it "résout un FQDN par suffix match" do
       cfg = Beryl::Config::Root.load(fixture("direct-hosts"))
-      rh = cfg.resolve("loulou.aloli.net")
+      rh = cfg.resolve("loulou.initech.example")
       rh.short_name.should eq("loulou")
-      rh.account.name.should eq("aloli")
-      rh.domain.name.should eq("aloli.net")
+      rh.account.name.should eq("initech")
+      rh.domain.name.should eq("initech.example")
       rh.group.should be_nil
-      rh.fqdn.should eq("loulou.aloli.net")
+      rh.fqdn.should eq("loulou.initech.example")
       rh.virtual.should be_false
     end
 
     it "résout un nom court via recherche globale" do
       rh = Beryl::Config::Root.load(fixture("direct-hosts")).resolve("loulou")
-      rh.fqdn.should eq("loulou.aloli.net")
-      rh.account.name.should eq("aloli")
+      rh.fqdn.should eq("loulou.initech.example")
+      rh.account.name.should eq("initech")
     end
 
     it "résout via provider-name (ovh.service_name)" do
       rh = Beryl::Config::Root.load(fixture("provider-name-search")).resolve("ns3156789.ip-51-83-6.eu")
-      rh.fqdn.should eq("loulou.aloli.net")
+      rh.fqdn.should eq("loulou.initech.example")
       rh.ovh_service_name.should eq("ns3156789.ip-51-83-6.eu")
     end
 
@@ -105,25 +105,25 @@ describe Beryl::Config::Root do
 
     it "--account=X + --domain=Y court-circuite l'ambiguïté" do
       rh = Beryl::Config::Root.load(fixture("ambiguous-name")).resolve(
-        "loulou", account_hint: "aloli", domain_hint: "aloli.net")
-      rh.account.name.should eq("aloli")
-      rh.domain.name.should eq("aloli.net")
+        "loulou", account_hint: "initech", domain_hint: "initech.example")
+      rh.account.name.should eq("initech")
+      rh.domain.name.should eq("initech.example")
     end
 
     it "--domain=X sans fichier crée un host virtuel (nom court)" do
       rh = Beryl::Config::Root.load(fixture("minimal-domain")).resolve(
         "rails99",
-        domain_hint: "aloli.net",
+        domain_hint: "initech.example",
       )
       rh.virtual.should be_true
-      rh.fqdn.should eq("rails99.aloli.net")
-      rh.account.name.should eq("aloli")
+      rh.fqdn.should eq("rails99.initech.example")
+      rh.account.name.should eq("initech")
     end
 
     it "--domain=X + FQDN externe (nom hébergeur) : fqdn reste tel quel" do
       rh = Beryl::Config::Root.load(fixture("minimal-domain")).resolve(
         "ns3156789.ip-51-83-6.eu",
-        domain_hint: "aloli.net",
+        domain_hint: "initech.example",
       )
       rh.virtual.should be_true
       rh.fqdn.should eq("ns3156789.ip-51-83-6.eu")
@@ -146,7 +146,7 @@ describe Beryl::Config::Root do
     it "lève UnknownAccount si --account=X cible une société inexistante" do
       expect_raises(Beryl::Config::Root::UnknownAccount, /société inconnue/) do
         Beryl::Config::Root.load(fixture("minimal-domain")).resolve(
-          "serveur", account_hint: "inexistant", domain_hint: "aloli.net")
+          "serveur", account_hint: "inexistant", domain_hint: "initech.example")
       end
     end
   end
@@ -161,7 +161,7 @@ describe Beryl::Config::ResolvedHost do
 
   it "ssh_host == fqdn quand pas de provider service_name" do
     rh = Beryl::Config::Root.load(fixture("direct-hosts")).resolve("loulou")
-    rh.ssh_host.should eq("loulou.aloli.net")
+    rh.ssh_host.should eq("loulou.initech.example")
     rh.ssh_host_is_provider_name?.should be_false
   end
 
@@ -186,9 +186,9 @@ describe Beryl::Config::ResolvedHost do
     rh = Beryl::Config::Root.load(fixture("ssh-host-override")).resolve("hidden")
     rh.bastion?.should be_false
     rh.bastion_name.should eq("bast")
-    rh.ssh_host.should eq("192.168.42.99")                   # = vrack_ip
-    rh.proxy_jump("admin").should eq("admin@bast.aloli.net") # user de connexion
-    rh.proxy_jump.should eq("admin@bast.aloli.net")          # défaut = host.user (admin)
+    rh.ssh_host.should eq("192.168.42.99")                         # = vrack_ip
+    rh.proxy_jump("admin").should eq("admin@bast.initech.example") # user de connexion
+    rh.proxy_jump.should eq("admin@bast.initech.example")          # défaut = host.user (admin)
   end
 
   it "vrack: ip (liste) + proxy_jump → host caché, ssh_host = 1ʳᵉ IP vRack" do
@@ -197,8 +197,8 @@ describe Beryl::Config::ResolvedHost do
     rh.vrack_ips.should eq(["192.168.42.31", "192.168.42.131"])
     rh.vrack_ip.should eq("192.168.42.31")
     rh.hidden?.should be_true
-    rh.proxy_jump.should eq("admin@zsbg.aloli.net") # chaîne complète, user inclus
-    rh.ssh_host.should eq("192.168.42.31")          # 1ʳᵉ IP vRack (caché)
+    rh.proxy_jump.should eq("admin@zsbg.initech.example") # chaîne complète, user inclus
+    rh.ssh_host.should eq("192.168.42.31")                # 1ʳᵉ IP vRack (caché)
   end
 
   it "rescue_ssh_host : host caché OVH → IP publique (service_name), PAS l'IP vRack" do
@@ -311,7 +311,7 @@ describe Beryl::Config::ResolvedHost do
     rh.hidden?.should be_false
     rh.vrack_name.should eq("pn-1049829")
     rh.vrack_ips.should eq(["192.168.42.3"]) # scalaire normalisé en liste
-    rh.ssh_host.should eq("netbast.aloli.net")
+    rh.ssh_host.should eq("netbast.initech.example")
     rh.ssh_host_is_provider_name?.should be_false
   end
 
@@ -328,7 +328,7 @@ describe Beryl::Config::ResolvedHost do
 
   it "expose les accesseurs freebsd (hostname, disks, timezone)" do
     rh = Beryl::Config::Root.load(fixture("with-defaults-and-env")).resolve(
-      "quelconque", domain_hint: "aloli.net")
+      "quelconque", domain_hint: "initech.example")
     rh.freebsd_string("timezone").should eq("Europe/Paris") # depuis _default
   end
 
@@ -342,22 +342,22 @@ describe Beryl::Config::ResolvedHost do
   describe "#account" do
     it "porte la société payeuse résolue" do
       rh = Beryl::Config::Root.load(fixture("direct-hosts")).resolve("loulou")
-      rh.account.name.should eq("aloli")
-      rh.account_name.should eq("aloli")
+      rh.account.name.should eq("initech")
+      rh.account_name.should eq("initech")
     end
   end
 
   describe "#credentials_for(provider)" do
     it "récupère les credentials du couple (société, provider) depuis .env.yml" do
       rh = Beryl::Config::Root.load(fixture("with-defaults-and-env")).resolve(
-        "serveur", domain_hint: "aloli.net")
+        "serveur", domain_hint: "initech.example")
       creds = rh.credentials_for("ovh")
       creds["OVH_APPLICATION_KEY"].should eq("xxx")
     end
 
     it "retourne un hash vide si le provider n'a pas de credentials" do
       rh = Beryl::Config::Root.load(fixture("with-defaults-and-env")).resolve(
-        "serveur", domain_hint: "aloli.net")
+        "serveur", domain_hint: "initech.example")
       rh.credentials_for("scaleway").should be_empty
     end
   end
@@ -365,14 +365,14 @@ describe Beryl::Config::ResolvedHost do
   describe "#provider" do
     it "hérite `provider:` du domaine même pour un host virtuel" do
       rh = Beryl::Config::Root.load(fixture("multi-provider-domain")).resolve(
-        "ns3156789.ip-51-83-6.eu", domain_hint: "aloli.net")
+        "ns3156789.ip-51-83-6.eu", domain_hint: "initech.example")
       rh.virtual.should be_true
       rh.provider.should eq("ovh")
     end
 
     it "retourne nil si aucun niveau ne déclare provider:" do
       rh = Beryl::Config::Root.load(fixture("minimal-domain")).resolve(
-        "serveur-neuf", domain_hint: "aloli.net")
+        "serveur-neuf", domain_hint: "initech.example")
       rh.provider.should be_nil
     end
   end
@@ -385,14 +385,14 @@ describe Beryl::Config::ResolvedHost do
 
     it "fallback sur short_name pour un virtual host OVH avec FQDN" do
       rh = Beryl::Config::Root.load(fixture("multi-provider-domain")).resolve(
-        "ns3156789.ip-51-83-6.eu", domain_hint: "aloli.net")
+        "ns3156789.ip-51-83-6.eu", domain_hint: "initech.example")
       rh.virtual.should be_true
       rh.ovh_service_name.should eq("ns3156789.ip-51-83-6.eu")
     end
 
     it "pas de fallback pour un virtual avec short_name sans point" do
       rh = Beryl::Config::Root.load(fixture("multi-provider-domain")).resolve(
-        "rails99", domain_hint: "aloli.net")
+        "rails99", domain_hint: "initech.example")
       rh.virtual.should be_true
       rh.ovh_service_name.should be_nil
     end
@@ -401,13 +401,13 @@ describe Beryl::Config::ResolvedHost do
   describe "#present_provider_blocks" do
     it "liste les blocs providers présents dans le merged (ovh + scaleway)" do
       rh = Beryl::Config::Root.load(fixture("multi-provider-domain")).resolve(
-        "serveur-neuf", domain_hint: "aloli.net")
+        "serveur-neuf", domain_hint: "initech.example")
       rh.present_provider_blocks.sort.should eq(%w[ovh scaleway])
     end
 
     it "vide si aucun bloc provider dans la config mergée" do
       rh = Beryl::Config::Root.load(fixture("with-defaults-and-env")).resolve(
-        "loulou.aloli.net")
+        "loulou.initech.example")
       rh.present_provider_blocks.should be_empty
     end
   end
@@ -415,7 +415,7 @@ describe Beryl::Config::ResolvedHost do
   describe "#os" do
     it "retourne 'freebsd' par défaut si le YAML ne déclare rien" do
       rh = Beryl::Config::Root.load(fixture("minimal-domain")).resolve(
-        "serveur", domain_hint: "aloli.net")
+        "serveur", domain_hint: "initech.example")
       rh.os.should eq("freebsd")
     end
   end

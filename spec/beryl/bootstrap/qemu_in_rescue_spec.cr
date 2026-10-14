@@ -318,7 +318,7 @@ describe Beryl::Bootstrap::QemuInRescue do
     end
 
     it "est un préambule bsdinstall SEUL (pas de shebang actif → pas de chroot post-install)" do
-      # Règle Aloli ADR-013 : tout le post-install passe par le driver
+      # Règle Initech ADR-013 : tout le post-install passe par le driver
       # shell hors chroot pour contourner le bug Capsicum.
       cfg = make_bootstrap.render_installerconfig
       cfg.lines.any? { |l| l.strip == "#!/bin/sh" }.should be_false

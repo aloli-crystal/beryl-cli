@@ -6,6 +6,6 @@ ovh:
 vrack:
   name: pn-1049829
   ip: [192.168.42.50, 192.168.42.150]
-  proxy_jump: admin@zsbg.aloli.net
+  proxy_jump: admin@zsbg.initech.example
 freebsd:
   hostname: rescuehidden

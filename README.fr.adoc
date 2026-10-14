@@ -55,13 +55,13 @@ La configuration vit dans `~/.config/beryl/` organisée par société puis par d
 ~/.config/beryl/
 ├── _default.yml                 # socle FreeBSD (timezone, users admin/deploy, packages)
 ├── .env.yml                     # credentials par société × provider (0600)
-├── aloli/                       # une société
+├── initech/                       # une société
 │   ├── _account.yml             # métadonnées (nom complet, contact)
-│   ├── aloli.net.yml            # un domaine (zone DNS, clés SSH, provider défaut)
-│   ├── aloli.net/
-│   │   ├── loulou.aloli.net.yml # un host
-│   │   └── mail.aloli.net.yml
-│   └── aloli.fr.yml
+│   ├── initech.example.yml            # un domaine (zone DNS, clés SSH, provider défaut)
+│   ├── initech.example/
+│   │   ├── loulou.initech.example.yml # un host
+│   │   └── mail.initech.example.yml
+│   └── initech-fr.example.yml
 └── autre-societe/
     └── exemple.com.yml
 ----
@@ -70,7 +70,7 @@ Le *merge* est hiérarchique (plus spécifique gagne) :
 `_default.yml` → `<société>/<domaine>.yml` → `<société>/<domaine>/<host>.yml`.
 
 Toutes les commandes qui prennent un host acceptent une *syntaxe path-like* qui
-reflète l'arborescence : `aloli/loulou.aloli.net`, ou `aloli/loulou` si le domaine
+reflète l'arborescence : `initech/loulou.initech.example`, ou `initech/loulou` si le domaine
 est sans ambiguïté, ou simplement `loulou` si une seule société est déclarée.
 
 === Concepts clés
@@ -80,7 +80,7 @@ est sans ambiguïté, ou simplement `loulou` si une seule société est déclar�
 * *Un shard API par fournisseur* — `aloli-crystal/api-ovh`, `aloli-crystal/api-scaleway`,
   `aloli-crystal/api-dedibox`. Chaque shard est autonome, publié MIT, et testé unitairement.
 * *Identifiants hétérogènes par provider* : texte `service_name` pour OVH,
-  UUID v4 pour Scaleway, entier pour Dedibox. La forme `aloli/<ID>` fonctionne
+  UUID v4 pour Scaleway, entier pour Dedibox. La forme `initech/<ID>` fonctionne
   sur les trois : beryl résout l'IP publique via l'API et enchaîne.
 * *Binaire unique Crystal* : `shards build --release` produit `bin/beryl` statique,
   déployable sans runtime sur n'importe quel poste POSIX.
@@ -92,7 +92,7 @@ Trois fournisseurs sont pris en charge en avril 2026, par ordre alphabétique.
 === Dedibox (Online.net)
 
 Dedibox identifie les serveurs par un *entier* (ex : `186260`). Les credentials
-s'enregistrent via `beryl add-provider aloli/dedibox` (API key + secret key
+s'enregistrent via `beryl add-provider initech/dedibox` (API key + secret key
 récupérées sur https://console.online.net/).
 
 Le *rescue Dedibox* est une image Debian 12 préparée par l'API. Particularité
@@ -128,35 +128,35 @@ individuel :
 +
 [source,console]
 ----
-beryl rescue aloli/186260 --provider=dedibox --apply
+beryl rescue initech/186260 --provider=dedibox --apply
 ----
 +
-. Scan des disques, pose des records A/AAAA, écriture de `cookie.aloli.net.yml`.
+. Scan des disques, pose des records A/AAAA, écriture de `cookie.initech.example.yml`.
 +
 [source,console]
 ----
-beryl scan aloli/186260 --provider=dedibox --dns --apply --hostname=cookie
+beryl scan initech/186260 --provider=dedibox --dns --apply --hostname=cookie
 ----
 +
 . Efface les pools ZFS / partitions résiduels sur les disques déclarés.
 +
 [source,console]
 ----
-beryl wipe aloli/cookie.aloli.net --apply
+beryl wipe initech/cookie.initech.example --apply
 ----
 +
 . Installe FreeBSD 15 via mfsBSD-in-QEMU.
 +
 [source,console]
 ----
-beryl bootstrap aloli/cookie.aloli.net --apply
+beryl bootstrap initech/cookie.initech.example --apply
 ----
 
 === OVH
 
 OVH identifie un serveur dédié par son `service_name` textuel, généralement de
 la forme `ns3156789.ip-51-83-6.eu`. Les credentials s'obtiennent via
-`beryl add-provider aloli/ovh` : Beryl guide la création d'un token sur
+`beryl add-provider initech/ovh` : Beryl guide la création d'un token sur
 https://eu.api.ovh.com/createToken/ puis appelle `POST /auth/credential` pour
 générer une consumer key avec l'ensemble exact des access rules nécessaires.
 
@@ -182,35 +182,35 @@ individuel :
 +
 [source,console]
 ----
-beryl rescue aloli/ns3156789.ip-51-83-6.eu --domain=aloli.net --apply
+beryl rescue initech/ns3156789.ip-51-83-6.eu --domain=initech.example --apply
 ----
 +
 2. Scan des disques, pose A/AAAA + PTR (IPv4/IPv6), rename panel OVH.
 +
 [source,console]
 ----
-beryl scan aloli/ns3156789.ip-51-83-6.eu --domain=aloli.net --dns --apply --hostname=cookie
+beryl scan initech/ns3156789.ip-51-83-6.eu --domain=initech.example --dns --apply --hostname=cookie
 ----
 +
 3. Efface les pools ZFS / partitions résiduels.
 +
 [source,console]
 ----
-beryl wipe aloli/cookie.aloli.net --apply
+beryl wipe initech/cookie.initech.example --apply
 ----
 +
 4. Installe FreeBSD 15.
 +
 [source,console]
 ----
-beryl bootstrap aloli/cookie.aloli.net --apply
+beryl bootstrap initech/cookie.initech.example --apply
 ----
 +
 5. Dans un second terminal, suit en direct `bsdinstall.log` de la VM mfsBSD.
 +
 [source,console]
 ----
-beryl follow-install aloli/cookie.aloli.net
+beryl follow-install initech/cookie.initech.example
 ----
 
 Avec `--dns`, `scan` pose A/AAAA vers la zone DNS, PTR via l'API OVH (IPv4 + IPv6)
@@ -222,7 +222,7 @@ devient le nom court souhaité).
 Scaleway Elastic Metal identifie les serveurs par *UUID v4* (ex :
 `9783705f-f86f-4bf7-88ad-4c92b920e9ba`), zoné géographiquement (`fr-par-1`,
 `fr-par-2`, `pl-waw-3`…). Les credentials s'enregistrent via
-`beryl add-provider aloli/scaleway` — secret key + project ID, avec la liste
+`beryl add-provider initech/scaleway` — secret key + project ID, avec la liste
 des permissions IAM à cocher manuellement dans la console (pas d'auto-gen
 côté API Scaleway).
 
@@ -262,7 +262,7 @@ permettre le copier-coller individuel :
 +
 [source,console]
 ----
-beryl rescue aloli/9783705f-f86f-4bf7-88ad-4c92b920e9ba --provider=scaleway --apply
+beryl rescue initech/9783705f-f86f-4bf7-88ad-4c92b920e9ba --provider=scaleway --apply
 ----
 +
 2. À lancer *uniquement* si le pre-check 1/3 a bloqué : resynchronise les
@@ -271,14 +271,14 @@ beryl rescue aloli/9783705f-f86f-4bf7-88ad-4c92b920e9ba --provider=scaleway --ap
 +
 [source,console]
 ----
-beryl scaleway-reinstall aloli/9783705f-f86f-4bf7-88ad-4c92b920e9ba
+beryl scaleway-reinstall initech/9783705f-f86f-4bf7-88ad-4c92b920e9ba
 ----
 +
 3. Scan des disques, A/AAAA, reverse DNS IPv4, rename console Scaleway.
 +
 [source,console]
 ----
-beryl scan aloli/9783705f-f86f-4bf7-88ad-4c92b920e9ba --provider=scaleway --dns --apply \
+beryl scan initech/9783705f-f86f-4bf7-88ad-4c92b920e9ba --provider=scaleway --dns --apply \
 --hostname=chouquette
 ----
 +
@@ -286,14 +286,14 @@ beryl scan aloli/9783705f-f86f-4bf7-88ad-4c92b920e9ba --provider=scaleway --dns 
 +
 [source,console]
 ----
-beryl wipe aloli/chouquette.aloli.net --apply
+beryl wipe initech/chouquette.initech.example --apply
 ----
 +
 5. Installe FreeBSD 15.
 +
 [source,console]
 ----
-beryl bootstrap aloli/chouquette.aloli.net --apply
+beryl bootstrap initech/chouquette.initech.example --apply
 ----
 
 == Installation
@@ -305,7 +305,7 @@ beryl bootstrap aloli/chouquette.aloli.net --apply
 git clone https://github.com/aloli-crystal/beryl.git
 ----
 +
-2. Récupération des dépendances (shards Aloli + stdlib).
+2. Récupération des dépendances (shards Initech + stdlib).
 +
 [source,sh]
 ----
@@ -327,53 +327,53 @@ hors `libssl` / `libcrypto` présentes par défaut sur macOS et Linux.
 Chaque commande est en simulation par défaut (elle affiche ce qu'elle ferait) ;
 `--apply` l'exécute réellement.
 
-1. Crée l'arborescence `~/.config/beryl/aloli/` (prompts interactifs).
+1. Crée l'arborescence `~/.config/beryl/initech/` (prompts interactifs).
 +
 [source,sh]
 ----
-beryl init aloli --apply
+beryl init initech --apply
 ----
 +
 2. Enregistre les credentials OVH dans `~/.config/beryl/.env.yml`.
 +
 [source,sh]
 ----
-beryl add-provider aloli/ovh --apply
+beryl add-provider initech/ovh --apply
 ----
 +
 3. Déclare la zone DNS, le fournisseur par défaut, les clés SSH.
 +
 [source,sh]
 ----
-beryl add-domain aloli/aloli.net --apply
+beryl add-domain initech/initech.example --apply
 ----
 +
 4. Bascule le serveur en rescue.
 +
 [source,sh]
 ----
-beryl rescue aloli/cookie.aloli.net --apply
+beryl rescue initech/cookie.initech.example --apply
 ----
 +
 5. Détecte les disques, pose le DNS, écrit le YAML host.
 +
 [source,sh]
 ----
-beryl scan aloli/cookie.aloli.net --dns --apply --hostname=cookie
+beryl scan initech/cookie.initech.example --dns --apply --hostname=cookie
 ----
 +
 6. Efface les pools / partitions résiduels.
 +
 [source,sh]
 ----
-beryl wipe aloli/cookie.aloli.net --apply
+beryl wipe initech/cookie.initech.example --apply
 ----
 +
 7. Installe FreeBSD 15.
 +
 [source,sh]
 ----
-beryl bootstrap aloli/cookie.aloli.net --apply
+beryl bootstrap initech/cookie.initech.example --apply
 ----
 
 La référence CLI complète (sous-commandes, shorts, flags) est dans

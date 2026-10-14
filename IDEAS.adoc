@@ -64,14 +64,14 @@ groups:
       data_on_home: true
 
 hosts:
-  web01.aloli.fr:
+  web01.initech-fr.example:
     group: web-front
 
-  web02.aloli.fr:
+  web02.initech-fr.example:
     group: web-front
     port: 2222 # override ponctuel, reste dans web-front
 
-  db01.aloli.fr:
+  db01.initech-fr.example:
     group: db-primary
 ----
 
@@ -87,7 +87,7 @@ hosts:
   puis `web-front` qui en étend les recettes ? Ou interdire l'héritage
   entre groupes pour rester simple ?
 * *Impact CLI.*
-** `beryl apply web01.aloli.fr` : applique les recettes effectives
+** `beryl apply web01.initech-fr.example` : applique les recettes effectives
    (groupe + overrides).
 ** `beryl apply --group web-front` : applique sur tous les hôtes du
    groupe en parallèle.
@@ -559,7 +559,7 @@ brut + une suggestion.
 *Sortie type* :
 
 ----
-Host: loulou.aloli.net (rescue OVH Debian 12)
+Host: loulou.initech.example (rescue OVH Debian 12)
 
 SSD/NVMe :
   nvme0n1   INTEL SSDPE2KE016T8   500 Go    rota=0
@@ -603,7 +603,7 @@ post-install via `zpool create ztank raidz2 ada0 ada1 ada2 ada3`.
 [source,yaml]
 ----
 hosts:
-  big-db-01.aloli.fr:
+  big-db-01.initech-fr.example:
     provider: ovh
     install:
       disk_layout:
@@ -678,7 +678,7 @@ beryl provision \
   --template kimsufi-ks-a \
   --role web \
   --region gra \
-  --dns-zone aloli.fr \
+  --dns-zone initech-fr.example \
   --ssh-key-id papilip
 ----
 
@@ -692,14 +692,14 @@ orders:
     count: 3
     role: web
     region: gra
-    dns_zone: aloli.fr
+    dns_zone: initech-fr.example
 
   - provider: scaleway
     template: EM-A115X-SSD
     count: 2
     role: db
     zone: fr-par-2
-    dns_zone: aloli.fr
+    dns_zone: initech-fr.example
 ----
 
 `beryl provision --orders orders.yml` → 5 serveurs achetés, installés,
@@ -708,7 +708,7 @@ en DNS, avec reverse DNS, prêts pour `beryl bootstrap`.
 === Architecture technique
 
 Deux shards **crystal-ovh-api** et **crystal-scw-api** (organisation
-`aloli-crystal`), réutilisables pour d'autres projets Aloli (deploy
+`aloli-crystal`), réutilisables pour d'autres projets Initech (deploy
 par exemple).
 
 Périmètre minimal de chaque shard :
@@ -792,7 +792,7 @@ Ajoutera un nouvel ADR (post-v1) décrivant :
 Utiliser https://github.com/juanfont/headscale[Headscale] (control
 plane open-source pour Tailscale, basé sur WireGuard) comme *couche
 réseau privée* entre les serveurs gérés par beryl, le poste
-opérateur, et les services internes Aloli (Tang, monitoring,
+opérateur, et les services internes Initech (Tang, monitoring,
 backup, etc.). Tous les hôtes participent à un mesh WireGuard
 authentifié, joignables via leurs IPs Tailscale (`100.64.0.0/10`)
 sans exposer SSH ni Tang sur l'internet public.
@@ -808,8 +808,8 @@ sans exposer SSH ni Tang sur l'internet public.
   inaccessible et les données sont illisibles » est *cryptographiquement
   garantie* — la clé Tang ne peut être négociée qu'en étant dans le
   mesh WireGuard.
-* *Self-hosted, conforme philosophie Aloli* : Headscale tourne sur
-  un VPS / NAS interne Aloli, pas de dépendance au SaaS Tailscale.
+* *Self-hosted, conforme philosophie Initech* : Headscale tourne sur
+  un VPS / NAS interne Initech, pas de dépendance au SaaS Tailscale.
   WireGuard est standard moderne audité.
 * *Performance* : WireGuard a un overhead négligeable, kernel
   module FreeBSD (`if_wg`) disponible nativement depuis FreeBSD 13.
@@ -822,12 +822,12 @@ sans exposer SSH ni Tang sur l'internet public.
 ==== 1. Tang accessible uniquement via Headscale
 
 Plutôt qu'exposer Tang sur une IP publique avec ACL stricte (compromis
-fragile), Tang écoute sur l'IP Tailscale du host Aloli :
+fragile), Tang écoute sur l'IP Tailscale du host Initech :
 
 [source]
 ----
 Tang URL côté beryl :  http://100.64.0.10:8888/
-                                ↑ IP Tailscale du host tang-1.aloli.headscale
+                                ↑ IP Tailscale du host tang-1.initech.headscale
 ----
 
 Au boot d'un serveur encrypted :
@@ -844,7 +844,7 @@ devient inaccessible. Données illisibles. Promesse défendue.
 ==== 2. `beryl <commande> <host>` via le mesh
 
 `host.ssh_host` du YAML peut pointer vers l'IP Tailscale (genre
-`100.64.0.42` ou un nom DNS interne `quantas.aloli.headscale`)
+`100.64.0.42` ou un nom DNS interne `quantas.initech.headscale`)
 plutôt que l'IP publique. Le fix `ssh_host` du 28 avril 2026 (cf.
 `feedback_no_bug_workaround.md`) garantit que beryl respecte
 l'override YAML.
@@ -886,7 +886,7 @@ Pendant le `beryl bootstrap`, mfsBSD-in-QEMU :
 
 === Questions ouvertes à trancher
 
-* *Où vit le serveur Headscale ?* NAS interne Aloli, VPS dédié,
+* *Où vit le serveur Headscale ?* NAS interne Initech, VPS dédié,
   plusieurs en HA ? Dépend de la criticité (si Headscale tombe,
   les nouveaux serveurs ne peuvent plus joindre le mesh, mais les
   serveurs déjà inscrits continuent à parler entre eux via
@@ -913,7 +913,7 @@ Pendant le `beryl bootstrap`, mfsBSD-in-QEMU :
 
 Plusieurs ADR à venir :
 
-* *Couche réseau Aloli* : décrit la topologie Headscale (control
+* *Couche réseau Initech* : décrit la topologie Headscale (control
   plane, exit nodes éventuels, ACLs).
 * *Sécurité par défaut* : SSH et Tang fermés sur les interfaces
   publiques, ouverts seulement sur `tailscale0`. À intégrer dans
@@ -926,7 +926,7 @@ Plusieurs ADR à venir :
 
 * *Option D (Tang)* : Headscale rend l'Option D *opérationnellement
   praticable* sans exposer Tang publiquement. C'est probablement le
-  prérequis qui manquait pour faire de l'Option D le défaut Aloli.
+  prérequis qui manquait pour faire de l'Option D le défaut Initech.
 * *Q11.2 (groupes de hosts)* : un groupe peut hériter d'une
   configuration Headscale (tag Tailscale = nom du groupe pour les ACL).
 * *Note mémoire `feedback_beryl_no_root_ssh.md`* : Headscale
@@ -943,5 +943,5 @@ Plusieurs ADR à venir :
 
 Total ~3 jours, à programmer après que la stratégie multi-niveaux
 des recettes (Q6.1) soit tranchée — la recette `tailscale-client`
-relèvera de la stratégie commune ou Aloli-spécifique selon les
+relèvera de la stratégie commune ou Initech-spécifique selon les
 décisions.

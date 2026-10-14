@@ -121,11 +121,11 @@ CFG
 # chroot ⇒ pas de Capsicum. `pw -V /mnt/etc` idem pour useradd.
 #
 # TEMPLATE : remplir selon le YAML utilisateur (users, packages, sudoers).
-# Ici ci-dessous, on montre un exemple conforme aux conventions Aloli —
+# Ici ci-dessous, on montre un exemple conforme aux conventions Initech —
 # à NE PAS embarquer comme défaut dans beryl (cf. feedback_no_silent_defaults).
 
 section_d_post_install() {
-  local HOSTNAME="${1:-loulou.aloli.net}"
+  local HOSTNAME="${1:-loulou.initech.example}"
   local TZ="${2:-Europe/Paris}"
   local USER_PUB_KEY="${3:?usage: section_d_post_install HOSTNAME TZ SSH_PUB_KEY}"
 
@@ -170,7 +170,7 @@ section_e_poweroff() {
   # Attend que QEMU sorte
   while pgrep -f 'qemu-system-x86_64.*mfsbsd-se.img' >/dev/null; do sleep 5; done
   echo "QEMU terminé, disque /dev/sda prêt."
-  echo "Ensuite : beryl boot-hd loulou.aloli.net depuis le laptop."
+  echo "Ensuite : beryl boot-hd loulou.initech.example depuis le laptop."
 }
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -181,7 +181,7 @@ section_e_poweroff() {
 # sleep 60
 # section_b_test_vm
 # section_c_bsdinstall_preamble
-# section_d_post_install loulou.aloli.net Europe/Paris "ssh-ed25519 AAAA… philippe@aloli"
+# section_d_post_install loulou.initech.example Europe/Paris "ssh-ed25519 AAAA… philippe@initech"
 # section_e_poweroff
 
 echo "Ce script est prévu pour être SOURCÉ section par section, pas exécuté d'un coup."

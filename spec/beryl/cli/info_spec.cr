@@ -7,10 +7,10 @@ describe Beryl::CLI::Info do
   describe ".scoped_hosts" do
     it "résout société, nom court ET la forme chemin société/host" do
       root = Beryl::Config::Root.load(File.join(FIXTURES, "direct-hosts"))
-      Beryl::CLI::Info.scoped_hosts(root, "aloli").map(&.short_name).should contain("loulou")
+      Beryl::CLI::Info.scoped_hosts(root, "initech").map(&.short_name).should contain("loulou")
       Beryl::CLI::Info.scoped_hosts(root, "loulou").map(&.short_name).should eq(["loulou"])
-      Beryl::CLI::Info.scoped_hosts(root, "aloli/loulou").map(&.short_name).should eq(["loulou"])
-      Beryl::CLI::Info.scoped_hosts(root, "aloli/inconnu").should be_empty
+      Beryl::CLI::Info.scoped_hosts(root, "initech/loulou").map(&.short_name).should eq(["loulou"])
+      Beryl::CLI::Info.scoped_hosts(root, "initech/inconnu").should be_empty
     end
   end
 
@@ -103,9 +103,9 @@ describe Beryl::CLI::Info do
   describe ".info_dir" do
     it "société → <config>/<société>/info ; domaine → <config>/<société>/<domaine>/info" do
       root = Beryl::Config::Root.load(File.join(FIXTURES, "ssh-host-override"))
-      h = root.resolve("infohw") # account=aloli, domain=aloli.net
-      Beryl::CLI::Info.info_dir("/cfg", "aloli", [h]).should eq("/cfg/aloli/info")
-      Beryl::CLI::Info.info_dir("/cfg", "aloli.net", [h]).should eq("/cfg/aloli/aloli.net/info")
+      h = root.resolve("infohw") # account=initech, domain=initech.example
+      Beryl::CLI::Info.info_dir("/cfg", "initech", [h]).should eq("/cfg/initech/info")
+      Beryl::CLI::Info.info_dir("/cfg", "initech.example", [h]).should eq("/cfg/initech/initech.example/info")
     end
   end
 
@@ -135,7 +135,7 @@ describe Beryl::CLI::Info do
       h = root.resolve("infohw")
       rows = [Beryl::CLI::Info::UsageRow.new("zroot", "460G", "12G", "448G", "97%")]
       out = Beryl::CLI::Info.build_html_host(h, rows, true, "19/06/2026 16h00")
-      out.should contain("<h1>infohw.aloli.net</h1>")
+      out.should contain("<h1>infohw.initech.example</h1>")
       out.should contain("← Inventaire")
       out.should contain("Service OVH")
       out.should contain("zroot")

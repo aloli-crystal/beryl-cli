@@ -8,7 +8,7 @@
 *Statut.* Accepté — refactor livré en 6 commits sur `production` le
 23 avril 2026 (commits f2bcfd2 → ced342b). +
 *Date.* 23 avril 2026. +
-*Auteur.* Philippe Nénert (Aloli).
+*Auteur.* Philippe Nénert (Initech).
 
 == Résumé
 
@@ -72,18 +72,18 @@ utilise. Les credentials vivent dans `~/.config/beryl/.env.yml` à
 l'intersection `[société][fournisseur]`.
 
 |*Domaine* (code : `Domain`)
-|Zone DNS (ex : `aloli.net`). Rattachée à *une* société. Déclare
+|Zone DNS (ex : `initech.example`). Rattachée à *une* société. Déclare
 *un* `dns_provider` (qui gère la zone) et *un* `default_compute_provider`
 (hébergeur par défaut des serveurs).
 
 |*DNS provider*
 |Le fournisseur qui *héberge la zone DNS* du domaine, et qui accepte
-les records A/AAAA/CNAME/PTR. Pour aloli.net aujourd'hui : OVH.
+les records A/AAAA/CNAME/PTR. Pour initech.example aujourd'hui : OVH.
 Pourrait être Gandi, Cloudflare, Route53 demain.
 
 |*Compute provider*
 |Le fournisseur qui *héberge les serveurs physiques* (ou virtuels).
-Peut différer du DNS provider : aloli.fr peut avoir son DNS chez
+Peut différer du DNS provider : initech-fr.example peut avoir son DNS chez
 Gandi et ses serveurs chez OVH.
 
 |*Host* / *Serveur* (code : `Host`)
@@ -113,17 +113,17 @@ YAML (sync packages, users, clés SSH, sudoers, services…).
 
 === Le cas d'usage réel
 
-Philippe Nénert (Aloli) gère :
+Philippe Nénert (Initech) gère :
 
-* *aloli.net* — domaine payé par la société ALOLI avec un compte OVH
+* *initech.example* — domaine payé par la société INITECH avec un compte OVH
   (domain registrar + DNS + hébergement). Des serveurs sous ce domaine
   sont prévus chez OVH *et* Scaleway.
-* *aloli.fr* — domaine payé par la société ALOLI mais chez Gandi
+* *initech-fr.example* — domaine payé par la société INITECH mais chez Gandi
   (registrar + DNS). Serveurs prévus chez OVH et Scaleway, factures au
-  compte ALOLI de ces fournisseurs.
-* *quimeo.net* — domaine payé par la société QUIMEO (cliente) avec un
-  *autre* compte OVH. Serveurs QUIMEO chez OVH et Scaleway, credentials
-  API totalement distincts de ceux d'ALOLI.
+  compte INITECH de ces fournisseurs.
+* *globex.example* — domaine payé par la société GLOBEX (cliente) avec un
+  *autre* compte OVH. Serveurs GLOBEX chez OVH et Scaleway, credentials
+  API totalement distincts de ceux d'INITECH.
 
 === Ce que l'architecture actuelle n'exprime pas
 
@@ -132,18 +132,18 @@ tient dans :
 
 [source,yaml]
 ----
-# ~/.config/beryl/aloli.net.yml
+# ~/.config/beryl/initech.example.yml
 provider: ovh
 ovh:
-  ssh_key_name: philippe-aloli-fr
+  ssh_key_name: philippe-initech-fr
 ssh_keys:
-  - philippe.aloli.fr.pub
+  - philippe.initech-fr.example.pub
 ----
 
 [source,yaml]
 ----
 # ~/.config/beryl/.env.yml
-aloli.net:
+initech.example:
   OVH_APPLICATION_KEY: xxx
   OVH_APPLICATION_SECRET: yyy
   OVH_CONSUMER_KEY: zzz
@@ -151,8 +151,8 @@ aloli.net:
 
 Problèmes :
 
-. `.env.yml` est indexé par **domaine**, pas par société. Si ALOLI a
-  deux domaines (aloli.net + aloli.fr) avec les mêmes credentials OVH,
+. `.env.yml` est indexé par **domaine**, pas par société. Si INITECH a
+  deux domaines (initech.example + initech-fr.example) avec les mêmes credentials OVH,
   on est forcé de les répéter.
 . Le champ `provider:` est ambigu : est-ce le DNS ? L'hébergeur ? Les
   deux (cas implicite OVH uniquement) ?
@@ -172,7 +172,7 @@ Problèmes :
 
 |*Account* (société)
 |Payeur. Une société a un jeu de credentials par fournisseur.
-|nom court : `aloli`, `quimeo`
+|nom court : `initech`, `globex`
 
 |*Provider*
 |Fournisseur de services cloud. Déclare ses *capabilities*
@@ -183,13 +183,13 @@ du build de beryl.
 |*Domain* (zone DNS)
 |Rattaché à *une* société, avec *un* `dns_provider` (qui gère la zone)
 et *un* `default_compute_provider` (hébergeur par défaut).
-|FQDN de la zone : `aloli.net`
+|FQDN de la zone : `initech.example`
 
 |*Host* (serveur)
 |Rattaché à *un* domaine (via un éventuel groupe). Peut surcharger le
 `compute_provider`. Déclare son OS (FreeBSD aujourd'hui, autres dans
 le futur).
-|nom court : `loulou` ; FQDN : `loulou.aloli.net`
+|nom court : `loulou` ; FQDN : `loulou.initech.example`
 |===
 
 === Les relations
@@ -349,36 +349,36 @@ erreur explicite à la résolution.
 ~/.config/beryl/
 ├── _default.yml                       # socle technique commun à toutes sociétés
 ├── .env.yml                           # credentials legacy (voir coffres .env.toml.age)
-├── aloli/                             # dossier société (dépôt git chiffré)
+├── initech/                             # dossier société (dépôt git chiffré)
 │   ├── _account.yml                   # métadonnées société (optionnel)
 │   ├── .env.toml.age                  # coffre credentials chiffré (v0.3.0)
-│   ├── aloli.net.domain.yml           # domaine
-│   ├── aloli.net/
+│   ├── initech.example.domain.yml           # domaine
+│   ├── initech.example/
 │   │   ├── loulou.host.yml            # host direct
 │   │   ├── loulou/                    # orchestration apply de loulou (recettes)
 │   │   ├── web.group.yml              # groupe
 │   │   └── web/
 │   │       ├── rails01.host.yml
 │   │       └── rails02.host.yml
-│   └── aloli.fr.domain.yml
-└── quimeo/
-    ├── quimeo.net.domain.yml
-    └── quimeo.net/
+│   └── initech-fr.example.domain.yml
+└── globex/
+    ├── globex.example.domain.yml
+    └── globex.example/
         └── web.host.yml
 ----
 
 Le *type* de chaque fichier est explicite dans son extension typée
 (`.domain.yml` / `.host.yml` / `.group.yml` / `.recipe.yml`) — voir
 link:ADR-015-typed-config-extensions.adoc[ADR-015]. La société est
-*dérivée du chemin* : `~/.config/beryl/aloli/aloli.net.domain.yml`
-appartient forcément à la société `aloli`. Pas besoin d'un champ
+*dérivée du chemin* : `~/.config/beryl/initech/initech.example.domain.yml`
+appartient forcément à la société `initech`. Pas besoin d'un champ
 `account:` dans chaque fichier domaine.
 
 === `.env.yml` — trois niveaux
 
 [source,yaml]
 ----
-aloli:
+initech:
   ovh:
     OVH_APPLICATION_KEY: xxx
     OVH_APPLICATION_SECRET: yyy
@@ -388,7 +388,7 @@ aloli:
   gandi:
     GANDI_API_KEY: def         # quand Gandi sera implémenté
 
-quimeo:
+globex:
   ovh:
     OVH_APPLICATION_KEY: aaa   # compte OVH distinct
     OVH_APPLICATION_SECRET: bbb
@@ -404,45 +404,45 @@ soit le nombre de domaines de la société. Zéro répétition.
 
 [source,yaml]
 ----
-# ~/.config/beryl/aloli/aloli.net.yml
-dns_provider: ovh        # qui gère la zone aloli.net
+# ~/.config/beryl/initech/initech.example.yml
+dns_provider: ovh        # qui gère la zone initech.example
 provider: ovh            # hébergeur par défaut (= default_compute_provider)
 
 ovh:
-  ssh_key_name: philippe-aloli-fr
+  ssh_key_name: philippe-initech-fr
 
 scaleway:                # facultatif : si plusieurs hosts Scaleway dans ce domaine
   ssh_key_ids: [uuid-philippe]
 
 ssh_keys:
-  - philippe.aloli.fr.pub
+  - philippe.initech-fr.example.pub
 ----
 
 [source,yaml]
 ----
-# ~/.config/beryl/aloli/aloli.fr.yml
+# ~/.config/beryl/initech/initech-fr.example.yml
 dns_provider: gandi      # DNS chez Gandi
-provider: ovh            # hébergeur par défaut chez OVH (même compte aloli)
+provider: ovh            # hébergeur par défaut chez OVH (même compte initech)
 
 ovh:
-  ssh_key_name: philippe-aloli-fr
+  ssh_key_name: philippe-initech-fr
 
 ssh_keys:
-  - philippe.aloli.fr.pub
+  - philippe.initech-fr.example.pub
 ----
 
 === `_account.yml` — métadonnées société (optionnel)
 
 [source,yaml]
 ----
-# ~/.config/beryl/aloli/_account.yml
-name: ALOLI SAS
-contact_email: contact@aloli.fr
+# ~/.config/beryl/initech/_account.yml
+name: INITECH SAS
+contact_email: contact@initech-fr.example
 notes: |
   Facturation interne. Contact principal : Philippe.
 ----
 
-Si absent, beryl infère juste `name = aloli` (nom du dossier).
+Si absent, beryl infère juste `name = initech` (nom du dossier).
 
 == Architecture du code en couches
 
@@ -526,7 +526,7 @@ celle qui lui parle.
 
 |`beryl init <société>`
 |Crée `~/.config/beryl/<société>/`. Propose d'ajouter providers et domaines en chaîne.
-|`beryl init aloli`
+|`beryl init initech`
 
 |`beryl add-provider <société>/<provider>` +
 `beryl add-provider <provider> [--account=S]`
@@ -536,10 +536,10 @@ avec routes complètes.
 a|
 [source,console]
 ----
-beryl add-provider aloli/ovh
-beryl add-provider aloli/scaleway
+beryl add-provider initech/ovh
+beryl add-provider initech/scaleway
 # équivalent verbeux :
-beryl add-provider ovh --account=aloli
+beryl add-provider ovh --account=initech
 ----
 
 |`beryl add-domain <société>/<domaine>` +
@@ -549,10 +549,10 @@ default compute provider, SSH key.
 a|
 [source,console]
 ----
-beryl add-domain aloli/aloli.net
-beryl add-domain aloli/aloli.fr
+beryl add-domain initech/initech.example
+beryl add-domain initech/initech-fr.example
 # équivalent verbeux :
-beryl add-domain aloli.net --account=aloli
+beryl add-domain initech.example --account=initech
 ----
 |===
 
@@ -566,7 +566,7 @@ Si une seule société existe dans `~/.config/beryl/`, ni le slash ni
 [source,console]
 ----
 beryl add-provider ovh           # société déduite (une seule)
-beryl add-domain aloli.net       # société déduite (une seule)
+beryl add-domain initech.example       # société déduite (une seule)
 ----
 
 En mode `--non-interactive` avec plusieurs sociétés, l'argument
@@ -605,29 +605,29 @@ et lisent les credentials via le nouveau canal.
 
 [source,console]
 ----
-$ beryl init aloli
-[beryl init] Société « aloli » créée dans ~/.config/beryl/aloli/
+$ beryl init initech
+[beryl init] Société « initech » créée dans ~/.config/beryl/initech/
 [beryl init] Ajouter un fournisseur maintenant ? [o/N] : o
 # … chaîne vers add-provider …
 
-$ beryl add-provider aloli/ovh
+$ beryl add-provider initech/ovh
 # prompt app_key + app_secret
 # auto-gen consumer key (POST /auth/credential)
-# écrit .env.yml[aloli][ovh]
+# écrit .env.yml[initech][ovh]
 
-$ beryl add-provider aloli/scaleway
+$ beryl add-provider initech/scaleway
 # prompt SCW_SECRET_KEY
-# écrit .env.yml[aloli][scaleway]
+# écrit .env.yml[initech][scaleway]
 
-$ beryl add-domain aloli/aloli.net
+$ beryl add-domain initech/initech.example
 # Qui gère la zone DNS ? [ovh, scaleway] : ovh
 # Hébergeur par défaut ? [ovh, scaleway] : ovh
-# Sélection SSH key OVH… ↔ ~/.ssh/philippe.aloli.fr.pub
-# Écrit ~/.config/beryl/aloli/aloli.net.yml
+# Sélection SSH key OVH… ↔ ~/.ssh/philippe.initech-fr.example.pub
+# Écrit ~/.config/beryl/initech/initech.example.yml
 
 # Équivalent 100% avec la forme verbeuse :
-$ beryl add-provider ovh --account=aloli
-$ beryl add-domain aloli.net --account=aloli
+$ beryl add-provider ovh --account=initech
+$ beryl add-domain initech.example --account=initech
 ----
 
 == Migration depuis l'état actuel
@@ -735,7 +735,7 @@ Dès qu'il y a une équipe, plusieurs admins doivent pouvoir :
 . *Password manager CLI* — 1Password, Bitwarden, KeePassXC ont des
   CLIs qui exposent les secrets à la demande. Beryl passe par le CLI.
 . *Granularité des droits* — un admin peut avoir accès à la société
-  ALOLI et pas QUIMEO. Implémenté côté stockage (dossier git séparé,
+  INITECH et pas GLOBEX. Implémenté côté stockage (dossier git séparé,
   path vault restreint…) plutôt que côté beryl.
 
 ==== Ce que l'architecture proposée permet déjà
@@ -762,7 +762,7 @@ Dès qu'il y a une équipe, plusieurs admins doivent pouvoir :
 === Coffre-fort pour les clés SSH
 
 Aujourd'hui les clés SSH privées vivent dans `~/.ssh/`. Beryl les
-*référence* par nom de fichier (`philippe.aloli.fr.pub`) et résout
+*référence* par nom de fichier (`philippe.initech-fr.example.pub`) et résout
 à la lecture. Bien pour un opérateur seul ; limitant en équipe.
 
 ==== Pistes techniques
@@ -785,7 +785,7 @@ Aujourd'hui les clés SSH privées vivent dans `~/.ssh/`. Beryl les
 
 * La résolution `ssh_keys: [filename]` dans un `<domaine>.yml` est
   déjà indirecte. Demain, beryl pourrait interpréter un identifiant
-  spécial (ex : `yubikey://philippe.aloli.fr`) qui pointe sur un
+  spécial (ex : `yubikey://philippe.initech-fr.example`) qui pointe sur un
   token PKCS#11 plutôt que sur un fichier local.
 * Le provider `ComputeProvider` gère lui-même l'injection de la clé
   au rescue. L'admin fournit la référence (filename, vault path,
@@ -807,12 +807,12 @@ système (qui parle à l'agent / au token / au vault).
 
 === B. `.env.yml` indexé par domaine avec répétition
 
-*Rejetée.* Force la duplication `aloli.net / aloli.fr` quand les deux
-sont chez le même compte ALOLI. Incohérent avec la notion de société.
+*Rejetée.* Force la duplication `initech.example / initech-fr.example` quand les deux
+sont chez le même compte INITECH. Incohérent avec la notion de société.
 
 === C. Un seul provider par domaine + providers attachés aux hosts
 
-*Rejetée pour factorisation.* Si 5 hosts Scaleway dans `aloli.net`
+*Rejetée pour factorisation.* Si 5 hosts Scaleway dans `initech.example`
 partagent la même clé SSH Scaleway, il faut la factoriser au niveau
 domaine, pas répéter 5 fois.
 
@@ -824,8 +824,8 @@ domaine, pas répéter 5 fois.
 
 * Discussion 23 avril 2026 (Philippe / assistant) — synthèse des cas
   réels multi-société / multi-fournisseur.
-* Règle Aloli « pas de défaut silencieux » — influence l'obligation
+* Règle Initech « pas de défaut silencieux » — influence l'obligation
   de déclarer `dns_provider` et `provider` explicitement.
-* Règle Aloli « convention over configuration pragmatique » — les
+* Règle Initech « convention over configuration pragmatique » — les
   défauts sensés restent possibles (ex : society auto-détectée du
   chemin, `--account` optionnel si une seule société).

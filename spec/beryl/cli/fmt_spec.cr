@@ -19,7 +19,7 @@ describe Beryl::CLI::Fmt do
     it "société : matche tous les fichiers sous la société" do
       Beryl::CLI::Fmt.in_scope?("/c/popi/_default.yml", "/c", "popi").should be_true
       Beryl::CLI::Fmt.in_scope?("/c/popi/popi.net/ben.host.yml", "/c", "popi").should be_true
-      Beryl::CLI::Fmt.in_scope?("/c/aloli/_default.yml", "/c", "popi").should be_false
+      Beryl::CLI::Fmt.in_scope?("/c/initech/_default.yml", "/c", "popi").should be_false
     end
 
     it "domaine : matche les fichiers du domaine (dossier ou *.domain.yml)" do

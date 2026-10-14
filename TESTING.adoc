@@ -236,7 +236,7 @@ ssh-copy-id root@<IP>        # entrer le mot de passe reçu
 [source,yaml]
 ----
 hosts:
-  test-ovh.aloli.fr:
+  test-ovh.initech-fr.example:
     provider: ovh
     # Pointe vers l'IP OVH ; ajoutez une entrée /etc/hosts si besoin
     # ou remplacez la clé du hash par l'IP.
@@ -246,7 +246,7 @@ hosts:
 
 [source,sh]
 ----
-ssh root@test-ovh.aloli.fr "lsblk -dno NAME,TYPE,SIZE"
+ssh root@test-ovh.initech-fr.example "lsblk -dno NAME,TYPE,SIZE"
 ----
 
 Les serveurs OVH sont souvent en NVMe : attendu `nvme0n1  disk  500G`.
@@ -256,7 +256,7 @@ Si deux disques (configuration RAID), la v1 de beryl n'en prend qu'un.
 
 [source,sh]
 ----
-./bin/beryl bootstrap test-ovh.aloli.fr --disk=/dev/nvme0n1
+./bin/beryl bootstrap test-ovh.initech-fr.example --disk=/dev/nvme0n1
 ----
 
 C'est la seule commande à lancer. Pas de `beryl prep-rescue`,
@@ -334,7 +334,7 @@ ssh-copy-id root@<IP>
 [source,yaml]
 ----
 hosts:
-  test-scaleway.aloli.fr:
+  test-scaleway.initech-fr.example:
     provider: scaleway
 ----
 
@@ -342,7 +342,7 @@ hosts:
 
 [source,sh]
 ----
-./bin/beryl bootstrap test-scaleway.aloli.fr --disk=/dev/sda
+./bin/beryl bootstrap test-scaleway.initech-fr.example --disk=/dev/sda
 ----
 
 Comme pour OVH (section 2.4), c'est la seule commande à lancer. Le
@@ -543,8 +543,8 @@ basculer un hôte en mode rescue *sans passer par le manager web* :
 
 [source,sh]
 ----
-beryl rescue loulou.aloli.fr           # 1. l'hôte repart en rescue
-beryl bootstrap loulou.aloli.fr \      # 2. on installe FreeBSD par-dessus
+beryl rescue loulou.initech-fr.example           # 1. l'hôte repart en rescue
+beryl bootstrap loulou.initech-fr.example \      # 2. on installe FreeBSD par-dessus
   --disk /dev/sda
 ----
 
@@ -583,13 +583,13 @@ provider avec les identifiants exposés par l'hébergeur :
 [source,yaml]
 ----
 hosts:
-  loulou.aloli.fr:
+  loulou.initech-fr.example:
     provider: ovh
     ovh:
       service_name: ns3156789.ip-51-83-6.eu    # « Nom du service » OVH
-      ssh_key_name: philippe-aloli-fr          # nom dans /me/sshKey
+      ssh_key_name: philippe-initech-fr          # nom dans /me/sshKey
 
-  mysrv-scw.aloli.fr:
+  mysrv-scw.initech-fr.example:
     provider: scaleway
     scaleway:
       zone: fr-par-2
@@ -606,12 +606,12 @@ serveur : rien à déclarer dans l'inventaire beryl.
 
 [source,sh]
 ----
-$ beryl rescue loulou.aloli.fr
-[beryl rescue] OVH : prepare_rescue pour ns3156789.ip-51-83-6.eu (clé : philippe-aloli-fr)
+$ beryl rescue loulou.initech-fr.example
+[beryl rescue] OVH : prepare_rescue pour ns3156789.ip-51-83-6.eu (clé : philippe-initech-fr)
 [beryl rescue] OVH : tâche #42 (hardReboot) en todo
-[beryl rescue] attente du retour SSH sur loulou.aloli.fr (port 22, user root, timeout 10 min)
-[beryl rescue] ready : SSH répond sur loulou.aloli.fr
-$ beryl bootstrap loulou.aloli.fr --disk /dev/sda
+[beryl rescue] attente du retour SSH sur loulou.initech-fr.example (port 22, user root, timeout 10 min)
+[beryl rescue] ready : SSH répond sur loulou.initech-fr.example
+$ beryl bootstrap loulou.initech-fr.example --disk /dev/sda
 …flux QEMU-in-rescue habituel, 25-35 min…
 ----
 

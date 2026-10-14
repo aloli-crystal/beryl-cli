@@ -2,7 +2,7 @@ require "../../spec_helper"
 
 # Tests du switch `Beryl.transport_mode`. Le couplage avec
 # `ResolvedHost#ssh_host` est validé par les tests d'intégration et
-# manuellement (cf. memory ALOLI `roadmap_beryl_headscale.md` Phase 4).
+# manuellement (cf. memory INITECH `roadmap_beryl_headscale.md` Phase 4).
 
 describe "Beryl.transport_mode" do
   it "default est :public" do

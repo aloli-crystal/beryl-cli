@@ -6,7 +6,7 @@
 :icons: font
 
 *Date de mise à jour.* 23 avril 2026 — beryl 0.1.5. +
-*Règle Aloli.* Chaque sous-commande et chaque flag long possède une
+*Règle Initech.* Chaque sous-commande et chaque flag long possède une
 forme courte (feedback_cli_short_flags).
 
 == Syntax path-like pour les commandes de host
@@ -36,13 +36,13 @@ Exemples :
 
 [source,console]
 ----
-# Société `aloli` avec un seul domaine `aloli.net` : 2-tiers suffit
-beryl r aloli/loulou
-beryl b aloli/loulou.aloli.net
+# Société `initech` avec un seul domaine `initech.example` : 2-tiers suffit
+beryl r initech/loulou
+beryl b initech/loulou.initech.example
 
 # Société avec plusieurs domaines et host ambigu : 3-tiers
-beryl r aloli/aloli.fr/mail
-beryl r aloli/aloli.net/mail
+beryl r initech/initech-fr.example/mail
+beryl r initech/initech.example/mail
 
 # Forme plate (auto si une seule société dans ~/.config/beryl/) :
 beryl r loulou
@@ -254,17 +254,17 @@ Chaque commande est utilisable sous sa forme longue ou sa forme courte :
 [source,console]
 ----
 # Init d'une société et ajout de fournisseurs/domaines
-beryl i aloli
-beryl ap aloli/ovh
-beryl ap aloli/scaleway
-beryl ad aloli/aloli.net
+beryl i initech
+beryl ap initech/ovh
+beryl ap initech/scaleway
+beryl ad initech/initech.example
 
 # Opérations sur serveur (forme courte + flags courts)
-beryl r ns3156789.ip-51-83-6.eu -d aloli.net
-beryl s ns3156789.ip-51-83-6.eu -d aloli.net -D -w
-beryl b loulou.aloli.net
-beryl w loulou.aloli.net -A    # wipe tous les disques déclarés
-beryl a loulou.aloli.net
+beryl r ns3156789.ip-51-83-6.eu -d initech.example
+beryl s ns3156789.ip-51-83-6.eu -d initech.example -D -w
+beryl b loulou.initech.example
+beryl w loulou.initech.example -A    # wipe tous les disques déclarés
+beryl a loulou.initech.example
 
 # Version / aide
 beryl -v

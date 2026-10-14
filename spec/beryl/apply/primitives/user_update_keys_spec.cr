@@ -13,7 +13,7 @@ describe Beryl::Apply::UserUpdateKeys do
     with_home(shell, "")
     result = prim("user-update-keys").apply(
       shell,
-      apply_params(%({user: deploy, keys: ["ssh-ed25519 AAAAfoo deploy@aloli"]})),
+      apply_params(%({user: deploy, keys: ["ssh-ed25519 AAAAfoo deploy@initech"]})),
       dry_run: false, context: ctx,
     )
     result.outcome.should eq(Beryl::Apply::Outcome::Applied)

@@ -41,7 +41,7 @@ describe Beryl::CLI::DnsRecord do
 
   it "zone sans dns_provider → usage" do
     root = File.expand_path(File.join(__DIR__, "..", "..", "fixtures", "config", "machine-kind"))
-    Beryl::CLI::DnsRecord.run(root, ["aloli.net", "www", "A", "192.0.2.1"]).should eq(Beryl::CLI::DnsRecord::EXIT_USAGE)
+    Beryl::CLI::DnsRecord.run(root, ["initech.example", "www", "A", "192.0.2.1"]).should eq(Beryl::CLI::DnsRecord::EXIT_USAGE)
   end
 
   it "simulation : zone connue → plan, aucun appel API" do

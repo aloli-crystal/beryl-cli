@@ -77,9 +77,9 @@ describe Beryl::CLI::ConfigGit do
       with_temp_repo do |root|
         f = File.join(root, "loulou.host.yml")
         File.write(f, "hostname: loulou\n")
-        Beryl::CLI::ConfigGit.commit([f], "scan : loulou.aloli.net (1 disques, zroot raid0)", no_commit: false)
+        Beryl::CLI::ConfigGit.commit([f], "scan : loulou.initech.example (1 disques, zroot raid0)", no_commit: false)
 
-        commit_subjects(root).should eq(["scan : loulou.aloli.net (1 disques, zroot raid0)"])
+        commit_subjects(root).should eq(["scan : loulou.initech.example (1 disques, zroot raid0)"])
         tracked?(root, "loulou.host.yml").should be_true
       end
     end

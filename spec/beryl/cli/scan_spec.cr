@@ -18,14 +18,14 @@ describe Beryl::CLI::Scan do
   describe ".render_yaml" do
     it "écrit `provider:` hérité du domaine (cas standard)" do
       root = Beryl::Config::Root.load(File.join(FIXTURES, "multi-provider-domain"))
-      host = root.resolve("loulou", domain_hint: "aloli.net")
+      host = root.resolve("loulou", domain_hint: "initech.example")
       yaml = Beryl::CLI::Scan.render_yaml(host, "loulou", single_zroot([sample_disk]))
       yaml.should contain("provider: ovh")
     end
 
     it "écrit ovh.commercial_name + bloc hardware: depuis les overrides OVH" do
       root = Beryl::Config::Root.load(File.join(FIXTURES, "multi-provider-domain"))
-      host = root.resolve("loulou", domain_hint: "aloli.net")
+      host = root.resolve("loulou", domain_hint: "initech.example")
       hw = Beryl::HardwareSpec.new(cpu: "AMD EPYC 4344P", cores: 8, threads: 16,
         ram_gb: 64, disks: ["2 x 960 GB SSD", "4 x 7680 GB SSD"], raid: "9361-4i")
       yaml = Beryl::CLI::Scan.render_yaml(host, "loulou", single_zroot([sample_disk]),
@@ -41,7 +41,7 @@ describe Beryl::CLI::Scan do
 
     it "surcharge via provider_override (ex: --provider=scaleway)" do
       root = Beryl::Config::Root.load(File.join(FIXTURES, "multi-provider-domain"))
-      host = root.resolve("loulou", domain_hint: "aloli.net")
+      host = root.resolve("loulou", domain_hint: "initech.example")
       yaml = Beryl::CLI::Scan.render_yaml(host, "loulou", single_zroot([sample_disk]), provider_override: "scaleway")
       yaml.should contain("provider: scaleway")
       yaml.should_not contain("provider: ovh")
@@ -49,21 +49,21 @@ describe Beryl::CLI::Scan do
 
     it "n'écrit pas `provider:` si aucun niveau n'en déclare et pas d'override" do
       root = Beryl::Config::Root.load(File.join(FIXTURES, "with-defaults-and-env"))
-      host = root.resolve("serveur-neuf", domain_hint: "aloli.net")
+      host = root.resolve("serveur-neuf", domain_hint: "initech.example")
       yaml = Beryl::CLI::Scan.render_yaml(host, "serveur-neuf", single_zroot([sample_disk]))
       yaml.should_not contain("provider:")
     end
 
     it "override CLI fonctionne même si pas de provider mergé" do
       root = Beryl::Config::Root.load(File.join(FIXTURES, "with-defaults-and-env"))
-      host = root.resolve("serveur-neuf", domain_hint: "aloli.net")
+      host = root.resolve("serveur-neuf", domain_hint: "initech.example")
       yaml = Beryl::CLI::Scan.render_yaml(host, "serveur-neuf", single_zroot([sample_disk]), provider_override: "hetzner")
       yaml.should contain("provider: hetzner")
     end
 
     it "multi-pool : zroot (boot) + zdata (data, mountpoint /data) avec leurs disques et RAID respectifs" do
       root = Beryl::Config::Root.load(File.join(FIXTURES, "multi-provider-domain"))
-      host = root.resolve("loulou", domain_hint: "aloli.net")
+      host = root.resolve("loulou", domain_hint: "initech.example")
       pools = [
         Beryl::CLI::Scan::PoolSpec.zroot([sample_disk("nvme0n1")], 0),
         Beryl::CLI::Scan::PoolSpec.data("data",
@@ -91,14 +91,14 @@ describe Beryl::CLI::Scan do
 
     it "zroot n'a PAS de mountpoint dans le YAML (le root-fs est géré par l'installeur)" do
       root = Beryl::Config::Root.load(File.join(FIXTURES, "multi-provider-domain"))
-      host = root.resolve("loulou", domain_hint: "aloli.net")
+      host = root.resolve("loulou", domain_hint: "initech.example")
       yaml = Beryl::CLI::Scan.render_yaml(host, "loulou", single_zroot([sample_disk]))
       yaml.should_not contain("mountpoint:")
     end
 
     it "single pool zroot : raid passé dans le PoolSpec est préservé" do
       root = Beryl::Config::Root.load(File.join(FIXTURES, "multi-provider-domain"))
-      host = root.resolve("loulou", domain_hint: "aloli.net")
+      host = root.resolve("loulou", domain_hint: "initech.example")
       yaml = Beryl::CLI::Scan.render_yaml(host, "loulou", single_zroot([sample_disk("sda"), sample_disk("sdb")], 1))
       yaml.should contain("zroot:")
       yaml.should contain("boot: true")
@@ -530,17 +530,17 @@ describe Beryl::CLI::Scan do
     it "construit <config_root>/<société>/<domaine>/<host>.yml en mode auto" do
       result = Beryl::CLI::Scan.resolve_write_target(
         explicit: nil, auto: true,
-        config_root: "/tmp/.config/beryl", account_name: "aloli",
-        domain_name: "aloli.net", short: "loulou",
+        config_root: "/tmp/.config/beryl", account_name: "initech",
+        domain_name: "initech.example", short: "loulou",
       )
-      result.should eq("/tmp/.config/beryl/aloli/aloli.net/loulou.host.yml")
+      result.should eq("/tmp/.config/beryl/initech/initech.example/loulou.host.yml")
     end
 
     it "retourne le chemin explicite quand fourni (write_path gagne)" do
       result = Beryl::CLI::Scan.resolve_write_target(
         explicit: "/custom/path.yml", auto: true,
-        config_root: "/tmp/.config/beryl", account_name: "aloli",
-        domain_name: "aloli.net", short: "loulou",
+        config_root: "/tmp/.config/beryl", account_name: "initech",
+        domain_name: "initech.example", short: "loulou",
       )
       result.should eq("/custom/path.yml")
     end
@@ -548,8 +548,8 @@ describe Beryl::CLI::Scan do
     it "retourne nil quand ni --write ni --write-to ne sont passés" do
       result = Beryl::CLI::Scan.resolve_write_target(
         explicit: nil, auto: false,
-        config_root: "/tmp/.config/beryl", account_name: "aloli",
-        domain_name: "aloli.net", short: "loulou",
+        config_root: "/tmp/.config/beryl", account_name: "initech",
+        domain_name: "initech.example", short: "loulou",
       )
       result.should be_nil
     end
@@ -558,13 +558,13 @@ describe Beryl::CLI::Scan do
   describe ".rerun_with_write" do
     # Le mode suggestion affiche le YAML à l'écran et propose la commande
     # à relancer pour que beryl écrive lui-même le fichier. Standard
-    # Aloli : toute interaction qui suggère un état suivant doit
+    # Initech : toute interaction qui suggère un état suivant doit
     # proposer la commande précise à copier-coller.
     it "ajoute --apply quand il n'est pas déjà dans les args" do
-      args = ["aloli/ns3156789.ip-51-83-6.eu", "--hostname=loulou", "--raid=0"]
+      args = ["initech/ns3156789.ip-51-83-6.eu", "--hostname=loulou", "--raid=0"]
       result = Beryl::CLI::Scan.rerun_with_write(args, "loulou")
       result.should contain("--apply")
-      result.should contain("aloli/ns3156789.ip-51-83-6.eu")
+      result.should contain("initech/ns3156789.ip-51-83-6.eu")
       result.should contain("--hostname=loulou")
       result.should contain("--raid=0")
     end
@@ -611,51 +611,51 @@ describe Beryl::CLI::Scan do
     end
 
     it "réduit un displayName FQDN du domaine cible à son nom court" do
-      Beryl::CLI::Scan.discover_short_name("tika.aloli.net", "ns1.ip-1-2-3.eu", "aloli.net").should eq("tika")
-      Beryl::CLI::Scan.discover_short_name("Tika.Aloli.Net.", "ns1.ip-1-2-3.eu", "aloli.net").should eq("tika")
+      Beryl::CLI::Scan.discover_short_name("tika.initech.example", "ns1.ip-1-2-3.eu", "initech.example").should eq("tika")
+      Beryl::CLI::Scan.discover_short_name("Tika.Initech.example.", "ns1.ip-1-2-3.eu", "initech.example").should eq("tika")
     end
 
     it "garde un FQDN d'un autre domaine en entier (slugifié)" do
-      Beryl::CLI::Scan.discover_short_name("qwert.yuiop.ovh", "ns1.ip-1-2-3.eu", "aloli.net").should eq("qwert-yuiop-ovh")
+      Beryl::CLI::Scan.discover_short_name("qwert.yuiop.ovh", "ns1.ip-1-2-3.eu", "initech.example").should eq("qwert-yuiop-ovh")
     end
   end
 
   describe "AccountUtils.host_ref" do
     existing = [
-      {account: "quimeo", domain: "quimeo.net", short: "tika"},
-      {account: "aloli", domain: "aloli.org", short: "fiona"},
+      {account: "globex", domain: "globex.example", short: "tika"},
+      {account: "initech", domain: "initech-org.example", short: "fiona"},
     ]
 
     it "nom court seul quand il est unique" do
-      Beryl::CLI::AccountUtils.host_ref("loulou", "aloli", "aloli.net", existing).should eq("loulou")
+      Beryl::CLI::AccountUtils.host_ref("loulou", "initech", "initech.example", existing).should eq("loulou")
     end
 
     it "société/nom quand une autre société a le même nom" do
-      Beryl::CLI::AccountUtils.host_ref("tika", "aloli", "aloli.net", existing).should eq("aloli/tika")
+      Beryl::CLI::AccountUtils.host_ref("tika", "initech", "initech.example", existing).should eq("initech/tika")
     end
 
     it "société/domaine/nom quand un autre domaine de la société a le même nom" do
-      Beryl::CLI::AccountUtils.host_ref("fiona", "aloli", "aloli.net", existing).should eq("aloli/aloli.net/fiona")
+      Beryl::CLI::AccountUtils.host_ref("fiona", "initech", "initech.example", existing).should eq("initech/initech.example/fiona")
     end
   end
 
   describe ".discover_next_steps" do
     it "cite les noms des hosts : rescue PUIS scan --apply" do
-      out = Beryl::CLI::Scan.discover_next_steps("aloli", ["tika", "aloli/loulou"], false)
+      out = Beryl::CLI::Scan.discover_next_steps("initech", ["tika", "initech/loulou"], false)
       out.should contain("beryl rescue tika --apply && beryl scan tika --apply")
-      out.should contain("beryl rescue aloli/loulou --apply && beryl scan aloli/loulou --apply")
+      out.should contain("beryl rescue initech/loulou --apply && beryl scan initech/loulou --apply")
       out.should contain("REDÉMARRAGE")
       out.should_not contain("<host>")
       out.should_not contain("--discover")
     end
 
     it "en dry-run, indique d'abord comment écrire les squelettes" do
-      out = Beryl::CLI::Scan.discover_next_steps("aloli", ["tika"], true)
-      out.lines.first.should eq("Pour écrire ces squelettes : beryl scan --discover aloli --apply")
+      out = Beryl::CLI::Scan.discover_next_steps("initech", ["tika"], true)
+      out.lines.first.should eq("Pour écrire ces squelettes : beryl scan --discover initech --apply")
     end
 
     it "ne dit rien quand il n'y a aucun host" do
-      Beryl::CLI::Scan.discover_next_steps("aloli", [] of String, true).should eq("")
+      Beryl::CLI::Scan.discover_next_steps("initech", [] of String, true).should eq("")
     end
   end
 end

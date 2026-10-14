@@ -9,14 +9,14 @@ require "../../../src/beryl/cli/headscale_authkey"
 describe Beryl::CLI::HeadscaleAuthkey do
   describe ".extract_key" do
     it "extrait la clé d'une sortie JSON simple" do
-      json = %({"id":"3","key":"abcdef0123456789","user":"aloli","reusable":false})
+      json = %({"id":"3","key":"abcdef0123456789","user":"initech","reusable":false})
       Beryl::CLI::HeadscaleAuthkey.extract_key(json).should eq("abcdef0123456789")
     end
 
     it "ignore des lignes de log AVANT le bloc JSON" do
       txt = <<-TXT
         2026-06-20T22:00:00Z INF headscale starting
-        {"id":"7","key":"deadbeefcafe","user":"aloli"}
+        {"id":"7","key":"deadbeefcafe","user":"initech"}
         TXT
       Beryl::CLI::HeadscaleAuthkey.extract_key(txt).should eq("deadbeefcafe")
     end
@@ -26,14 +26,14 @@ describe Beryl::CLI::HeadscaleAuthkey do
         {
           "id": "9",
           "key": "0011223344556677",
-          "user": "aloli"
+          "user": "initech"
         }
         TXT
       Beryl::CLI::HeadscaleAuthkey.extract_key(txt).should eq("0011223344556677")
     end
 
     it "renvoie nil si le champ key est absent" do
-      Beryl::CLI::HeadscaleAuthkey.extract_key(%({"id":"3","user":"aloli"})).should be_nil
+      Beryl::CLI::HeadscaleAuthkey.extract_key(%({"id":"3","user":"initech"})).should be_nil
     end
 
     it "renvoie nil si la clé est vide" do

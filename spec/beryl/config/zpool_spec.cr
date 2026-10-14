@@ -52,7 +52,7 @@ describe Beryl::Config::ResolvedHost do
   describe "#zpools (nouvelle syntaxe freebsd.zfs.<nom>)" do
     it "parse plusieurs pools depuis freebsd.zfs" do
       root = Beryl::Config::Root.load(File.join(FIXTURES, "multi-pool"))
-      rh = root.resolve("backup01.aloli.net")
+      rh = root.resolve("backup01.initech.example")
       pools = rh.zpools
       pools.size.should eq(2)
 
@@ -70,33 +70,33 @@ describe Beryl::Config::ResolvedHost do
 
     it "expose boot_zpool et data_zpools" do
       root = Beryl::Config::Root.load(File.join(FIXTURES, "multi-pool"))
-      rh = root.resolve("backup01.aloli.net")
+      rh = root.resolve("backup01.initech.example")
       rh.boot_zpool.name.should eq("zroot")
       rh.data_zpools.map(&.name).should eq(["zdata"])
     end
 
     it "all_declared_disks retourne l'union à plat" do
       root = Beryl::Config::Root.load(File.join(FIXTURES, "multi-pool"))
-      rh = root.resolve("backup01.aloli.net")
+      rh = root.resolve("backup01.initech.example")
       rh.all_declared_disks.sort.should eq(["/dev/sda", "/dev/sdb", "/dev/sdc", "/dev/sdd", "/dev/sde"])
     end
   end
 
   describe "#validate_zfs!" do
     it "passe sur une config multi-pool valide" do
-      rh = Beryl::Config::Root.load(File.join(FIXTURES, "multi-pool")).resolve("backup01.aloli.net")
+      rh = Beryl::Config::Root.load(File.join(FIXTURES, "multi-pool")).resolve("backup01.initech.example")
       rh.validate_zfs!
     end
 
     it "lève NoBootPool si aucun pool avec boot: true" do
-      rh = Beryl::Config::Root.load(File.join(FIXTURES, "bad-zfs-no-boot")).resolve("bad.aloli.net")
+      rh = Beryl::Config::Root.load(File.join(FIXTURES, "bad-zfs-no-boot")).resolve("bad.initech.example")
       expect_raises(Beryl::Config::ResolvedHost::NoBootPool, /aucun pool `boot: true`/) do
         rh.validate_zfs!
       end
     end
 
     it "lève DuplicatedDisk si un disque est dans plusieurs pools" do
-      rh = Beryl::Config::Root.load(File.join(FIXTURES, "bad-zfs-duplicate-disk")).resolve("bad.aloli.net")
+      rh = Beryl::Config::Root.load(File.join(FIXTURES, "bad-zfs-duplicate-disk")).resolve("bad.initech.example")
       expect_raises(Beryl::Config::ResolvedHost::DuplicatedDisk, /plusieurs pools/) do
         rh.validate_zfs!
       end
@@ -214,7 +214,7 @@ describe Beryl::Config::EncryptionConfig do
       Beryl::Config::EncryptionConfig.from_yaml(yaml_any, "zpool").should be_nil
     end
 
-    it "retourne ssh_unlock sur encryption: true (legacy, défaut Aloli)" do
+    it "retourne ssh_unlock sur encryption: true (legacy, défaut Initech)" do
       yaml_any = YAML::Any.new(true)
       cfg = Beryl::Config::EncryptionConfig.from_yaml(yaml_any, "zpool").not_nil!
       cfg.ssh_unlock?.should be_true

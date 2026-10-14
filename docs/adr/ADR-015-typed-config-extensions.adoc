@@ -7,7 +7,7 @@
 
 *Statut.* Accepté — précise ADR-014 (n'en change que le nommage des fichiers). +
 *Date.* 8 juin 2026. +
-*Auteur.* Philippe Nénert (Aloli).
+*Auteur.* Philippe Nénert (Initech).
 
 == Résumé
 
@@ -41,7 +41,7 @@ dossier d'orchestration `clientvm/` à côté de `clientvm.yml` :
 
 [source]
 ----
-aloli.net/
+initech.example/
 ├── clientvm.yml          ← config host
 └── clientvm/             ← recettes apply   ← MÊME FORME qu'un groupe
     └── post-install.yml
@@ -97,11 +97,11 @@ chiffré v0.3.0).
 ----
 ~/.config/beryl/
 ├── _default.yml
-└── aloli/                          ← société (dépôt git chiffré)
+└── initech/                          ← société (dépôt git chiffré)
     ├── _account.yml
     ├── .env.toml.age               ← coffre credentials (intact)
-    ├── aloli.net.domain.yml        ← DOMAINE
-    └── aloli.net/
+    ├── initech.example.domain.yml        ← DOMAINE
+    └── initech.example/
         ├── quantas.host.yml        ← HOST          (d'un coup d'œil)
         ├── quantas/                ← orchestration apply de quantas
         │   ├── post-install.recipe.yml

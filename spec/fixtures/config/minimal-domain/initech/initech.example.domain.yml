@@ -1,0 +1,5 @@
+ovh:
+  ssh_key_name: philippe.initech-fr.example
+
+ssh_keys:
+  - ssh-ed25519 AAAA philippe@initech-fr.example

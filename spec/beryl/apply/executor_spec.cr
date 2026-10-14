@@ -158,13 +158,13 @@ describe Beryl::Apply::Executor do
       parameters: {} of String => YAML::Any,
       arguments: {} of String => YAML::Any,
       steps: [Beryl::Apply::Step.new("test-record",
-        {"names" => YAML.parse("[\"{{ hostname }}.quimeo.net\", \"{{ hostname }}.aloli.net\"]")})],
+        {"names" => YAML.parse("[\"{{ hostname }}.globex.example\", \"{{ hostname }}.initech.example\"]")})],
       source_path: "/tmp/list-interp.recipe.yml",
       positional: nil,
     )
     ctx = Beryl::Apply::Context.new(vars: {"hostname" => "pkg"})
     Beryl::Apply::Executor.new(shell, dry_run: false, context: ctx).run([recipe])
-    TestRecorder.last_params["names"].as_a.map(&.as_s).should eq(["pkg.quimeo.net", "pkg.aloli.net"])
+    TestRecorder.last_params["names"].as_a.map(&.as_s).should eq(["pkg.globex.example", "pkg.initech.example"])
   end
 
   it "interpole {{ var }} depuis arguments (qui priment sur parameters.default)" do

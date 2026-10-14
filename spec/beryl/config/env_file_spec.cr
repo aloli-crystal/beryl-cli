@@ -21,10 +21,10 @@ describe Beryl::Config::EnvFile do
 
     it "parse un fichier à 2 sociétés avec plusieurs fournisseurs" do
       env = Beryl::Config::EnvFile.load(fixture("two-accounts.yml"))
-      env.accounts.sort.should eq(["aloli", "popi"])
-      env.providers_for("aloli").sort.should eq(["ovh", "scaleway"])
-      env.for_account_provider("aloli", "ovh")["OVH_APPLICATION_KEY"].should eq("aaa")
-      env.for_account_provider("aloli", "scaleway")["SCW_SECRET_KEY"].should eq("ddd")
+      env.accounts.sort.should eq(["initech", "popi"])
+      env.providers_for("initech").sort.should eq(["ovh", "scaleway"])
+      env.for_account_provider("initech", "ovh")["OVH_APPLICATION_KEY"].should eq("aaa")
+      env.for_account_provider("initech", "scaleway")["SCW_SECRET_KEY"].should eq("ddd")
       env.for_account_provider("popi", "ovh")["OVH_APPLICATION_KEY"].should eq("eee")
       env.for_account_provider("inconnu", "ovh").should be_empty
     end
@@ -35,7 +35,7 @@ describe Beryl::Config::EnvFile do
       ENV["BERYL_TEST_EXISTING"] = "valeur_shell"
       begin
         env = Beryl::Config::EnvFile.load(fixture("apply-test.yml"))
-        env.apply_to_env("aloli", "ovh")
+        env.apply_to_env("initech", "ovh")
 
         ENV["BERYL_TEST_NEW"].should eq("valeur_fichier")
         ENV["BERYL_TEST_EXISTING"].should eq("valeur_shell") # préservée
@@ -55,7 +55,7 @@ describe Beryl::Config::EnvFile do
     it "injecte toutes les vars de tous les fournisseurs d'une société" do
       path = File.join(FIXTURES_ROOT, "apply-all-test.yml")
       File.write(path, <<-YAML
-      aloli:
+      initech:
         ovh:
           BERYL_TEST_OVH: a
         scaleway:
@@ -64,7 +64,7 @@ describe Beryl::Config::EnvFile do
       )
       begin
         env = Beryl::Config::EnvFile.load(path)
-        count = env.apply_all_to_env("aloli", overwrite: true)
+        count = env.apply_all_to_env("initech", overwrite: true)
         count.should eq(2)
         ENV["BERYL_TEST_OVH"].should eq("a")
         ENV["BERYL_TEST_SCW"].should eq("b")
@@ -84,7 +84,7 @@ describe Beryl::Config::EnvFile do
       path = File.join(tmp_dir, "save-chmod.yml")
       File.delete(path) if File.exists?(path)
       data = Beryl::Config::EnvFile::Data.new
-      data["aloli"] = {"ovh" => {"OVH_APPLICATION_KEY" => "aaa", "SCW_SECRET_KEY" => "bbb"}}
+      data["initech"] = {"ovh" => {"OVH_APPLICATION_KEY" => "aaa", "SCW_SECRET_KEY" => "bbb"}}
       env = Beryl::Config::EnvFile.new(path, data)
       env.save
 
@@ -92,8 +92,8 @@ describe Beryl::Config::EnvFile do
       (File.info(path).permissions.value & 0o777).should eq(0o600)
 
       reloaded = Beryl::Config::EnvFile.load(path)
-      reloaded.for_account_provider("aloli", "ovh")["OVH_APPLICATION_KEY"].should eq("aaa")
-      reloaded.for_account_provider("aloli", "ovh")["SCW_SECRET_KEY"].should eq("bbb")
+      reloaded.for_account_provider("initech", "ovh")["OVH_APPLICATION_KEY"].should eq("aaa")
+      reloaded.for_account_provider("initech", "ovh")["SCW_SECRET_KEY"].should eq("bbb")
 
       File.delete(path) rescue nil
     end
@@ -104,7 +104,7 @@ describe Beryl::Config::EnvFile do
       begin
         # Première société
         data = Beryl::Config::EnvFile::Data.new
-        data["aloli"] = {"ovh" => {"K1" => "v1"}}
+        data["initech"] = {"ovh" => {"K1" => "v1"}}
         env1 = Beryl::Config::EnvFile.new(path, data)
         env1.save
 
@@ -115,7 +115,7 @@ describe Beryl::Config::EnvFile do
 
         # Relecture finale : les deux sont là
         env3 = Beryl::Config::EnvFile.load(path)
-        env3.accounts.sort.should eq(["aloli", "popi"])
+        env3.accounts.sort.should eq(["initech", "popi"])
       ensure
         File.delete(path) rescue nil
       end
@@ -125,7 +125,7 @@ describe Beryl::Config::EnvFile do
       path = File.join(tmp_dir, "save-quote.yml")
       File.delete(path) if File.exists?(path)
       data = Beryl::Config::EnvFile::Data.new
-      data["aloli"] = {"ovh" => {"TOKEN" => "avec espaces", "SIMPLE" => "valeur"}}
+      data["initech"] = {"ovh" => {"TOKEN" => "avec espaces", "SIMPLE" => "valeur"}}
       env = Beryl::Config::EnvFile.new(path, data)
       env.save
 
@@ -237,19 +237,19 @@ describe Beryl::Config::EnvFile do
   describe "#set_account / #clear_account" do
     it "remplace en bloc une section société" do
       env = Beryl::Config::EnvFile.new("/mock", Beryl::Config::EnvFile::Data.new)
-      env.set_account("aloli", {"ovh" => {"K" => "v"}} of String => Hash(String, String))
-      env.providers_for("aloli").should eq(["ovh"])
+      env.set_account("initech", {"ovh" => {"K" => "v"}} of String => Hash(String, String))
+      env.providers_for("initech").should eq(["ovh"])
 
       # set_account écrase complètement
-      env.set_account("aloli", {"scaleway" => {"K2" => "v2"}} of String => Hash(String, String))
-      env.providers_for("aloli").should eq(["scaleway"])
+      env.set_account("initech", {"scaleway" => {"K2" => "v2"}} of String => Hash(String, String))
+      env.providers_for("initech").should eq(["scaleway"])
     end
 
     it "clear_account supprime toute trace de la société" do
       env = Beryl::Config::EnvFile.new("/mock", Beryl::Config::EnvFile::Data.new)
-      env.set_account_provider("aloli", "ovh", {"K" => "v"})
+      env.set_account_provider("initech", "ovh", {"K" => "v"})
       env.set_account_provider("popi", "ovh", {"K" => "v"})
-      env.clear_account("aloli")
+      env.clear_account("initech")
       env.accounts.should eq(["popi"])
     end
   end

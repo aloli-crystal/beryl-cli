@@ -7,14 +7,14 @@
 
 *Statut.* Accepté — supersede ADR-011. +
 *Date.* 20 avril 2026. +
-*Auteur.* Philippe Nénert (Aloli).
+*Auteur.* Philippe Nénert (Initech).
 
 == Résumé
 
 Le pivot acté par link:../../ARCHITECTURE.adoc[ADR-011] (QEMU-in-rescue avec
 ISO officielle FreeBSD `disc1.iso` remasterisée via `xorriso` pour injecter
 `/etc/installerconfig`) a été invalidé par le test grandeur nature du
-20 avril 2026 sur `loulou.aloli.net`. Deux échecs fondamentaux, détaillés
+20 avril 2026 sur `loulou.initech.example`. Deux échecs fondamentaux, détaillés
 plus bas, rendent la remasterisation d'ISO hybride FreeBSD non viable sous
 Debian.
 
@@ -88,7 +88,7 @@ Une autre piste consisterait à booter QEMU deux fois :
 . Second boot : QEMU relance sur l'ISO fraîchement construite,
   bsdinstall déroule.
 
-C'est possible. C'est aussi *l'exact opposé* de la philosophie Aloli
+C'est possible. C'est aussi *l'exact opposé* de la philosophie Initech
 « noir et blanc, sans chichi » : deux boot QEMU successifs, transfert
 d'ISO entre les deux, orchestration côté Crystal qui doit parler à un
 shell FreeBSD interactif via série ou SSH. Maintenance continue assurée
@@ -145,7 +145,7 @@ et `poweroff` à la fin.
   miné « ISO hybride modifiable depuis Linux » pour un terrain plat
   « miniroot scriptable ».
 
-=== Philosophie Aloli
+=== Philosophie Initech
 
 Le flux résultant est *un fichier image + un serveur HTTP éphémère +
 un script bsdinstall*. Trois briques simples, chacune maintenable
@@ -179,7 +179,7 @@ chichi » posée dans l'ADR-005.
 === Image mfsBSD
 
 * Téléchargée une fois depuis https://mfsbsd.vx.sk/files/images/[mfsbsd.vx.sk/files/images]
-  (ou un mirror Aloli ultérieur pour éviter la dépendance externe).
+  (ou un mirror Initech ultérieur pour éviter la dépendance externe).
 * Mise en cache côté rescue dans `/tmp/beryl/mfsbsd-XX.YY.img` avec
   vérification de somme SHA256.
 * Taille : ~50 Mo, téléchargement négligeable sur un rescue OVH/Scaleway.
@@ -227,7 +227,7 @@ directe.
 
 === Tests
 
-* Le prochain test grandeur nature sur `loulou.aloli.net` (ou un autre
+* Le prochain test grandeur nature sur `loulou.initech.example` (ou un autre
   Kimsufi de remplacement) valide le flux `beryl bootstrap` version
   ADR-012 end-to-end.
 * La spec Crystal couvre : génération d'installerconfig, serveur HTTP

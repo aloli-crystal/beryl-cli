@@ -7,7 +7,7 @@
 
 *Statut.* Accepté — complète ADR-012 (ne le supersede pas). +
 *Date.* 21 avril 2026. +
-*Auteur.* Philippe Nénert (Aloli).
+*Auteur.* Philippe Nénert (Initech).
 
 == Résumé
 
@@ -114,7 +114,7 @@ Rejeté pour trois raisons :
 
 . *Fragile entre versions FreeBSD.* Le set de mounts requis par Capsicum
   évolue (nouvelles capabilities attendues à chaque majeure).
-. *Noir et blanc.* Aloli refuse les « contorsions » pour faire tourner
+. *Noir et blanc.* Initech refuse les « contorsions » pour faire tourner
   du code dans un environnement hostile. Si le chroot bsdinstall est
   cassé, on ne reste pas dedans.
 . *Le contournement existe déjà, à portée de main.* On peut simplement
@@ -179,7 +179,7 @@ Résultat après `boot-from-disk` API OVH + attente SSH :
 
 [source]
 ----
-$ ssh admin@loulou.aloli.net
+$ ssh admin@loulou.initech.example
 admin@loulou:~ % sudo -n id
 uid=0(root) gid=0(wheel) groups=0(wheel),5(operator)
 admin@loulou:~ % uname -sr
@@ -256,10 +256,10 @@ suivante).
 * Moins de testing communautaire, moins de forks packagés, plus de
   risques d'un edge case mal géré (surtout sur les mirrors OVH/Scaleway).
 * Les tarballs `base.txz` + `kernel.txz` sont le chemin officiel
-  FreeBSD 15 et le chemin testé sur loulou. Aloli ne bascule pas de
+  FreeBSD 15 et le chemin testé sur loulou. Initech ne bascule pas de
   défaut tant qu'il n'a pas lui-même testé pkgbase sur au moins deux
   serveurs en production.
-* Une fois pkgbase validé sur au moins un serveur Aloli, rebasculer
+* Une fois pkgbase validé sur au moins un serveur Initech, rebasculer
   `install_type: packages` comme défaut est une simple ligne dans
   `FreebsdConfig` — pas de refacto.
 
@@ -287,7 +287,7 @@ suivante).
   sans chroot, adopté après le test loulou du 21 avril 2026 ».
 * `ARCHITECTURE.adoc` mentionne la séparation préambule / driver shell.
 
-=== Règle Aloli consolidée
+=== Règle Initech consolidée
 
 « Si un environnement d'exécution est hostile (Capsicum agressif,
 cross-build fragile, chroot incomplet), on en sort plutôt que de le

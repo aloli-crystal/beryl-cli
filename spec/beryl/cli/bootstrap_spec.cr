@@ -4,9 +4,9 @@ require "../../../src/beryl/cli/bootstrap"
 describe Beryl::CLI::Bootstrap do
   describe ".drop_installed_false" do
     it "retire la ligne (avec son commentaire de fin) et rien d'autre" do
-      input = "# tika.aloli.net\n\ninstalled: false # retiré par `beryl bootstrap`\nprovider: ovh\nfreebsd:\n  hostname: tika\n"
+      input = "# tika.initech.example\n\ninstalled: false # retiré par `beryl bootstrap`\nprovider: ovh\nfreebsd:\n  hostname: tika\n"
       Beryl::CLI::Bootstrap.drop_installed_false(input)
-        .should eq("# tika.aloli.net\n\nprovider: ovh\nfreebsd:\n  hostname: tika\n")
+        .should eq("# tika.initech.example\n\nprovider: ovh\nfreebsd:\n  hostname: tika\n")
     end
 
     it "laisse le fichier intact sans la clé, ou avec `installed: true`" do

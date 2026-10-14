@@ -9,6 +9,14 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Documentation et tests sans nom de société
+
+Specs, fixtures (`initech/initech.example/…`), README, ADR, exemples et
+IDEAS n'utilisent plus que des noms neutres (`initech`, `globex`, domaines
+réservés `.example`). Les documents d'implémentation internes (`adoc/`),
+qui décrivent l'infrastructure réelle, ne sont plus suivis par git
+(`.gitignore`) et ont été retirés de l'historique.
+
 === Aucun nom de société dans le code
 
 Les exemples des commentaires et de l'aide n'utilisent plus que des noms
@@ -279,7 +287,7 @@ est affichée.
 === Messages « Pour exécuter » avec le nom le plus court
 
 `rescue`, `wipe`, `scan`, `boot-hd` et `bootstrap` proposaient
-`aloli/qwerty.aloli.net` ; ils proposent désormais `qwerty` (ou
+`initech/qwerty.initech.example` ; ils proposent désormais `qwerty` (ou
 `société/nom` en cas d'homonyme), via `AccountUtils.host_ref` partagé.
 
 === `file-write` : option `if_absent`
@@ -382,8 +390,8 @@ rafraîchies.
   (interface « qwerty », `/services` « qwert.yuiop.ovh ») ; il ne sert plus
   que de repli si le bloc `iam` est absent.
 * Nom court : un displayName OVH qui est déjà le FQDN du domaine cible
-  (`tika.aloli.net` pour `aloli.net`) donne `tika`, et non
-  `tika-aloli-net` (qui aurait produit `tika-aloli-net.aloli.net`).
+  (`tika.initech.example` pour `initech.example`) donne `tika`, et non
+  `tika-initech-net` (qui aurait produit `tika-initech-net.initech.example`).
 * L'option `--write` n'existe plus (remplacée par `--apply`) : les messages
   qui la citaient encore (en-tête des squelettes, reboot du rescue après
   reconfiguration RAID, `add-domain`) indiquent `--apply`, avec le nom réel
@@ -601,7 +609,7 @@ côté `aloli-crystal/beryl-recipes`.
   `tag:` est remplacé. Le tag distingue plusieurs fenêtres
   concurrentes.
 * `headscale-state-commit` (Phase 3) — append une ligne au fichier
-  `audit.log` du repo `aloli/headscale-state` puis
+  `audit.log` du repo `initech/headscale-state` puis
   `git add && commit && push`. Sérialisé via `flock`. Pré-requis :
   recipe `headscale-backup` déjà appliquée (repo cloné sur le host).
 
@@ -619,7 +627,7 @@ Nouveau flag global du CLI `beryl` (avant la sous-commande) qui
 bascule la résolution de `ssh_host` pour tous les sous-commandes qui
 font SSH :
 
-  beryl --transport=overlay apply loulou.aloli.net
+  beryl --transport=overlay apply loulou.initech.example
 
 Quand `--transport=overlay` est actif ET que le host a un champ
 `overlay_ip:` dans son YAML (typiquement `100.64.0.5`), c'est cette
@@ -655,13 +663,13 @@ de chaque société :
 ----
 ~/.config/beryl/
 ├── _default.yml
-├── aloli/
+├── initech/
 │   ├── _account.yml
-│   ├── .env.toml.age              ← coffre aloli, TOML chiffré age
-│   ├── aloli.fr.yml
+│   ├── .env.toml.age              ← coffre initech, TOML chiffré age
+│   ├── initech-fr.example.yml
 │   └── ...
-└── quimeo/
-    ├── .env.toml.age              ← coffre quimeo, indépendant
+└── globex/
+    ├── .env.toml.age              ← coffre globex, indépendant
     └── ...
 ----
 
@@ -718,8 +726,8 @@ Le coffre est chiffré au roster `Secrets::Recipients.encryption_keys`,
 qui est aujourd'hui *global* (`~/.config/secrets/recipients.toml`).
 Un roster par société viendra quand le module amont acceptera un
 chemin override — vous pourrez alors limiter chaque coffre à
-l'équipe correspondante (la team `quimeo` n'aura pas la master key
-qui ouvre `aloli/.env.toml.age`).
+l'équipe correspondante (la team `globex` n'aura pas la master key
+qui ouvre `initech/.env.toml.age`).
 
 ==== Tests
 
@@ -750,7 +758,7 @@ document de design `apply-recipes-architecture.adoc` : des
 *Rupture de comportement* : l'ancienne synchronisation
 packages/sudoers/clés SSH directe est retirée. Ces capacités
 reviennent en Phase 2 sous forme de primitives
-(`user-update-keys`, `sysrc-set`, …) et de recettes Aloli.
+(`user-update-keys`, `sysrc-set`, …) et de recettes Initech.
 ====
 
 ==== Code
@@ -818,7 +826,7 @@ XDG Base Directory] pour la racine de configuration.
 ====
 *Migration manuelle requise* : pas de fallback automatique vers
 l'ancien chemin (cohérent avec « pas de défauts silencieux »
-côté Aloli). Si vous avez un `~/.beryl/` existant :
+côté Initech). Si vous avez un `~/.beryl/` existant :
 
 [source,shell]
 ----
@@ -863,11 +871,11 @@ convention).
 
 == 0.2.0 (29 avril 2026)
 
-=== Convention de nommage Aloli
+=== Convention de nommage Initech
 
 * *Rename du repo `crystal-beryl` → `beryl`*. Tous les shards
-  Aloli abandonnent le préfixe `crystal-` (cf. note mémoire
-  `feedback_naming_shards_api_aloli`). GitHub redirige les
+  Initech abandonnent le préfixe `crystal-` (cf. note mémoire
+  `feedback_naming_shards_api_initech`). GitHub redirige les
   anciennes URLs.
 * *Factorisation des packages API* : les shards distants
   `crystal-api-{ovh,scaleway,dedibox,hetzner}` deviennent
@@ -962,7 +970,7 @@ convention).
   préambule `ZFSBOOT_*` + `DISTRIBUTIONS=` seul, tout le post-install
   (users via `pw -R /mnt`, packages via `pkg -r /mnt`, rc.conf,
   timezone, sudoers) est piloté par mfsBSD hors chroot en ciblant
-  explicitement `/mnt/`. Validé bout-en-bout sur `loulou.aloli.net`.
+  explicitement `/mnt/`. Validé bout-en-bout sur `loulou.initech.example`.
 * `Beryl::Bootstrap::UserSpec` : record décrivant un user à créer
   (name, primary_group, secondary_groups, shell, ssh_keys) avec
   `validate!` + `to_tsv` pour le driver shell.
@@ -991,8 +999,8 @@ convention).
   avant toute action destructive.
 * 13 nouveaux specs pour `FreebsdConfig` et son intégration dans
   `Inventory`. Total : 83 specs verts.
-* `examples/inventory.yml` : bloc `freebsd:` ajouté à `web01.aloli.fr`
-  et exemple complet (`loulou.aloli.net`) avec users, packages, sudoers.
+* `examples/inventory.yml` : bloc `freebsd:` ajouté à `web01.initech-fr.example`
+  et exemple complet (`loulou.initech.example`) avec users, packages, sudoers.
 
 ==== Dépendances
 
@@ -1080,7 +1088,7 @@ rescue Linux via une VM QEMU en passthrough disque (ADR-011).
   FreeBSD 15 pkgbase, agentless SSH, bootstrap mfsBSD + dd (superseded
   par QEMU-in-rescue), recettes YAML composables, conventions Mozilla
   Modern, idempotence.
-* Convention Aloli : branche par défaut `production`, `development` après la première version.
+* Convention Initech : branche par défaut `production`, `development` après la première version.
 
 ==== Phase 1 — Bootstrap Linux → mfsBSD → FreeBSD 15 (MVP)
 

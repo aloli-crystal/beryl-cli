@@ -1,6 +1,6 @@
 ovh:
-  ssh_key_name: philippe.aloli.fr
+  ssh_key_name: philippe.initech-fr.example
 
 # Clé SSH du domaine référencée par nom de fichier (cherchée dans ssh_dir).
 ssh_keys:
-  - philippe.aloli.fr.pub
+  - philippe.initech-fr.example.pub

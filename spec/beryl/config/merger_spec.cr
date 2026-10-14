@@ -15,7 +15,7 @@ private def host_node(yaml : String, name : String = "host") : Beryl::Config::Ho
   Beryl::Config::HostNode.new(name, hash_from_yaml(yaml), "/mock")
 end
 
-private def domain(yaml : String, name : String = "aloli.net") : Beryl::Config::Domain
+private def domain(yaml : String, name : String = "initech.example") : Beryl::Config::Domain
   Beryl::Config::Domain.new(name, hash_from_yaml(yaml), {} of String => Beryl::Config::HostNode, {} of String => Beryl::Config::Group, "/mock")
 end
 
@@ -122,7 +122,7 @@ describe Beryl::Config::Merger do
       YAML
       d = domain(<<-YAML)
       ssh_keys:
-        - ssh-ed25519 AAAA philippe@aloli.fr
+        - ssh-ed25519 AAAA philippe@initech-fr.example
       YAML
       h = host_node("freebsd:\n  hostname: x\n")
 
@@ -132,7 +132,7 @@ describe Beryl::Config::Merger do
       users.size.should eq(2)
       Beryl::Config::Users.list(users).each do |e|
         keys = e.fields[YAML::Any.new("ssh_keys")].as_a.map(&.as_s)
-        keys.should contain("ssh-ed25519 AAAA philippe@aloli.fr")
+        keys.should contain("ssh-ed25519 AAAA philippe@initech-fr.example")
       end
     end
 
@@ -185,15 +185,15 @@ describe Beryl::Config::Merger do
       YAML
       d = domain(<<-YAML)
       ssh_keys:
-        - ssh-ed25519 AAAA philippe@aloli.fr
+        - ssh-ed25519 AAAA philippe@initech-fr.example
       YAML
       h = host_node(<<-YAML)
       freebsd:
         users:
           - name: deploy
             ssh_keys:
-              - ssh-ed25519 AAAA dev2@aloli.fr
-              - ssh-ed25519 AAAA dev3@aloli.fr
+              - ssh-ed25519 AAAA dev2@initech-fr.example
+              - ssh-ed25519 AAAA dev3@initech-fr.example
       YAML
 
       merged = Beryl::Config::Merger.merge(defaults, EMPTY_META, d, nil, h)
@@ -202,9 +202,9 @@ describe Beryl::Config::Merger do
       keys = deploy.fields[YAML::Any.new("ssh_keys")].as_a.map(&.as_s)
 
       keys.size.should eq(3)
-      keys[0].should eq("ssh-ed25519 AAAA philippe@aloli.fr") # domaine en tête
-      keys[1].should eq("ssh-ed25519 AAAA dev2@aloli.fr")
-      keys[2].should eq("ssh-ed25519 AAAA dev3@aloli.fr")
+      keys[0].should eq("ssh-ed25519 AAAA philippe@initech-fr.example") # domaine en tête
+      keys[1].should eq("ssh-ed25519 AAAA dev2@initech-fr.example")
+      keys[2].should eq("ssh-ed25519 AAAA dev3@initech-fr.example")
     end
 
     it "la clé domaine n'est pas dupliquée si le host la liste déjà" do
@@ -216,15 +216,15 @@ describe Beryl::Config::Merger do
       YAML
       d = domain(<<-YAML)
       ssh_keys:
-        - ssh-ed25519 AAAA philippe@aloli.fr
+        - ssh-ed25519 AAAA philippe@initech-fr.example
       YAML
       h = host_node(<<-YAML)
       freebsd:
         users:
           - name: admin
             ssh_keys:
-              - ssh-ed25519 AAAA philippe@aloli.fr
-              - ssh-ed25519 AAAA autre@aloli.fr
+              - ssh-ed25519 AAAA philippe@initech-fr.example
+              - ssh-ed25519 AAAA autre@initech-fr.example
       YAML
 
       merged = Beryl::Config::Merger.merge(defaults, EMPTY_META, d, nil, h)
@@ -232,8 +232,8 @@ describe Beryl::Config::Merger do
       keys = Beryl::Config::Users.list(users).first.fields[YAML::Any.new("ssh_keys")].as_a.map(&.as_s)
 
       keys.size.should eq(2)
-      keys.count("ssh-ed25519 AAAA philippe@aloli.fr").should eq(1) # pas doublée
-      keys.should contain("ssh-ed25519 AAAA autre@aloli.fr")
+      keys.count("ssh-ed25519 AAAA philippe@initech-fr.example").should eq(1) # pas doublée
+      keys.should contain("ssh-ed25519 AAAA autre@initech-fr.example")
     end
 
     it "supprime une clé retirée du host (sémantique déclarative)" do

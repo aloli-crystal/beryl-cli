@@ -39,3 +39,6 @@ app/gui-poc/exemple_c
 app/gui-poc/exemple_d
 app/gui-poc/gtk4-poc/bin/
 app/gui-poc/gtk4-poc/lib/
+
+# Documents d’implémentation internes (vraies références d’infrastructure) : jamais commités.
+adoc/

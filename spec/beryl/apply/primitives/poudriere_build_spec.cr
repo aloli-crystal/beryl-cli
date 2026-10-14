@@ -21,9 +21,9 @@ describe Beryl::Apply::PoudriereBuild do
 
   it "build_script : jail conditionnelle, bulk overlay, repoint alias ABI" do
     s = Beryl::Apply::PoudriereBuild.build_script(
-      "15.1", "amd64", "default", ["quimeo"], ["/etc/pkglist"], "/pkg", nil)
+      "15.1", "amd64", "default", ["globex"], ["/etc/pkglist"], "/pkg", nil)
     s.should contain("poudriere jail -c -j fbsd151amd64 -v 15.1-RELEASE -a amd64")
-    s.should contain("poudriere bulk -j fbsd151amd64 -p default -O quimeo -f /etc/pkglist")
+    s.should contain("poudriere bulk -j fbsd151amd64 -p default -O globex -f /etc/pkglist")
     s.should contain("ln -sfh fbsd151amd64-default /pkg/FreeBSD:15:amd64")
     # Arbre de ports remis à l'état git AVANT le pull (sinon `ports -u` échoue
     # sur les modifs non commitées d'un reapply précédent).
@@ -33,7 +33,7 @@ describe Beryl::Apply::PoudriereBuild do
 
   it "build_script : intègre le reapply si fourni (avec $PTDIR + garde-fou absent)" do
     s = Beryl::Apply::PoudriereBuild.build_script(
-      "15.1", "amd64", "default", ["quimeo"], ["/etc/pkglist"], "/pkg", "/re/apply.sh")
+      "15.1", "amd64", "default", ["globex"], ["/etc/pkglist"], "/pkg", "/re/apply.sh")
     s.should contain("if [ -x /re/apply.sh ]; then /re/apply.sh \"$PTDIR\"")
     s.should contain("reapply absent ou non exécutable") # prévient au lieu de skip silencieux
   end
@@ -72,43 +72,43 @@ end
 
 private LEGACY = <<-YAML
   major: "15"
-  pkglist: /usr/local/etc/poudriere.d/quimeo-pkglist
-  overlay: quimeo
+  pkglist: /usr/local/etc/poudriere.d/globex-pkglist
+  overlay: globex
   YAML
 
 private TWO = <<-YAML
   major: "15"
   overlays:
-    - name: quimeo
-      pkglist: /usr/local/etc/poudriere.d/quimeo-pkglist
-    - name: aloli
-      git: https://github.com/aloli/aloli-ports
+    - name: globex
+      pkglist: /usr/local/etc/poudriere.d/globex-pkglist
+    - name: initech
+      git: https://github.com/initech/initech-ports
       branch: production
-      pkglist: /usr/local/etc/poudriere.d/aloli-pkglist
+      pkglist: /usr/local/etc/poudriere.d/initech-pkglist
   YAML
 
-QUIMEO_SHA = "1111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-ALOLI_OLD  = "2222222bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-ALOLI_NEW  = "3333333ccccccccccccccccccccccccccccccccc"
+GLOBEX_SHA  = "1111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+INITECH_OLD = "2222222bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+INITECH_NEW = "3333333ccccccccccccccccccccccccccccccccc"
 
-# Builder « à jour » : alias sur 15.1, quimeo et aloli enregistrés et
-# clonés, aloli propre sur production, état = commits courants.
+# Builder « à jour » : alias sur 15.1, globex et initech enregistrés et
+# clonés, initech propre sur production, état = commits courants.
 private def builder_shell : FakeShell
   sh = FakeShell.new
   sh.stub(/readlink/, stdout: "fbsd151amd64-default\n")
   sh.stub(/test -f .*\.lock/, exit_code: 1)
   sh.stub(/poudriere ports -lq/, stdout: <<-OUT)
     default    git+https 2026-09-01 10:00:00 /usr/local/poudriere/ports/default
-    quimeo     null      2026-06-17 12:00:00 /usr/local/poudriere/quimeo-ports
-    aloli      null      2026-09-20 09:00:00 /usr/local/poudriere/aloli-ports
+    globex     null      2026-06-17 12:00:00 /usr/local/poudriere/globex-ports
+    initech      null      2026-09-20 09:00:00 /usr/local/poudriere/initech-ports
     OUT
-  sh.stub(/quimeo-ports rev-parse HEAD/, stdout: "#{QUIMEO_SHA}\n")
-  sh.stub(/aloli-ports rev-parse HEAD/, stdout: "#{ALOLI_OLD}\n")
-  sh.stub(/aloli-ports symbolic-ref/, stdout: "production\n")
-  sh.stub(/aloli-ports status --porcelain/, stdout: "")
-  sh.stub(/aloli-ports rev-parse .*refs\/remotes\/origin\/production/, stdout: "#{ALOLI_OLD}\n")
-  sh.stub(/aloli-ports ls-remote/, stdout: "#{ALOLI_OLD}\trefs/heads/production\n")
-  sh.stub(/cat .*\.beryl-build-15\.overlays/, stdout: "quimeo #{QUIMEO_SHA}\naloli #{ALOLI_OLD}\n")
+  sh.stub(/globex-ports rev-parse HEAD/, stdout: "#{GLOBEX_SHA}\n")
+  sh.stub(/initech-ports rev-parse HEAD/, stdout: "#{INITECH_OLD}\n")
+  sh.stub(/initech-ports symbolic-ref/, stdout: "production\n")
+  sh.stub(/initech-ports status --porcelain/, stdout: "")
+  sh.stub(/initech-ports rev-parse .*refs\/remotes\/origin\/production/, stdout: "#{INITECH_OLD}\n")
+  sh.stub(/initech-ports ls-remote/, stdout: "#{INITECH_OLD}\trefs/heads/production\n")
+  sh.stub(/cat .*\.beryl-build-15\.overlays/, stdout: "globex #{GLOBEX_SHA}\ninitech #{INITECH_OLD}\n")
   sh
 end
 
@@ -119,26 +119,26 @@ end
 describe "Beryl::Apply::PoudriereBuild (overlays)" do
   it "build_script : plusieurs -O, réunion des -f, état écrit APRÈS l'alias" do
     s = Beryl::Apply::PoudriereBuild.build_script(
-      "15.1", "amd64", "default", ["quimeo", "aloli"], ["/q.list", "/a.list"], "/pkg", nil,
-      {"quimeo" => "abc", "aloli" => "def"}, "/pkg/.beryl-build-15.overlays")
-    s.should contain("poudriere bulk -j fbsd151amd64 -p default -O quimeo -O aloli -f /q.list -f /a.list")
-    s.should contain("printf '%s\\n' 'quimeo abc' 'aloli def' > /pkg/.beryl-build-15.overlays.tmp")
+      "15.1", "amd64", "default", ["globex", "initech"], ["/q.list", "/a.list"], "/pkg", nil,
+      {"globex" => "abc", "initech" => "def"}, "/pkg/.beryl-build-15.overlays")
+    s.should contain("poudriere bulk -j fbsd151amd64 -p default -O globex -O initech -f /q.list -f /a.list")
+    s.should contain("printf '%s\\n' 'globex abc' 'initech def' > /pkg/.beryl-build-15.overlays.tmp")
     s.should contain("mv -f /pkg/.beryl-build-15.overlays.tmp /pkg/.beryl-build-15.overlays")
     (s.index!("ln -sfh") < s.index!("printf '%s")).should be_true
     (s.index!("poudriere bulk") < s.index!("ln -sfh")).should be_true
   end
 
   it "parse_state / parse_trees" do
-    Beryl::Apply::PoudriereBuild.parse_state("quimeo abc\n\naloli def\n").should eq({"quimeo" => "abc", "aloli" => "def"})
-    Beryl::Apply::PoudriereBuild.parse_trees("aloli null 2026-09-20 09:00:00 /usr/local/poudriere/aloli-ports\n")
-      .should eq({"aloli" => "/usr/local/poudriere/aloli-ports"})
+    Beryl::Apply::PoudriereBuild.parse_state("globex abc\n\ninitech def\n").should eq({"globex" => "abc", "initech" => "def"})
+    Beryl::Apply::PoudriereBuild.parse_trees("initech null 2026-09-20 09:00:00 /usr/local/poudriere/initech-ports\n")
+      .should eq({"initech" => "/usr/local/poudriere/initech-ports"})
   end
 
   describe "ancien schéma (overlay: + pkglist:)" do
     it "à jour, overlay non git → Skipped sans aucune commande git d'écriture" do
       with_latest("15.1") do
         sh = builder_shell
-        sh.stub(/test -d .*quimeo-ports\/\.git/, exit_code: 1)
+        sh.stub(/test -d .*globex-ports\/\.git/, exit_code: 1)
         r = pb.apply(sh, pb_params(LEGACY), false, pb_ctx)
         r.outcome.should eq(Beryl::Apply::Outcome::Skipped)
         r.message.should contain("déjà à jour sur 15.1")
@@ -148,20 +148,20 @@ describe "Beryl::Apply::PoudriereBuild (overlays)" do
       end
     end
 
-    it "nouvelle mineure → build -O quimeo -f <pkglist> (comme avant)" do
+    it "nouvelle mineure → build -O globex -f <pkglist> (comme avant)" do
       with_latest("15.2") do
         sh = builder_shell
         r = pb.apply(sh, pb_params(LEGACY), false, pb_ctx)
         r.outcome.should eq(Beryl::Apply::Outcome::Applied)
         r.message.should contain("FreeBSD 15.2 (← 15.1)")
         script = sh.writes.first.content
-        script.should contain("poudriere bulk -j fbsd152amd64 -p default -O quimeo -f /usr/local/etc/poudriere.d/quimeo-pkglist")
-        script.should contain("'quimeo #{QUIMEO_SHA}'")
+        script.should contain("poudriere bulk -j fbsd152amd64 -p default -O globex -f /usr/local/etc/poudriere.d/globex-pkglist")
+        script.should contain("'globex #{GLOBEX_SHA}'")
         launched?(sh).should be_true
       end
     end
 
-    it "à jour et commit quimeo identique à l'état → Skipped" do
+    it "à jour et commit globex identique à l'état → Skipped" do
       with_latest("15.1") do
         sh = builder_shell
         r = pb.apply(sh, pb_params(LEGACY), false, pb_ctx)
@@ -175,8 +175,8 @@ describe "Beryl::Apply::PoudriereBuild (overlays)" do
       sh = builder_shell
       r = pb.apply(sh, pb_params(TWO), false, pb_ctx)
       r.outcome.should eq(Beryl::Apply::Outcome::Skipped)
-      r.message.should contain("aloli@2222222")
-      sh.ran?(/aloli-ports fetch -q origin/).should be_true
+      r.message.should contain("initech@2222222")
+      sh.ran?(/initech-ports fetch -q origin/).should be_true
       sh.ran?(/merge -q --ff-only/).should be_false
       launched?(sh).should be_false
     end
@@ -185,16 +185,16 @@ describe "Beryl::Apply::PoudriereBuild (overlays)" do
   it "overlay changé → avance rapide + build des deux overlays, sans nouvelle mineure" do
     with_latest("15.1") do
       sh = builder_shell
-      sh.stub(/aloli-ports rev-parse .*refs\/remotes\/origin\/production/, stdout: "#{ALOLI_NEW}\n")
+      sh.stub(/initech-ports rev-parse .*refs\/remotes\/origin\/production/, stdout: "#{INITECH_NEW}\n")
       r = pb.apply(sh, pb_params(TWO), false, pb_ctx)
       r.outcome.should eq(Beryl::Apply::Outcome::Applied)
-      r.message.should contain("overlay aloli 2222222 → 3333333")
+      r.message.should contain("overlay initech 2222222 → 3333333")
       r.message.should_not contain("FreeBSD 15")
-      sh.ran?(/aloli-ports merge -q --ff-only/).should be_true
+      sh.ran?(/initech-ports merge -q --ff-only/).should be_true
       script = sh.writes.first.content
-      script.should contain("poudriere bulk -j fbsd151amd64 -p default -O quimeo -O aloli " \
-                            "-f /usr/local/etc/poudriere.d/quimeo-pkglist -f /usr/local/etc/poudriere.d/aloli-pkglist")
-      script.should contain("'aloli #{ALOLI_NEW}'")
+      script.should contain("poudriere bulk -j fbsd151amd64 -p default -O globex -O initech " \
+                            "-f /usr/local/etc/poudriere.d/globex-pkglist -f /usr/local/etc/poudriere.d/initech-pkglist")
+      script.should contain("'initech #{INITECH_NEW}'")
       launched?(sh).should be_true
     end
   end
@@ -205,7 +205,7 @@ describe "Beryl::Apply::PoudriereBuild (overlays)" do
       sh.stub(/cat .*\.beryl-build-15\.overlays/, stdout: "", exit_code: 1)
       r = pb.apply(sh, pb_params(TWO), false, pb_ctx)
       r.outcome.should eq(Beryl::Apply::Outcome::Applied)
-      r.message.should contain("overlay aloli ∅ → 2222222")
+      r.message.should contain("overlay initech ∅ → 2222222")
       launched?(sh).should be_true
     end
   end
@@ -213,14 +213,14 @@ describe "Beryl::Apply::PoudriereBuild (overlays)" do
   it "overlay absent → clone + enregistrement poudriere + build" do
     with_latest("15.1") do
       sh = builder_shell
-      sh.stub(/poudriere ports -lq/, stdout: "quimeo null 2026-06-17 12:00:00 /usr/local/poudriere/quimeo-ports\n")
-      sh.stub(/test -d \/usr\/local\/poudriere\/aloli-ports\/\.git/, exit_code: 1)
-      sh.stub(/test -e \/usr\/local\/poudriere\/aloli-ports/, exit_code: 1)
-      sh.stub(/cat .*\.beryl-build-15\.overlays/, stdout: "quimeo #{QUIMEO_SHA}\n") # aloli jamais construit
+      sh.stub(/poudriere ports -lq/, stdout: "globex null 2026-06-17 12:00:00 /usr/local/poudriere/globex-ports\n")
+      sh.stub(/test -d \/usr\/local\/poudriere\/initech-ports\/\.git/, exit_code: 1)
+      sh.stub(/test -e \/usr\/local\/poudriere\/initech-ports/, exit_code: 1)
+      sh.stub(/cat .*\.beryl-build-15\.overlays/, stdout: "globex #{GLOBEX_SHA}\n") # initech jamais construit
       r = pb.apply(sh, pb_params(TWO), false, pb_ctx)
       r.outcome.should eq(Beryl::Apply::Outcome::Applied)
-      sh.ran?(/git clone -q -b production https:\/\/github.com\/aloli\/aloli-ports \/usr\/local\/poudriere\/aloli-ports/).should be_true
-      sh.ran?(/poudriere ports -c -p aloli -m null -M \/usr\/local\/poudriere\/aloli-ports/).should be_true
+      sh.ran?(/git clone -q -b production https:\/\/github.com\/initech\/initech-ports \/usr\/local\/poudriere\/initech-ports/).should be_true
+      sh.ran?(/poudriere ports -c -p initech -m null -M \/usr\/local\/poudriere\/initech-ports/).should be_true
       clone = sh.commands.index!(&.starts_with?("git clone"))
       reg = sh.commands.index!(&.starts_with?("poudriere ports -c"))
       (clone < reg).should be_true
@@ -231,13 +231,13 @@ describe "Beryl::Apply::PoudriereBuild (overlays)" do
   it "dry-run : plan (clone, enregistrement, build) sans rien modifier" do
     with_latest("15.2") do
       sh = builder_shell
-      sh.stub(/poudriere ports -lq/, stdout: "quimeo null 2026-06-17 12:00:00 /usr/local/poudriere/quimeo-ports\n")
-      sh.stub(/test -d \/usr\/local\/poudriere\/aloli-ports\/\.git/, exit_code: 1)
-      sh.stub(/test -e \/usr\/local\/poudriere\/aloli-ports/, exit_code: 1)
+      sh.stub(/poudriere ports -lq/, stdout: "globex null 2026-06-17 12:00:00 /usr/local/poudriere/globex-ports\n")
+      sh.stub(/test -d \/usr\/local\/poudriere\/initech-ports\/\.git/, exit_code: 1)
+      sh.stub(/test -e \/usr\/local\/poudriere\/initech-ports/, exit_code: 1)
       r = pb.apply(sh, pb_params(TWO), true, pb_ctx)
       r.outcome.should eq(Beryl::Apply::Outcome::Applied)
-      r.message.should contain("clone https://github.com/aloli/aloli-ports (production)")
-      r.message.should contain("enregistrement poudriere aloli")
+      r.message.should contain("clone https://github.com/initech/initech-ports (production)")
+      r.message.should contain("enregistrement poudriere initech")
       r.message.should contain("FreeBSD 15.2")
       r.message.should contain("dry-run")
       sh.ran?(/git clone|poudriere ports -c|touch|daemon/).should be_false
@@ -248,7 +248,7 @@ describe "Beryl::Apply::PoudriereBuild (overlays)" do
   it "dry-run sur overlay en retard : git ls-remote, ni fetch ni fusion" do
     with_latest("15.1") do
       sh = builder_shell
-      sh.stub(/aloli-ports ls-remote/, stdout: "#{ALOLI_NEW}\trefs/heads/production\n")
+      sh.stub(/initech-ports ls-remote/, stdout: "#{INITECH_NEW}\trefs/heads/production\n")
       sh.stub(/merge-base --is-ancestor/, exit_code: 1)
       r = pb.apply(sh, pb_params(TWO), true, pb_ctx)
       r.outcome.should eq(Beryl::Apply::Outcome::Applied)
@@ -260,7 +260,7 @@ describe "Beryl::Apply::PoudriereBuild (overlays)" do
   it "modifications locales non commitées → Failed, rien n'est écrasé" do
     with_latest("15.1") do
       sh = builder_shell
-      sh.stub(/aloli-ports status --porcelain/, stdout: " M finance/partiduo-app/Makefile\n")
+      sh.stub(/initech-ports status --porcelain/, stdout: " M finance/partiduo-app/Makefile\n")
       r = pb.apply(sh, pb_params(TWO), false, pb_ctx)
       r.outcome.should eq(Beryl::Apply::Outcome::Failed)
       r.message.should contain("finance/partiduo-app/Makefile")
@@ -271,7 +271,7 @@ describe "Beryl::Apply::PoudriereBuild (overlays)" do
   it "historique divergé → Failed" do
     with_latest("15.1") do
       sh = builder_shell
-      sh.stub(/aloli-ports rev-parse .*refs\/remotes\/origin\/production/, stdout: "#{ALOLI_NEW}\n")
+      sh.stub(/initech-ports rev-parse .*refs\/remotes\/origin\/production/, stdout: "#{INITECH_NEW}\n")
       sh.stub(/merge-base --is-ancestor/, exit_code: 1)
       r = pb.apply(sh, pb_params(TWO), false, pb_ctx)
       r.outcome.should eq(Beryl::Apply::Outcome::Failed)
@@ -283,7 +283,7 @@ describe "Beryl::Apply::PoudriereBuild (overlays)" do
   it "commits locaux en avance : conservés, pas de rebuild si déjà construits" do
     with_latest("15.1") do
       sh = builder_shell
-      sh.stub(/aloli-ports rev-parse .*refs\/remotes\/origin\/production/, stdout: "#{ALOLI_NEW}\n")
+      sh.stub(/initech-ports rev-parse .*refs\/remotes\/origin\/production/, stdout: "#{INITECH_NEW}\n")
       sh.stub(/merge-base --is-ancestor HEAD/, exit_code: 1) # local pas ancêtre du distant
       r = pb.apply(sh, pb_params(TWO), false, pb_ctx)
       r.outcome.should eq(Beryl::Apply::Outcome::Skipped)
@@ -305,7 +305,7 @@ describe "Beryl::Apply::PoudriereBuild (overlays)" do
   it "validation : overlay/overlays exclusifs, overlays vide, nom invalide, pkglist requise" do
     with_latest("15.1") do
       expect_raises(Beryl::Apply::Primitive::PrimitiveError, /exclusifs/) do
-        pb.apply(builder_shell, pb_params("major: \"15\"\noverlay: quimeo\noverlays: [aloli]\npkglist: /x"), true, pb_ctx)
+        pb.apply(builder_shell, pb_params("major: \"15\"\noverlay: globex\noverlays: [initech]\npkglist: /x"), true, pb_ctx)
       end
       expect_raises(Beryl::Apply::Primitive::MissingParam, /vide/) do
         pb.apply(builder_shell, pb_params("major: \"15\"\noverlays: []\npkglist: /x"), true, pb_ctx)
@@ -314,16 +314,16 @@ describe "Beryl::Apply::PoudriereBuild (overlays)" do
         pb.apply(builder_shell, pb_params("major: \"15\"\noverlays: [\"../x\"]\npkglist: /x"), true, pb_ctx)
       end
       expect_raises(Beryl::Apply::Primitive::MissingParam, /pkglist/) do
-        pb.apply(builder_shell, pb_params("major: \"15\"\noverlays: [{name: aloli}]"), true, pb_ctx)
+        pb.apply(builder_shell, pb_params("major: \"15\"\noverlays: [{name: initech}]"), true, pb_ctx)
       end
     end
   end
 
   describe ".scheduled_script" do
-    ov = [Beryl::Apply::PoudriereBuild::ScheduledOverlay.new("quimeo", "/p/quimeo-ports", nil, true),
-          Beryl::Apply::PoudriereBuild::ScheduledOverlay.new("aloli", "/p/aloli-ports", "production", true)]
+    ov = [Beryl::Apply::PoudriereBuild::ScheduledOverlay.new("globex", "/p/globex-ports", nil, true),
+          Beryl::Apply::PoudriereBuild::ScheduledOverlay.new("initech", "/p/initech-ports", "production", true)]
     script = Beryl::Apply::PoudriereBuild.scheduled_script("15.1", "amd64", "default", ov,
-      ["/e/quimeo-pkglist", "/e/aloli-pkglist"], "/pkg", "/e/reapply.sh")
+      ["/e/globex-pkglist", "/e/initech-pkglist"], "/pkg", "/e/reapply.sh")
 
     it "partage le verrou de beryl apply et le libère en sortie" do
       script.should contain("if [ -f /pkg/.beryl-build-15.lock ]; then")
@@ -331,19 +331,19 @@ describe "Beryl::Apply::PoudriereBuild (overlays)" do
     end
 
     it "met à jour en avance rapide les seuls overlays gérés par beryl" do
-      script.should contain("git -C /p/aloli-ports fetch -q origin production")
-      script.should contain("git -C /p/aloli-ports merge -q --ff-only FETCH_HEAD")
-      script.should_not contain("git -C /p/quimeo-ports fetch")
+      script.should contain("git -C /p/initech-ports fetch -q origin production")
+      script.should contain("git -C /p/initech-ports merge -q --ff-only FETCH_HEAD")
+      script.should_not contain("git -C /p/globex-ports fetch")
     end
 
     it "lance le même build que beryl apply" do
-      script.should contain("poudriere bulk -j fbsd151amd64 -p default -O quimeo -O aloli -f /e/quimeo-pkglist -f /e/aloli-pkglist")
+      script.should contain("poudriere bulk -j fbsd151amd64 -p default -O globex -O initech -f /e/globex-pkglist -f /e/initech-pkglist")
       script.should contain("/e/reapply.sh \"$PTDIR\"")
       script.should contain("ln -sfh fbsd151amd64-default /pkg/FreeBSD:15:amd64")
     end
 
     it "enregistre les commits réellement construits" do
-      script.should contain(%(printf '%s %s\\n' quimeo "$(git -C /p/quimeo-ports rev-parse HEAD)"))
+      script.should contain(%(printf '%s %s\\n' globex "$(git -C /p/globex-ports rev-parse HEAD)"))
       script.should contain("mv -f \"$TMP\" /pkg/.beryl-build-15.overlays")
     end
   end
@@ -384,7 +384,7 @@ describe "Beryl::Apply::PoudriereBuild.branch_script" do
   end
 
   it "est inséré avant la mise à jour de l'arbre" do
-    s = Beryl::Apply::PoudriereBuild.build_script("15.1", "amd64", "default", ["aloli"], ["/l"], "/p", nil,
+    s = Beryl::Apply::PoudriereBuild.build_script("15.1", "amd64", "default", ["initech"], ["/l"], "/p", nil,
       ports_branch: "quarterly")
     (s.index!("remote set-branches") < s.index!("poudriere ports -u -p")).should be_true
   end

@@ -46,8 +46,8 @@ describe Beryl::Providers::Ovh do
   describe "#ssh_key_yaml_fragment" do
     it "renvoie { ssh_key_name => label }" do
       provider = Beryl::Providers::Ovh.new
-      fragment = provider.ssh_key_yaml_fragment("philippe-aloli-fr")
-      fragment["ssh_key_name"].should eq("philippe-aloli-fr")
+      fragment = provider.ssh_key_yaml_fragment("philippe-initech-fr")
+      fragment["ssh_key_name"].should eq("philippe-initech-fr")
     end
   end
 

@@ -24,10 +24,10 @@ describe Beryl::Apply::AcmeCert do
   describe ".issue_script" do
     it "standalone : issue multi-SAN, install --ecc, reloadcmd, trap restart" do
       s = Beryl::Apply::AcmeCert.issue_script(
-        ["pkg.quimeo.net", "pkg.aloli.net"], "/ssl/fc.pem", "/ssl/key.pem",
+        ["pkg.globex.example", "pkg.initech.example"], "/ssl/fc.pem", "/ssl/key.pem",
         "service nginx reload", "/home/acme", "letsencrypt", "standalone", nil, "nginx", "ec-256", nil, nil)
-      s.should contain("--issue --server letsencrypt -d pkg.quimeo.net -d pkg.aloli.net --standalone --home /home/acme")
-      s.should contain("--install-cert -d pkg.quimeo.net --ecc")
+      s.should contain("--issue --server letsencrypt -d pkg.globex.example -d pkg.initech.example --standalone --home /home/acme")
+      s.should contain("--install-cert -d pkg.globex.example --ecc")
       s.should contain("--fullchain-file /ssl/fc.pem --key-file /ssl/key.pem")
       s.should contain("--reloadcmd 'service nginx reload'")
       s.should contain("trap 'service nginx onestart >/dev/null 2>&1 || true' EXIT")
@@ -38,7 +38,7 @@ describe Beryl::Apply::AcmeCert do
 
     it "hooks persistés (pre/post) sur --issue, pour le renouvellement du cron" do
       s = Beryl::Apply::AcmeCert.issue_script(
-        ["pkg.quimeo.net"], "/fc", "/k", "service nginx reload", "/h", "letsencrypt",
+        ["pkg.globex.example"], "/fc", "/k", "service nginx reload", "/h", "letsencrypt",
         "standalone", nil, nil, "ec-256", "service nginx stop", "service nginx start")
       s.should contain("--pre-hook 'service nginx stop'")
       s.should contain("--post-hook 'service nginx start'")
@@ -106,7 +106,7 @@ describe Beryl::Apply::AcmeCert do
     sh = FakeShell.new
     sh.stub(/checkend/, exit_code: 1) # cert absent ou proche expiration
     r = Beryl::Apply::AcmeCert.new.apply(
-      sh, params({"domains" => dom(["pkg.quimeo.net", "pkg.aloli.net"]),
+      sh, params({"domains" => dom(["pkg.globex.example", "pkg.initech.example"]),
                   "fullchain" => "/ssl/fc.pem", "key" => "/ssl/key.pem",
                   "reloadcmd" => "service nginx reload", "stop_service" => "nginx"}), false, ctx)
     r.outcome.should eq(Beryl::Apply::Outcome::Applied)
