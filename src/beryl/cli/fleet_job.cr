@@ -1,11 +1,11 @@
 require "json"
 require "../xdg"
 
-# Tâche de flotte pour `beryl os-upgrade <société|domaine> --apply` : CANARI
-# puis PARALLÈLE LIMITÉ, état sur disque lisible par `--status`.
+# Tâche de flotte pour `beryl os-upgrade|upgrade <société|domaine> --apply` :
+# CANARI puis PARALLÈLE LIMITÉ, état sur disque lisible par `--status`.
 #
-# Chaque serveur est traité par un processus ENFANT `beryl os-upgrade
-# <fqdn> --apply [--reboot]` (le chemin un-serveur, déjà éprouvé) : sa sortie
+# Chaque serveur est traité par un processus ENFANT `beryl <kind> <fqdn>
+# --apply …` (le chemin un-serveur, déjà éprouvé) : sa sortie
 # va dans son propre journal (pas d'entrelacement), il écrit son état dans
 # `<fqdn>.json` (variable `BERYL_JOB_STATE`). L'orchestrateur :
 #
@@ -16,10 +16,10 @@ require "../xdg"
 # . puis le reste en PARALLÈLE (`--parallel N`) : un serveur qui plante ne
 #   bloque aucun autre.
 #
-# Dossier d'une tâche : `$XDG_STATE_HOME/beryl/jobs/os-upgrade/<id>/`
+# Dossier d'une tâche : `$XDG_STATE_HOME/beryl/jobs/<kind>/<id>/`
 # (`job.json`, `<fqdn>.json`, `<fqdn>.log`, `orchestrateur.log`). Rien de
 # propre au Mac : la même tâche pourra tourner sur un bastion.
-module Beryl::CLI::OsUpgradeJob
+module Beryl::CLI::FleetJob
   extend self
 
   ENV_STATE = "BERYL_JOB_STATE"
@@ -44,16 +44,18 @@ module Beryl::CLI::OsUpgradeJob
   struct Job
     include JSON::Serializable
     getter id : String
+    # Sous-commande beryl des enfants (`os-upgrade`, `upgrade`).
+    getter kind : String = "os-upgrade"
     getter scope : String
     getter created_at : Time
-    getter reboot : Bool
-    getter to : String?
+    # Options passées à chaque enfant après `<kind> <fqdn>` (`--apply`…).
+    getter child_args : Array(String) = [] of String
     getter parallel : Int32
     getter hosts : Array(HostRef)
     property pid : Int64? = nil
     property finished_at : Time? = nil
 
-    def initialize(@id, @scope, @created_at, @reboot, @to, @parallel, @hosts)
+    def initialize(@id, @kind, @scope, @created_at, @child_args, @parallel, @hosts)
     end
   end
 
@@ -69,8 +71,8 @@ module Beryl::CLI::OsUpgradeJob
     end
   end
 
-  def jobs_root : String
-    File.join(Beryl::Xdg.state_dir, "jobs", "os-upgrade")
+  def jobs_root(kind : String) : String
+    File.join(Beryl::Xdg.state_dir, "jobs", kind)
   end
 
   def state_path(dir : String, fqdn : String) : String
@@ -82,17 +84,18 @@ module Beryl::CLI::OsUpgradeJob
   end
 
   # Crée la tâche (dossier + job.json + état « en attente » par serveur).
-  def create(scope : String, fqdns : Array(String), reboot : Bool, to : String?, parallel : Int32) : String
+  def create(kind : String, scope : String, fqdns : Array(String), child_args : Array(String), parallel : Int32) : String
+    root = jobs_root(kind)
     base = Time.local.to_s("%Y%m%d-%H%M%S")
     id = base
     n = 1
-    while Dir.exists?(File.join(jobs_root, id)) # deux tâches dans la même seconde
+    while Dir.exists?(File.join(root, id)) # deux tâches dans la même seconde
       n += 1
       id = "#{base}-#{n}"
     end
-    dir = File.join(jobs_root, id)
+    dir = File.join(root, id)
     Dir.mkdir_p(dir)
-    job = Job.new(id, scope, Time.utc, reboot, to, parallel, fqdns.map { |f| HostRef.new(f) })
+    job = Job.new(id, kind, scope, Time.utc, child_args, parallel, fqdns.map { |f| HostRef.new(f) })
     write_json(File.join(dir, "job.json"), job.to_json)
     fqdns.each { |f| write_state(state_path(dir, f), HostState.new(PENDING, "")) }
     dir
@@ -135,6 +138,15 @@ module Beryl::CLI::OsUpgradeJob
 
   # ── Orchestrateur ────────────────────────────────────────────────────────
 
+  # Commande de base d'un processus enfant : CE binaire + options globales
+  # (racine de config, transport), pour que l'enfant voie la même config.
+  def self_cmd(config_root : String) : Array(String)
+    exe = Process.executable_path || PROGRAM_NAME
+    cmd = [exe, "-c", config_root]
+    cmd << "--transport=overlay" if Beryl.transport_mode == :overlay
+    cmd
+  end
+
   # `child_cmd` : commande de base de l'enfant (exécutable + options globales),
   # le fqdn et les options d'os-upgrade sont ajoutés ici.
   def run(dir : String, child_cmd : Array(String)) : Int32
@@ -142,24 +154,24 @@ module Beryl::CLI::OsUpgradeJob
     job.pid = Process.pid.to_i64
     save(dir, job)
     hosts = job.hosts.map(&.fqdn)
-    say "tâche #{job.id} : #{hosts.size} serveur(s), canari puis #{job.parallel} en parallèle#{job.reboot ? ", avec redémarrage" : ", SANS redémarrage"}"
+    say job, "tâche #{job.id} : #{hosts.size} serveur(s), canari puis #{job.parallel} en parallèle (#{job.child_args.join(" ")})"
 
     idx = 0
     canary_ok = false
     while idx < hosts.size
       fqdn = hosts[idx]
       idx += 1
-      say "canari : #{fqdn}"
+      say job, "canari : #{fqdn}"
       st = run_host(dir, job, fqdn, child_cmd)
       case st.state
       when UPTODATE
-        say "#{fqdn} : à jour — le canari passe au serveur suivant"
+        say job, "#{fqdn} : à jour — le canari passe au serveur suivant"
       when UPGRADED
-        say "#{fqdn} : canari réussi (#{st.detail})"
+        say job, "#{fqdn} : canari réussi (#{st.detail})"
         canary_ok = true
         break
       else
-        say "#{fqdn} : CANARI EN ÉCHEC (#{st.detail}) — les #{hosts.size - idx} serveur(s) restant(s) sont annulés"
+        say job, "#{fqdn} : CANARI EN ÉCHEC (#{st.detail}) — les #{hosts.size - idx} serveur(s) restant(s) sont annulés"
         hosts[idx..].each { |f| write_state(state_path(dir, f), HostState.new(CANCELLED, "canari #{fqdn} en échec")) }
         return finish(dir, job)
       end
@@ -167,7 +179,7 @@ module Beryl::CLI::OsUpgradeJob
 
     rest = hosts[idx..]
     if canary_ok && !rest.empty?
-      say "parallèle : #{rest.size} serveur(s), #{job.parallel} à la fois"
+      say job, "parallèle : #{rest.size} serveur(s), #{job.parallel} à la fois"
       run_parallel(dir, job, rest, child_cmd)
     end
     finish(dir, job)
@@ -181,7 +193,7 @@ module Beryl::CLI::OsUpgradeJob
         slots.send(nil)
         begin
           st = run_host(dir, job, fqdn, child_cmd)
-          say "#{fqdn} : #{st.state}#{st.detail.empty? ? "" : " — #{st.detail}"}"
+          say job, "#{fqdn} : #{st.state}#{st.detail.empty? ? "" : " — #{st.detail}"}"
         ensure
           slots.receive
           done.send(nil)
@@ -197,11 +209,7 @@ module Beryl::CLI::OsUpgradeJob
   def run_host(dir : String, job : Job, fqdn : String, child_cmd : Array(String)) : HostState
     path = state_path(dir, fqdn)
     write_state(path, HostState.new(RUNNING, "lancement", started_at: Time.utc))
-    args = child_cmd[1..] + ["os-upgrade", fqdn, "--apply"]
-    args << "--reboot" if job.reboot
-    if to = job.to
-      args << "--to" << to
-    end
+    args = child_cmd[1..] + [job.kind, fqdn] + job.child_args
     status = File.open(log_path(dir, fqdn), "a") do |log|
       Process.run(child_cmd[0], args, env: {ENV_STATE => path}, input: Process::Redirect::Close, output: log, error: log)
     end
@@ -236,7 +244,7 @@ module Beryl::CLI::OsUpgradeJob
     states = job.hosts.map { |h| read_state(state_path(dir, h.fqdn)) }
     failed = states.count { |s| s.try(&.state) == FAILED }
     cancelled = states.count { |s| s.try(&.state) == CANCELLED }
-    say "tâche #{job.id} terminée — #{summary(states)}"
+    say job, "tâche #{job.id} terminée — #{summary(states)}"
     failed > 0 || cancelled > 0 ? 2 : 0
   end
 
@@ -247,8 +255,8 @@ module Beryl::CLI::OsUpgradeJob
     end.join(" · ")
   end
 
-  private def say(msg : String) : Nil
-    STDOUT.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl os-upgrade] #{msg}"
+  private def say(job : Job, msg : String) : Nil
+    STDOUT.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl #{job.kind}] #{msg}"
     STDOUT.flush
   end
 
@@ -260,7 +268,7 @@ module Beryl::CLI::OsUpgradeJob
   def detach(dir : String, child_cmd : Array(String)) : Int64
     prefix = ["nohup"]
     prefix += ["caffeinate", "-i"] if Process.find_executable("caffeinate")
-    args = prefix[1..] + child_cmd + ["os-upgrade", "--job", dir]
+    args = prefix[1..] + child_cmd + [load(dir).kind, "--job", dir]
     log = File.open(File.join(dir, "orchestrateur.log"), "a")
     p = Process.new(prefix[0], args, input: Process::Redirect::Close, output: log, error: log)
     log.close
@@ -270,19 +278,20 @@ module Beryl::CLI::OsUpgradeJob
   # ── --status ─────────────────────────────────────────────────────────────
 
   # Dossier de la tâche `id`, ou de la plus récente.
-  def find(id : String?) : String?
-    return nil unless Dir.exists?(jobs_root)
+  def find(kind : String, id : String?) : String?
+    root = jobs_root(kind)
+    return nil unless Dir.exists?(root)
     if i = id
-      d = File.join(jobs_root, i)
+      d = File.join(root, i)
       return Dir.exists?(d) ? d : nil
     end
-    Dir.children(jobs_root).select { |c| File.exists?(File.join(jobs_root, c, "job.json")) }.sort.last?.try { |c| File.join(jobs_root, c) }
+    Dir.children(root).select { |c| File.exists?(File.join(root, c, "job.json")) }.sort.last?.try { |c| File.join(root, c) }
   end
 
-  def status(id : String?) : Int32
-    dir = find(id)
+  def status(kind : String, id : String?) : Int32
+    dir = find(kind, id)
     unless dir
-      STDERR.puts "beryl : aucune tâche os-upgrade#{id ? " « #{id} »" : ""} (#{jobs_root})."
+      STDERR.puts "beryl : aucune tâche #{kind}#{id ? " « #{id} »" : ""} (#{jobs_root(kind)})."
       return 1
     end
     job = load(dir)
@@ -294,8 +303,8 @@ module Beryl::CLI::OsUpgradeJob
             else
               "INTERROMPUE (orchestrateur arrêté avant la fin)"
             end
-    puts "Tâche #{job.id} — #{job.scope} — #{phase}"
-    puts "Options : #{job.reboot ? "avec" : "SANS"} redémarrage, #{job.parallel} en parallèle#{job.to ? ", cible #{job.to}" : ""}"
+    puts "Tâche #{job.kind} #{job.id} — #{job.scope} — #{phase}"
+    puts "Options : #{job.child_args.join(" ")} — #{job.parallel} en parallèle après le canari"
     puts ""
     w = job.hosts.map(&.fqdn.size).max? || 20
     states = job.hosts.map do |h|

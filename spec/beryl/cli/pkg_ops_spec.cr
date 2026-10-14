@@ -69,3 +69,79 @@ describe Beryl::CLI::Upgrade do
     end
   end
 end
+
+# Joue `services_cmd` avec de faux `pkg` (dépendances inverses, fichiers) et
+# `service` (activés). `rdeps` : paquet → paquets qui en dépendent ;
+# `files` : paquet → fichiers installés ; `enabled` : services activés.
+private def services_with_fakes(pkgs : Array(String), rdeps : Hash(String, Array(String)),
+                                files : Hash(String, Array(String)), enabled : Array(String)) : Array(String)
+  dir = File.tempname("beryl-fake-svc")
+  Dir.mkdir_p(dir)
+  rdeps.each { |p, l| File.write(File.join(dir, "rdeps-#{p}"), l.join("\n") + "\n") }
+  files.each { |p, l| File.write(File.join(dir, "files-#{p}"), l.join("\n") + "\n") }
+  File.write(File.join(dir, "pkg"), <<-SH)
+    #!/bin/sh
+    # pkg query %rn <p> | pkg query %Fp <p>
+    case "$2" in
+      %rn) cat "#{dir}/rdeps-$3" 2>/dev/null ;;
+      %Fp) cat "#{dir}/files-$3" 2>/dev/null ;;
+    esac
+    SH
+  File.write(File.join(dir, "service"), <<-SH)
+    #!/bin/sh
+    case " #{enabled.join(" ")} " in *" $1 "*) exit 0 ;; esac
+    exit 1
+    SH
+  File.chmod(File.join(dir, "pkg"), 0o755)
+  File.chmod(File.join(dir, "service"), 0o755)
+  buf = IO::Memory.new
+  Process.run("sh", ["-c", Beryl::CLI::Upgrade.services_cmd(pkgs)], env: {"PATH" => "#{dir}:#{ENV["PATH"]}"}, output: buf, error: buf)
+  buf.to_s.lines.map(&.strip).reject(&.empty?)
+ensure
+  FileUtils.rm_rf(dir) if dir
+end
+
+describe "Beryl::CLI::Upgrade, services touchés" do
+  it "relève les paquets mis à jour et réinstallés, pas les nouveaux" do
+    out_loulou = <<-OUT
+      The following 15 package(s) will be affected (of 0 checked):
+
+      New packages to be INSTALLED:
+      \tage: 1.3.2_2 [aloli]
+
+      Installed packages to be UPGRADED:
+      \tacme.sh: 3.1.3_1 -> 3.1.6 [FreeBSD-ports]
+      \texpat: 2.8.2 -> 2.8.4 [FreeBSD-ports] (vulnerable!)
+      \tnginx: 1.30.4,3 -> 1.30.5_2,3 [FreeBSD-ports]
+
+      Installed packages to be REINSTALLED:
+      \tnginx-lite-1.30.5_2,3 [quimeo] (options changed)
+
+      Number of packages to be upgraded: 3
+      OUT
+    Beryl::CLI::Upgrade.changed_packages(out_loulou).should eq(%w[acme.sh expat nginx nginx-lite])
+  end
+
+  it "aucun paquet modifié quand tout est à jour" do
+    Beryl::CLI::Upgrade.changed_packages("Your packages are up to date.\n").should be_empty
+  end
+
+  it "suit les dépendances inverses jusqu'aux services ACTIVÉS (expat → nginx-lite → nginx)" do
+    services_with_fakes(
+      %w[expat],
+      rdeps: {"expat" => %w[nginx-lite git], "nginx-lite" => [] of String, "git" => [] of String},
+      files: {"nginx-lite" => %w[/usr/local/sbin/nginx /usr/local/etc/rc.d/nginx],
+              "git"        => %w[/usr/local/bin/git]},
+      enabled: %w[nginx],
+    ).should eq(%w[nginx])
+  end
+
+  it "écarte un service présent mais NON activé, et ne boucle pas sur un cycle" do
+    services_with_fakes(
+      %w[a],
+      rdeps: {"a" => %w[b], "b" => %w[a]},
+      files: {"a" => %w[/usr/local/etc/rc.d/monit], "b" => %w[/usr/local/etc/rc.d/postgresql]},
+      enabled: %w[postgresql],
+    ).should eq(%w[postgresql])
+  end
+end

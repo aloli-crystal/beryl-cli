@@ -1,8 +1,8 @@
 require "file_utils"
 require "../../spec_helper"
-require "../../../src/beryl/cli/os_upgrade_job"
+require "../../../src/beryl/cli/fleet_job"
 
-alias OUJ = Beryl::CLI::OsUpgradeJob
+alias OUJ = Beryl::CLI::FleetJob
 
 # Faux enfant `beryl os-upgrade <fqdn> --apply …` : comportement selon le fqdn.
 #   ok.*      → à jour          upd.*  → mis à jour (rapporté)
@@ -38,11 +38,11 @@ private def states(dir : String, fqdns : Array(String)) : Array(String)
   fqdns.map { |f| OUJ.read_state(OUJ.state_path(dir, f)).not_nil!.state }
 end
 
-describe Beryl::CLI::OsUpgradeJob do
+describe Beryl::CLI::FleetJob do
   it "canari = premier serveur qui a quelque chose à faire, puis parallèle ; un plantage ne bloque personne" do
     with_job_env do |child|
       hosts = %w[ok.a upd.b crash.c upd.d upd.e]
-      dir = OUJ.create("test", hosts, reboot: true, to: nil, parallel: 2)
+      dir = OUJ.create("os-upgrade", "test", hosts, ["--apply"], 2)
       rc = OUJ.run(dir, child)
       states(dir, hosts).should eq([OUJ::UPTODATE, OUJ::UPGRADED, OUJ::FAILED, OUJ::UPGRADED, OUJ::UPGRADED])
       rc.should eq(2) # un échec → code non nul
@@ -55,7 +55,7 @@ describe Beryl::CLI::OsUpgradeJob do
   it "canari en échec → le reste est ANNULÉ, rien d'autre n'est lancé" do
     with_job_env do |child|
       hosts = %w[crash.a upd.b upd.c]
-      dir = OUJ.create("test", hosts, reboot: true, to: nil, parallel: 4)
+      dir = OUJ.create("os-upgrade", "test", hosts, ["--apply"], 4)
       OUJ.run(dir, child).should eq(2)
       states(dir, hosts).should eq([OUJ::FAILED, OUJ::CANCELLED, OUJ::CANCELLED])
       File.exists?(OUJ.log_path(dir, "upd.b")).should be_false
@@ -65,7 +65,7 @@ describe Beryl::CLI::OsUpgradeJob do
   it "tous à jour → code 0, aucun canari nécessaire" do
     with_job_env do |child|
       hosts = %w[ok.a ok.b]
-      dir = OUJ.create("test", hosts, reboot: false, to: nil, parallel: 4)
+      dir = OUJ.create("os-upgrade", "test", hosts, ["--apply"], 4)
       OUJ.run(dir, child).should eq(0)
       states(dir, hosts).should eq([OUJ::UPTODATE, OUJ::UPTODATE])
     end
@@ -73,16 +73,35 @@ describe Beryl::CLI::OsUpgradeJob do
 
   it "--status retrouve la dernière tâche et la rapporte terminée" do
     with_job_env do |child|
-      dir = OUJ.create("test", %w[upd.a], reboot: true, to: nil, parallel: 1)
+      dir = OUJ.create("os-upgrade", "test", %w[upd.a], ["--apply"], 1)
       OUJ.run(dir, child)
-      OUJ.find(nil).should eq(dir)
+      OUJ.find("os-upgrade", nil).should eq(dir)
       OUJ.load(dir).finished_at.should_not be_nil
-      OUJ.status(nil).should eq(0)
+      OUJ.status("os-upgrade", nil).should eq(0)
     end
   end
 
   it "résumé lisible" do
     s = [OUJ::HostState.new(OUJ::UPGRADED, ""), OUJ::HostState.new(OUJ::FAILED, ""), OUJ::HostState.new(OUJ::UPGRADED, "")]
     OUJ.summary(s.map(&.as(OUJ::HostState?))).should eq("2 mis à jour · 1 échec")
+  end
+end
+
+describe "Beryl::CLI::FleetJob pour `upgrade`" do
+  it "l'enfant reçoit `upgrade <fqdn> <options>` et l'état est rangé sous jobs/upgrade" do
+    dir0 = File.tempname("beryl-job-up")
+    Dir.mkdir_p(dir0)
+    old = ENV["XDG_STATE_HOME"]?
+    ENV["XDG_STATE_HOME"] = dir0
+    child = File.join(dir0, "fake")
+    File.write(child, "#!/bin/sh\nprintf '{\"state\":\"mis à jour\",\"detail\":\"%s\",\"updated_at\":\"2026-10-14T20:00:00Z\"}' \"$*\" > \"$BERYL_JOB_STATE\"\n")
+    File.chmod(child, 0o755)
+    dir = OUJ.create("upgrade", "aloli", %w[a.test], ["--apply", "--no-restart"], 2)
+    dir.should contain("/jobs/upgrade/")
+    OUJ.run(dir, [child]).should eq(0)
+    OUJ.read_state(OUJ.state_path(dir, "a.test")).not_nil!.detail.should eq("upgrade a.test --apply --no-restart")
+  ensure
+    old ? (ENV["XDG_STATE_HOME"] = old) : ENV.delete("XDG_STATE_HOME")
+    FileUtils.rm_rf(dir0) if dir0
   end
 end

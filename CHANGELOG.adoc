@@ -9,6 +9,22 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `upgrade` : services touchés relancés ; tâche de flotte partagée avec `os-upgrade`
+
+* Services RELANCÉS : après `pkg upgrade`, un service qui tourne garde
+  l'ancien code en mémoire (toujours vulnérable) tant qu'il n'est pas
+  relancé. `beryl upgrade --apply` relève les paquets mis à jour ou
+  réinstallés, suit leurs dépendances inverses de proche en proche (une
+  bibliothèque comme expat ou openssl atteint nginx, postgresql…), garde les
+  scripts `/usr/local/etc/rc.d/` de ces paquets, puis relance les services
+  ACTIVÉS (`service X enabled`). Le dry-run les liste ; `--no-restart` les
+  signale sans les relancer. Un redémarrage en échec met le serveur en échec.
+* Tâche de flotte : `beryl upgrade <société|domaine> --apply` passe par la
+  même tâche que `os-upgrade` (canari, `--parallel N`, `--canary HOST`,
+  `--detach`, `beryl upgrade --status`). Le module `OsUpgradeJob` devient
+  `FleetJob` (sous-commande de l'enfant en paramètre ; état sous
+  `jobs/<sous-commande>/`).
+
 === `os-upgrade` de flotte : canari, parallèle limité, tâche détachée, `--status`
 
 `os-upgrade <société|domaine> --apply [--reboot]` traitait les serveurs UN

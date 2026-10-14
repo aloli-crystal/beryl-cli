@@ -5,8 +5,8 @@ require "./account_utils"
 require "./info"   # scoped_hosts (portée société/domaine/host)
 require "./unlock" # déverrouillage auto post-reboot (hosts chiffrés)
 require "./ssh_probe"
-require "./pkg_ops"        # Upgrade.base_pending (correctifs du dépôt de base)
-require "./os_upgrade_job" # canari + parallèle + --status (portée multi-serveurs)
+require "./pkg_ops"   # Upgrade.base_pending (correctifs du dépôt de base)
+require "./fleet_job" # canari + parallèle + --status (portée multi-serveurs)
 
 # `beryl os-upgrade <host> [--to X.Y] [--apply] [--reboot]` — met à jour le
 # SYSTÈME FreeBSD (≠ `upgrade` = paquets seuls). CONSCIENT DU TYPE D'INSTALL :
@@ -66,9 +66,9 @@ module Beryl::CLI::OsUpgrade
     end
     parser.parse(args)
 
-    return Beryl::CLI::OsUpgradeJob.status(positional.first?) if status
+    return Beryl::CLI::FleetJob.status("os-upgrade", positional.first?) if status
     if jd = job_dir
-      return Beryl::CLI::OsUpgradeJob.run(jd, child_cmd(config_root))
+      return Beryl::CLI::FleetJob.run(jd, Beryl::CLI::FleetJob.self_cmd(config_root))
     end
     if parallel < 1
       STDERR.puts "beryl : --parallel attend un entier ≥ 1."
@@ -114,28 +114,24 @@ module Beryl::CLI::OsUpgrade
     end
     log "périmètre #{scope} : #{fqdns.size} serveurs → canari #{fqdns.first}, puis #{parallel} en parallèle"
     log "⚠ SANS --reboot : le canari ne valide que l'INSTALLATION, pas le démarrage sur le nouveau noyau." unless reboot
-    dir = Beryl::CLI::OsUpgradeJob.create(scope, fqdns, reboot, to, parallel)
+    child_args = ["--apply"]
+    child_args << "--reboot" if reboot
+    if t = to
+      child_args << "--to" << t
+    end
+    dir = Beryl::CLI::FleetJob.create("os-upgrade", scope, fqdns, child_args, parallel)
     if detach
-      pid = Beryl::CLI::OsUpgradeJob.detach(dir, child_cmd(config_root))
+      pid = Beryl::CLI::FleetJob.detach(dir, Beryl::CLI::FleetJob.self_cmd(config_root))
       log "tâche #{File.basename(dir)} lancée en arrière-plan (pid #{pid}) — suivi : `beryl os-upgrade --status`"
       return EXIT_OK
     end
-    Beryl::CLI::OsUpgradeJob.run(dir, child_cmd(config_root))
+    Beryl::CLI::FleetJob.run(dir, Beryl::CLI::FleetJob.self_cmd(config_root))
   rescue ex : Beryl::Config::Root::HostNotFound | Beryl::Config::Root::AmbiguousHost | Beryl::Config::Root::UnknownDomain
     STDERR.puts "beryl : #{ex.message}"
     EXIT_USAGE
   rescue ex
     STDERR.puts "beryl : erreur inattendue — #{ex.class}: #{ex.message}"
     EXIT_FAILED
-  end
-
-  # Commande de base d'un processus enfant : CE binaire + options globales
-  # (racine de config, transport), pour que l'enfant voie la même config.
-  private def self.child_cmd(config_root : String) : Array(String)
-    exe = Process.executable_path || PROGRAM_NAME
-    cmd = [exe, "-c", config_root]
-    cmd << "--transport=overlay" if Beryl.transport_mode == :overlay
-    cmd
   end
 
   # Montée d'UN hôte (dry-run par défaut). Chaque `return` est LOCAL à l'hôte
@@ -145,10 +141,10 @@ module Beryl::CLI::OsUpgrade
       STDERR.puts "beryl : os-upgrade = FreeBSD uniquement (host : #{host.os})."
       return EXIT_USAGE
     end
-    Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::RUNNING, "connexion")
+    Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::RUNNING, "connexion")
     if apply && host.protected?
       log "#{host.fqdn} : protégé (protected: true) → --apply REFUSÉ (dry-run uniquement)."
-      Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::CANCELLED, "protégé (protected: true)")
+      Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::CANCELLED, "protégé (protected: true)")
       return EXIT_OK
     end
 
@@ -163,7 +159,7 @@ module Beryl::CLI::OsUpgrade
       if d = probe.stderr.strip.lines.first?
         STDERR.puts "        détail : #{d}"
       end
-      Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::FAILED, "SSH : #{Beryl::CLI::SshProbe.compact_error(probe.stderr, probe.exit_code)}")
+      Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::FAILED, "SSH : #{Beryl::CLI::SshProbe.compact_error(probe.stderr, probe.exit_code)}")
       return EXIT_FAILED
     end
     shell = Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(host.connection(user)))
@@ -181,7 +177,7 @@ module Beryl::CLI::OsUpgrade
       end
     unless target
       STDERR.puts "beryl : release cible indéterminée (réseau indispo ?) — précisez `--to X.Y`."
-      Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::FAILED, "release cible indéterminée")
+      Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::FAILED, "release cible indéterminée")
       return EXIT_USAGE
     end
 
@@ -192,7 +188,7 @@ module Beryl::CLI::OsUpgrade
     # Cible ÉGALE : on continue → correctifs de la release courante (errata/SA).
     if tk < ck
       log "déjà sur #{cur_major}.#{cur_minor} (> #{target}) — rien à faire (pas de descente de release)."
-      Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::UPTODATE, "#{cur_raw} (> #{target})", cur_raw)
+      Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::UPTODATE, "#{cur_raw} (> #{target})", cur_raw)
       return EXIT_OK
     end
 
@@ -206,7 +202,7 @@ module Beryl::CLI::OsUpgrade
     end
   rescue ex
     STDERR.puts "beryl : #{host.fqdn} — erreur inattendue : #{ex.class}: #{ex.message}"
-    Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::FAILED, "erreur inattendue : #{ex.message}")
+    Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::FAILED, "erreur inattendue : #{ex.message}")
     EXIT_FAILED
   end
 
@@ -300,7 +296,7 @@ module Beryl::CLI::OsUpgrade
     conf = shell.exec("grep -rl base_release /usr/local/etc/pkg/repos /etc/pkg 2>/dev/null | head -1", raise_on_error: false).stdout.strip
     if conf.empty?
       STDERR.puts "beryl : conf du dépôt FreeBSD-base introuvable (base_release) sur #{host.fqdn}."
-      Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::FAILED, "conf du dépôt FreeBSD-base introuvable")
+      Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::FAILED, "conf du dépôt FreeBSD-base introuvable")
       return EXIT_FAILED
     end
     cur_branch = shell.exec("grep -oE 'base_release_[0-9]+' #{conf} | head -1", raise_on_error: false).stdout.strip
@@ -329,17 +325,17 @@ module Beryl::CLI::OsUpgrade
       log "#{host.fqdn} : `pkg update` a échoué sur #{branch} (release pas encore publiée ?) → ROLLBACK vers #{cur_branch}."
       shell.exec("sed -i '' -E 's/base_release_[0-9]+/#{cur_branch}/g' #{conf}", raise_on_error: false)
       STDERR.puts upd.stderr.strip.lines.last?
-      Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::FAILED, "branche #{branch} indisponible (rollback fait)")
+      Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::FAILED, "branche #{branch} indisponible (rollback fait)")
       return EXIT_FAILED
     end
 
     log "#{host.fqdn} : pkg upgrade -y -r #{BASE_REPO}…"
-    Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::RUNNING, "montée #{cur_major}.#{cur_minor} → #{target}")
+    Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::RUNNING, "montée #{cur_major}.#{cur_minor} → #{target}")
     up = shell.exec("#{IGNORE_OSV} pkg upgrade -y -r #{BASE_REPO}", raise_on_error: false)
     puts up.stdout.strip
     unless up.success?
       STDERR.puts "beryl : pkg upgrade a échoué — #{up.stderr.strip.lines.last?}"
-      Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::FAILED, "pkg upgrade : #{up.stderr.strip.lines.last?}")
+      Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::FAILED, "pkg upgrade : #{up.stderr.strip.lines.last?}")
       return EXIT_FAILED
     end
 
@@ -354,7 +350,7 @@ module Beryl::CLI::OsUpgrade
     upd = shell.exec("#{IGNORE_OSV} pkg update -f -r #{BASE_REPO}", raise_on_error: false)
     unless upd.success?
       STDERR.puts "beryl : #{host.fqdn} — `pkg update -r #{BASE_REPO}` a échoué : #{upd.stderr.strip.lines.last?}"
-      Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::FAILED, "pkg update : #{upd.stderr.strip.lines.last?}")
+      Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::FAILED, "pkg update : #{upd.stderr.strip.lines.last?}")
       return EXIT_FAILED
     end
     plan = shell.exec("#{IGNORE_OSV} pkg upgrade -n -r #{BASE_REPO}", raise_on_error: false)
@@ -368,7 +364,7 @@ module Beryl::CLI::OsUpgrade
         return EXIT_OK
       end
       log "#{host.fqdn} : #{target}-RELEASE, aucun correctif en attente — rien à faire."
-      Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::UPTODATE, "aucun correctif en attente")
+      Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::UPTODATE, "aucun correctif en attente")
       return EXIT_OK
     end
 
@@ -382,12 +378,12 @@ module Beryl::CLI::OsUpgrade
     end
 
     log "#{host.fqdn} : correctifs #{target}-RELEASE → pkg upgrade -y -r #{BASE_REPO}…"
-    Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::RUNNING, "installation des correctifs (#{Beryl::CLI::Upgrade.pending_count(plan.stdout)} paquets)")
+    Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::RUNNING, "installation des correctifs (#{Beryl::CLI::Upgrade.pending_count(plan.stdout)} paquets)")
     up = shell.exec("#{IGNORE_OSV} pkg upgrade -y -r #{BASE_REPO}", raise_on_error: false)
     puts up.stdout.strip
     unless up.success?
       STDERR.puts "beryl : #{host.fqdn} — pkg upgrade a échoué : #{up.stderr.strip.lines.last?}"
-      Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::FAILED, "pkg upgrade : #{up.stderr.strip.lines.last?}")
+      Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::FAILED, "pkg upgrade : #{up.stderr.strip.lines.last?}")
       return EXIT_FAILED
     end
 
@@ -431,12 +427,12 @@ module Beryl::CLI::OsUpgrade
   private def self.finish(config_root, shell, host, done : String, reboot : Bool) : Int32
     unless reboot
       log "#{host.fqdn} : #{done}. REBOOTEZ pour démarrer dessus : `shutdown -r now`."
-      Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::UPGRADED, "#{done} — redémarrage à faire")
+      Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::UPGRADED, "#{done} — redémarrage à faire")
       return EXIT_OK
     end
 
     log "#{host.fqdn} : reboot…"
-    Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::RUNNING, "#{done} — redémarrage")
+    Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::RUNNING, "#{done} — redémarrage")
     shell.exec("shutdown -r now", raise_on_error: false)
     if wait_back(host)
       new = Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(host.connection))
@@ -446,17 +442,17 @@ module Beryl::CLI::OsUpgrade
       # pour qu'il soit opérationnel (sinon /home, /usr/local/etc absents).
       if host.encrypted?
         log "#{host.fqdn} : chiffré → déverrouillage post-reboot (beryl unlock)…"
-        Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::RUNNING, "revenu en #{new} — déverrouillage", new)
+        Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::RUNNING, "revenu en #{new} — déverrouillage", new)
         unless Beryl::CLI::Unlock.run(config_root, [host.fqdn]) == 0
-          Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::FAILED, "revenu en #{new}, mais déverrouillage en échec (beryl unlock #{host.short_name})", new)
+          Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::FAILED, "revenu en #{new}, mais déverrouillage en échec (beryl unlock #{host.short_name})", new)
           return EXIT_FAILED
         end
       end
-      Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::UPGRADED, "revenu en #{new}", new)
+      Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::UPGRADED, "revenu en #{new}", new)
       EXIT_OK
     else
       STDERR.puts "beryl : #{host.fqdn} n'est pas revenu en SSH après reboot (vérifiez via la console/IPMI)."
-      Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::FAILED, "pas revenu en SSH après redémarrage (console/IPMI)")
+      Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::FAILED, "pas revenu en SSH après redémarrage (console/IPMI)")
       EXIT_FAILED
     end
   end
@@ -484,7 +480,7 @@ module Beryl::CLI::OsUpgrade
         res = shell.exec("freebsd-update --not-running-from-cron fetch install", raise_on_error: false)
         puts res.stdout.strip unless res.stdout.strip.empty?
         unless res.success?
-          Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::FAILED, "freebsd-update : #{res.stderr.strip.lines.last?}")
+          Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::FAILED, "freebsd-update : #{res.stderr.strip.lines.last?}")
           return EXIT_FAILED
         end
         return finish(config_root, shell, host, "correctifs appliqués (reboot utile si nouveau noyau)", reboot)
@@ -498,7 +494,7 @@ module Beryl::CLI::OsUpgrade
 
     if apply
       log "montée de release : --apply non automatisé pour freebsd-update (reboots + fusions interactives)."
-      Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::CANCELLED, "montée de release freebsd-update : à la main (runbook)")
+      Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::CANCELLED, "montée de release freebsd-update : à la main (runbook)")
     end
     h = host.short_name
     puts ""
