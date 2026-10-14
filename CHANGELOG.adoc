@@ -39,6 +39,17 @@ remplacé le paquet et le serveur serait reparti sans ses données
 (`dataNN` → `data19`). `latest` ne vaut plus qu'à la première installation ;
 une montée de majeure reste une migration manuelle (pg_upgrade).
 
+=== `bootstrap` : anciennes clés d'hôte retirées du `known_hosts` de l'opérateur
+
+Après une réinstallation, le premier `ssh` de l'opérateur butait sur
+« REMOTE HOST IDENTIFICATION HAS CHANGED » (cas réel : quantas, 13 oct. 2026).
+Une fois FreeBSD installé, `bootstrap` retire de `~/.ssh/known_hosts` les
+entrées du serveur sous tous ses noms et adresses (FQDN, nom hébergeur, IPv4
+et IPv6 publiques, IP vRack, overlay ; `nom` et `[nom]:port`, entrées hachées
+comprises), en un seul passage : `known_hosts.old` garde l'état d'avant.
+Module `Beryl::KnownHosts` (via `ssh-keygen -R`). Les connexions de beryl
+n'étaient pas concernées : elles n'utilisent pas `known_hosts`.
+
 === `update` / `upgrade` : cascade d'utilisateurs SSH et serveurs pas encore installés
 
 `beryl update` et `beryl upgrade` se connectaient seulement avec l'utilisateur
