@@ -9,6 +9,17 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Shell de connexion libre : aucune commande lue avec sa syntaxe
+
+Le shell de connexion du compte distant est un choix libre (csh pour
+`admin`, sh, bash, zsh…) : aucun n'est un prérequis. `SshShell` envoie
+désormais TOUTE commande, même d'une seule ligne, par `sh -c '…'` : elle est
+toujours interprétée par sh POSIX, jamais avec la syntaxe du shell de
+connexion (sous csh, `2>&1` créait un fichier `1`, `$(…)` échouait). Les
+tests rejouent la chaîne Command → SudoShell sous chaque shell présent sur
+la machine (sh, dash, bash, zsh, csh, tcsh) et sautent les absents : csh
+n'est plus requis pour faire tourner la suite (image Docker de la CI).
+
 === `command` : script multi-ligne sous csh, garde cassée jamais silencieuse
 
 Un script multi-ligne (`run`, `unless`, ou tout texte multi-ligne envoyé par

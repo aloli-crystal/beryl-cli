@@ -36,24 +36,22 @@ module Beryl::Apply
   # Code de sortie de `sh_line` quand le script n'a pas pu être décodé.
   DECODE_FAILED = 125
 
-  # `command` tel quel s'il tient sur une ligne, sinon transporté par `sh_line`.
-  def self.single_line(command : String) : String
-    multi_line?(command) ? sh_line(command) : command
-  end
-
   def self.multi_line?(text : String) : Bool
     text.includes?('\n') || text.includes?('\r')
   end
 
   # Implémentation réelle : délègue à une `SSH::Connection`. La ligne envoyée
-  # est d'abord lue par le shell de connexion (csh possible) : un texte
-  # multi-ligne passe donc par `Apply.single_line`.
+  # est d'abord lue par le shell de CONNEXION du compte distant (csh, sh, bash,
+  # zsh… : choix libre, AUCUN n'est un prérequis). Toute commande, même d'une
+  # ligne, passe donc par `Apply.sh_line` : elle est toujours interprétée par
+  # sh POSIX (`2>/dev/null`, `$(…)`, `case`…), jamais avec la syntaxe du shell
+  # de connexion (sous csh, `2>&1` créerait un fichier `1`).
   class SshShell < Shell
     def initialize(@conn : SSH::Connection)
     end
 
     def exec(command : String, raise_on_error : Bool = true) : SSH::Result
-      @conn.exec(Apply.single_line(command), raise_on_error: raise_on_error)
+      @conn.exec(Apply.sh_line(command), raise_on_error: raise_on_error)
     end
 
     def write_file(remote_path : String, content : String, mode : String? = nil) : Nil
