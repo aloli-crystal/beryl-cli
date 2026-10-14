@@ -1,3 +1,4 @@
+require "base64"
 require "ssh"
 
 module Beryl::Apply
@@ -14,13 +15,45 @@ module Beryl::Apply
     abstract def write_file(remote_path : String, content : String, mode : String? = nil) : Nil
   end
 
-  # Implémentation réelle : délègue à une `SSH::Connection`.
+  # Ligne `sh -c …` qui exécute `script` (sh POSIX) quel que soit le shell de
+  # connexion distant. Un script d'UNE ligne est simplement cité ; un script
+  # multi-ligne voyage en base64 : csh (shell de connexion d'`admin` et des
+  # anciens root FreeBSD) refuse un retour à la ligne entre apostrophes
+  # (« Unmatched ' », « Illegal variable name », « esac: Command not found »,
+  # qwerty, 14 oct. 2026). Le script décodé est passé en ARGUMENT de `sh -c`,
+  # pas par un pipe : une commande du script qui lit stdin avalerait la suite.
+  # Décodage impossible (ni `b64decode`, base FreeBSD, ni `base64`) → code
+  # `DECODE_FAILED` + message, jamais un script vide joué en silence.
+  def self.sh_line(script : String) : String
+    return "sh -c #{Process.quote(script)}" unless multi_line?(script)
+    decoder = "p=#{Base64.strict_encode(script)}; " \
+              "s=$(printf %s \"$p\" | b64decode -r 2>/dev/null || printf %s \"$p\" | base64 -d 2>/dev/null); " \
+              "[ -n \"$s\" ] || { echo \"beryl : decodage du script impossible (b64decode/base64)\" >&2; exit #{DECODE_FAILED}; }; " \
+              "exec sh -c \"$s\""
+    "sh -c #{Process.quote(decoder)}"
+  end
+
+  # Code de sortie de `sh_line` quand le script n'a pas pu être décodé.
+  DECODE_FAILED = 125
+
+  # `command` tel quel s'il tient sur une ligne, sinon transporté par `sh_line`.
+  def self.single_line(command : String) : String
+    multi_line?(command) ? sh_line(command) : command
+  end
+
+  def self.multi_line?(text : String) : Bool
+    text.includes?('\n') || text.includes?('\r')
+  end
+
+  # Implémentation réelle : délègue à une `SSH::Connection`. La ligne envoyée
+  # est d'abord lue par le shell de connexion (csh possible) : un texte
+  # multi-ligne passe donc par `Apply.single_line`.
   class SshShell < Shell
     def initialize(@conn : SSH::Connection)
     end
 
     def exec(command : String, raise_on_error : Bool = true) : SSH::Result
-      @conn.exec(command, raise_on_error: raise_on_error)
+      @conn.exec(Apply.single_line(command), raise_on_error: raise_on_error)
     end
 
     def write_file(remote_path : String, content : String, mode : String? = nil) : Nil
@@ -38,7 +71,7 @@ module Beryl::Apply
     end
 
     def exec(command : String, raise_on_error : Bool = true) : SSH::Result
-      @inner.exec("sudo sh -c #{Process.quote(command)}", raise_on_error: raise_on_error)
+      @inner.exec("sudo #{Apply.sh_line(command)}", raise_on_error: raise_on_error)
     end
 
     def write_file(remote_path : String, content : String, mode : String? = nil) : Nil

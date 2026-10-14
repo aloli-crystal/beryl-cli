@@ -9,6 +9,24 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `command` : script multi-ligne sous csh, garde cassée jamais silencieuse
+
+Un script multi-ligne (`run`, `unless`, ou tout texte multi-ligne envoyé par
+une primitive) voyage désormais en base64, décodé côté serveur
+(`b64decode -r`, repli `base64 -d`) et passé en argument de `sh -c` : le
+shell de connexion (csh pour `admin`) ne voit plus qu'une ligne. Sur qwerty
+(14 oct. 2026), csh refusait la ligne (« Unmatched ' », « Illegal variable
+name », « esac: Command not found ») ; corrigé une fois pour toutes dans
+`SshShell`/`SudoShell`, donc aussi pour `make-install`, `acme-cert`,
+`mariadb-secure`, `poudriere-build`, `headscale-state-commit`.
+
+Une garde `unless` qui ne s'exécute pas (code 125/126/127, erreur du shell
+sh ou csh) met l'étape en FAILED, en dry-run comme en `--apply`, au lieu d'un
+« would apply » qui avalait l'erreur ; le résumé et le code de sortie de
+`beryl apply` en tiennent compte. Une garde qui répond « non » en écrivant
+sur stderr (psql sur une base absente…) reste « would apply », avec ce stderr
+dans le message. Un `env_file` illisible est signalé.
+
 === Documentation et tests sans nom de société
 
 Specs, fixtures (`initech/initech.example/…`), README, ADR, exemples et

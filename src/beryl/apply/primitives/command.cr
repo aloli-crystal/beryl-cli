@@ -16,8 +16,15 @@ module Beryl::Apply
   #         show_output: true                          # sortie dans le compte rendu
   #
   # `run` et `unless` passent par `sh -c` ; `env_file` (lignes VAR=valeur) est
-  # chargé avant, avec `set -a`. En dry-run, seule la garde est jouée : elle
-  # doit donc être en LECTURE SEULE.
+  # chargé avant, avec `set -a`. Ils peuvent tenir sur plusieurs lignes (bloc
+  # YAML `|`) : le script voyage en base64, à l'abri du shell de connexion
+  # (csh). En dry-run, seule la garde est jouée : elle doit donc être en
+  # LECTURE SEULE.
+  #
+  # Une garde qui ne s'exécute pas (commande introuvable, erreur de syntaxe du
+  # shell) met l'étape en FAILED, en dry-run comme en --apply : ce n'est pas un
+  # « pas encore fait ». Une garde qui répond « non » en écrivant sur stderr
+  # reste un « would apply », avec ce stderr dans le compte rendu.
   class Command < Primitive
     USER_RE = /\A[a-z_][a-z0-9_-]{0,31}\z/
 
@@ -40,25 +47,61 @@ module Beryl::Apply
       env_file = params["env_file"]?.try(&.as_s?).try(&.strip) || ""
       show = params["show_output"]?.try(&.as_bool?) == true
 
-      if shell.exec(wrap(guard, user, env_file), raise_on_error: false).success?
-        return StepResult.skipped("déjà fait (garde `unless` satisfaite)")
+      guard_res = shell.exec(wrap(guard, user, env_file), raise_on_error: false)
+      return StepResult.skipped("déjà fait (garde `unless` satisfaite)") if guard_res.success?
+      guard_err = summary(guard_res.stderr)
+      if self.class.broken_guard?(guard_res.exit_code, guard_res.stderr)
+        return StepResult.failed("garde `unless` cassée (code #{guard_res.exit_code}) : " \
+                                 "#{guard_err.empty? ? "aucune sortie" : guard_err} — rien n'a été lancé")
       end
-      return StepResult.applied("lancerait : #{run} (dry-run)") if dry_run
+      # La garde a répondu « non » ; ce qu'elle a écrit sur stderr (psql sur une
+      # base absente…) reste visible dans le compte rendu.
+      seen = guard_err.empty? ? "" : " — garde : #{guard_err}"
+      return StepResult.applied("lancerait : #{run} (dry-run)#{seen}") if dry_run
 
       res = shell.exec(wrap(run, user, env_file), raise_on_error: false)
       unless res.success?
-        detail = (res.stdout + res.stderr).strip.lines.last(5).join(" | ")
+        detail = summary(res.stdout + res.stderr)
         return StepResult.failed("`#{run}` en échec (code #{res.exit_code}) : #{detail.empty? ? "aucune sortie" : detail}")
       end
       out = res.stdout.strip
       StepResult.applied(show && !out.empty? ? "#{run}\n#{out}" : run)
     end
 
-    # `sh -c` (le shell de connexion distant peut être csh), avec l'environnement
-    # chargé puis, au besoin, sous l'utilisateur demandé.
+    # Codes qui disent que le SHELL n'a pas pu jouer la garde, pas qu'elle
+    # répond « non » : décodage impossible (cf. `Apply.sh_line`), commande non
+    # exécutable, commande introuvable.
+    SHELL_FAILURE_CODES = {Apply::DECODE_FAILED, 126, 127}
+
+    # Messages d'erreur du shell lui-même (sh FreeBSD, et csh quand il lit la
+    # ligne — cas réel sur qwerty, 14 oct. 2026). Une garde légitime ne les
+    # produit pas en répondant « non ».
+    SHELL_ERROR_RE = /Unmatched ['"`]|Illegal variable name|Command not found|Syntax error|Bad substitution|Missing name for redirect|Undefined variable|parameter (null or )?not set/i
+
+    # Vrai si la garde ne s'est pas exécutée correctement (≠ « pas encore
+    # fait ») : l'étape doit alors être FAILED, jamais un « would apply » muet.
+    def self.broken_guard?(exit_code : Int32, stderr : String) : Bool
+      return false if exit_code == 0
+      SHELL_FAILURE_CODES.includes?(exit_code) || stderr.matches?(SHELL_ERROR_RE)
+    end
+
+    private def summary(text : String) : String
+      text.strip.lines.map(&.strip).reject(&.empty?).last(5).join(" | ")
+    end
+
+    # Ligne `sh -c` sûre quel que soit le shell de connexion (csh possible, et
+    # `su -m` garde celui de root) : un script multi-ligne voyage en base64
+    # (cf. `Apply.sh_line`). L'environnement est chargé avant (`set -a`) ; un
+    # `env_file` illisible est signalé sur stderr. Puis, au besoin, `su -m`.
     private def wrap(command : String, user : String, env_file : String) : String
-      script = env_file.empty? ? command : "set -a && . #{Process.quote(env_file)} && set +a && #{command}"
-      inner = "sh -c #{Process.quote(script)}"
+      script = if env_file.empty?
+                 command
+               else
+                 f = Process.quote(env_file)
+                 "[ -r #{f} ] || { echo \"beryl : env_file absent ou illisible : \"#{f} >&2; exit 1; }\n" \
+                 "set -a && . #{f} && set +a || exit 1\n#{command}"
+               end
+      inner = Apply.sh_line(script)
       user.empty? ? inner : "su -m #{user} -c #{Process.quote(inner)}"
     end
   end
