@@ -363,7 +363,7 @@ module Beryl::CLI
       end
 
       PkgOps.log("upgrade", "#{h.short_name} : paquets logiciels (hors #{BASE_REPO}) → pkg upgrade #{apply ? "-y" : "-n"}")
-      FJ.report(FJ::RUNNING, apply ? "mise à jour des paquets" : "plan")
+      FJ.report(FJ::RUNNING, apply ? "mise à jour des paquets" : "plan", touched: apply)
       ok, output = PkgOps.run_pkg(shell, software_cmd(apply, pkgs))
       # En dry-run, `pkg upgrade -n` sort non-zéro s'il n'y a RIEN à faire sur
       # certaines versions de pkg — on n'en fait pas un échec, on affiche.

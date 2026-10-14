@@ -66,8 +66,12 @@ module Beryl::CLI::FleetJob
     getter version : String?
     getter started_at : Time?
     getter updated_at : Time
+    # Vrai dès que l'enfant a commencé à MODIFIER le serveur (installation,
+    # montée, redémarrage). Un échec AVANT (injoignable, protégé, pas de
+    # cible…) ne dit rien de la mise à jour : il n'invalide pas le canari.
+    getter touched : Bool = false
 
-    def initialize(@state, @detail, @version = nil, @started_at = nil, @updated_at = Time.utc)
+    def initialize(@state, @detail, @version = nil, @started_at = nil, @updated_at = Time.utc, @touched = false)
     end
   end
 
@@ -128,10 +132,11 @@ module Beryl::CLI::FleetJob
 
   # Côté ENFANT : rapporte l'étape/le résultat si la variable est posée
   # (no-op hors tâche). `started_at` est conservé d'un rapport à l'autre.
-  def report(state : String, detail : String, version : String? = nil) : Nil
+  def report(state : String, detail : String, version : String? = nil, touched : Bool = false) : Nil
     path = ENV[ENV_STATE]? || return
     prev = read_state(path)
-    write_state(path, HostState.new(state, detail, version || prev.try(&.version), prev.try(&.started_at) || Time.utc))
+    write_state(path, HostState.new(state, detail, version || prev.try(&.version), prev.try(&.started_at) || Time.utc,
+      touched: touched || prev.try(&.touched) || false))
   rescue
     # Le rapport ne doit jamais faire échouer la mise à jour elle-même.
   end
@@ -163,10 +168,12 @@ module Beryl::CLI::FleetJob
       idx += 1
       say job, "canari : #{fqdn}"
       st = run_host(dir, job, fqdn, child_cmd)
-      case st.state
-      when UPTODATE
+      case
+      when st.state == UPTODATE
         say job, "#{fqdn} : à jour — le canari passe au serveur suivant"
-      when UPGRADED
+      when st.state != UPGRADED && !st.touched
+        say job, "#{fqdn} : #{st.state} AVANT toute modification (#{st.detail}) — n'invalide pas la mise à jour, le canari passe au serveur suivant"
+      when st.state == UPGRADED
         say job, "#{fqdn} : canari réussi (#{st.detail})"
         canary_ok = true
         break
@@ -216,13 +223,13 @@ module Beryl::CLI::FleetJob
     st = read_state(path) || HostState.new(RUNNING, "")
     if !FINAL.includes?(st.state)
       st = if status.success?
-             HostState.new(UPGRADED, "terminé (étape finale non rapportée)", st.version, st.started_at)
+             HostState.new(UPGRADED, "terminé (étape finale non rapportée)", st.version, st.started_at, touched: st.touched)
            else
-             HostState.new(FAILED, "code #{status.exit_code} — #{log_tail(dir, fqdn)}", st.version, st.started_at)
+             HostState.new(FAILED, "code #{status.exit_code} — #{log_tail(dir, fqdn)}", st.version, st.started_at, touched: st.touched)
            end
       write_state(path, st)
     elsif !status.success? && st.state != FAILED
-      st = HostState.new(FAILED, "code #{status.exit_code} — #{log_tail(dir, fqdn)}", st.version, st.started_at)
+      st = HostState.new(FAILED, "code #{status.exit_code} — #{log_tail(dir, fqdn)}", st.version, st.started_at, touched: st.touched)
       write_state(path, st)
     end
     st

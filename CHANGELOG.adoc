@@ -9,6 +9,20 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Canari : un serveur qui ne PEUT pas être mis à jour n'est pas un canari
+
+Sur quimeo (14 oct. 2026), le canari adi n'avait pas de release cible : la
+tâche l'a compté en échec et a ANNULÉ les 13 autres, alors que la mise à
+jour n'avait même pas été essayée. Chaque serveur indique désormais s'il a
+commencé à MODIFIER le système (`touched` : repoint, installation, montée,
+redémarrage ; installation des paquets pour `upgrade`). Un échec AVANT toute
+modification (pas de release cible, injoignable, protégé, plantage précoce)
+reste visible en ÉCHEC dans `--status` mais n'invalide pas le canari, qui
+passe au serveur suivant ; seul un échec APRÈS modification annule le reste.
+Le message « release cible indéterminée » devient précis : version courante,
+et « liste des releases injoignable » ou « branche N absente des releases
+publiées (fin de vie ?) ».
+
 === `upgrade` : services touchés relancés ; tâche de flotte partagée avec `os-upgrade`
 
 * Services RELANCÉS : après `pkg upgrade`, un service qui tourne garde

@@ -165,19 +165,26 @@ module Beryl::CLI::OsUpgrade
     shell = Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(host.connection(user)))
     cur_major, cur_minor, _ = cur
 
+    fetch_error : String? = nil
     target =
       if t = to
         t
       else
         begin
           Beryl::FreebsdRelease.latest_by_branch[cur_major]?
-        rescue
+        rescue ex
+          fetch_error = ex.message
           nil
         end
       end
     unless target
-      STDERR.puts "beryl : release cible indéterminée (réseau indispo ?) — précisez `--to X.Y`."
-      Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::FAILED, "release cible indéterminée")
+      why = if e = fetch_error
+              "liste des releases FreeBSD injoignable (#{e})"
+            else
+              "branche #{cur_major} absente des releases publiées (fin de vie ?) — montée de majeur à la main, ou `--to X.Y`"
+            end
+      STDERR.puts "beryl : #{host.fqdn} (#{cur_raw}) : pas de release cible — #{why}."
+      Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::FAILED, "#{cur_raw} : pas de release cible — #{why}", cur_raw)
       return EXIT_USAGE
     end
 
@@ -319,6 +326,7 @@ module Beryl::CLI::OsUpgrade
     # catalogue de la nouvelle branche est vide/absent (release pas publiée),
     # on ROLLBACK le repoint pour ne pas laisser le host sur une branche morte.
     log "#{host.fqdn} : repoint #{cur_branch} → #{branch} (#{conf})"
+    Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::RUNNING, "repoint #{cur_branch} → #{branch}", touched: true)
     shell.exec("sed -i '' -E 's/base_release_[0-9]+/#{branch}/g' #{conf}", raise_on_error: false)
     upd = shell.exec("#{IGNORE_OSV} pkg update -f -r #{BASE_REPO}", raise_on_error: false)
     unless upd.success?
@@ -330,7 +338,7 @@ module Beryl::CLI::OsUpgrade
     end
 
     log "#{host.fqdn} : pkg upgrade -y -r #{BASE_REPO}…"
-    Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::RUNNING, "montée #{cur_major}.#{cur_minor} → #{target}")
+    Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::RUNNING, "montée #{cur_major}.#{cur_minor} → #{target}", touched: true)
     up = shell.exec("#{IGNORE_OSV} pkg upgrade -y -r #{BASE_REPO}", raise_on_error: false)
     puts up.stdout.strip
     unless up.success?
@@ -378,7 +386,7 @@ module Beryl::CLI::OsUpgrade
     end
 
     log "#{host.fqdn} : correctifs #{target}-RELEASE → pkg upgrade -y -r #{BASE_REPO}…"
-    Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::RUNNING, "installation des correctifs (#{Beryl::CLI::Upgrade.pending_count(plan.stdout)} paquets)")
+    Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::RUNNING, "installation des correctifs (#{Beryl::CLI::Upgrade.pending_count(plan.stdout)} paquets)", touched: true)
     up = shell.exec("#{IGNORE_OSV} pkg upgrade -y -r #{BASE_REPO}", raise_on_error: false)
     puts up.stdout.strip
     unless up.success?
@@ -432,7 +440,7 @@ module Beryl::CLI::OsUpgrade
     end
 
     log "#{host.fqdn} : reboot…"
-    Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::RUNNING, "#{done} — redémarrage")
+    Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::RUNNING, "#{done} — redémarrage", touched: true)
     shell.exec("shutdown -r now", raise_on_error: false)
     if wait_back(host)
       new = Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(host.connection))

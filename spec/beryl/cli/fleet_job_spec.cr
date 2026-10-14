@@ -8,15 +8,19 @@ alias OUJ = Beryl::CLI::FleetJob
 #   ok.*      → à jour          upd.*  → mis à jour (rapporté)
 #   crash.*   → sort en 1 SANS rien rapporter (plantage) ; la ligne du journal
 #               doit remonter dans l'état
+#   fail.*    → échec APRÈS modification (touched) : invalide le canari
+#   pre.*     → échec AVANT toute modification (pas de cible…) : ne l'invalide pas
 FAKE_CHILD = <<-SH
   #!/bin/sh
   shift                       # "os-upgrade"
   host=$1
-  w() { printf '{"state":"%s","detail":"%s","updated_at":"2026-10-14T20:00:00Z"}' "$1" "$2" > "$BERYL_JOB_STATE"; }
+  w() { printf '{"state":"%s","detail":"%s","updated_at":"2026-10-14T20:00:00Z","touched":%s}' "$1" "$2" "${3:-false}" > "$BERYL_JOB_STATE"; }
   case "$host" in
     ok.*)    w "à jour" "aucun correctif en attente" ;;
     upd.*)   sleep 0.2; w "mis à jour" "revenu en 15.1-RELEASE-p5" ;;
     crash.*) echo "pkg: fichier verrouillé"; exit 1 ;;
+    fail.*)  w "échec" "pas revenu en SSH après redémarrage" true; exit 2 ;;
+    pre.*)   w "échec" "15.0-RELEASE : pas de release cible"; exit 1 ;;
   esac
   SH
 
@@ -52,13 +56,23 @@ describe Beryl::CLI::FleetJob do
     end
   end
 
-  it "canari en échec → le reste est ANNULÉ, rien d'autre n'est lancé" do
+  it "canari en échec APRÈS modification → le reste est ANNULÉ, rien d'autre n'est lancé" do
     with_job_env do |child|
-      hosts = %w[crash.a upd.b upd.c]
+      hosts = %w[fail.a upd.b upd.c]
       dir = OUJ.create("os-upgrade", "test", hosts, ["--apply"], 4)
       OUJ.run(dir, child).should eq(2)
       states(dir, hosts).should eq([OUJ::FAILED, OUJ::CANCELLED, OUJ::CANCELLED])
       File.exists?(OUJ.log_path(dir, "upd.b")).should be_false
+    end
+  end
+
+  it "échec AVANT toute modification (pas de cible, plantage précoce) → n'annule rien, le canari passe au suivant" do
+    with_job_env do |child|
+      hosts = %w[pre.a crash.b upd.c upd.d]
+      dir = OUJ.create("os-upgrade", "test", hosts, ["--apply"], 4)
+      OUJ.run(dir, child).should eq(2) # échecs visibles → code non nul
+      states(dir, hosts).should eq([OUJ::FAILED, OUJ::FAILED, OUJ::UPGRADED, OUJ::UPGRADED])
+      OUJ.read_state(OUJ.state_path(dir, "pre.a")).not_nil!.detail.should contain("pas de release cible")
     end
   end
 
