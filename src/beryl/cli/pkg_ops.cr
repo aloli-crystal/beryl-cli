@@ -297,7 +297,8 @@ module Beryl::CLI
         child_args << "--no-restart" unless restart
         PkgOps.log("upgrade", "portée #{scope} : #{fqdns.size} serveurs → canari #{fqdns.first}, puis #{parallel} en parallèle")
         groups = hosts.compact_map { |h| h.reboot_group.try { |g| {h.fqdn, g} } }.to_h
-        dir = Beryl::CLI::FleetJob.create("upgrade", scope || "tous", fqdns, child_args, parallel, groups)
+        dir = Beryl::CLI::FleetJob.create("upgrade", scope || "tous", fqdns, child_args, parallel, groups,
+          account: hosts.first.account_name, config_root: config_root)
         if detach
           pid = Beryl::CLI::FleetJob.detach(dir, Beryl::CLI::FleetJob.self_cmd(config_root))
           PkgOps.log("upgrade", "tâche #{File.basename(dir)} lancée en arrière-plan (pid #{pid}) — suivi : `beryl upgrade --status`")

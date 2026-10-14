@@ -1,5 +1,7 @@
 require "json"
 require "../xdg"
+require "../smtp"
+require "../config/env_file"
 
 # Tâche de flotte pour `beryl os-upgrade|upgrade <société|domaine> --apply` :
 # CANARI puis PARALLÈLE LIMITÉ, état sur disque lisible par `--status`.
@@ -56,8 +58,15 @@ module Beryl::CLI::FleetJob
     getter hosts : Array(HostRef)
     property pid : Int64? = nil
     property finished_at : Time? = nil
+    # Société dont le coffre fournit le relais du courriel récapitulatif, et
+    # racine de config où le trouver.
+    getter account : String? = nil
+    getter config_root : String? = nil
+    # Courriel récapitulatif : destinataire si envoyé, sinon raison.
+    property mailed_to : String? = nil
+    property mail_error : String? = nil
 
-    def initialize(@id, @kind, @scope, @created_at, @child_args, @parallel, @hosts)
+    def initialize(@id, @kind, @scope, @created_at, @child_args, @parallel, @hosts, @account = nil, @config_root = nil)
     end
   end
 
@@ -91,7 +100,8 @@ module Beryl::CLI::FleetJob
 
   # Crée la tâche (dossier + job.json + état « en attente » par serveur).
   def create(kind : String, scope : String, fqdns : Array(String), child_args : Array(String), parallel : Int32,
-             groups : Hash(String, String) = {} of String => String) : String
+             groups : Hash(String, String) = {} of String => String,
+             account : String? = nil, config_root : String? = nil) : String
     root = jobs_root(kind)
     base = Time.local.to_s("%Y%m%d-%H%M%S")
     id = base
@@ -102,7 +112,7 @@ module Beryl::CLI::FleetJob
     end
     dir = File.join(root, id)
     Dir.mkdir_p(dir)
-    job = Job.new(id, kind, scope, Time.utc, child_args, parallel, fqdns.map { |f| HostRef.new(f, groups[f]?) })
+    job = Job.new(id, kind, scope, Time.utc, child_args, parallel, fqdns.map { |f| HostRef.new(f, groups[f]?) }, account, config_root)
     write_json(File.join(dir, "job.json"), job.to_json)
     fqdns.each { |f| write_state(state_path(dir, f), HostState.new(PENDING, "")) }
     dir
@@ -279,7 +289,64 @@ module Beryl::CLI::FleetJob
     failed = states.count { |s| s.try(&.state) == FAILED }
     cancelled = states.count { |s| s.try(&.state) == CANCELLED }
     say job, "tâche #{job.id} terminée — #{summary(states)}"
+    # Courriel récapitulatif SEULEMENT hors console : tâche détachée (sortie
+    # vers son journal) ou lancée sur un bastion. Au premier plan dans un
+    # terminal, l'opérateur a déjà tout sous les yeux.
+    unless STDOUT.tty?
+      mail_summary(job, states)
+      save(dir, job)
+    end
     failed > 0 || cancelled > 0 ? 2 : 0
+  end
+
+  # Envoie le récapitulatif via le relais du coffre de la société
+  # (`[mail]` : SMTP_RELAY_USER/PASSWORD/TO, SMTP_RELAY_HOST/PORT facultatifs,
+  # défaut ssl0.ovh.net:587 comme la recette smtp-relay). Un échec est
+  # consigné (journal + `--status`), jamais silencieux.
+  private def mail_summary(job : Job, states : Array(HostState?)) : Nil
+    acct = job.account
+    root = job.config_root
+    unless acct && root
+      return mail_failed(job, "société inconnue pour cette tâche")
+    end
+    mail = Beryl::Config::EnvFile.load_vault(File.join(root, acct, Beryl::Config::EnvFile::VAULT_FILENAME))["mail"]? || {} of String => String
+    user = mail["SMTP_RELAY_USER"]?
+    pass = mail["SMTP_RELAY_PASSWORD"]?
+    to = mail["SMTP_RELAY_TO"]?
+    unless user && pass && to
+      return mail_failed(job, "coffre #{acct} : [mail] SMTP_RELAY_USER/PASSWORD/TO incomplet")
+    end
+    host = mail["SMTP_RELAY_HOST"]? || "ssl0.ovh.net"
+    port = mail["SMTP_RELAY_PORT"]?.try(&.to_i?) || 587
+    subject, body = compose(job, states)
+    Beryl::Smtp.send(host, port, user, pass, Beryl::Smtp::Message.new(user, to, subject, body))
+    job.mailed_to = to
+    say job, "récapitulatif envoyé à #{to}"
+  rescue ex
+    mail_failed(job, ex.message || ex.class.name)
+  end
+
+  private def mail_failed(job : Job, why : String) : Nil
+    job.mail_error = why
+    say job, "⚠ courriel récapitulatif NON envoyé : #{why}"
+  end
+
+  # Objet et corps du récapitulatif. Pur.
+  def compose(job : Job, states : Array(HostState?)) : {String, String}
+    subject = "[beryl][#{job.account || job.scope}] #{job.kind} #{job.scope} : #{summary(states)}"
+    w = job.hosts.map(&.fqdn.size).max? || 20
+    body = String.build do |b|
+      b << "Tâche " << job.kind << " " << job.id << " — " << job.scope << "\n"
+      b << "Options : " << job.child_args.join(" ") << " — " << job.parallel << " en parallèle après le canari\n\n"
+      job.hosts.each_with_index do |h, i|
+        st = states[i]?
+        grp = h.group ? "[#{h.group}] " : ""
+        b << "  " << h.fqdn.ljust(w) << "  " << (st.try(&.state) || "?").ljust(11) << "  " << grp << st.try(&.detail) << "\n"
+      end
+      b << "\nRésumé : " << summary(states) << "\n"
+      b << "Détail : beryl " << job.kind << " --status " << job.id << "\n"
+    end
+    {subject, body}
   end
 
   def summary(states : Array(HostState?)) : String
@@ -349,6 +416,11 @@ module Beryl::CLI::FleetJob
     end
     puts ""
     puts "Résumé : #{summary(states)}"
+    if to = job.mailed_to
+      puts "Récapitulatif envoyé à #{to}"
+    elsif err = job.mail_error
+      puts "⚠ Récapitulatif NON envoyé : #{err}"
+    end
     puts "Journaux : #{dir}/<serveur>.log"
     states.any? { |s| s.try(&.state) == FAILED } ? 2 : 0
   end

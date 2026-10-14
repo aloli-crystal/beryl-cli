@@ -168,3 +168,17 @@ describe "Beryl::CLI::FleetJob, groupes de redémarrage" do
     FileUtils.rm_rf(dir0) if dir0
   end
 end
+
+describe "Beryl::CLI::FleetJob, courriel récapitulatif" do
+  it "objet et corps : société, sous-commande, résumé, ligne par serveur, groupe" do
+    job = OUJ::Job.new("20261014-223206", "os-upgrade", "quimeo", Time.utc, ["--apply", "--reboot"], 4,
+      [OUJ::HostRef.new("han.quimeo.net"), OUJ::HostRef.new("zgra.quimeo.net", "bastions")], "quimeo", "/cfg")
+    states = [OUJ::HostState.new(OUJ::UPGRADED, "revenu en 15.1-RELEASE-p5"),
+              OUJ::HostState.new(OUJ::FAILED, "pas revenu en SSH après redémarrage")].map(&.as(OUJ::HostState?))
+    subject, body = OUJ.compose(job, states)
+    subject.should eq("[beryl][quimeo] os-upgrade quimeo : 1 mis à jour · 1 échec")
+    body.should contain("han.quimeo.net   mis à jour   revenu en 15.1-RELEASE-p5")
+    body.should contain("[bastions] pas revenu en SSH après redémarrage")
+    body.should contain("beryl os-upgrade --status 20261014-223206")
+  end
+end

@@ -9,6 +9,24 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Tâches de flotte : courriel récapitulatif (hors console)
+
+En fin de tâche `os-upgrade`/`upgrade`, un récapitulatif part par courriel
+SEULEMENT si la tâche ne tourne pas dans une console (sortie qui n'est pas un
+terminal : `--detach` sur le Mac, ou tâche lancée sur un bastion) ; au
+premier plan, l'opérateur a déjà tout sous les yeux. Objet
+`[beryl][<société>] <kind> <portée> : <résumé>`, une ligne par serveur
+(état, groupe, détail), et la commande `--status`.
+
+Envoi DIRECT au relais du coffre de la société (`[mail]` :
+`SMTP_RELAY_USER`, `SMTP_RELAY_PASSWORD`, `SMTP_RELAY_TO` ; facultatifs
+`SMTP_RELAY_HOST`, `SMTP_RELAY_PORT`, défaut `ssl0.ovh.net:587` comme la
+recette `smtp-relay`) : le courriel ne dépend d'aucun serveur, il part même
+si la mise à jour en a cassé. Nouveau `Beryl::Smtp` (submission + STARTTLS +
+AUTH PLAIN, message UTF-8 en base64). Un envoi impossible est consigné dans
+le journal et affiché par `--status` (« Récapitulatif NON envoyé : … »),
+jamais silencieux ; le mot de passe n'apparaît dans aucun message d'erreur.
+
 === Tâches de flotte : groupes de redémarrage (`reboot_group`)
 
 Nouveau champ `reboot_group: <nom>` du host.yml (héritable domaine/groupe) :
