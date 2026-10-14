@@ -187,6 +187,7 @@ module Beryl::Bootstrap
     getter mfsbsd_version : String
     getter timezone : String
     getter mfsbsd_url : String
+    getter iso_sha256 : String?
     getter pool_name : String
     getter swap_gb : Int32
     getter abi : String
@@ -219,6 +220,9 @@ module Beryl::Bootstrap
       @raid : String = "stripe",
       @timezone : String = "Europe/Paris",
       iso_url : String? = nil,
+      # Empreinte sha256 attendue de l'image (image maison) ; nil = aucune
+      # vérification (image officielle GitHub ou `--iso-url`).
+      @iso_sha256 : String? = nil,
       @pool_name : String = "zroot",
       @swap_gb : Int32 = 4,
       @qemu_ram_mb : Int32 = 4096,
@@ -679,11 +683,20 @@ module Beryl::Bootstrap
     end
 
     private def download_mfsbsd_if_needed : Nil
-      quoted = Process.quote(mfsbsd_local_path)
-      quoted_url = Process.quote(@mfsbsd_url)
-      @rescue_conn.exec(
-        "test -s #{quoted} || curl -fLo #{quoted} #{quoted_url}"
-      )
+      @rescue_conn.exec(self.class.download_command(mfsbsd_local_path, @mfsbsd_url, @iso_sha256))
+    end
+
+    # Commande (rescue Linux) de téléchargement de l'image. Avec une
+    # empreinte : vérifiée par `sha256sum -c`, y compris pour une image
+    # déjà en cache ; une image qui ne correspond pas est effacée et la
+    # commande échoue (rien n'est démarré). Pure, exposée pour les specs.
+    def self.download_command(path : String, url : String, sha256 : String?) : String
+      quoted = Process.quote(path)
+      fetch = "test -s #{quoted} || curl -fLo #{quoted} #{Process.quote(url)}"
+      return fetch unless sha256
+      raise ArgumentError.new("empreinte sha256 invalide : #{sha256.inspect}") unless sha256.matches?(/\A[0-9a-f]{64}\z/)
+      check = "printf '%s  %s\\n' #{sha256} #{quoted} | sha256sum -c --status -"
+      "#{fetch} && { #{check} || { rm -f #{quoted}; echo 'image mfsBSD : empreinte sha256 inattendue (image effacée)' >&2; exit 1; }; }"
     end
 
     private def prepare_ovmf_vars : Nil

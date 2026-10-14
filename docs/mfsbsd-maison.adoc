@@ -1,0 +1,61 @@
+= Image mfsBSD SE maison
+:toc: left
+:toc-title: Table des matières
+
+`beryl bootstrap` installe FreeBSD en démarrant une image mfsBSD SE dans
+le rescue de l'hébergeur (ADR-012). mfsBSD est un projet tiers, tenu par
+une seule personne : sa dernière publication (20 janvier 2026) s'arrête à
+15.0, sans 14.4 ni 15.1, et rien ne garantit une image FreeBSD 16. beryl
+peut donc démarrer une image *construite par nos soins*.
+
+Sans réglage, rien ne change : beryl détecte la dernière image officielle
+sur GitHub.
+
+== Construire et publier l'image
+
+Le dépôt https://github.com/papilip/mfsbsd-se[papilip/mfsbsd-se] reprend
+la construction du projet mfsBSD (cible `build-se`) pour d'autres releases.
+Son flux GitHub Actions construit l'image dans une machine virtuelle
+FreeBSD de la release visée et la publie en release `mfsbsd-se-<version>`
+(image, empreinte sha256, journal) :
+
+[source,sh]
+----
+gh workflow run build.yml --repo papilip/mfsbsd-se -f version=15.1
+----
+
+Le même script se lance à la main, en root, sur une machine FreeBSD de la
+même majeure (le builder `pkg.quimeo.net` pour la branche 15) : voir le
+README du dépôt.
+
+Le mot de passe root de l'image reste celui de mfsBSD (`mfsroot`) : beryl
+s'y connecte dans la machine virtuelle du rescue, jamais exposée.
+
+== Déclarer l'image à beryl
+
+Dans `~/.config/beryl/<société>/_defaults.yml` (ou au niveau d'un domaine
+ou d'un hôte), les trois clés ensemble, recopiées des notes de la release :
+
+[source,yaml]
+----
+mfsbsd_url: https://github.com/papilip/mfsbsd-se/releases/download/mfsbsd-se-15.1/mfsbsd-se-15.1-RELEASE-amd64.iso
+mfsbsd_version: "15.1"
+mfsbsd_sha256: <empreinte de la release>
+----
+
+`beryl bootstrap` prend alors cette image à la place de la détection
+GitHub et vérifie son empreinte dans le rescue après le téléchargement (et
+pour une image déjà en cache) : une image qui ne correspond pas est
+effacée, et rien n'est démarré. Une déclaration incomplète (adresse sans
+version ni empreinte, adresse en http) arrête le bootstrap, sans repli sur
+l'image officielle.
+
+`--iso-url` garde la priorité, pour un essai ponctuel, sans vérification
+d'empreinte. `--freebsd-version` prend l'image maison si sa version est la
+même, l'image officielle sinon.
+
+== Valider
+
+Un bootstrap complet sur un serveur de test, avant de déclarer l'image
+pour toute la société : démarrage dans le rescue, installation, premier
+démarrage sur le disque, puis `beryl apply`.

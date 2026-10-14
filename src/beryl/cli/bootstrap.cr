@@ -76,6 +76,11 @@ module Beryl::CLI::Bootstrap
     mfsbsd_version : String
     abi : String
     resolved_iso_url = iso_url_override
+    # Image mfsBSD SE maison (`mfsbsd_url` de la config, ex. release
+    # `papilip/mfsbsd-se`) : remplace la détection GitHub, sauf `--iso-url`.
+    # Son empreinte est vérifiée dans le rescue après téléchargement.
+    own_mfsbsd_url = iso_url_override ? nil : host.mfsbsd_url
+    image_sha256 : String? = nil
     # pkgbase (`install_type: packages`) : le système est installé par `pkg`
     # depuis le dépôt `base_release_<mineure>` — mfsBSD n'est qu'un OUTIL
     # d'installation, sa version ne limite PAS celle installée (même majeure).
@@ -84,13 +89,31 @@ module Beryl::CLI::Bootstrap
       freebsd_version = forced
       mfsbsd_version = forced
       abi = "FreeBSD:#{forced.split('.').first}:amd64"
+      # Image maison de la même version : prise à la place de GitHub.
+      if (url = own_mfsbsd_url) && host.mfsbsd_version == forced
+        begin
+          own = Beryl::Bootstrap::MfsBSDRelease.from_config(url, host.mfsbsd_version, host.mfsbsd_sha256)
+        rescue ex : Beryl::Bootstrap::MfsBSDRelease::DetectionFailed
+          STDERR.puts "beryl : image mfsBSD maison mal déclarée — #{ex.message}"
+          return EXIT_USAGE
+        end
+        resolved_iso_url = own.image_url
+        image_sha256 = host.mfsbsd_sha256
+      end
     else
       begin
-        info = Beryl::Bootstrap::MfsBSDRelease.latest
+        info =
+          if url = own_mfsbsd_url
+            Beryl::Bootstrap::MfsBSDRelease.from_config(url, host.mfsbsd_version, host.mfsbsd_sha256)
+          else
+            Beryl::Bootstrap::MfsBSDRelease.latest
+          end
+        image_sha256 = host.mfsbsd_sha256 if own_mfsbsd_url
         mfsbsd_version = info.version
         abi = info.abi
         resolved_iso_url ||= info.image_url
-        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 7.0] mfsBSD SE détectée : #{info.version} (#{info.image_url})"
+        origin = own_mfsbsd_url ? "image maison (mfsbsd_url)" : "détectée sur GitHub"
+        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 7.0] mfsBSD SE #{origin} : #{info.version} (#{info.image_url})"
         latest_by_branch = begin
           Beryl::FreebsdRelease.latest_by_branch
         rescue
@@ -114,7 +137,7 @@ module Beryl::CLI::Bootstrap
           end
         end
       rescue ex : Beryl::Bootstrap::MfsBSDRelease::DetectionFailed
-        STDERR.puts "beryl : impossible de détecter la dernière version mfsBSD SE — #{ex.message}"
+        STDERR.puts(own_mfsbsd_url ? "beryl : image mfsBSD maison mal déclarée — #{ex.message}" : "beryl : impossible de détecter la dernière version mfsBSD SE — #{ex.message}")
         STDERR.puts "        Passez --freebsd-version=X.Y pour forcer une version."
         return EXIT_USAGE
       end
@@ -376,6 +399,7 @@ module Beryl::CLI::Bootstrap
       abi: abi,
       timezone: timezone,
       iso_url: resolved_iso_url,
+      iso_sha256: image_sha256,
       pool_name: pool_name,
       swap_gb: swap_gb,
       installed_user: installed_user,

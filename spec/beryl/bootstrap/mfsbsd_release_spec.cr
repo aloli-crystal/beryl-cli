@@ -107,6 +107,37 @@ describe Beryl::Bootstrap::MfsBSDRelease do
     end
   end
 
+  describe ".from_config" do
+    url = "https://github.com/papilip/mfsbsd-se/releases/download/mfsbsd-se-15.1/mfsbsd-se-15.1-RELEASE-amd64.iso"
+    sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+    it "prend l'image maison déclarée, à la place de la détection GitHub" do
+      info = Beryl::Bootstrap::MfsBSDRelease.from_config(url, "15.1", sha)
+      info.version.should eq("15.1")
+      info.major.should eq("15")
+      info.abi.should eq("FreeBSD:15:amd64")
+      info.image_url.should eq(url)
+    end
+
+    it "refuse une déclaration incomplète ou incohérente, sans repli sur GitHub" do
+      expect_raises(Beryl::Bootstrap::MfsBSDRelease::DetectionFailed, /sans `mfsbsd_version`/) do
+        Beryl::Bootstrap::MfsBSDRelease.from_config(url, nil, sha)
+      end
+      expect_raises(Beryl::Bootstrap::MfsBSDRelease::DetectionFailed, /`mfsbsd_version` invalide/) do
+        Beryl::Bootstrap::MfsBSDRelease.from_config(url, "15", sha)
+      end
+      expect_raises(Beryl::Bootstrap::MfsBSDRelease::DetectionFailed, /https/) do
+        Beryl::Bootstrap::MfsBSDRelease.from_config(url.sub("https:", "http:"), "15.1", sha)
+      end
+      expect_raises(Beryl::Bootstrap::MfsBSDRelease::DetectionFailed, /sans `mfsbsd_sha256`/) do
+        Beryl::Bootstrap::MfsBSDRelease.from_config(url, "15.1", nil)
+      end
+      expect_raises(Beryl::Bootstrap::MfsBSDRelease::DetectionFailed, /`mfsbsd_sha256` invalide/) do
+        Beryl::Bootstrap::MfsBSDRelease.from_config(url, "15.1", "abc")
+      end
+    end
+  end
+
   describe ".pkgbase_target" do
     it "prend la dernière release de la même majeure, même si mfsBSD est en retard" do
       Beryl::Bootstrap.pkgbase_target("15.0", {15 => "15.1", 14 => "14.4"}).should eq("15.1")

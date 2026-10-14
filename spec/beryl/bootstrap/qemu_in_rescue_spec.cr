@@ -288,6 +288,32 @@ describe Beryl::Bootstrap::QemuInRescue do
       custom = "https://mirror.example.com/mfsbsd.img"
       bs = make_bootstrap(iso_url: custom)
       bs.iso_url.should eq(custom)
+      bs.iso_sha256.should be_nil
+    end
+  end
+
+  describe ".download_command" do
+    path = "/root/beryl-test/mfsbsd-se-15.1.iso"
+    url = "https://github.com/papilip/mfsbsd-se/releases/download/mfsbsd-se-15.1/mfsbsd-se-15.1-RELEASE-amd64.iso"
+    sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+    it "télécharge seulement sans empreinte (image officielle ou --iso-url)" do
+      cmd = Beryl::Bootstrap::QemuInRescue.download_command(path, url, nil)
+      cmd.should eq("test -s #{path} || curl -fLo #{path} #{url}")
+    end
+
+    it "vérifie l'empreinte de l'image maison, cache compris, et efface une image qui ne correspond pas" do
+      cmd = Beryl::Bootstrap::QemuInRescue.download_command(path, url, sha)
+      cmd.should start_with("test -s #{path} || curl -fLo #{path} #{url} && {")
+      cmd.should contain("printf '%s  %s\\n' #{sha} #{path} | sha256sum -c --status -")
+      cmd.should contain("rm -f #{path}")
+      cmd.should contain("exit 1")
+    end
+
+    it "refuse une empreinte mal formée" do
+      expect_raises(ArgumentError, /sha256/) do
+        Beryl::Bootstrap::QemuInRescue.download_command(path, url, "pas-une-empreinte")
+      end
     end
   end
 

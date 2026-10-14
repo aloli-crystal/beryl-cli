@@ -104,6 +104,22 @@ module Beryl::Bootstrap
     end
   end
 
+  module MfsBSDRelease
+    # Image maison déclarée dans la configuration (`mfsbsd_url`,
+    # `mfsbsd_version`, `mfsbsd_sha256`) : remplace la détection GitHub.
+    # Lève `DetectionFailed` si la déclaration est incomplète ou incohérente
+    # (pas de repli silencieux sur l'image officielle).
+    def self.from_config(url : String, version : String?, sha256 : String?) : Info
+      raise DetectionFailed.new("`mfsbsd_url` déclaré sans `mfsbsd_version` (ex. \"15.1\")") unless version
+      m = /\A(\d+)\.(\d+)\z/.match(version) ||
+          raise DetectionFailed.new("`mfsbsd_version` invalide : #{version.inspect} (attendu X.Y, ex. \"15.1\")")
+      raise DetectionFailed.new("`mfsbsd_url` doit être en https : #{url}") unless url.starts_with?("https://")
+      raise DetectionFailed.new("`mfsbsd_url` déclaré sans `mfsbsd_sha256`") unless sha256
+      raise DetectionFailed.new("`mfsbsd_sha256` invalide (64 caractères hexadécimaux attendus)") unless sha256.matches?(/\A[0-9a-f]{64}\z/)
+      Info.new(version: version, major: m[1], abi: "FreeBSD:#{m[1]}:amd64", image_url: url)
+    end
+  end
+
   # Version à installer en pkgbase : la dernière release PUBLIÉE de la même
   # majeure que mfsBSD (ex. mfsBSD 15.0 + release 15.1 sortie → 15.1). Jamais
   # en-dessous de la version mfsBSD ; sans info de releases → version mfsBSD.

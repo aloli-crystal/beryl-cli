@@ -172,7 +172,7 @@ Chaque commande est utilisable sous sa forme longue ou sa forme courte :
 |`--provider=NAME` |`-P` |Surcharge `provider:` du merge
 |`--dry-run` |`-n` |Affiche le plan d'install sans lancer
 |`--force` |`-f` |Bypass le précheck
-|`--iso-url=URL` |`-i` |URL mfsBSD (override)
+|`--iso-url=URL` |`-i` |URL mfsBSD (override ; sans vérification d'empreinte). Image maison permanente : clés `mfsbsd_url`, `mfsbsd_version`, `mfsbsd_sha256` (voir `docs/mfsbsd-maison.adoc`)
 |`--freebsd-version=VER` |`-v` |Version FreeBSD
 |`--help` |`-h` |Aide
 |===

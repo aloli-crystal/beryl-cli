@@ -9,6 +9,23 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `bootstrap` : image mfsBSD SE maison (0.6.42)
+
+mfsBSD n'a publié aucune image depuis le 20 janvier 2026 (pas de 15.1) et
+reste un projet tiers. beryl peut démarrer une image construite par nos
+soins :
+
+* clés de configuration `mfsbsd_url`, `mfsbsd_version` et `mfsbsd_sha256`
+  (société, domaine ou hôte) : l'image déclarée remplace la détection
+  GitHub ; sans elles, rien ne change ;
+* empreinte sha256 vérifiée dans le rescue après le téléchargement, cache
+  compris ; une image qui ne correspond pas est effacée et rien n'est
+  démarré ; une déclaration incomplète arrête le bootstrap ;
+* images construites et publiées par le dépôt `papilip/mfsbsd-se` (flux
+  GitHub Actions dans une machine virtuelle FreeBSD, comme le projet
+  mfsBSD ; script utilisable à la main) ;
+* `docs/mfsbsd-maison.adoc` : construire, déclarer, valider.
+
 === `build-status` : état lisible des builds de paquets poudriere
 
 Nouvelle sous-commande `beryl build-status <hôte>` (alias `bst`), en LECTURE

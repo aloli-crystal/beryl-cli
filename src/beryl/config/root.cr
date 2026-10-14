@@ -800,6 +800,26 @@ module Beryl::Config
       @merged[YAML::Any.new("storcli_url")]?.try(&.as_s?)
     end
 
+    # Image mfsBSD SE construite et publiée par nos soins (ex. release
+    # `mfsbsd-se-15.1` de `papilip/mfsbsd-se`, cf.
+    # `docs/mfsbsd-maison.adoc`) : mfsBSD est un projet tiers qui peut
+    # tarder (aucune image 15.1) ou s'arrêter (FreeBSD 16). Les trois clés
+    # vont ensemble : `mfsbsd_url` (adresse complète de l'.iso),
+    # `mfsbsd_version` (« 15.1 ») et `mfsbsd_sha256` (empreinte vérifiée
+    # dans le rescue après téléchargement). Sans `mfsbsd_url` : détection
+    # de la dernière image officielle sur GitHub, comme avant.
+    def mfsbsd_url : String?
+      @merged[YAML::Any.new("mfsbsd_url")]?.try(&.as_s?).presence
+    end
+
+    def mfsbsd_version : String?
+      @merged[YAML::Any.new("mfsbsd_version")]?.try { |v| v.as_s? || v.raw.to_s }.presence
+    end
+
+    def mfsbsd_sha256 : String?
+      @merged[YAML::Any.new("mfsbsd_sha256")]?.try(&.as_s?).presence.try(&.downcase)
+    end
+
     # Chemin de la clé privée SSH à utiliser pour ce host.
     #
     # Ordre de résolution :
