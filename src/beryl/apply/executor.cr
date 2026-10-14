@@ -167,7 +167,7 @@ module Beryl::Apply
       params[IF_CHANGED]?.try(&.as_bool?) == true && !changed
     end
 
-    # Arguments imposés par les `requires:` en forme map (ex. partiduo-base →
+    # Arguments imposés par les `requires:` en forme map (ex. monappli-base →
     # `nginx-base: { package: nginx }`) : servent de BASE à chaque jeu
     # d'arguments de la dépendance ; ceux de l'hôte restent prioritaires.
     # Deux recettes qui imposent des valeurs différentes au même argument →
@@ -288,7 +288,7 @@ module Beryl::Apply
 
     # Interpole les `{{ … }}` de chaque valeur string des params, EN DESCENDANT
     # récursivement dans les listes et les maps imbriquées (ex. `domains: [
-    # "{{ hostname }}.quimeo.net", … ]`). Les scalaires non-string et les
+    # "{{ hostname }}.example.net", … ]`). Les scalaires non-string et les
     # strings sans placeholder passent inchangés.
     private def interpolate(params : Hash(String, YAML::Any), vars : Hash(String, String)) : Hash(String, YAML::Any)
       out = {} of String => YAML::Any

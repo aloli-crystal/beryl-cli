@@ -32,7 +32,7 @@ module Beryl::Apply
 
   # Variable du coffre PROPRE À UN SERVEUR : `<NOM>__<HÔTE>` (nom court en
   # majuscules, tout caractère hors [A-Z0-9] → `_`). Ex. sur loulou :
-  # `PARTIDUO_AGENT_TOKEN__LOULOU`.
+  # `APP_AGENT_TOKEN__WEB1`.
   def self.host_secret_name(name : String, hostname : String) : String
     "#{name}__#{hostname.upcase.gsub(/[^A-Z0-9]/, "_")}"
   end
@@ -138,8 +138,8 @@ module Beryl::Apply
     # Commande `service <svc> <action>` qui ne retient PAS la session SSH : un
     # script rc.d qui lance son démon sans fermer ses descripteurs (daemon(8)
     # sans -f) lui transmet stdin/stdout de la session, et l'apply attend
-    # alors indéfiniment la fin d'un démon qui ne finit jamais (partiduo_admin,
-    # loulou, 6 oct. 2026). Les descripteurs du démon pointent ici vers un
+    # alors indéfiniment la fin d'un démon qui ne finit jamais (cas réel
+    # le 6 oct. 2026). Les descripteurs du démon pointent ici vers un
     # fichier temporaire, relu ensuite : la sortie et le code de retour de
     # `service` sont conservés.
     def self.service_command(svc : String, action : String) : String

@@ -12,7 +12,7 @@ module Beryl::CLI
   # d'un host) et `beryl dns-alias` (alias A/AAAA vers un host) pour tout le
   # reste : CNAME de validation ACME, TXT de vérification, MX…
   #
-  #   beryl dns-record aloli.net _acme-challenge.pkg CNAME _acme-challenge.pkg.quimeo.net
+  #   beryl dns-record example.org _acme-challenge.pkg CNAME _acme-challenge.pkg.example.net
   #   beryl dns-record example.net @ TXT "v=spf1 -all"
   #
   # Idempotent (`ensure_record` : rien si l'enregistrement existe déjà avec

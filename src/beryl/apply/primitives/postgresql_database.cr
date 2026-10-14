@@ -10,8 +10,8 @@ module Beryl::Apply
   # → échec explicite, à trancher par l'opérateur).
   #
   #     - postgresql-database:
-  #         name: partiduo_admin
-  #         owner: partiduo-admin
+  #         name: monappli
+  #         owner: monappli
   #         encoding: UTF8          # défaut
   class PostgresqlDatabase < Primitive
     # Noms acceptés : pas de guillemet ni d'espace (ils passent dans du SQL et
@@ -82,7 +82,7 @@ module Beryl::Apply
   # `CREATEDB` à un rôle existant qui ne l'a pas.
   #
   #     - postgresql-role:
-  #         name: partiduo
+  #         name: monappli_instances
   #         createdb: true
   class PostgresqlRole < Primitive
     def name : String

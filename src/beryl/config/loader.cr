@@ -135,7 +135,7 @@ module Beryl::Config
       names = Set(String).new
       Dir.children(account_dir).each do |entry|
         next if entry.starts_with?("_") || entry.starts_with?(".")
-        # Un domaine est un FQDN → il CONTIENT un point (`quimeo.net`). Les
+        # Un domaine est un FQDN → il CONTIENT un point (`example.net`). Les
         # sous-dossiers de SERVICE (`recipes`, `info`, futurs…) n'en ont pas
         # et sont donc ignorés — sans liste d'exceptions à maintenir.
         next unless entry.includes?('.')

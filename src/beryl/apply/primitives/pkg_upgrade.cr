@@ -17,7 +17,7 @@ module Beryl::Apply
   #   dire) ; fait aussi en dry-run : ne touche que le cache du catalogue,
   #   jamais les paquets installés.
   # . `pkg info -e <p>` : un paquet listé mais NON installé est ignoré
-  #   (rapporté) — un serveur peut n'avoir que `partiduo-app`.
+  #   (rapporté) — un serveur peut n'avoir que `monappli`.
   # . `pkg version -URv -l '<'` : les paquets installés plus anciens que le
   #   catalogue distant, avec la version disponible (« needs updating (remote
   #   has X) »). Choisi plutôt que d'analyser `pkg upgrade -n` : c'est la
@@ -45,9 +45,9 @@ module Beryl::Apply
 
     # Analyse la sortie de `pkg version -URv -l '<'` et ne garde que les
     # paquets de `wanted`. Une ligne vaut
-    # `partiduo-app-1.2.3     <   needs updating (remote has 1.2.4)`.
+    # `monappli-1.2.3     <   needs updating (remote has 1.2.4)`.
     # Le nom se déduit en retirant le dernier `-<version>` (une version pkg
-    # ne contient pas de tiret ; un nom, si : `partiduo-app-devel`). Pur.
+    # ne contient pas de tiret ; un nom, si : `monappli-devel`). Pur.
     def self.parse_outdated(output : String, wanted : Array(String)) : Array(Outdated)
       result = [] of Outdated
       output.each_line do |line|

@@ -279,8 +279,8 @@ module Beryl::CLI::AccountUtils
 
   # Forme la plus courte, sans ambiguïté, pour désigner un host en ligne de
   # commande (cf. `split_host_path`) : `tika` si le nom court est unique dans
-  # toute la config ; `aloli/tika` s'il existe aussi dans une autre société ;
-  # `aloli/aloli.net/tika` s'il existe aussi dans un autre domaine de la même
+  # toute la config ; `acme/web1` s'il existe aussi dans une autre société ;
+  # `acme/example.net/web1` s'il existe aussi dans un autre domaine de la même
   # société. `existing` = hosts connus (le host lui-même peut y figurer).
   def self.host_ref(short : String, account : String, domain : String,
                     existing : Array(NamedTuple(account: String, domain: String, short: String))) : String

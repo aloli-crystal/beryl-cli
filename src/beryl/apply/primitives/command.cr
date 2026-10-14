@@ -8,10 +8,10 @@ module Beryl::Apply
   # OBLIGATOIRE.
   #
   #     - command:
-  #         run: "partiduo-admin-manage bootstrap --email={{ bootstrap_email }}"
-  #         unless: "psql -d partiduo_admin -tAc \"…\" | grep -q 1"
-  #         user: partiduo-admin                       # facultatif (défaut root)
-  #         env_file: /usr/local/etc/partiduo-admin/admin.env   # facultatif
+  #         run: "monappli-manage bootstrap --email={{ bootstrap_email }}"
+  #         unless: "psql -d monappli -tAc \"…\" | grep -q 1"
+  #         user: monappli                             # facultatif (défaut root)
+  #         env_file: /usr/local/etc/monappli/monappli.env   # facultatif
   #         if_set: "{{ bootstrap_email }}"            # vide → étape sautée
   #         show_output: true                          # sortie dans le compte rendu
   #

@@ -9,6 +9,13 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Aucun nom de société dans le code
+
+Les exemples des commentaires et de l'aide n'utilisent plus que des noms
+neutres (`example.net`, `acme/web1`, `monappli`…). `poudriere-build`, ancien
+schéma (`overlay:` + `pkglist:`) : `overlay:` devient OBLIGATOIRE, au lieu
+d'une valeur par défaut propre à une société.
+
 === Dépendance yaml-tidy 0.1.2
 
 `beryl fmt` (YamlCanon) conserve tels quels les scalaires multilignes

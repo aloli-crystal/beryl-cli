@@ -28,7 +28,7 @@ module Beryl::Apply
     #
     #     requires:
     #       - acme
-    #       - nginx-base: { package: nginx, includes: "partiduo/*.conf" }
+    #       - nginx-base: { package: nginx, http_extra: "include monappli/*.conf;" }
     #
     # nom de la dépendance → arguments. Les arguments de l'hôte (`apply_recipes`)
     # restent prioritaires (cf. `Executor.merge_required_args`).

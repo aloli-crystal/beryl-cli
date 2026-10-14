@@ -12,7 +12,7 @@
 # headscale-join, assert-env-var, assert-tailscale-up,
 # auto-close-schedule, headscale-state-commit. Les recettes
 # (ssh-hardening, firewall-pf, headscale-*, …) qui les composent
-# vivent dans le dépôt aloli-crystal/beryl-recipes.
+# vivent dans le dépôt beryl-recipes.
 require "./apply/shell"
 require "./apply/primitive"
 require "./apply/primitives/pkg_install"

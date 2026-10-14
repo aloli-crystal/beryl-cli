@@ -11,8 +11,8 @@ module Beryl::Apply
   #
   #     - github-ssh-key:
   #         pubkey_path: /home/deploy/.ssh/id_ed25519.pub
-  #         token_env: GITHUB_QUIMEOIT_TOKEN
-  #         title: "deploy@serveur.quimeo.net"   # optionnel (défaut = commentaire de la clé)
+  #         token_env: GITHUB_DEPLOY_TOKEN
+  #         title: "deploy@web1.example.net"   # optionnel (défaut = commentaire de la clé)
   #
   # L'appel HTTP part de BERYL (le PAT reste côté opérateur, jamais sur le
   # serveur). PAT requis : scope `write:public_key` (classic) ou permission

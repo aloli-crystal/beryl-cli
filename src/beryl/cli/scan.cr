@@ -1392,9 +1392,9 @@ module Beryl::CLI::Scan
   # Nom court d'un serveur découvert : le displayName OVH nettoyé s'il
   # existe, sinon un placeholder `new-<id>` (partie ns du serviceName) à
   # renommer par l'opérateur.
-  # Un displayName qui est déjà le FQDN du domaine cible (`tika.aloli.net`
-  # pour le domaine `aloli.net`) donne son nom court (`tika`) : sinon le
-  # host deviendrait `tika-aloli-net.aloli.net`.
+  # Un displayName qui est déjà le FQDN du domaine cible (`web1.example.net`
+  # pour le domaine `example.net`) donne son nom court (`web1`) : sinon le
+  # host deviendrait `web1-example-net.example.net`.
   def self.discover_short_name(display : String?, service_name : String, domain : String? = nil) : String
     if (d = display) && !d.strip.empty?
       d = d.strip.downcase.rchop('.')

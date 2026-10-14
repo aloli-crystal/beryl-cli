@@ -410,3 +410,11 @@ describe "Beryl::Apply::PoudriereBuild — force" do
     end
   end
 end
+
+describe "Beryl::Apply::PoudriereBuild — ancien schéma sans `overlay:`" do
+  it "exige le nom de l'overlay (plus de valeur par défaut propre à une société)" do
+    expect_raises(Beryl::Apply::Primitive::MissingParam, /overlay/) do
+      pb.apply(builder_shell, pb_params("major: \"15\"\npkglist: /l\n"), dry_run: true, context: pb_ctx)
+    end
+  end
+end

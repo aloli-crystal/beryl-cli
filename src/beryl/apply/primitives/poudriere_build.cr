@@ -44,14 +44,14 @@ module Beryl::Apply
   #     - poudriere-build:
   #         major: "15"
   #         overlays:
-  #           - name: quimeo                  # nom de l'arbre poudriere (-O)
-  #             pkglist: /usr/local/etc/poudriere.d/quimeo-pkglist
-  #           - name: aloli
-  #             git: https://github.com/aloli/aloli-ports  # optionnel : clone + MAJ
+  #           - name: maison                  # nom de l'arbre poudriere (-O)
+  #             pkglist: /usr/local/etc/poudriere.d/maison-pkglist
+  #           - name: partenaire
+  #             git: https://github.com/example/ports-overlay  # optionnel : clone + MAJ
   #             branch: production            # optionnel (défaut : branche courante / distante par défaut)
-  #             path: /usr/local/poudriere/aloli-ports      # optionnel (défaut : /usr/local/poudriere/<name>-ports)
-  #             pkglist: /usr/local/etc/poudriere.d/aloli-pkglist   # optionnel
-  #         reapply: /usr/local/poudriere/quimeo-ports/reapply-base-patches.sh  # optionnel
+  #             path: /usr/local/poudriere/partenaire-ports # optionnel (défaut : /usr/local/poudriere/<name>-ports)
+  #             pkglist: /usr/local/etc/poudriere.d/partenaire-pkglist   # optionnel
+  #         reapply: /usr/local/etc/poudriere.d/reapply-base-patches.sh  # optionnel
   #         schedule: "0 3 * * 0"         # optionnel : build planifié (cron)
   #         ports_branch: quarterly       # optionnel : branche de l'arbre de ports
   #
@@ -82,8 +82,8 @@ module Beryl::Apply
   #
   #     - poudriere-build:
   #         major: "15"
-  #         pkglist: /usr/local/etc/poudriere.d/quimeo-pkglist
-  #         overlay: quimeo               # optionnel (défaut quimeo)
+  #         pkglist: /usr/local/etc/poudriere.d/maison-pkglist
+  #         overlay: maison               # obligatoire (nom de l'arbre overlay)
   class PoudriereBuild < Primitive
     DEFAULT_PKGDIR = "/usr/local/poudriere/data/packages"
     OVERLAY_ROOT   = "/usr/local/poudriere"
@@ -177,7 +177,7 @@ module Beryl::Apply
       jail = jail_name(version, arch)
       set = set_name(version, arch, ports)
       ali = "#{pkgdir}/#{alias_name(major, arch)}"
-      # reapply : ré-applique les patches quimeo sur l'arbre base APRÈS le pull
+      # reapply : ré-applique les patches maison sur l'arbre base APRÈS le pull
       # (ex. retirer du MOVED les ports expirés que l'overlay ré-introduit). On
       # lui passe le chemin de l'arbre ($PTDIR) et on PRÉVIENT dans le log s'il
       # est configuré mais absent/non exécutable (au lieu d'un skip silencieux).
@@ -345,7 +345,7 @@ module Beryl::Apply
     private def parse_overlays(params : Hash(String, YAML::Any)) : Array(Overlay)
       raw = params["overlays"]?
       unless raw
-        return [Overlay.new(string(params, "overlay") || "quimeo")]
+        return [Overlay.new(required_string(params, "overlay"))]
       end
       if params.has_key?("overlay")
         raise PrimitiveError.new("`overlay:` et `overlays:` sont exclusifs (primitive `#{name}`).")

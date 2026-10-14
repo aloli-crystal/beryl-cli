@@ -28,7 +28,7 @@ module Beryl::Apply
   #           @@USER@@|{{ smarthost }}:@@SECRET@@
   #
   # Variables PAR SERVEUR : pour chaque nom, beryl cherche d'abord
-  # `<NOM>__<HÔTE>` (ex. `PARTIDUO_AGENT_TOKEN__LOULOU`), puis `<NOM>`. Avec
+  # `<NOM>__<HÔTE>` (ex. `APP_AGENT_TOKEN__WEB1`), puis `<NOM>`. Avec
   # `per_host: true`, seule la variante du serveur est acceptée : un jeton ou
   # une clé propre à chaque serveur n'est jamais pris dans la valeur commune.
   #

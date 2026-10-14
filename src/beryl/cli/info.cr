@@ -623,7 +623,7 @@ module Beryl::CLI
         end
       end
       return hosts unless (s = scope)
-      # Forme CHEMIN `société[/domaine]/host` (ex. `quimeo/pkg`) : on filtre
+      # Forme CHEMIN `société[/domaine]/host` (ex. `acme/pkg`) : on filtre
       # par composants (l'host par nom court OU fqdn).
       if s.includes?("/")
         p = Beryl::CLI::AccountUtils.split_host_path(s)
