@@ -233,6 +233,12 @@ describe Beryl::Config::ResolvedHost do
     Beryl::Config::Root.load(fixture("direct-hosts")).resolve("loulou").connect_users.should eq(["root"])
   end
 
+  it "reboot_group : lu du host.yml, nil si absent" do
+    root = Beryl::Config::Root.load(fixture("installed-flag"))
+    root.resolve("explicit").reboot_group.should eq("bastions")
+    root.resolve("ready").reboot_group.should be_nil
+  end
+
   it "installed? : faux seulement si `installed: false` (absent = installé)" do
     root = Beryl::Config::Root.load(fixture("installed-flag"))
     root.resolve("pending").installed?.should be_false

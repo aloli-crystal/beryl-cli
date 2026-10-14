@@ -2,3 +2,4 @@ provider: local
 installed: true
 freebsd:
   hostname: explicit
+reboot_group: bastions

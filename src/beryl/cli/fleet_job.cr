@@ -36,8 +36,10 @@ module Beryl::CLI::FleetJob
   struct HostRef
     include JSON::Serializable
     getter fqdn : String
+    # `reboot_group` du serveur : jamais deux d'un même groupe en même temps.
+    getter group : String? = nil
 
-    def initialize(@fqdn : String)
+    def initialize(@fqdn : String, @group : String? = nil)
     end
   end
 
@@ -88,7 +90,8 @@ module Beryl::CLI::FleetJob
   end
 
   # Crée la tâche (dossier + job.json + état « en attente » par serveur).
-  def create(kind : String, scope : String, fqdns : Array(String), child_args : Array(String), parallel : Int32) : String
+  def create(kind : String, scope : String, fqdns : Array(String), child_args : Array(String), parallel : Int32,
+             groups : Hash(String, String) = {} of String => String) : String
     root = jobs_root(kind)
     base = Time.local.to_s("%Y%m%d-%H%M%S")
     id = base
@@ -99,7 +102,7 @@ module Beryl::CLI::FleetJob
     end
     dir = File.join(root, id)
     Dir.mkdir_p(dir)
-    job = Job.new(id, kind, scope, Time.utc, child_args, parallel, fqdns.map { |f| HostRef.new(f) })
+    job = Job.new(id, kind, scope, Time.utc, child_args, parallel, fqdns.map { |f| HostRef.new(f, groups[f]?) })
     write_json(File.join(dir, "job.json"), job.to_json)
     fqdns.each { |f| write_state(state_path(dir, f), HostState.new(PENDING, "")) }
     dir
@@ -192,22 +195,46 @@ module Beryl::CLI::FleetJob
     finish(dir, job)
   end
 
+  # Ordonnanceur : au plus `parallel` serveurs à la fois, et JAMAIS deux d'un
+  # même `reboot_group` (bastions…). Un serveur dont le groupe est occupé
+  # attend son tour sans bloquer ceux des autres groupes.
   private def run_parallel(dir : String, job : Job, fqdns : Array(String), child_cmd : Array(String)) : Nil
-    slots = Channel(Nil).new(job.parallel)
-    done = Channel(Nil).new
-    fqdns.each do |fqdn|
-      spawn do
-        slots.send(nil)
-        begin
-          st = run_host(dir, job, fqdn, child_cmd)
-          say job, "#{fqdn} : #{st.state}#{st.detail.empty? ? "" : " — #{st.detail}"}"
-        ensure
-          slots.receive
-          done.send(nil)
-        end
+    groups = job.hosts.to_h { |h| {h.fqdn, h.group} }
+    pending = fqdns.dup
+    busy = Set(String).new
+    running = 0
+    done = Channel(String).new
+    until pending.empty? && running == 0
+      while running < job.parallel && (fqdn = next_runnable(pending, groups, busy))
+        pending.delete(fqdn)
+        groups[fqdn]?.try { |g| busy << g }
+        running += 1
+        launch(dir, job, fqdn, child_cmd, done)
+      end
+      finished = done.receive
+      running -= 1
+      groups[finished]?.try { |g| busy.delete(g) }
+    end
+  end
+
+  # Lance UN serveur dans sa fibre. Méthode à part (et non bloc dans la
+  # boucle) : `fqdn` est un ARGUMENT, propre à chaque fibre. Une variable de
+  # boucle capturée par `spawn` serait partagée : un serveur terminé
+  # annoncerait le nom d'un autre, et son groupe ne serait jamais libéré.
+  private def launch(dir : String, job : Job, fqdn : String, child_cmd : Array(String), done : Channel(String)) : Nil
+    spawn do
+      begin
+        st = run_host(dir, job, fqdn, child_cmd)
+        say job, "#{fqdn} : #{st.state}#{st.detail.empty? ? "" : " — #{st.detail}"}"
+      ensure
+        done.send(fqdn)
       end
     end
-    fqdns.size.times { done.receive }
+  end
+
+  # Premier serveur en attente dont le groupe n'est pas occupé. Pur.
+  def next_runnable(pending : Array(String), groups : Hash(String, String?), busy : Set(String)) : String?
+    pending.find { |f| (g = groups[f]?).nil? || !busy.includes?(g) }
   end
 
   # Lance l'enfant d'UN serveur et renvoie son état final. Un enfant qui
@@ -316,7 +343,8 @@ module Beryl::CLI::FleetJob
     w = job.hosts.map(&.fqdn.size).max? || 20
     states = job.hosts.map do |h|
       st = read_state(state_path(dir, h.fqdn))
-      puts "  #{h.fqdn.ljust(w)}  #{(st.try(&.state) || "?").ljust(11)}  #{duration(st).rjust(6)}  #{st.try(&.detail)}"
+      grp = h.group ? "[#{h.group}] " : ""
+      puts "  #{h.fqdn.ljust(w)}  #{(st.try(&.state) || "?").ljust(11)}  #{duration(st).rjust(6)}  #{grp}#{st.try(&.detail)}"
       st
     end
     puts ""

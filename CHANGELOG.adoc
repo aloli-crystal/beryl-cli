@@ -9,6 +9,17 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Tâches de flotte : groupes de redémarrage (`reboot_group`)
+
+Nouveau champ `reboot_group: <nom>` du host.yml (héritable domaine/groupe) :
+`os-upgrade` et `upgrade` en tâche de flotte ne traitent JAMAIS deux
+serveurs d'un même groupe en même temps ; les autres avancent en parallèle
+(dans la limite de `--parallel`). Sur quimeo (14 oct. 2026), les trois
+bastions avaient redémarré ensemble. `--status` affiche le groupe de chaque
+serveur. L'ordonnanceur lance chaque serveur par une méthode à part : une
+variable de boucle capturée par `spawn` aurait été partagée entre fibres
+(groupe jamais libéré, tâche bloquée — détecté par le test).
+
 === Canari : un serveur qui ne PEUT pas être mis à jour n'est pas un canari
 
 Sur quimeo (14 oct. 2026), le canari adi n'avait pas de release cible : la

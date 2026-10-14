@@ -601,6 +601,14 @@ module Beryl::Config
       @merged[YAML::Any.new("installed")]?.try(&.as_bool?) != false
     end
 
+    # `reboot_group: <nom>` (host.yml, héritable domaine/groupe) : les tâches de
+    # flotte (`os-upgrade`, `upgrade`) ne traitent JAMAIS deux serveurs d'un
+    # même groupe en même temps — ex. les bastions, un Headscale principal et
+    # son secours. Absent = aucune contrainte.
+    def reboot_group : String?
+      @merged[YAML::Any.new("reboot_group")]?.try(&.as_s?).try(&.strip).presence
+    end
+
     # Le host a-t-il du chiffrement ZFS (pools data chiffrés OU datasets zroot
     # chiffrés du profil Option I) ? Sert à savoir s'il faut être déverrouillé
     # avant une opération qui ÉCRIT (pkg upgrade…).

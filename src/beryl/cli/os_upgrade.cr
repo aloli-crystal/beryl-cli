@@ -119,7 +119,8 @@ module Beryl::CLI::OsUpgrade
     if t = to
       child_args << "--to" << t
     end
-    dir = Beryl::CLI::FleetJob.create("os-upgrade", scope, fqdns, child_args, parallel)
+    groups = hosts.compact_map { |h| h.reboot_group.try { |g| {h.fqdn, g} } }.to_h
+    dir = Beryl::CLI::FleetJob.create("os-upgrade", scope, fqdns, child_args, parallel, groups)
     if detach
       pid = Beryl::CLI::FleetJob.detach(dir, Beryl::CLI::FleetJob.self_cmd(config_root))
       log "tâche #{File.basename(dir)} lancée en arrière-plan (pid #{pid}) — suivi : `beryl os-upgrade --status`"

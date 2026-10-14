@@ -119,3 +119,52 @@ describe "Beryl::CLI::FleetJob pour `upgrade`" do
     FileUtils.rm_rf(dir0) if dir0
   end
 end
+
+describe "Beryl::CLI::FleetJob, groupes de redémarrage" do
+  it "next_runnable saute un serveur dont le groupe est occupé" do
+    groups = {"b1" => "bastions", "b2" => "bastions", "o1" => nil}.transform_values(&.as(String?))
+    OUJ.next_runnable(%w[b2 o1], groups, Set{"bastions"}).should eq("o1")
+    OUJ.next_runnable(%w[b2], groups, Set{"bastions"}).should be_nil
+    OUJ.next_runnable(%w[b2 o1], groups, Set(String).new).should eq("b2")
+  end
+
+  it "jamais deux bastions à la fois, les autres en parallèle" do
+    dir0 = File.tempname("beryl-job-grp")
+    Dir.mkdir_p(dir0)
+    old = ENV["XDG_STATE_HOME"]?
+    ENV["XDG_STATE_HOME"] = dir0
+    trace = File.join(dir0, "trace")
+    ENV["BERYL_TRACE"] = trace
+    child = File.join(dir0, "fake")
+    File.write(child, <<-SH)
+      #!/bin/sh
+      shift
+      echo "START $1" >> "$BERYL_TRACE"
+      sleep 0.3
+      echo "END $1" >> "$BERYL_TRACE"
+      printf '{"state":"mis à jour","detail":"ok","updated_at":"2026-10-14T20:00:00Z","touched":true}' > "$BERYL_JOB_STATE"
+      SH
+    File.chmod(child, 0o755)
+    hosts = %w[c0 b1 b2 b3 o1 o2]
+    groups = {"b1" => "bastions", "b2" => "bastions", "b3" => "bastions"}
+    dir = OUJ.create("os-upgrade", "test", hosts, ["--apply", "--reboot"], 4, groups)
+    OUJ.run(dir, [child]).should eq(0)
+
+    active = Set(String).new
+    max_bastions = 0
+    max_total = 0
+    File.read_lines(trace).each do |l|
+      ev, h = l.split
+      ev == "START" ? active << h : active.delete(h)
+      max_bastions = {max_bastions, active.count(&.starts_with?("b"))}.max
+      max_total = {max_total, active.size}.max
+    end
+    max_bastions.should eq(1) # jamais deux bastions ensemble
+    max_total.should be > 1   # mais du parallèle pour les autres
+    OUJ.load(dir).hosts.find! { |h| h.fqdn == "b2" }.group.should eq("bastions")
+  ensure
+    ENV.delete("BERYL_TRACE")
+    old ? (ENV["XDG_STATE_HOME"] = old) : ENV.delete("XDG_STATE_HOME")
+    FileUtils.rm_rf(dir0) if dir0
+  end
+end
