@@ -9,6 +9,15 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `--status` affiche bien le sort du courriel récapitulatif
+
+Le courriel partait (journal : « récapitulatif envoyé à … », aloli,
+14 oct. 2026) mais `--status` n'en disait rien : `Job` était une `struct`,
+COPIÉE en argument, si bien que `mailed_to`/`mail_error` étaient posés sur
+une copie et jamais enregistrés. `Job` devient une classe. Test de
+non-régression ; la décision « courriel ou console » est forçable dans les
+tests (`FleetJob.notify=`), le défaut restant « hors terminal ».
+
 === Tâches de flotte : courriel récapitulatif (hors console)
 
 En fin de tâche `os-upgrade`/`upgrade`, un récapitulatif part par courriel

@@ -182,3 +182,30 @@ describe "Beryl::CLI::FleetJob, courriel récapitulatif" do
     body.should contain("beryl os-upgrade --status 20261014-223206")
   end
 end
+
+describe "Beryl::CLI::FleetJob, résultat du courriel enregistré" do
+  it "l'échec d'envoi est SAUVÉ dans la tâche et affiché par --status (Job est une classe, pas une copie)" do
+    with_job_env do |child|
+      OUJ.notify = true
+      dir = OUJ.create("os-upgrade", "test", %w[upd.a], ["--apply"], 1)
+      OUJ.run(dir, child)
+      OUJ.load(dir).mail_error.should eq("société inconnue pour cette tâche")
+      OUJ.load(dir).finished_at.should_not be_nil
+    ensure
+      OUJ.notify = nil
+    end
+  end
+
+  it "pas de courriel quand la décision est « console »" do
+    with_job_env do |child|
+      OUJ.notify = false
+      dir = OUJ.create("os-upgrade", "test", %w[upd.a], ["--apply"], 1)
+      OUJ.run(dir, child)
+      job = OUJ.load(dir)
+      job.mail_error.should be_nil
+      job.mailed_to.should be_nil
+    ensure
+      OUJ.notify = nil
+    end
+  end
+end

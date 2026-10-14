@@ -45,7 +45,10 @@ module Beryl::CLI::FleetJob
     end
   end
 
-  struct Job
+  # CLASSE (et non struct) : `finish`/`mail_summary` modifient la tâche
+  # (finished_at, mailed_to…) avant de l'enregistrer ; une struct serait
+  # COPIÉE à chaque passage en argument et ces champs perdus.
+  class Job
     include JSON::Serializable
     getter id : String
     # Sous-commande beryl des enfants (`os-upgrade`, `upgrade`).
@@ -292,11 +295,24 @@ module Beryl::CLI::FleetJob
     # Courriel récapitulatif SEULEMENT hors console : tâche détachée (sortie
     # vers son journal) ou lancée sur un bastion. Au premier plan dans un
     # terminal, l'opérateur a déjà tout sous les yeux.
-    unless STDOUT.tty?
+    if notify?
       mail_summary(job, states)
       save(dir, job)
     end
     failed > 0 || cancelled > 0 ? 2 : 0
+  end
+
+  # Courriel récapitulatif ? Hors console (sortie qui n'est pas un terminal),
+  # sauf décision forcée (tests).
+  @@notify : Bool? = nil
+
+  def notify=(value : Bool?) : Nil
+    @@notify = value
+  end
+
+  def notify? : Bool
+    n = @@notify
+    n.nil? ? !STDOUT.tty? : n
   end
 
   # Envoie le récapitulatif via le relais du coffre de la société
