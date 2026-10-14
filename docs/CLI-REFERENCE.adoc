@@ -68,6 +68,7 @@ Chaque commande est utilisable sous sa forme longue ou sa forme courte :
 |`bootstrap` |`b` |Installe FreeBSD 15 (mfsBSD-in-QEMU)
 |`scan` |`s` |Détecte les disques et propose un YAML host
 |`apply` |`a` |Synchronise packages/users/clés SSH
+|`pg-upgrade` | |Migre PostgreSQL vers une version majeure (pg_upgrade)
 |`prep-rescue` |`pr` |HTTP local pour préparer un rescue Debian
 |`bake-seed` |`bs` |cloud-init seed.img pour Ubuntu Server live
 |`version` |`v` |Affiche la version
@@ -217,6 +218,28 @@ Chaque commande est utilisable sous sa forme longue ou sa forme courte :
 |===
 |Long |Court |Description
 
+|`--account=NAME` |`-a` |Forcer la société
+|`--domain=NAME` |`-d` |Forcer le domaine
+|`--help` |`-h` |Aide
+|===
+
+=== `beryl pg-upgrade <host>`
+
+Migration PostgreSQL vers une version majeure (`pg_upgrade`). Simulation par
+défaut.
+
+[cols="2,1,4",options="header"]
+|===
+|Long |Court |Description
+
+|`--to=NN` | |Majeure cible (défaut : la plus récente du dépôt)
+|`--apply` | |Exécute (sinon : détection + plan)
+|`--link` | |`pg_upgrade --link` : pas de retour arrière après démarrage
+|`--stop-services=a,b` | |Services clients arrêtés avant, relancés après
+|`--dump-dir=DIR` | |Sauvegarde `pg_dumpall` + paquets de secours (défaut : `/var/db/postgres`)
+|`--no-dump` | |Pas de sauvegarde `pg_dumpall` préalable
+|`--new-data=DIR` | |Data dir du nouveau cluster (si `postgresql_data` est personnalisé)
+|`--cleanup` | |Supprime l'ancien data dir, les paquets de secours et `/tmp/pg-upgrade`
 |`--account=NAME` |`-a` |Forcer la société
 |`--domain=NAME` |`-d` |Forcer le domaine
 |`--help` |`-h` |Aide

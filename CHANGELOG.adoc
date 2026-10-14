@@ -9,6 +9,38 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl pg-upgrade` : migration PostgreSQL vers une version majeure
+
+Nouvelle sous-commande générique, sur la procédure du fichier `UPDATING` des
+ports FreeBSD (`pkg create` des anciens paquets, extraction des anciens
+binaires dans `/tmp/pg-upgrade`, `pkg delete -f` / `pkg install`, `initdb`,
+`pg_upgrade`). Simulation par défaut, `--apply` pour exécuter.
+
+* Détection : majeure installée (`postgresqlNN-server`), cible `--to NN` ou
+  la plus récente du dépôt (tri sur la vraie version, comme `pkg-versioned`).
+  Refus si la cible n'est pas plus récente, si aucun serveur n'est installé
+  ou si un paquet cible manque au dépôt.
+* Garde « dépendants » : les paquets installés qui dépendent de l'ancienne
+  version (pilotes, extensions) doivent exister au dépôt reconstruits pour la
+  nouvelle, sinon refus avec la marche à suivre (`DEFAULT_VERSIONS+=
+  pgsql=NN` dans poudriere). Ils sont réinstallés après la nouvelle version.
+* Sauvegarde `pg_dumpall` horodatée avant tout (`--dump-dir`, défaut
+  `/var/db/postgres` ; `--no-dump`), espace disque vérifié.
+* `initdb` aux options de l'ancien cluster : encodage, locale (fournisseurs
+  libc / ICU / builtin), data checksums (`--data-checksums` ou
+  `--no-data-checksums`), taille des segments WAL. La configuration
+  (`postgresql.conf`, `pg_hba.conf`, `pg_ident.conf`, certificats) est
+  reprise, puis validée par le nouveau serveur.
+* `pg_upgrade --check` d'abord ; mode copie par défaut, `--link` en option.
+* Retour arrière automatique en cas d'échec avant le démarrage du nouveau
+  serveur : nouveaux paquets retirés, anciens réinstallés (`pkg add`) depuis
+  les paquets de secours, ancien cluster relancé.
+* `--stop-services` : services clients arrêtés avant, relancés après.
+* Après : `vacuumdb --all --analyze-in-stages`, ancien data dir conservé ;
+  `--cleanup` le supprime ensuite, seulement si la nouvelle version tourne
+  sur le nouveau data dir.
+* `beryl help pg-upgrade` et `beryl help os-upgrade` affichent l'aide de la
+  sous-commande.
 === `--status` affiche bien le sort du courriel récapitulatif
 
 Le courriel partait (journal : « récapitulatif envoyé à … », aloli,

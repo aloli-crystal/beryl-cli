@@ -31,6 +31,7 @@ require "./cli/env"
 require "./cli/headscale_authkey"
 require "./cli/pkg_ops"
 require "./cli/os_upgrade"
+require "./cli/pg_upgrade"
 
 # Point d'entrée CLI de beryl.
 #
@@ -156,6 +157,7 @@ module Beryl::CLI
     when "update"             then Beryl::CLI::Update.run(config_root, sub_args)
     when "upgrade"            then Beryl::CLI::Upgrade.run(config_root, sub_args)
     when "os-upgrade"         then Beryl::CLI::OsUpgrade.run(config_root, sub_args)
+    when "pg-upgrade"         then Beryl::CLI::PgUpgrade.run(config_root, sub_args)
     when "version"            then puts "beryl #{Beryl::VERSION}"; 0
     else
       STDERR.puts "beryl : sous-commande inconnue : #{subcommand}"
@@ -188,6 +190,7 @@ module Beryl::CLI
     {"list-hosts", "ls", "Liste les hôtes de toutes les sociétés"},
     {"lock", "l", "Verrouille les pools chiffrés (unload-key + export) — inverse d'unlock"},
     {"os-upgrade", "", "Met à jour le système FreeBSD (correctifs via --apply ; runbook pour une montée de release)"},
+    {"pg-upgrade", "", "Migre PostgreSQL vers une version majeure (pg_upgrade) — DRY-RUN par défaut, --apply pour exécuter"},
     {"prep-rescue", "pr", "HTTP local pour préparer un rescue Debian"},
     {"reboot", "rb", "Reboot d'un host (--soft via SSH ou --hard via API)"},
     {"rescue", "r", "Bascule un hôte en rescue via l'API hébergeur"},
@@ -265,6 +268,8 @@ module Beryl::CLI
     when "status"         then Beryl::CLI::Status.run(config_root, ["--help"])
     when "tang-enroll"    then Beryl::CLI::TangEnroll.run(config_root, ["--help"])
     when "env"            then Beryl::CLI::Env.run(config_root, ["--help"])
+    when "os-upgrade"     then Beryl::CLI::OsUpgrade.run(config_root, ["--help"])
+    when "pg-upgrade"     then Beryl::CLI::PgUpgrade.run(config_root, ["--help"])
     when "version"
       puts "USAGE : beryl version"
       puts

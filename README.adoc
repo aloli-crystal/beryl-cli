@@ -382,6 +382,41 @@ link:docs/CLI-REFERENCE.adoc[docs/CLI-REFERENCE.adoc]. Detailed architecture
 and roadmap are in link:ARCHITECTURE.adoc[ARCHITECTURE.adoc] and
 link:docs/adr/[docs/adr/].
 
+== Upgrading PostgreSQL to a new major version
+
+`beryl pg-upgrade <host>` upgrades the PostgreSQL server of a FreeBSD host to
+a new major version (e.g. 18 → 19) with `pg_upgrade`, following the procedure
+from the FreeBSD ports `UPDATING` file. Dry-run by default: beryl detects the
+versions, the data dirs and the cluster options, checks the preconditions and
+prints the plan.
+
+[source,sh]
+----
+beryl pg-upgrade acme/db1.example.net --to 19 --stop-services myapp
+beryl pg-upgrade acme/db1.example.net --to 19 --stop-services myapp --apply
+----
+
+What beryl checks before touching anything:
+
+* the target `postgresqlNN-server` package is in the repository (`--to`,
+  otherwise the most recent version in the repository);
+* installed packages that depend on PostgreSQL (drivers, extensions) exist in
+  the repository rebuilt for the new version. Otherwise beryl refuses: rebuild
+  the repository first with `DEFAULT_VERSIONS+= pgsql=NN`;
+* disk space (data dir copy + `pg_dumpall` backup).
+
+The new cluster gets the encoding, locale and data checksums state of the old
+one. `pg_upgrade --check` runs first. If anything fails before the new server
+starts, beryl automatically rolls back to the old version. `--link` is faster
+but rules out any rollback once the new server has started.
+
+The old data dir is kept. Once the new version is validated:
+
+[source,sh]
+----
+beryl pg-upgrade acme/db1.example.net --cleanup --apply
+----
+
 == RAID levels (ZFS)
 
 `beryl scan` asks for each pool's RAID level as a number. Numbers 5, 6 and 7
