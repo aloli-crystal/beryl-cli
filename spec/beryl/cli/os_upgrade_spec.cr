@@ -47,6 +47,21 @@ describe Beryl::CLI::OsUpgrade do
     end
   end
 
+  describe ".kernel_mismatch" do
+    it "noyau installé ≠ noyau en service → redémarrage en attente" do
+      Beryl::CLI::OsUpgrade.kernel_mismatch("15.1-RELEASE-p5\n15.1-RELEASE-p4\n")
+        .should eq({installed: "15.1-RELEASE-p5", running: "15.1-RELEASE-p4"})
+    end
+
+    it "nil quand le noyau installé est celui qui tourne" do
+      Beryl::CLI::OsUpgrade.kernel_mismatch("15.1-RELEASE-p5\n15.1-RELEASE-p5\n").should be_nil
+    end
+
+    it "nil sur une sortie illisible (sonde en échec)" do
+      Beryl::CLI::OsUpgrade.kernel_mismatch("").should be_nil
+    end
+  end
+
   describe ".base_branch" do
     it "mappe X.Y → base_release_<minor> (pkgbase)" do
       Beryl::CLI::OsUpgrade.base_branch("15.1").should eq("base_release_1")

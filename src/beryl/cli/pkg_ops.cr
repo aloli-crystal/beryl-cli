@@ -7,8 +7,12 @@ require "./ssh_probe"
 # Mises à jour de paquets façon Homebrew, sur une PORTÉE (société/domaine/host/
 # tous) :
 #   beryl update  [portée]              → `pkg update` : rafraîchit le catalogue
-#   beryl upgrade [portée] [--apply]    → `pkg upgrade` : par défaut DRY-RUN (plan
-#                                          via `pkg upgrade -n`) ; --apply exécute
+#   beryl upgrade [portée] [--apply]    → `pkg upgrade` des PAQUETS LOGICIELS :
+#                                          DRY-RUN par défaut (`-n`) ; --apply exécute.
+#                                          Le SYSTÈME de base (dépôt FreeBSD-base :
+#                                          noyau, userland) n'est JAMAIS touché ici,
+#                                          seulement signalé → `beryl os-upgrade`
+#                                          (redémarrage, local_unbound, jails).
 #
 # Sécurité :
 #   * `upgrade` est dry-run par DÉFAUT (ne change rien sans --apply).
@@ -133,6 +137,49 @@ module Beryl::CLI
     EXIT_USAGE  = 1
     EXIT_FAILED = 2
 
+    # Dépôt du SYSTÈME de base (pkgbase) : réservé à `beryl os-upgrade`.
+    BASE_REPO = "FreeBSD-base"
+
+    # `pkg upgrade` des seuls paquets LOGICIELS : `pkgs` (liste fermée, mode
+    # --recipes) ou, sinon, les paquets installés HORS du dépôt de base et
+    # disponibles dans un dépôt (`pkg upgrade` sans nom toucherait aussi le
+    # noyau). Les règles de pkg s'appliquent tel quel à cette liste (versions,
+    # options changées, nouvelles dépendances). Lecture seule en dry-run :
+    # aucun verrou posé. Aucun paquet logiciel → rien, jamais `pkg upgrade` nu.
+    def self.software_cmd(apply : Bool, pkgs : Array(String)? = nil) : String
+      flag = apply ? "-y" : "-n"
+      if pkgs && !pkgs.empty?
+        return "pkg upgrade #{flag} #{pkgs.map { |p| Process.quote(p) }.join(" ")}"
+      end
+      <<-SH
+        pkg update -q || exit $?
+        set -- $({ pkg rquery -a '%n'; echo --; pkg query '%n %R'; } | awk '
+          !sep && $0 == "--" { sep = 1; next }
+          !sep { remote[$1] = 1; next }
+          $2 != "#{BASE_REPO}" && ($1 in remote) { print $1 }')
+        [ $# -gt 0 ] || { echo "aucun paquet logiciel à examiner"; exit 0; }
+        pkg upgrade #{flag} "$@"
+        SH
+    end
+
+    # Nombre de paquets du système de base en attente (lecture seule), nil si
+    # le serveur n'est pas en pkgbase ou si la sonde échoue.
+    def self.base_pending(shell : Beryl::Apply::Shell) : Int32?
+      return nil unless shell.exec("pkg query %n FreeBSD-runtime", raise_on_error: false).stdout.strip == "FreeBSD-runtime"
+      # Catalogue du dépôt de base rafraîchi d'abord : sinon le décompte vient d'un
+      # catalogue périmé (cas du résumé de flotte d'`os-upgrade`).
+      res = shell.exec("IGNORE_OSVERSION=yes pkg update -q -r #{BASE_REPO} >/dev/null 2>&1; IGNORE_OSVERSION=yes pkg upgrade -n -r #{BASE_REPO}", raise_on_error: false)
+      pending_count(res.stdout)
+    rescue
+      nil
+    end
+
+    # « Number of packages to be upgraded: 7 » (+ installed/reinstalled) → 7.
+    # 0 si pkg annonce que tout est à jour. Fonction pure.
+    def self.pending_count(output : String) : Int32
+      output.scan(/^Number of packages to be (?:upgraded|installed|reinstalled): (\d+)/m).sum(&.[1].to_i)
+    end
+
     def self.run(config_root : String, args : Array(String)) : Int32
       account_hint : String? = nil
       domain_hint : String? = nil
@@ -141,7 +188,7 @@ module Beryl::CLI
       positional = [] of String
       parser = OptionParser.new do |p|
         p.banner = "USAGE : beryl upgrade [portée] [--apply] [--recipes]\n" \
-                   "        pkg upgrade — DRY-RUN par défaut (plan) ; --apply pour exécuter."
+                   "        Paquets LOGICIELS (le système de base : `beryl os-upgrade`) — DRY-RUN par défaut ; --apply pour exécuter."
         p.on("--apply", "Exécute réellement (sinon : dry-run, affiche le plan sans rien changer)") { apply = true }
         p.on("--recipes", "Ne met à jour QUE les paquets gérés par les recettes (défaut : tous)") { recipes_only = true }
         p.on("-a NAME", "--account=NAME", "Forcer la société") { |v| account_hint = v }
@@ -162,6 +209,7 @@ module Beryl::CLI
 
       failures = 0
       unreachable = 0
+      base_hosts = [] of String
       hosts.each do |h|
         # Garde-fou : un host protégé refuse toute ÉCRITURE. Le dry-run (-n,
         # lecture seule) reste permis pour voir le plan.
@@ -190,8 +238,8 @@ module Beryl::CLI
           pkgs_suffix = " #{pkgs.join(" ")}"
         end
 
-        cmd = apply ? "pkg upgrade -y#{pkgs_suffix}" : "pkg upgrade -n#{pkgs_suffix}"
-        PkgOps.log("upgrade", "#{h.short_name} : #{cmd}")
+        cmd = software_cmd(apply, recipes_only ? pkgs_suffix.split : nil)
+        PkgOps.log("upgrade", "#{h.short_name} : paquets logiciels (hors #{BASE_REPO}) → pkg upgrade #{apply ? "-y" : "-n"}")
         ok, output = PkgOps.run_pkg(shell, cmd)
         # En dry-run, `pkg upgrade -n` sort non-zéro s'il n'y a RIEN à faire sur
         # certaines versions de pkg — on n'en fait pas un échec, on affiche.
@@ -199,6 +247,17 @@ module Beryl::CLI
         puts output.strip.empty? ? "(rien à mettre à jour)" : output.strip
         puts
         failures += 1 if apply && !ok
+
+        # Système de base : JAMAIS touché ici (redémarrage, local_unbound,
+        # jails → `beryl os-upgrade`), seulement signalé, en lecture seule.
+        if (n = base_pending(shell)) && n > 0
+          PkgOps.log("upgrade", "#{h.short_name} : système de base — #{n} paquet(s) en attente, NON installés ici → `beryl os-upgrade #{h.short_name}`")
+          base_hosts << h.short_name
+        end
+      end
+
+      unless base_hosts.empty?
+        STDERR.puts "beryl : mises à jour du SYSTÈME en attente sur #{base_hosts.join(", ")} → `beryl os-upgrade <serveur>` (gère le redémarrage)."
       end
 
       STDERR.puts "beryl : #{unreachable} serveur(s) injoignable(s) en SSH." if unreachable > 0

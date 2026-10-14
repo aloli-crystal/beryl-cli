@@ -5,6 +5,7 @@ require "./account_utils"
 require "./info"   # scoped_hosts (portée société/domaine/host)
 require "./unlock" # déverrouillage auto post-reboot (hosts chiffrés)
 require "./ssh_probe"
+require "./pkg_ops" # Upgrade.base_pending (correctifs du dépôt de base)
 
 # `beryl os-upgrade <host> [--to X.Y] [--apply] [--reboot]` — met à jour le
 # SYSTÈME FreeBSD (≠ `upgrade` = paquets seuls). CONSCIENT DU TYPE D'INSTALL :
@@ -158,8 +159,10 @@ module Beryl::CLI::OsUpgrade
     EXIT_FAILED
   end
 
-  NOTE_UP = "montée dispo"
-  NOTE_OK = "release à jour"
+  NOTE_UP     = "montée dispo"
+  NOTE_PATCH  = "correctifs en attente"
+  NOTE_OK     = "à jour"
+  NOTE_REBOOT = "redémarrage en attente"
 
   record HostState, fqdn : String, ok : Bool, current : String?, target : String?, note : String
 
@@ -174,15 +177,19 @@ module Beryl::CLI::OsUpgrade
       puts "  #{st.fqdn.ljust(w)}  #{ver.ljust(26)}  #{st.note}"
     end
     up = states.count { |s| s.note.starts_with?(NOTE_UP) }
+    patch = states.count { |s| s.note.includes?(NOTE_PATCH) }
+    boot = states.count { |s| s.note.includes?(NOTE_REBOOT) }
     ready = states.count { |s| s.note.starts_with?(NOTE_OK) }
     ko = states.count { |s| !s.ok }
     puts ""
-    puts "Résumé : #{up} à monter · #{ready} à jour · #{ko} injoignables (sur #{states.size})."
-    puts "→ détail (dont correctifs en attente, invisibles ici) : `beryl os-upgrade <host>` ; appliquer : `beryl os-upgrade <host> --apply [--reboot]`."
+    puts "Résumé : #{up} à monter · #{patch} avec correctifs en attente · #{boot} à redémarrer · #{ready} à jour · #{ko} injoignables (sur #{states.size})."
+    puts "→ détail : `beryl os-upgrade <host>` ; appliquer : `beryl os-upgrade <host> --apply [--reboot]`."
     EXIT_OK
   end
 
-  # Lecture SEULE (pas de sudo) de l'état d'un hôte, pour le résumé de flotte.
+  # État d'un hôte pour le résumé de flotte, en LECTURE SEULE : version (sans
+  # sudo) puis, si la release est la dernière, correctifs du dépôt de base en
+  # attente (`pkg upgrade -n`, via sudo : rien n'est installé).
   private def self.probe_one(host, to) : HostState
     user, probe = Beryl::CLI::SshProbe.reachable(host, "freebsd-version -r")
     cur_raw = probe.stdout.strip
@@ -201,7 +208,18 @@ module Beryl::CLI::OsUpgrade
       return HostState.new(host.fqdn, true, cur_raw, nil, "majeur #{cur_major} sans cible (branche EOL ?)#{via}")
     end
     up_needed = Beryl::FreebsdRelease.version_key(target) > {cur_major, cur_minor} || !to.nil?
-    HostState.new(host.fqdn, true, cur_raw, target, "#{up_needed ? NOTE_UP : NOTE_OK}#{via}")
+    return HostState.new(host.fqdn, true, cur_raw, target, "#{NOTE_UP}#{via}") if up_needed
+    shell = Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(host.connection(user)))
+    case n = Beryl::CLI::Upgrade.base_pending(shell)
+    when nil then HostState.new(host.fqdn, true, cur_raw, target, "#{NOTE_OK} (release ; correctifs non vérifiés, pas en pkgbase)#{via}")
+    when 0
+      if (k = pending_kernel(shell))
+        HostState.new(host.fqdn, true, cur_raw, target, "noyau #{k[:installed]} installé — #{NOTE_REBOOT}#{via}")
+      else
+        HostState.new(host.fqdn, true, cur_raw, target, "#{NOTE_OK}#{via}")
+      end
+    else HostState.new(host.fqdn, true, cur_raw, target, "#{n} paquet(s) de base — #{NOTE_PATCH}#{via}")
+    end
   rescue ex
     HostState.new(host.fqdn, false, nil, nil, "erreur : #{ex.message}")
   end
@@ -285,6 +303,14 @@ module Beryl::CLI::OsUpgrade
     end
     plan = shell.exec("#{IGNORE_OSV} pkg upgrade -n -r #{BASE_REPO}", raise_on_error: false)
     unless pending_upgrades?(plan.stdout)
+      # Correctifs déjà INSTALLÉS (apply précédent sans --reboot) mais noyau
+      # pas encore chargé : seul le redémarrage reste à faire.
+      if (k = pending_kernel(shell))
+        log "#{host.fqdn} : correctifs installés, noyau #{k[:installed]} en attente (en service : #{k[:running]}) — REDÉMARRAGE requis."
+        return finish(config_root, shell, host, "noyau #{k[:installed]} installé", reboot) if apply
+        puts "→ `beryl os-upgrade #{host.short_name} --apply --reboot` (ou `beryl reboot #{host.short_name}`) le charge."
+        return EXIT_OK
+      end
       log "#{host.fqdn} : #{target}-RELEASE, aucun correctif en attente — rien à faire."
       return EXIT_OK
     end
@@ -308,6 +334,20 @@ module Beryl::CLI::OsUpgrade
 
     after_base_upgrade(shell, host)
     finish(config_root, shell, host, "correctifs #{target}-RELEASE installés", reboot)
+  end
+
+  # Noyau INSTALLÉ (`freebsd-version -k`) différent du noyau EN SERVICE (`-r`) →
+  # {installed, running}, sinon nil : correctifs posés, redémarrage en attente.
+  def self.pending_kernel(shell : Beryl::Apply::Shell) : NamedTuple(installed: String, running: String)?
+    res = shell.exec("freebsd-version -k; freebsd-version -r", raise_on_error: false)
+    kernel_mismatch(res.stdout)
+  end
+
+  # Deux lignes (`-k` puis `-r`) → {installed, running} si elles diffèrent. Pure.
+  def self.kernel_mismatch(output : String) : NamedTuple(installed: String, running: String)?
+    lines = output.lines.map(&.strip).reject(&.empty?)
+    return nil unless lines.size == 2 && lines[0] != lines[1]
+    {installed: lines[0], running: lines[1]}
   end
 
   # Vrai si la sortie d'un `pkg upgrade -n` annonce des paquets à modifier

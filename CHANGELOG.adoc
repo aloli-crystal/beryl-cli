@@ -9,6 +9,29 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `upgrade` : paquets logiciels seulement ; système de base via `os-upgrade`
+
+`beryl upgrade` lançait `pkg upgrade` sur TOUS les dépôts, dépôt de base
+compris : il installait un nouveau noyau (quantas, 15.1p4 → 15.1p5) sans
+rappel de redémarrage, sans `local_unbound setup` ni rafraîchissement des
+jails. Il ne passe plus à `pkg upgrade` que les paquets installés HORS du
+dépôt `FreeBSD-base` et disponibles dans un dépôt (mêmes règles de pkg :
+versions, options changées, nouvelles dépendances ; aucun verrou, le
+dry-run reste en lecture seule ; jamais de `pkg upgrade` nu). Les correctifs
+du système de base en attente sont seulement SIGNALÉS, avec renvoi vers
+`beryl os-upgrade <serveur>`, qui gère le redémarrage.
+
+`os-upgrade` en résumé de flotte compte désormais ces correctifs (lecture
+seule, `pkg upgrade -n -r FreeBSD-base`) : « 7 paquet(s) de base —
+correctifs en attente » au lieu d'un « release à jour » trompeur quand la
+release est la dernière mais qu'un correctif (15.1p5) attend.
+
+Un noyau INSTALLÉ mais pas encore chargé (`freebsd-version -k` ≠ `-r`, ex.
+`--apply` lancé sans `--reboot`) n'est plus pris pour « rien à faire » :
+`os-upgrade` signale « redémarrage en attente » et, avec `--apply --reboot`,
+redémarre (attente du SSH, déverrouillage si chiffré) ; le résumé de flotte
+les compte (« à redémarrer »).
+
 === Shell de connexion libre : aucune commande lue avec sa syntaxe
 
 Le shell de connexion du compte distant est un choix libre (csh pour
