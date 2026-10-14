@@ -9,6 +9,33 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `os-upgrade` de flotte : canari, parallèle limité, tâche détachée, `--status`
+
+`os-upgrade <société|domaine> --apply [--reboot]` traitait les serveurs UN
+PAR UN, la commande ouverte jusqu'au bout (plus d'une heure à 15 serveurs).
+C'est désormais une TÂCHE :
+
+* CANARI : les serveurs passent un à un jusqu'au premier qui a réellement
+  quelque chose à installer (un serveur à jour ne valide rien) ; s'il
+  échoue, le reste est ANNULÉ — un correctif qui casse le démarrage se voit
+  sur un serveur, pas sur tous. `--canary HOST` le choisit.
+* puis PARALLÈLE limité (`--parallel N`, défaut 4) : un serveur qui plante
+  ne bloque aucun autre.
+* chaque serveur = un processus enfant `beryl os-upgrade <fqdn> --apply`
+  (chemin un-serveur éprouvé), journal propre (`<fqdn>.log`), état écrit
+  à chaque étape (connexion, installation, redémarrage, déverrouillage) ;
+  un enfant qui plante sans rien rapporter est noté ÉCHEC avec la fin de son
+  journal — jamais silencieux. Déverrouillage post-redémarrage en échec :
+  ÉCHEC (il était ignoré).
+* `--detach` : tâche en arrière-plan (`nohup`, et `caffeinate -i` sur macOS
+  pour éviter la veille), la commande rend la main ;
+  `beryl os-upgrade --status [TÂCHE]` : état par serveur (en attente, en
+  cours, mis à jour, à jour, échec, annulé), détail, durée, et si la tâche
+  tourne encore ou a été interrompue.
+* État dans `$XDG_STATE_HOME/beryl/jobs/os-upgrade/<id>/` (défaut
+  `~/.local/state/beryl/`, nouveau `Beryl::Xdg.state_dir`) : rien de propre
+  au Mac, la même tâche pourra tourner sur un bastion.
+
 === `upgrade` : paquets logiciels seulement ; système de base via `os-upgrade`
 
 `beryl upgrade` lançait `pkg upgrade` sur TOUS les dépôts, dépôt de base

@@ -5,7 +5,8 @@ require "./account_utils"
 require "./info"   # scoped_hosts (portée société/domaine/host)
 require "./unlock" # déverrouillage auto post-reboot (hosts chiffrés)
 require "./ssh_probe"
-require "./pkg_ops" # Upgrade.base_pending (correctifs du dépôt de base)
+require "./pkg_ops"        # Upgrade.base_pending (correctifs du dépôt de base)
+require "./os_upgrade_job" # canari + parallèle + --status (portée multi-serveurs)
 
 # `beryl os-upgrade <host> [--to X.Y] [--apply] [--reboot]` — met à jour le
 # SYSTÈME FreeBSD (≠ `upgrade` = paquets seuls). CONSCIENT DU TYPE D'INSTALL :
@@ -38,19 +39,41 @@ module Beryl::CLI::OsUpgrade
     to : String? = nil
     apply = false
     reboot = false
+    parallel = 4
+    canary : String? = nil
+    detach = false
+    status = false
+    job_dir : String? = nil
     positional = [] of String
     parser = OptionParser.new do |p|
-      p.banner = "USAGE : beryl os-upgrade <host|société|domaine> [--to X.Y] [--apply] [--reboot]\n" \
-                 "        Met à jour le système FreeBSD sur toute la portée. DRY-RUN par défaut."
+      p.banner = "USAGE : beryl os-upgrade <host|société|domaine> [--to X.Y] [--apply] [--reboot] [--parallel N] [--canary HOST] [--detach]\n" \
+                 "        beryl os-upgrade --status [TÂCHE]\n" \
+                 "        Met à jour le système FreeBSD sur toute la portée. DRY-RUN par défaut.\n" \
+                 "        Plusieurs serveurs en --apply : CANARI (un serveur, arrêt s'il échoue) puis\n" \
+                 "        PARALLÈLE limité ; état suivi par `--status`."
       p.on("--to=VERSION", "Release cible X.Y (défaut : dernière de la branche courante)") { |v| to = v }
       p.on("--apply", "Exécute (repoint + pkg upgrade). S'arrête AVANT le reboot sauf --reboot") { apply = true }
       p.on("--reboot", "Avec --apply : reboot + attente du retour SSH (pour enchaîner une flotte)") { reboot = true }
+      p.on("--parallel=N", "Plusieurs serveurs : N à la fois après le canari (défaut 4)") { |v| parallel = v.to_i }
+      p.on("--canary=HOST", "Plusieurs serveurs : canari choisi (défaut : le premier de la portée)") { |v| canary = v }
+      p.on("--detach", "Plusieurs serveurs : tâche en arrière-plan (rend la main ; suivi par --status)") { detach = true }
+      p.on("--status", "État de la dernière tâche (ou de TÂCHE)") { status = true }
+      p.on("--job=DIR", "(interne) orchestrateur d'une tâche détachée") { |v| job_dir = v }
       p.on("-a NAME", "--account=NAME", "Forcer la société") { |v| account_hint = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
       p.unknown_args { |rest, _| positional = rest }
     end
     parser.parse(args)
+
+    return Beryl::CLI::OsUpgradeJob.status(positional.first?) if status
+    if jd = job_dir
+      return Beryl::CLI::OsUpgradeJob.run(jd, child_cmd(config_root))
+    end
+    if parallel < 1
+      STDERR.puts "beryl : --parallel attend un entier ≥ 1."
+      return EXIT_USAGE
+    end
 
     # Périmètre : host, société ou domaine (comme `beryl update`/`upgrade`).
     scope = positional.first? || account_hint || domain_hint
@@ -75,22 +98,44 @@ module Beryl::CLI::OsUpgrade
     if hosts.size > 1 && !apply
       return fleet_summary(hosts, to)
     end
-    log "périmètre #{scope} : #{hosts.size} hôtes → #{hosts.map(&.fqdn).join(", ")}" if hosts.size > 1
-
-    # Séquentiel : avec --reboot chaque hôte est rebooté et attendu AVANT le
-    # suivant (montée de flotte sûre). Un hôte en échec n'arrête pas les autres.
-    rc = EXIT_OK
-    hosts.each do |host|
-      r = upgrade_one(config_root, host, to, apply, reboot)
-      rc = r unless r == EXIT_OK
+    if hosts.size == 1
+      return upgrade_one(config_root, hosts.first, to, apply, reboot)
     end
-    rc
+
+    # Plusieurs serveurs en --apply : tâche (canari puis parallèle limité).
+    fqdns = hosts.map(&.fqdn)
+    if c = canary
+      first = hosts.find { |h| h.fqdn == c || h.short_name == c }
+      unless first
+        STDERR.puts "beryl : canari « #{c} » absent de la portée #{scope.inspect}."
+        return EXIT_USAGE
+      end
+      fqdns = [first.fqdn] + (fqdns - [first.fqdn])
+    end
+    log "périmètre #{scope} : #{fqdns.size} serveurs → canari #{fqdns.first}, puis #{parallel} en parallèle"
+    log "⚠ SANS --reboot : le canari ne valide que l'INSTALLATION, pas le démarrage sur le nouveau noyau." unless reboot
+    dir = Beryl::CLI::OsUpgradeJob.create(scope, fqdns, reboot, to, parallel)
+    if detach
+      pid = Beryl::CLI::OsUpgradeJob.detach(dir, child_cmd(config_root))
+      log "tâche #{File.basename(dir)} lancée en arrière-plan (pid #{pid}) — suivi : `beryl os-upgrade --status`"
+      return EXIT_OK
+    end
+    Beryl::CLI::OsUpgradeJob.run(dir, child_cmd(config_root))
   rescue ex : Beryl::Config::Root::HostNotFound | Beryl::Config::Root::AmbiguousHost | Beryl::Config::Root::UnknownDomain
     STDERR.puts "beryl : #{ex.message}"
     EXIT_USAGE
   rescue ex
     STDERR.puts "beryl : erreur inattendue — #{ex.class}: #{ex.message}"
     EXIT_FAILED
+  end
+
+  # Commande de base d'un processus enfant : CE binaire + options globales
+  # (racine de config, transport), pour que l'enfant voie la même config.
+  private def self.child_cmd(config_root : String) : Array(String)
+    exe = Process.executable_path || PROGRAM_NAME
+    cmd = [exe, "-c", config_root]
+    cmd << "--transport=overlay" if Beryl.transport_mode == :overlay
+    cmd
   end
 
   # Montée d'UN hôte (dry-run par défaut). Chaque `return` est LOCAL à l'hôte
@@ -100,8 +145,10 @@ module Beryl::CLI::OsUpgrade
       STDERR.puts "beryl : os-upgrade = FreeBSD uniquement (host : #{host.os})."
       return EXIT_USAGE
     end
+    Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::RUNNING, "connexion")
     if apply && host.protected?
       log "#{host.fqdn} : protégé (protected: true) → --apply REFUSÉ (dry-run uniquement)."
+      Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::CANCELLED, "protégé (protected: true)")
       return EXIT_OK
     end
 
@@ -116,6 +163,7 @@ module Beryl::CLI::OsUpgrade
       if d = probe.stderr.strip.lines.first?
         STDERR.puts "        détail : #{d}"
       end
+      Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::FAILED, "SSH : #{Beryl::CLI::SshProbe.compact_error(probe.stderr, probe.exit_code)}")
       return EXIT_FAILED
     end
     shell = Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(host.connection(user)))
@@ -133,6 +181,7 @@ module Beryl::CLI::OsUpgrade
       end
     unless target
       STDERR.puts "beryl : release cible indéterminée (réseau indispo ?) — précisez `--to X.Y`."
+      Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::FAILED, "release cible indéterminée")
       return EXIT_USAGE
     end
 
@@ -143,6 +192,7 @@ module Beryl::CLI::OsUpgrade
     # Cible ÉGALE : on continue → correctifs de la release courante (errata/SA).
     if tk < ck
       log "déjà sur #{cur_major}.#{cur_minor} (> #{target}) — rien à faire (pas de descente de release)."
+      Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::UPTODATE, "#{cur_raw} (> #{target})", cur_raw)
       return EXIT_OK
     end
 
@@ -156,6 +206,7 @@ module Beryl::CLI::OsUpgrade
     end
   rescue ex
     STDERR.puts "beryl : #{host.fqdn} — erreur inattendue : #{ex.class}: #{ex.message}"
+    Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::FAILED, "erreur inattendue : #{ex.message}")
     EXIT_FAILED
   end
 
@@ -249,6 +300,7 @@ module Beryl::CLI::OsUpgrade
     conf = shell.exec("grep -rl base_release /usr/local/etc/pkg/repos /etc/pkg 2>/dev/null | head -1", raise_on_error: false).stdout.strip
     if conf.empty?
       STDERR.puts "beryl : conf du dépôt FreeBSD-base introuvable (base_release) sur #{host.fqdn}."
+      Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::FAILED, "conf du dépôt FreeBSD-base introuvable")
       return EXIT_FAILED
     end
     cur_branch = shell.exec("grep -oE 'base_release_[0-9]+' #{conf} | head -1", raise_on_error: false).stdout.strip
@@ -277,14 +329,17 @@ module Beryl::CLI::OsUpgrade
       log "#{host.fqdn} : `pkg update` a échoué sur #{branch} (release pas encore publiée ?) → ROLLBACK vers #{cur_branch}."
       shell.exec("sed -i '' -E 's/base_release_[0-9]+/#{cur_branch}/g' #{conf}", raise_on_error: false)
       STDERR.puts upd.stderr.strip.lines.last?
+      Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::FAILED, "branche #{branch} indisponible (rollback fait)")
       return EXIT_FAILED
     end
 
     log "#{host.fqdn} : pkg upgrade -y -r #{BASE_REPO}…"
+    Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::RUNNING, "montée #{cur_major}.#{cur_minor} → #{target}")
     up = shell.exec("#{IGNORE_OSV} pkg upgrade -y -r #{BASE_REPO}", raise_on_error: false)
     puts up.stdout.strip
     unless up.success?
       STDERR.puts "beryl : pkg upgrade a échoué — #{up.stderr.strip.lines.last?}"
+      Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::FAILED, "pkg upgrade : #{up.stderr.strip.lines.last?}")
       return EXIT_FAILED
     end
 
@@ -299,6 +354,7 @@ module Beryl::CLI::OsUpgrade
     upd = shell.exec("#{IGNORE_OSV} pkg update -f -r #{BASE_REPO}", raise_on_error: false)
     unless upd.success?
       STDERR.puts "beryl : #{host.fqdn} — `pkg update -r #{BASE_REPO}` a échoué : #{upd.stderr.strip.lines.last?}"
+      Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::FAILED, "pkg update : #{upd.stderr.strip.lines.last?}")
       return EXIT_FAILED
     end
     plan = shell.exec("#{IGNORE_OSV} pkg upgrade -n -r #{BASE_REPO}", raise_on_error: false)
@@ -312,6 +368,7 @@ module Beryl::CLI::OsUpgrade
         return EXIT_OK
       end
       log "#{host.fqdn} : #{target}-RELEASE, aucun correctif en attente — rien à faire."
+      Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::UPTODATE, "aucun correctif en attente")
       return EXIT_OK
     end
 
@@ -325,10 +382,12 @@ module Beryl::CLI::OsUpgrade
     end
 
     log "#{host.fqdn} : correctifs #{target}-RELEASE → pkg upgrade -y -r #{BASE_REPO}…"
+    Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::RUNNING, "installation des correctifs (#{Beryl::CLI::Upgrade.pending_count(plan.stdout)} paquets)")
     up = shell.exec("#{IGNORE_OSV} pkg upgrade -y -r #{BASE_REPO}", raise_on_error: false)
     puts up.stdout.strip
     unless up.success?
       STDERR.puts "beryl : #{host.fqdn} — pkg upgrade a échoué : #{up.stderr.strip.lines.last?}"
+      Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::FAILED, "pkg upgrade : #{up.stderr.strip.lines.last?}")
       return EXIT_FAILED
     end
 
@@ -372,10 +431,12 @@ module Beryl::CLI::OsUpgrade
   private def self.finish(config_root, shell, host, done : String, reboot : Bool) : Int32
     unless reboot
       log "#{host.fqdn} : #{done}. REBOOTEZ pour démarrer dessus : `shutdown -r now`."
+      Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::UPGRADED, "#{done} — redémarrage à faire")
       return EXIT_OK
     end
 
     log "#{host.fqdn} : reboot…"
+    Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::RUNNING, "#{done} — redémarrage")
     shell.exec("shutdown -r now", raise_on_error: false)
     if wait_back(host)
       new = Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(host.connection))
@@ -385,11 +446,17 @@ module Beryl::CLI::OsUpgrade
       # pour qu'il soit opérationnel (sinon /home, /usr/local/etc absents).
       if host.encrypted?
         log "#{host.fqdn} : chiffré → déverrouillage post-reboot (beryl unlock)…"
-        Beryl::CLI::Unlock.run(config_root, [host.fqdn])
+        Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::RUNNING, "revenu en #{new} — déverrouillage", new)
+        unless Beryl::CLI::Unlock.run(config_root, [host.fqdn]) == 0
+          Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::FAILED, "revenu en #{new}, mais déverrouillage en échec (beryl unlock #{host.short_name})", new)
+          return EXIT_FAILED
+        end
       end
+      Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::UPGRADED, "revenu en #{new}", new)
       EXIT_OK
     else
       STDERR.puts "beryl : #{host.fqdn} n'est pas revenu en SSH après reboot (vérifiez via la console/IPMI)."
+      Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::FAILED, "pas revenu en SSH après redémarrage (console/IPMI)")
       EXIT_FAILED
     end
   end
@@ -416,7 +483,10 @@ module Beryl::CLI::OsUpgrade
         log "#{host.fqdn} : freebsd-update fetch install (correctifs)…"
         res = shell.exec("freebsd-update --not-running-from-cron fetch install", raise_on_error: false)
         puts res.stdout.strip unless res.stdout.strip.empty?
-        return EXIT_FAILED unless res.success?
+        unless res.success?
+          Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::FAILED, "freebsd-update : #{res.stderr.strip.lines.last?}")
+          return EXIT_FAILED
+        end
         return finish(config_root, shell, host, "correctifs appliqués (reboot utile si nouveau noyau)", reboot)
       end
       puts ""
@@ -426,7 +496,10 @@ module Beryl::CLI::OsUpgrade
       return EXIT_OK
     end
 
-    log "montée de release : --apply non automatisé pour freebsd-update (reboots + fusions interactives)." if apply
+    if apply
+      log "montée de release : --apply non automatisé pour freebsd-update (reboots + fusions interactives)."
+      Beryl::CLI::OsUpgradeJob.report(Beryl::CLI::OsUpgradeJob::CANCELLED, "montée de release freebsd-update : à la main (runbook)")
+    end
     h = host.short_name
     puts ""
     puts "Montée de RELEASE #{cur_raw} → #{target}-RELEASE sur #{host.fqdn} (freebsd-update)"

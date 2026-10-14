@@ -34,5 +34,16 @@ module Beryl
         File.expand_path("~/.config/beryl", home: true)
       end
     end
+
+    # Dossier d'ÉTAT beryl (tâches en cours, journaux de tâches : ni de la
+    # config, ni un cache jetable). Honore `$XDG_STATE_HOME`, sinon
+    # `~/.local/state/beryl/` (défaut XDG).
+    def state_dir : String
+      if xdg = ENV["XDG_STATE_HOME"]?
+        File.join(xdg, "beryl")
+      else
+        File.expand_path("~/.local/state/beryl", home: true)
+      end
+    end
   end
 end
