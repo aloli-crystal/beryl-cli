@@ -9,6 +9,12 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Dépendance yaml-tidy 0.1.2
+
+`beryl fmt` (YamlCanon) conserve tels quels les scalaires multilignes
+(blocs `|` / `>`, chaînes entre guillemets sur plusieurs lignes, ex.
+`notes:` d'un host.yml), qui ressortaient corrompus après tri.
+
 === `pkg-versioned` : `latest` garde la version majeure déjà installée
 
 `version: latest` visait la majeure la plus récente du dépôt même quand une
