@@ -106,4 +106,26 @@ describe Beryl::Bootstrap::MfsBSDRelease do
       end
     end
   end
+
+  describe ".pkgbase_target" do
+    it "prend la dernière release de la même majeure, même si mfsBSD est en retard" do
+      Beryl::Bootstrap.pkgbase_target("15.0", {15 => "15.1", 14 => "14.4"}).should eq("15.1")
+    end
+
+    it "garde la version mfsBSD si rien de plus récent (ou pas d'info réseau)" do
+      Beryl::Bootstrap.pkgbase_target("15.1", {15 => "15.1"}).should eq("15.1")
+      Beryl::Bootstrap.pkgbase_target("15.0", {} of Int32 => String).should eq("15.0")
+    end
+
+    it "ne change jamais de majeure" do
+      Beryl::Bootstrap.pkgbase_target("15.0", {16 => "16.0"}).should eq("15.0")
+    end
+  end
+
+  describe ".base_release_branch" do
+    it "mappe X.Y → base_release_<mineure>" do
+      Beryl::Bootstrap.base_release_branch("15.1").should eq("base_release_1")
+      Beryl::Bootstrap.base_release_branch("15.0").should eq("base_release_0")
+    end
+  end
 end

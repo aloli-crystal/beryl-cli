@@ -99,7 +99,7 @@ describe Beryl::Apply::PkgUpgrade do
     sh.ran?(/service partiduo_devel restart/).should be_false
     # Ordre : upgrade AVANT restart.
     up = sh.commands.index!(&.starts_with?("pkg upgrade"))
-    rs = sh.commands.index!(&.starts_with?("service partiduo restart"))
+    rs = sh.commands.index!(&.includes?("service partiduo restart"))
     (up < rs).should be_true
   end
 

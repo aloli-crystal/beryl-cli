@@ -43,8 +43,10 @@ module Beryl
     abstract def refresh_zone(zone : String) : Nil
 
     # Pose (ou met à jour) le reverse DNS d'une IP. `reverse` est un
-    # FQDN (avec ou sans point final).
-    abstract def set_reverse(ip : String, reverse : String) : Nil
+    # FQDN (avec ou sans point final). `block` : bloc IP déclaré par
+    # l'hébergeur qui contient `ip` (utile en IPv6 où le reverse se pose au
+    # niveau du bloc) ; nil → déduit par le provider.
+    abstract def set_reverse(ip : String, reverse : String, block : String? = nil) : Nil
   end
 
   # Capability `:compute` — hébergement de serveurs.

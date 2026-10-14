@@ -114,11 +114,12 @@ module Beryl::CLI
         end
       end
 
-      header = ["HOST", "GAMME", "CPU", "RAM", "DISQUES"]
+      header = ["HOST", "RÔLE", "GAMME", "CPU", "RAM", "DISQUES"]
       rows = hosts.map do |h|
         hw = h.hardware
         [
           h.short_name,
+          h.role || "—",
           h.ovh_commercial_name || "—",
           hw ? "#{hw.cores}c/#{hw.threads}t" : "(non scanné)",
           hw ? "#{hw.ram_gb} Go" : "—",
@@ -143,6 +144,7 @@ module Beryl::CLI
       res = usage ? gather_usage(host, system_ssh) : nil
       live_os = res.try(&.os)
       puts "host:           #{host.fqdn}"
+      puts "rôle:           #{host.role || "—"}"
       puts "provider:       #{host.provider || "—"}"
       puts "service_name:   #{host.ovh_service_name || host.scaleway_server_id || "—"}"
       puts "gamme:          #{host.ovh_commercial_name || "—"}"
@@ -170,6 +172,10 @@ module Beryl::CLI
         hw.disks.each { |d| puts "  - #{d}" }
       else
         puts "(host non scanné — lancez `beryl scan #{host.fqdn}` pour les specs/disques)"
+      end
+      if notes = host.notes
+        puts "notes :"
+        notes.each_line { |l| puts "  #{l}" }
       end
 
       return unless res
@@ -765,8 +771,8 @@ module Beryl::CLI
         io << "|===\n\n"
 
         io << "== Matériel\n\n"
-        io << "[options=\"header\",cols=\"2,2,2,3,1,3,>2\"]\n|===\n"
-        io << "| Host | Nom commercial | Baie | CPU | RAM | Disques | Prix/mois\n\n"
+        io << "[options=\"header\",cols=\"2,2,2,2,3,1,3,>2\"]\n|===\n"
+        io << "| Host | Rôle | Nom commercial | Baie | CPU | RAM | Disques | Prix/mois\n\n"
         hosts.each do |h|
           hw = h.hardware
           # « Nom commercial » = la gamme SEULE (ex. RISE-1), sans le CPU qui
@@ -774,6 +780,7 @@ module Beryl::CLI
           gamme = (h.ovh_commercial_name || "—").split('|').first.strip
           cells = [
             h.short_name,
+            h.role || "—",
             gamme,
             h.ovh_rack || "—",
             hw ? "#{hw.cpu} (#{hw.cores}c/#{hw.threads}t)" : "—",
@@ -808,7 +815,7 @@ module Beryl::CLI
         net_hosts = hosts.select { |h| h.ovh_ipv4 || h.ovh_ipv6 || h.vrack_ip }
         unless net_hosts.empty?
           io << "== Réseau\n\n[options=\"header\",cols=\"2,2,3,2,2\"]\n|===\n"
-          io << "| Host | IPv4 publique | IPv6 publique | vRack | Rôle\n\n"
+          io << "| Host | IPv4 publique | IPv6 publique | vRack | Accès\n\n"
           net_hosts.each do |h|
             io << "| #{h.short_name} | #{h.ovh_ipv4 || "—"} | #{h.ovh_ipv6 || "—"} "
             io << "| #{h.vrack_ip || "—"} | #{esc.call(adoc_role(h))}\n"
@@ -997,13 +1004,14 @@ module Beryl::CLI
         end
 
         io << "<h2>Matériel</h2>\n<table class=\"sortable\">\n<thead><tr>"
-        %w[Host Nom\ commercial Baie CPU Cœurs RAM Disques Prix/mois].each { |th| io << "<th>#{hesc(th)}</th>" }
+        %w[Host Rôle Nom\ commercial Baie CPU Cœurs RAM Disques Prix/mois].each { |th| io << "<th>#{hesc(th)}</th>" }
         io << "</tr></thead>\n<tbody>\n"
         hosts.each do |h|
           hw = h.hardware
           gamme = (h.ovh_commercial_name || "—").split('|').first.strip
           io << "<tr>"
           io << "<td><a href=\"#{hesc(h.short_name)}.html\">#{hesc(h.short_name)}</a></td>"
+          io << "<td>#{hesc(h.role || "—")}</td>"
           io << "<td>#{hesc(gamme)}</td>"
           io << "<td>#{hesc(h.ovh_rack || "—")}</td>"
           io << "<td>#{hesc(hw.try(&.cpu) || "—")}</td>"
@@ -1018,7 +1026,7 @@ module Beryl::CLI
         net_hosts = hosts.select { |h| h.ovh_ipv4 || h.ovh_ipv6 || h.vrack_ip }
         unless net_hosts.empty?
           io << "<h2>Réseau</h2>\n<table class=\"sortable\">\n<thead><tr>"
-          ["Host", "IPv4 publique", "IPv6 publique", "vRack", "Rôle"].each { |th| io << "<th>#{hesc(th)}</th>" }
+          ["Host", "IPv4 publique", "IPv6 publique", "vRack", "Accès"].each { |th| io << "<th>#{hesc(th)}</th>" }
           io << "</tr></thead>\n<tbody>\n"
           net_hosts.each do |h|
             io << "<tr><td><a href=\"#{hesc(h.short_name)}.html\">#{hesc(h.short_name)}</a></td>"
@@ -1085,12 +1093,17 @@ module Beryl::CLI
         kv.call("IPv4 publique", host.ovh_ipv4 || "—")
         kv.call("IPv6 publique", host.ovh_ipv6 || "—")
         kv.call("IP vRack", host.vrack_ip || "—")
-        kv.call("Rôle réseau", adoc_role(host))
+        kv.call("Rôle", host.role || "—")
+        kv.call("Accès réseau", adoc_role(host))
         kv.call("OS", live_os ? "#{live_os} (live)" : host.os)
         kv.call("CPU", hw ? "#{hw.cpu} (#{hw.cores}c/#{hw.threads}t)" : "—")
         kv.call("RAM", hw ? "#{hw.ram_gb} Go" : "—")
         kv.call("RAID", hw.try(&.raid) || "aucun (RAID logiciel/ZFS)")
         io << "</table>\n"
+
+        if notes = host.notes
+          io << "<h2>Notes</h2>\n<p class=\"notes\">#{hesc(notes)}</p>\n"
+        end
 
         if hw && !hw.disks.empty?
           io << "<h2>Disques (provider)</h2>\n<ul>\n"
@@ -1142,6 +1155,7 @@ module Beryl::CLI
       table.sortable thead th[data-asc="true"]::after { content:"\\2191"; color:var(--accent); }
       table.sortable thead th[data-asc="false"]::after { content:"\\2193"; color:var(--accent); }
       table.kv th { background:#f5f6f7; width:14rem; }
+      p.notes { white-space:pre-wrap; }
       tbody tr:nth-child(even) { background:#fafbfc; }
       tr.low td { background:var(--low); }
       div.warn { background:var(--warn-bg); border-left:4px solid var(--warn-bd); padding:.6rem .9rem; margin:1rem 0; border-radius:3px; }

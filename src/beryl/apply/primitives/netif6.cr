@@ -19,6 +19,20 @@ module Beryl::Apply
   #         address: 2001:41d0:250:dd00::1
   #         prefixlen: 64            # optionnel (défaut 64)
   #         gateway: fe80::1         # optionnel (défaut fe80::1, OVH)
+  #
+  # Passerelle GLOBALE (anciennes gammes OVH : `<bloc /56>ff:ff:ff:ff:ff`, hors
+  # du /64 du serveur) : elle n'est joignable qu'avec une route hôte « sur le
+  # lien » posée AVANT la route par défaut — à chaud (`route -6 add -host GW
+  # -interface IFACE`) et au boot (`ipv6_static_routes` += `beryl_gw`, que
+  # rc.d/routing applique avant `ipv6_defaultrouter`). Revenir à `fe80::1`
+  # retire cette route de rc.conf.
+  #
+  # Le routeur interroge alors le serveur (NDP « who has <adresse> ») depuis
+  # une adresse HORS du préfixe du serveur ; FreeBSD ignore ces demandes par
+  # défaut et le serveur reste injoignable en entrée (il sort, mais personne
+  # ne le joint : qwerty, 8 oct. 2026). La primitive active donc
+  # `net.inet6.icmp6.nd6_onlink_ns_rfc4861=1`, à chaud et dans
+  # /etc/sysctl.conf.
   #         iface: auto              # optionnel (défaut : l'interface publique)
   class Netif6 < Primitive
     def name : String
@@ -35,6 +49,17 @@ module Beryl::Apply
     def self.gateway_scoped(gateway : String, iface : String) : String
       return gateway if gateway.includes?('%')
       gateway.starts_with?("fe80") ? "#{gateway}%#{iface}" : gateway
+    end
+
+    # Réglage noyau : accepter les demandes NDP venues d'un routeur hors préfixe.
+    NS_SYSCTL = "net.inet6.icmp6.nd6_onlink_ns_rfc4861"
+
+    # Nom de la route statique rc.conf vers une passerelle globale.
+    GW_ROUTE = "beryl_gw"
+
+    # Valeur `ipv6_route_beryl_gw` (route hôte sur le lien). Pur, exposé pour test.
+    def self.gw_route_value(gateway : String, iface : String) : String
+      "#{gateway} -prefixlen 128 -interface #{iface}"
     end
 
     def apply(shell : Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Context) : StepResult
@@ -75,25 +100,59 @@ module Beryl::Apply
       has_route = cur_route == gw
       rc_addr_ok = shell.exec("sysrc -n #{Process.quote(rc_var)} 2>/dev/null", raise_on_error: false).stdout.strip == rc_val
       rc_router_ok = shell.exec("sysrc -n ipv6_defaultrouter 2>/dev/null", raise_on_error: false).stdout.strip == gw
+      # Passerelle globale → route hôte sur le lien (rc.conf + table).
+      onlink = !gw.starts_with?("fe80")
+      statics = shell.exec("sysrc -n ipv6_static_routes 2>/dev/null", raise_on_error: false).stdout.split
+      rc_gw_route = shell.exec("sysrc -n ipv6_route_#{GW_ROUTE} 2>/dev/null", raise_on_error: false).stdout.strip
+      ns_live = shell.exec("sysctl -n #{NS_SYSCTL} 2>/dev/null", raise_on_error: false).stdout.strip == "1"
+      ns_boot = shell.exec("grep -qx #{Process.quote("#{NS_SYSCTL}=1")} /etc/sysctl.conf 2>/dev/null", raise_on_error: false).success?
+      ns_ok = !onlink || (ns_live && ns_boot)
+      rc_gw_ok =
+        if onlink
+          statics.includes?(GW_ROUTE) && rc_gw_route == self.class.gw_route_value(gw, iface)
+        else
+          !statics.includes?(GW_ROUTE)
+        end
 
-      if has_addr && has_route && rc_addr_ok && rc_router_ok
+      if has_addr && has_route && rc_addr_ok && rc_router_ok && rc_gw_ok && ns_ok
         return StepResult.skipped("#{iface} déjà en #{address} (défaut via #{gw})")
       end
 
       if dry_run
-        return StepResult.applied("#{iface} → #{address} prefixlen #{prefixlen}, défaut via #{gw} (dry-run)")
+        via = onlink ? " (route sur le lien vers la passerelle)" : ""
+        old = !cur_route.empty? && !has_route ? ", remplace #{cur_route}" : ""
+        return StepResult.applied("#{iface} → #{address} prefixlen #{prefixlen}, défaut via #{gw}#{via}#{old} (dry-run)")
       end
 
       # Persistance (boot).
       shell.exec("sysrc #{Process.quote("#{rc_var}=#{rc_val}")}")
       shell.exec("sysrc #{Process.quote("ipv6_defaultrouter=#{gw}")}")
+      if onlink
+        shell.exec("sysctl #{NS_SYSCTL}=1")
+        unless ns_boot
+          line = Process.quote("#{NS_SYSCTL}=1")
+          shell.exec("sed -i '' '/^#{NS_SYSCTL}=/d' /etc/sysctl.conf 2>/dev/null; echo #{line} >> /etc/sysctl.conf")
+        end
+        shell.exec("sysrc #{Process.quote("ipv6_route_#{GW_ROUTE}=#{self.class.gw_route_value(gw, iface)}")}")
+        shell.exec("sysrc #{Process.quote("ipv6_static_routes+=#{GW_ROUTE}")}") unless statics.includes?(GW_ROUTE)
+      elsif statics.includes?(GW_ROUTE)
+        shell.exec("sysrc #{Process.quote("ipv6_static_routes-=#{GW_ROUTE}")}")
+        shell.exec("sysrc -x #{Process.quote("ipv6_route_#{GW_ROUTE}")}", raise_on_error: false)
+      end
       # Immédiat, SANS toucher l'IPv4 : alias + route par défaut. « route already
       # in table » / adresse déjà posée → non bloquant (raise_on_error: false).
       unless has_addr
         shell.exec("ifconfig #{Process.quote(iface)} inet6 #{Process.quote(address)} prefixlen #{Process.quote(prefixlen)} alias", raise_on_error: false)
       end
       unless has_route
-        shell.exec("route -6 add default #{Process.quote(gw)}", raise_on_error: false)
+        # Route hôte vers une passerelle globale (« File exists » si déjà là :
+        # non bloquant), puis route par défaut : `change` si une autre existe
+        # (`add` échouerait en « route already in table »).
+        if onlink
+          shell.exec("route -6 add -host #{Process.quote(gw)} -interface #{Process.quote(iface)}", raise_on_error: false)
+        end
+        verb = cur_route.empty? ? "add" : "change"
+        shell.exec("route -6 #{verb} default #{Process.quote(gw)}", raise_on_error: false)
       end
       StepResult.applied("#{iface} : #{address} prefixlen #{prefixlen} + défaut via #{gw}")
     end

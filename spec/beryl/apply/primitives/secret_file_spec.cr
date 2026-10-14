@@ -115,3 +115,50 @@ describe Beryl::Apply::SecretFile do
     shell.writes.should be_empty
   end
 end
+
+private def host_ctx(host : String) : Beryl::Apply::Context
+  Beryl::Apply::Context.new(vars: {"hostname" => host})
+end
+
+private def tok_params(per_host : Bool) : Hash(String, YAML::Any)
+  h = {"path" => "/usr/local/etc/app/agent.token", "env" => {"@@T@@" => "T_TOKEN"}, "content" => "@@T@@\n"} of String => String | Hash(String, String) | Bool
+  h["per_host"] = true if per_host
+  apply_params(h.to_yaml)
+end
+
+describe "Beryl::Apply::SecretFile — variables par serveur" do
+  it "préfère la variante du serveur à la valeur commune" do
+    ENV["T_TOKEN"] = "commun"
+    ENV["T_TOKEN__LOULOU"] = "loulou"
+    shell = FakeShell.new
+    shell.stub(/sha256 -q/, stdout: "")
+    prim("secret-file").apply(shell, tok_params(false), dry_run: false, context: host_ctx("loulou"))
+    shell.writes.first.content.should eq("loulou\n")
+  ensure
+    ENV.delete("T_TOKEN")
+    ENV.delete("T_TOKEN__LOULOU")
+  end
+
+  it "se replie sur la valeur commune sans variante" do
+    ENV["T_TOKEN"] = "commun"
+    shell = FakeShell.new
+    shell.stub(/sha256 -q/, stdout: "")
+    prim("secret-file").apply(shell, tok_params(false), dry_run: false, context: host_ctx("tika"))
+    shell.writes.first.content.should eq("commun\n")
+  ensure
+    ENV.delete("T_TOKEN")
+  end
+
+  it "per_host : refuse la valeur commune et nomme la variable attendue" do
+    ENV["T_TOKEN"] = "commun"
+    r = prim("secret-file").apply(FakeShell.new, tok_params(true), dry_run: false, context: host_ctx("bibou"))
+    r.outcome.should eq(Beryl::Apply::Outcome::Failed)
+    r.message.should contain("T_TOKEN__BIBOU")
+  ensure
+    ENV.delete("T_TOKEN")
+  end
+
+  it "nom du serveur normalisé (majuscules, tirets → _)" do
+    Beryl::Apply.host_secret_name("X", "pkg-01").should eq("X__PKG_01")
+  end
+end

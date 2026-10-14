@@ -121,7 +121,7 @@ echo "==> [beryl] Repo FreeBSD-base côté hôte d'install (mfsBSD)"
 mkdir -p /usr/local/etc/pkg/repos
 cat > /usr/local/etc/pkg/repos/FreeBSD-base.conf <<'REPO'
 FreeBSD-base: {
-  url: "pkg+https://pkg.freebsd.org/${ABI}/base_release_0",
+  url: "pkg+https://pkg.freebsd.org/${ABI}/__BASE_RELEASE__",
   mirror_type: "srv",
   signature_type: "fingerprints",
   # Clés du BASE (cf. /etc/pkg/FreeBSD.conf de 15.0-RELEASE), PAS

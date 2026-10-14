@@ -24,6 +24,15 @@ module Beryl::Apply
     getter name : String
     getter description : String
     getter requires : Array(String)
+    # Arguments imposés à une dépendance par la forme map de `requires:` :
+    #
+    #     requires:
+    #       - acme
+    #       - nginx-base: { package: nginx, includes: "partiduo/*.conf" }
+    #
+    # nom de la dépendance → arguments. Les arguments de l'hôte (`apply_recipes`)
+    # restent prioritaires (cf. `Executor.merge_required_args`).
+    getter requires_args : Hash(String, Hash(String, String))
     # `requires_vrack: true` → recette ÉCARTÉE par `beryl apply` si le host n'a
     # pas d'IP vRack (ex. `pkg-repo-acme` joint le builder sur le vRack).
     getter requires_vrack : Bool
@@ -45,6 +54,7 @@ module Beryl::Apply
       @source_path : String,
       @positional : String? = nil,
       @requires_vrack : Bool = false,
+      @requires_args : Hash(String, Hash(String, String)) = {} of String => Hash(String, String),
     )
     end
 
@@ -83,7 +93,7 @@ module Beryl::Apply
       name = expected_name
 
       description = root[YAML::Any.new("description")]?.try(&.as_s?) || ""
-      requires = string_array(root, "requires")
+      requires, requires_args = parse_requires(root, path)
       requires_vrack = root[YAML::Any.new("requires_vrack")]?.try(&.as_bool?) == true
       parameters = sub_hash(root, "parameters")
       arguments = sub_hash(root, "arguments")
@@ -106,7 +116,39 @@ module Beryl::Apply
         source_path: path,
         positional: positional,
         requires_vrack: requires_vrack,
+        requires_args: requires_args,
       )
+    end
+
+    # `requires:` : liste de noms, ou de maps à UNE clé `nom: { arg: valeur }`
+    # (arguments scalaires seulement, transmis à la dépendance).
+    private def self.parse_requires(root : Hash(YAML::Any, YAML::Any), path : String) : Tuple(Array(String), Hash(String, Hash(String, String)))
+      names = [] of String
+      args = {} of String => Hash(String, String)
+      list = root[YAML::Any.new("requires")]?.try(&.as_a?) || [] of YAML::Any
+      list.each do |entry|
+        if s = entry.as_s?
+          names << s
+        elsif (h = entry.as_h?) && h.size == 1
+          key, value = h.first
+          dep = key.as_s? || raise InvalidRecipe.new("recette `#{path}` : `requires:` — nom de dépendance invalide.")
+          given = {} of String => String
+          (value.as_h? || {} of YAML::Any => YAML::Any).each do |k, v|
+            ks = k.as_s?
+            vs = v.as_s? || v.raw.to_s
+            raise InvalidRecipe.new("recette `#{path}` : `requires: #{dep}` — argument invalide.") unless ks
+            given[ks] = vs
+          end
+          names << dep
+          args[dep] = given
+        else
+          raise InvalidRecipe.new(
+            "recette `#{path}` : chaque entrée de `requires:` est un nom ou une map " \
+            "à une clé (`- recette: { arg: valeur }`)."
+          )
+        end
+      end
+      {names, args}
     end
 
     private def self.string_array(root : Hash(YAML::Any, YAML::Any), key : String) : Array(String)

@@ -103,4 +103,19 @@ module Beryl::Bootstrap
       )
     end
   end
+
+  # Version à installer en pkgbase : la dernière release PUBLIÉE de la même
+  # majeure que mfsBSD (ex. mfsBSD 15.0 + release 15.1 sortie → 15.1). Jamais
+  # en-dessous de la version mfsBSD ; sans info de releases → version mfsBSD.
+  def self.pkgbase_target(mfsbsd_version : String, latest_by_branch : Hash(Int32, String)) : String
+    major = Beryl::FreebsdRelease.version_key(mfsbsd_version)[0]
+    latest = latest_by_branch[major]?
+    return mfsbsd_version unless latest
+    Beryl::FreebsdRelease.version_key(latest) > Beryl::FreebsdRelease.version_key(mfsbsd_version) ? latest : mfsbsd_version
+  end
+
+  # Branche du dépôt pkgbase d'une release X.Y : « 15.1 » → « base_release_1 ».
+  def self.base_release_branch(version : String) : String
+    "base_release_#{Beryl::FreebsdRelease.version_key(version)[1]}"
+  end
 end

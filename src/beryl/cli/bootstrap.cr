@@ -5,6 +5,7 @@ require "./account_utils"
 require "./credentials"
 require "./precheck"
 require "./machine_kind"
+require "./apply"
 require "./config_git"
 
 # Sous-commande `beryl bootstrap <host>` : installe FreeBSD 15 sur un
@@ -31,6 +32,7 @@ module Beryl::CLI::Bootstrap
     # GitHub (aucun défaut en dur — règle « pas de version figée »).
     freebsd_version_flag : String? = nil
     dry_run = true
+    chain_apply = true
     force = false
     positional = [] of String
 
@@ -40,6 +42,7 @@ module Beryl::CLI::Bootstrap
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
       p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (ex: dedibox, ovh, scaleway)") { |v| provider_override = v }
       p.on("--apply", "Applique réellement les changements (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false }
+      p.on("--no-apply", "Ne pas enchaîner `beryl apply` après l'installation") { chain_apply = false }
       p.on("-f", "--force", "Bypass le précheck (disques déclarés != physiques)") { force = true }
       p.on("-i URL", "--iso-url=URL", "URL mfsBSD (override)") { |v| iso_url_override = v }
       p.on("-v VER", "--freebsd-version=VER", "Version FreeBSD à installer (défaut : dernière mfsBSD SE détectée sur GitHub)") { |v| freebsd_version_flag = v }
@@ -73,31 +76,42 @@ module Beryl::CLI::Bootstrap
     mfsbsd_version : String
     abi : String
     resolved_iso_url = iso_url_override
-    if forced = freebsd_version_flag
+    # pkgbase (`install_type: packages`) : le système est installé par `pkg`
+    # depuis le dépôt `base_release_<mineure>` — mfsBSD n'est qu'un OUTIL
+    # d'installation, sa version ne limite PAS celle installée (même majeure).
+    pkgbase = host.freebsd_string("install_type") == "packages"
+    if (forced = freebsd_version_flag) && !pkgbase
       freebsd_version = forced
       mfsbsd_version = forced
       abi = "FreeBSD:#{forced.split('.').first}:amd64"
     else
       begin
         info = Beryl::Bootstrap::MfsBSDRelease.latest
-        freebsd_version = info.version
         mfsbsd_version = info.version
         abi = info.abi
         resolved_iso_url ||= info.image_url
         STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 7.0] mfsBSD SE détectée : #{info.version} (#{info.image_url})"
-        # Croisement avec la dernière RELEASE FreeBSD du projet : mfsBSD SE
-        # (= version installable) peut être EN RETARD (ex. FreeBSD 15.1 sortie,
-        # mfsBSD SE encore en 15.0). On INFORME sans changer la version (on ne
-        # peut installer que ce que mfsBSD fournit). Best-effort (réseau).
-        begin
-          if (fb = Beryl::FreebsdRelease.latest) &&
-             Beryl::FreebsdRelease.version_key(fb) > Beryl::FreebsdRelease.version_key(info.version)
+        latest_by_branch = begin
+          Beryl::FreebsdRelease.latest_by_branch
+        rescue
+          {} of Int32 => String # pas de réseau : on reste sur la version mfsBSD
+        end
+        if pkgbase
+          freebsd_version = forced || Beryl::Bootstrap.pkgbase_target(info.version, latest_by_branch)
+          if freebsd_version != info.version
+            STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 7.0] pkgbase : installe FreeBSD #{freebsd_version} " \
+                        "(dépôt #{Beryl::Bootstrap.base_release_branch(freebsd_version)}) ; mfsBSD SE #{info.version} sert seulement d'outil d'installation."
+          end
+        else
+          freebsd_version = info.version
+          # Archives (`distribution_sets`) : la version installée EST celle de
+          # mfsBSD, qui peut être en retard sur la dernière release. On informe.
+          fb = latest_by_branch.values.max_by? { |v| Beryl::FreebsdRelease.version_key(v) }
+          if fb && Beryl::FreebsdRelease.version_key(fb) > Beryl::FreebsdRelease.version_key(info.version)
             STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] ⚠️  FreeBSD #{fb}-RELEASE est sortie (dernière du projet), " \
                         "mais mfsBSD SE n'est dispo qu'en #{info.version} → bootstrap installe #{info.version}."
-            STDERR.puts "        Pour #{fb} : attendez la mfsBSD SE #{fb}, ou `--freebsd-version=#{fb}` (si l'ISO mfsBSD #{fb} existe déjà)."
+            STDERR.puts "        Pour #{fb} : passez à `install_type: packages` (pkgbase), ou attendez la mfsBSD SE #{fb}."
           end
-        rescue
-          # Pas de réseau / format inattendu : l'info est facultative, on continue.
         end
       rescue ex : Beryl::Bootstrap::MfsBSDRelease::DetectionFailed
         STDERR.puts "beryl : impossible de détecter la dernière version mfsBSD SE — #{ex.message}"
@@ -259,7 +273,7 @@ module Beryl::CLI::Bootstrap
       STDERR.puts "DRY-RUN : plan d'install FreeBSD"
       STDERR.puts "─" * 60
       STDERR.puts "  hôte        : #{Beryl.format_ssh_target(host)}"
-      STDERR.puts "  FreeBSD     : #{freebsd_version}"
+      STDERR.puts "  FreeBSD     : #{freebsd_version}#{freebsd_version != mfsbsd_version ? " (outil d'installation : mfsBSD #{mfsbsd_version})" : ""}"
       STDERR.puts "  timezone    : #{timezone}"
       STDERR.puts "  pool boot   : #{pool_name} en #{raid} (RAID #{raid_level}) sur #{disks.join(", ")}"
       if data_pools.empty?
@@ -286,9 +300,12 @@ module Beryl::CLI::Bootstrap
       STDERR.puts "  packages    : #{packages.join(", ")}"
       STDERR.puts "  sudoers     :"
       sudoers.each { |s| STDERR.puts "    - #{s}" }
+      if chain_apply
+        STDERR.puts "  ensuite     : beryl apply #{Beryl::CLI::AccountUtils.host_ref(host)} --apply (enchaîné ; --no-apply pour l'éviter)"
+      end
       STDERR.puts "─" * 60
       STDERR.puts "DRY-RUN : aucune action exécutée."
-      STDERR.puts "Pour exécuter : #{Beryl.rerun_hint("bootstrap", args, replace_host: {raw, "#{host.account_name}/#{host.fqdn}"})}"
+      STDERR.puts "Pour exécuter : #{Beryl.rerun_hint("bootstrap", args, replace_host: {raw, Beryl::CLI::AccountUtils.host_ref(host)})}"
       return EXIT_OK
     end
 
@@ -376,13 +393,24 @@ module Beryl::CLI::Bootstrap
       encryption_root: encryption_root,
       system_datasets_key_hex: system_key_hex,
       boot_ashift: boot_ashift,
-      follow_hint_host_name: "#{host.account_name}/#{host.fqdn}",
+      follow_hint_host_name: Beryl::CLI::AccountUtils.host_ref(host),
     )
     bootstrap.run
 
     STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 7] terminé pour #{host.fqdn}"
     mark_installed(host)
-    EXIT_OK
+    return EXIT_OK unless chain_apply
+
+    # Étape 8 : le serveur est installé et répond → on pose tout de suite ses
+    # recettes (celles par défaut de la société : relais SMTP, supervision…),
+    # pour qu'aucun serveur ne reste « nu », sans courrier ni alertes.
+    ref = Beryl::CLI::AccountUtils.host_ref(host)
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 8] enchaîne `beryl apply #{ref} --apply`"
+    code = Beryl::CLI::Apply.run(config_root, ["#{host.account_name}/#{host.domain_name}/#{host.short_name}", "--apply"])
+    unless code == Beryl::CLI::Apply::EXIT_OK
+      STDERR.puts "beryl : FreeBSD est installé, mais `apply` a échoué (code #{code}). Corrigez puis relancez : beryl apply #{ref} --apply"
+    end
+    code
   rescue ex : Beryl::Config::Root::HostNotFound
     STDERR.puts "beryl : #{ex.message}"
     EXIT_USAGE

@@ -353,4 +353,22 @@ describe Beryl::Config::Pool do
       p.validate! # ne lève PAS (≠ pool boot chiffré sans profil)
     end
   end
+
+  describe ".possible_levels" do
+    it "ne garde que les niveaux réalisables" do
+      Beryl::Config::Zpool.possible_levels(1).should eq([0])
+      Beryl::Config::Zpool.possible_levels(2).should eq([0, 1])
+      Beryl::Config::Zpool.possible_levels(3).should eq([0, 1, 5])
+      Beryl::Config::Zpool.possible_levels(4).should eq([0, 1, 5, 6, 10])
+      Beryl::Config::Zpool.possible_levels(5).should eq([0, 1, 5, 6, 7])
+      Beryl::Config::Zpool.possible_levels(6).should eq([0, 1, 5, 6, 7, 10])
+    end
+  end
+
+  describe ".legend" do
+    it "nomme les niveaux" do
+      Beryl::Config::Zpool.legend([0, 1]).should eq("0=stripe 1=mirror")
+      Beryl::Config::Zpool.legend([5, 10], ", ").should eq("5=raidz, 10=mirror_stripe")
+    end
+  end
 end

@@ -8,8 +8,8 @@ module Beryl::Apply
   # beryl est le seul à mettre à jour ces paquets sur les serveurs.
   #
   #     - pkg-upgrade:
-  #         packages: [partiduo-app, partiduo-app-devel]   # obligatoire, non vide
-  #         restart: [partiduo, partiduo_devel]            # optionnel
+  #         packages: [myapp, myapp-worker]    # obligatoire, non vide
+  #         restart: [myapp]                   # optionnel
   #
   # Lecture de l'état (idempotence) :
   #
@@ -102,7 +102,7 @@ module Beryl::Apply
 
       failures = [] of String
       enabled.each do |svc|
-        r = shell.exec("service #{Process.quote(svc)} restart", raise_on_error: false)
+        r = shell.exec(Primitive.service_command(svc, "restart"), raise_on_error: false)
         failures << "#{svc} (code #{r.exit_code} : #{first_line(r)})" unless r.success?
       end
       unless failures.empty?

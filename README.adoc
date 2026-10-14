@@ -36,7 +36,7 @@ operator's workstation*:
   hosting provider, and user SSH keys.
 . `beryl rescue <host>` triggers the provider API to reboot into Linux rescue,
   then waits for SSH to come back.
-. `beryl scan <host> --dns --write --hostname=<short>` connects to the rescue,
+. `beryl scan <host> --dns --apply --hostname=<short>` connects to the rescue,
   detects disks (lsblk -b -d), lays down A/AAAA and PTR DNS records, and writes
   a ready-to-bootstrap `<host>.yml`.
 . `beryl wipe <host>` clears leftover ZFS pools and partitions.
@@ -131,28 +131,28 @@ Concrete example, one command per block so each can be copy-pasted on its own:
 +
 [source,console]
 ----
-beryl rescue aloli/186260 --provider=dedibox
+beryl rescue aloli/186260 --provider=dedibox --apply
 ----
 +
 2. Disk scan, A/AAAA records, write `cookie.aloli.net.yml`.
 +
 [source,console]
 ----
-beryl scan aloli/186260 --provider=dedibox --dns --write --hostname=cookie
+beryl scan aloli/186260 --provider=dedibox --dns --apply --hostname=cookie
 ----
 +
 3. Wipe leftover ZFS pools / partitions on the declared disks.
 +
 [source,console]
 ----
-beryl wipe aloli/cookie.aloli.net
+beryl wipe aloli/cookie.aloli.net --apply
 ----
 +
 4. Install FreeBSD 15 via mfsBSD-in-QEMU.
 +
 [source,console]
 ----
-beryl bootstrap aloli/cookie.aloli.net
+beryl bootstrap aloli/cookie.aloli.net --apply
 ----
 
 === OVH
@@ -184,28 +184,28 @@ Concrete example, one command per block so each can be copy-pasted on its own:
 +
 [source,console]
 ----
-beryl rescue aloli/ns3156789.ip-51-83-6.eu --domain=aloli.net
+beryl rescue aloli/ns3156789.ip-51-83-6.eu --domain=aloli.net --apply
 ----
 +
 2. Disk scan, A/AAAA + PTR records (IPv4/IPv6), rename the OVH panel.
 +
 [source,console]
 ----
-beryl scan aloli/ns3156789.ip-51-83-6.eu --domain=aloli.net --dns --write --hostname=cookie
+beryl scan aloli/ns3156789.ip-51-83-6.eu --domain=aloli.net --dns --apply --hostname=cookie
 ----
 +
 3. Wipe leftover ZFS pools / partitions.
 +
 [source,console]
 ----
-beryl wipe aloli/cookie.aloli.net
+beryl wipe aloli/cookie.aloli.net --apply
 ----
 +
 4. Install FreeBSD 15.
 +
 [source,console]
 ----
-beryl bootstrap aloli/cookie.aloli.net
+beryl bootstrap aloli/cookie.aloli.net --apply
 ----
 +
 5. In a second terminal, tail `bsdinstall.log` from the mfsBSD VM.
@@ -264,7 +264,7 @@ can be copy-pasted on its own:
 +
 [source,console]
 ----
-beryl rescue aloli/9783705f-f86f-4bf7-88ad-4c92b920e9ba --provider=scaleway
+beryl rescue aloli/9783705f-f86f-4bf7-88ad-4c92b920e9ba --provider=scaleway --apply
 ----
 +
 2. Run *only* if step 1 bailed out on the pre-check: resync SSH keys
@@ -280,21 +280,21 @@ beryl scaleway-reinstall aloli/9783705f-f86f-4bf7-88ad-4c92b920e9ba
 +
 [source,console]
 ----
-beryl scan aloli/9783705f-f86f-4bf7-88ad-4c92b920e9ba --provider=scaleway --dns --write --hostname=chouquette
+beryl scan aloli/9783705f-f86f-4bf7-88ad-4c92b920e9ba --provider=scaleway --dns --apply --hostname=chouquette
 ----
 +
 4. Wipe leftover ZFS pools / partitions.
 +
 [source,console]
 ----
-beryl wipe aloli/chouquette.aloli.net
+beryl wipe aloli/chouquette.aloli.net --apply
 ----
 +
 5. Install FreeBSD 15.
 +
 [source,console]
 ----
-beryl bootstrap aloli/chouquette.aloli.net
+beryl bootstrap aloli/chouquette.aloli.net --apply
 ----
 
 == Installation
@@ -325,59 +325,92 @@ The `beryl` binary lands in `./bin/beryl`. No runtime dependency beyond
 
 == Quick start
 
+Every command is a dry run by default (it shows what it would do);
+`--apply` actually runs it.
+
 1. Create the `~/.config/beryl/aloli/` tree (interactive prompts).
 +
 [source,sh]
 ----
-beryl init aloli
+beryl init aloli --apply
 ----
 +
 2. Store OVH credentials in `~/.config/beryl/.env.yml`.
 +
 [source,sh]
 ----
-beryl add-provider aloli/ovh
+beryl add-provider aloli/ovh --apply
 ----
 +
 3. Declare DNS zone, default provider, SSH keys.
 +
 [source,sh]
 ----
-beryl add-domain aloli/aloli.net
+beryl add-domain aloli/aloli.net --apply
 ----
 +
 4. Switch the server into rescue.
 +
 [source,sh]
 ----
-beryl rescue aloli/cookie.aloli.net
+beryl rescue aloli/cookie.aloli.net --apply
 ----
 +
 5. Detect disks, set up DNS, write the host YAML.
 +
 [source,sh]
 ----
-beryl scan aloli/cookie.aloli.net --dns --write --hostname=cookie
+beryl scan aloli/cookie.aloli.net --dns --apply --hostname=cookie
 ----
 +
 6. Wipe leftover pools / partitions.
 +
 [source,sh]
 ----
-beryl wipe aloli/cookie.aloli.net
+beryl wipe aloli/cookie.aloli.net --apply
 ----
 +
 7. Install FreeBSD 15.
 +
 [source,sh]
 ----
-beryl bootstrap aloli/cookie.aloli.net
+beryl bootstrap aloli/cookie.aloli.net --apply
 ----
 
 The full CLI reference (subcommands, shorts, flags) lives in
 link:docs/CLI-REFERENCE.adoc[docs/CLI-REFERENCE.adoc]. Detailed architecture
 and roadmap are in link:ARCHITECTURE.adoc[ARCHITECTURE.adoc] and
 link:docs/adr/[docs/adr/].
+
+== RAID levels (ZFS)
+
+`beryl scan` asks for each pool's RAID level as a number. Numbers 5, 6 and 7
+are a beryl convention, by analogy with hardware RAID; ZFS itself says
+`raidz`, `raidz2` and `raidz3`. Only the levels achievable with the selected
+disks are offered.
+
+[options="header",cols="1,2,5,1,1,2"]
+|===
+| Choice | ZFS mode | In plain words | Min. disks | Failures tolerated | Usable capacity (N disks)
+
+| `0` | stripe | Data *spread* over all disks, no copy. Fastest and most space, but one lost disk = everything lost. | 1 | 0 | N
+| `1` | mirror | *Mirror*: every disk holds the same copy. | 2 | N − 1 | 1 disk
+| `5` | raidz | *Single* parity (RAID 5 equivalent). | 3 | 1 | N − 1
+| `6` | raidz2 | *Double* parity (RAID 6 equivalent). | 4 | 2 | N − 2
+| `7` | raidz3 | *Triple* parity (ZFS-specific). | 5 | 3 | N − 3
+| `10` | mirror_stripe | *Mirrored pairs*, data spread over the pairs (RAID 10). | 4, even number | 1 per pair | N / 2
+|===
+
+Rules of thumb:
+
+* *2 disks*: `1` (mirror) is the only redundant choice.
+* *3 disks*: `5` (raidz).
+* *4 disks or more*: `6` (raidz2) for safety and space — it survives two
+  simultaneous failures, valuable with large disks whose rebuild takes
+  hours; `10` for performance (databases), at the cost of half the space.
+* `0` only suits disposable data (cache) or when relying entirely on
+  backups. For a multi-disk zroot in `0`, `beryl scan` warns and asks for
+  confirmation.
 
 == Licence
 

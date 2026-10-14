@@ -244,7 +244,7 @@ module Beryl::CLI::Apply
 
     log "apply terminé pour #{host.fqdn}#{dry_run ? " (dry-run)" : ""} — #{report.summary_line}"
     report.failed > 0 ? EXIT_RECIPE : EXIT_OK
-  rescue ex : Beryl::Apply::Resolver::RecipeNotFound | Beryl::Apply::Resolver::Cycle | Beryl::Apply::Recipe::InvalidRecipe | Beryl::Apply::UnknownPrimitive
+  rescue ex : Beryl::Apply::Resolver::RecipeNotFound | Beryl::Apply::Resolver::Cycle | Beryl::Apply::Recipe::InvalidRecipe | Beryl::Apply::UnknownPrimitive | Beryl::Apply::DuplicatePath | Beryl::Apply::ConflictingRequiredArgs
     STDERR.puts "beryl : #{host.fqdn} : #{ex.message}"
     EXIT_RECIPE
   rescue ex : SSH::CommandFailed

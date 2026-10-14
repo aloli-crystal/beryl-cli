@@ -1,3 +1,4 @@
+require "file_utils"
 require "../../spec_helper"
 require "../../support/fake_shell"
 
@@ -23,6 +24,32 @@ class TestRecorder < Beryl::Apply::Primitive
 end
 
 Beryl::Apply::Primitive.register(TestRecorder.new)
+
+# Primitive de test : ne change jamais rien (skipped).
+class TestNoop < Beryl::Apply::Primitive
+  def name : String
+    "test-noop"
+  end
+
+  def apply(shell : Beryl::Apply::Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Beryl::Apply::Context) : Beryl::Apply::StepResult
+    Beryl::Apply::StepResult.skipped("rien à faire")
+  end
+end
+
+Beryl::Apply::Primitive.register(TestNoop.new)
+
+# Recette écrite dans un fichier temporaire nommé comme elle (`<nom>.recipe.yml`,
+# exigé par `Recipe.load`).
+private def recipe_from(yaml : String) : Beryl::Apply::Recipe
+  name = yaml[/\Arecipe: (\S+)/, 1]
+  dir = File.tempname("beryl-recipes")
+  Dir.mkdir_p(dir)
+  path = File.join(dir, "#{name}.recipe.yml")
+  File.write(path, yaml)
+  Beryl::Apply::Recipe.load(path)
+ensure
+  FileUtils.rm_rf(dir) if dir
+end
 
 describe Beryl::Apply::Executor do
   it "exécute les steps et agrège le rapport" do
@@ -163,6 +190,31 @@ describe Beryl::Apply::Executor do
     TestRecorder.last_params["msg"].as_s.should eq("deux le monde") # dernier combo
   end
 
+  describe "option d'étape if_changed" do
+    it "saute l'étape quand rien n'a changé avant dans la recette" do
+      r = recipe_from("recipe: t\ndescription: t\nsteps:\n  - test-noop: {}\n  - test-record: { if_changed: true, a: \"1\" }\n")
+      TestRecorder.last_params = {} of String => YAML::Any
+      report = Beryl::Apply::Executor.new(FakeShell.new).run([r])
+      report.applied.should eq(0)
+      TestRecorder.last_params.should be_empty # jamais appelée
+    end
+
+    it "joue l'étape quand une étape précédente a changé quelque chose" do
+      r = recipe_from("recipe: t\ndescription: t\nsteps:\n  - test-record: { a: \"1\" }\n  - test-record: { if_changed: true, a: \"2\" }\n")
+      report = Beryl::Apply::Executor.new(FakeShell.new).run([r])
+      report.applied.should eq(2)
+      TestRecorder.last_params["a"].as_s.should eq("2")
+      TestRecorder.last_params.has_key?("if_changed").should be_false # option retirée avant la primitive
+    end
+
+    it "le suivi des changements repart de zéro à chaque recette" do
+      r1 = recipe_from("recipe: r1\ndescription: t\nsteps:\n  - test-record: { a: \"1\" }\n")
+      r2 = recipe_from("recipe: r2\ndescription: t\nsteps:\n  - test-record: { if_changed: true, a: \"2\" }\n")
+      report = Beryl::Apply::Executor.new(FakeShell.new).run([r1, r2])
+      report.applied.should eq(1)
+    end
+  end
+
   it "lève UnknownPrimitive pour un step inconnu" do
     shell = FakeShell.new
     recipe = Beryl::Apply::Recipe.new(
@@ -185,5 +237,111 @@ describe Beryl::Apply::Executor do
     shell.stub(/pkg install/, exit_code: 1, stderr: "boom")
     report = Beryl::Apply::Executor.new(shell, dry_run: false).run([central_recipe("base-packages")])
     report.failed.should eq(1)
+  end
+end
+
+describe "Beryl::Apply::Executor — requires en forme map" do
+  it "transmet les arguments imposés à la dépendance" do
+    dep = recipe_from(<<-YAML)
+      recipe: dep-web
+      parameters:
+        package: { type: string, default: lite }
+      steps:
+        - test-record: { pkg: "{{ package }}" }
+      YAML
+    user = recipe_from(<<-YAML)
+      recipe: app-web
+      requires:
+        - dep-web: { package: full }
+      YAML
+    Beryl::Apply::Executor.new(FakeShell.new, dry_run: true).run([dep, user])
+    TestRecorder.last_params["pkg"].as_s.should eq("full")
+  end
+
+  it "laisse l'hôte surcharger un argument imposé" do
+    dep = recipe_from(<<-YAML)
+      recipe: dep-web
+      parameters:
+        package: { type: string, default: lite }
+      steps:
+        - test-record: { pkg: "{{ package }}" }
+      YAML
+    user = recipe_from(<<-YAML)
+      recipe: app-web
+      requires:
+        - dep-web: { package: full }
+      YAML
+    args = {"dep-web" => [{"package" => "autre"}]}
+    Beryl::Apply::Executor.new(FakeShell.new, dry_run: true).run([dep, user], args)
+    TestRecorder.last_params["pkg"].as_s.should eq("autre")
+  end
+
+  it "refuse deux valeurs imposées différentes" do
+    dep = recipe_from("recipe: dep-web\nsteps: []\n")
+    a = recipe_from("recipe: app-a\nrequires:\n  - dep-web: { package: full }\n")
+    b = recipe_from("recipe: app-b\nrequires:\n  - dep-web: { package: lite }\n")
+    expect_raises(Beryl::Apply::ConflictingRequiredArgs, /package/) do
+      Beryl::Apply::Executor.new(FakeShell.new, dry_run: true).run([dep, a, b])
+    end
+  end
+end
+
+describe "Beryl::Apply::Executor — garde « une recette par fichier »" do
+  it "refuse deux recettes qui écrivent le même fichier, avant toute exécution" do
+    a = recipe_from("recipe: site-a\nsteps:\n  - file-write: { path: /usr/local/etc/nginx/nginx.conf, content: a }\n")
+    b = recipe_from("recipe: site-b\nsteps:\n  - file-write: { path: /usr/local/etc/nginx/nginx.conf, content: b }\n")
+    shell = FakeShell.new
+    expect_raises(Beryl::Apply::DuplicatePath, /site-a.*site-b/) do
+      Beryl::Apply::Executor.new(shell, dry_run: true).run([a, b])
+    end
+    shell.commands.should be_empty
+  end
+
+  it "refuse deux jeux d'arguments qui visent le même fichier" do
+    r = recipe_from(<<-YAML)
+      recipe: site-x
+      parameters:
+        name: { type: string, default: "" }
+      steps:
+        - file-write: { path: /usr/local/etc/monit.d/site.conf, content: "{{ name }}" }
+      YAML
+    args = {"site-x" => [{"name" => "a"}, {"name" => "b"}]}
+    expect_raises(Beryl::Apply::DuplicatePath, /jeu d'arguments/) do
+      Beryl::Apply::Executor.new(FakeShell.new, dry_run: true).run([r], args)
+    end
+  end
+
+  it "accepte des chemins distincts par jeu d'arguments" do
+    r = recipe_from(<<-YAML)
+      recipe: site-y
+      parameters:
+        name: { type: string, default: "" }
+      steps:
+        - test-record: { path: "/usr/local/etc/nginx/conf.d/{{ name }}.conf" }
+      YAML
+    args = {"site-y" => [{"name" => "a"}, {"name" => "b"}]}
+    report = Beryl::Apply::Executor.new(FakeShell.new, dry_run: true).run([r], args)
+    report.total.should eq(2)
+  end
+end
+
+describe "Beryl::Apply::Executor — deferred" do
+  it "joue une seule fois en fin d'apply une étape demandée par deux recettes" do
+    a = recipe_from("recipe: sonde-a\nsteps:\n  - test-record: { what: a }\n  - test-noop: { name: monit, deferred: true }\n  - test-record: { what: a2 }\n")
+    b = recipe_from("recipe: sonde-b\nsteps:\n  - test-noop: { name: monit, deferred: true }\n")
+    report = Beryl::Apply::Executor.new(FakeShell.new, dry_run: true).run([a, b])
+    report.entries.map(&.step).should eq(["test-record", "test-record", "test-noop"])
+  end
+
+  it "respecte if_changed avant de reporter" do
+    a = recipe_from("recipe: sonde-c\nsteps:\n  - test-noop: {}\n  - test-record: { deferred: true, if_changed: true }\n")
+    report = Beryl::Apply::Executor.new(FakeShell.new, dry_run: true).run([a])
+    report.entries.map(&.result.outcome).should eq([Beryl::Apply::Outcome::Skipped, Beryl::Apply::Outcome::Skipped])
+  end
+
+  it "retire deferred des params transmis" do
+    a = recipe_from("recipe: sonde-d\nsteps:\n  - test-record: { name: monit, deferred: true }\n")
+    Beryl::Apply::Executor.new(FakeShell.new, dry_run: true).run([a])
+    TestRecorder.last_params.has_key?("deferred").should be_false
   end
 end

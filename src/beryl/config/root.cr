@@ -439,6 +439,20 @@ module Beryl::Config
       @merged[YAML::Any.new("dns_provider")]?.try(&.as_s?)
     end
 
+    # Rôle FONCTIONNEL du serveur, libre et court (`vpn`, `backup`, `web`,
+    # `apps-crystal`…) — clé `role:` du host.yml. Distinct de l'accès réseau
+    # (bastion / caché / public). nil si non renseigné.
+    def role : String?
+      @merged[YAML::Any.new("role")]?.try(&.as_s?).try(&.strip).presence
+    end
+
+    # Notes libres de l'opérateur sur ce serveur (clé `notes:`, texte
+    # multiligne). En CLÉ et non en commentaires : `beryl scan --apply`
+    # réécrit le fichier et perd les commentaires, mais garde les clés.
+    def notes : String?
+      @merged[YAML::Any.new("notes")]?.try(&.as_s?).try(&.strip).presence
+    end
+
     # Nature de la machine : `dedicated` (défaut, serveur physique) ou `vps`
     # (machine virtuelle). Lu dans le champ `kind:` du merged (héritable du
     # groupe/domaine). Les commandes qui pilotent l'API « serveur dédié » de

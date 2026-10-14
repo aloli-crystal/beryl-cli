@@ -1,5 +1,6 @@
 require "../../../spec_helper"
 require "../../../support/fake_shell"
+require "file_utils"
 
 describe Beryl::Apply::PoudriereBuild do
   it "est enregistrée sous `poudriere-build`" do
@@ -315,6 +316,97 @@ describe "Beryl::Apply::PoudriereBuild (overlays)" do
       expect_raises(Beryl::Apply::Primitive::MissingParam, /pkglist/) do
         pb.apply(builder_shell, pb_params("major: \"15\"\noverlays: [{name: aloli}]"), true, pb_ctx)
       end
+    end
+  end
+
+  describe ".scheduled_script" do
+    ov = [Beryl::Apply::PoudriereBuild::ScheduledOverlay.new("quimeo", "/p/quimeo-ports", nil, true),
+          Beryl::Apply::PoudriereBuild::ScheduledOverlay.new("aloli", "/p/aloli-ports", "production", true)]
+    script = Beryl::Apply::PoudriereBuild.scheduled_script("15.1", "amd64", "default", ov,
+      ["/e/quimeo-pkglist", "/e/aloli-pkglist"], "/pkg", "/e/reapply.sh")
+
+    it "partage le verrou de beryl apply et le libère en sortie" do
+      script.should contain("if [ -f /pkg/.beryl-build-15.lock ]; then")
+      script.should contain("trap 'rm -f /pkg/.beryl-build-15.lock' EXIT")
+    end
+
+    it "met à jour en avance rapide les seuls overlays gérés par beryl" do
+      script.should contain("git -C /p/aloli-ports fetch -q origin production")
+      script.should contain("git -C /p/aloli-ports merge -q --ff-only FETCH_HEAD")
+      script.should_not contain("git -C /p/quimeo-ports fetch")
+    end
+
+    it "lance le même build que beryl apply" do
+      script.should contain("poudriere bulk -j fbsd151amd64 -p default -O quimeo -O aloli -f /e/quimeo-pkglist -f /e/aloli-pkglist")
+      script.should contain("/e/reapply.sh \"$PTDIR\"")
+      script.should contain("ln -sfh fbsd151amd64-default /pkg/FreeBSD:15:amd64")
+    end
+
+    it "enregistre les commits réellement construits" do
+      script.should contain(%(printf '%s %s\\n' quimeo "$(git -C /p/quimeo-ports rev-parse HEAD)"))
+      script.should contain("mv -f \"$TMP\" /pkg/.beryl-build-15.overlays")
+    end
+  end
+end
+
+# Exécute le fragment avec une fausse date et un faux git (ls-remote : code
+# `remote_ok`), et renvoie la branche retenue.
+private def pick_branch(date_ym : String, remote_ok : Bool) : String
+  dir = File.tempname("beryl-branch")
+  Dir.mkdir_p(dir)
+  y, m = date_ym.split('-')
+  File.write(File.join(dir, "date"), "#!/bin/sh\ncase \"$2\" in +%Y) echo #{y};; +%m) echo #{m};; esac\n")
+  File.write(File.join(dir, "git"), "#!/bin/sh\nexit #{remote_ok ? 0 : 2}\n")
+  File.chmod(File.join(dir, "date"), 0o755)
+  File.chmod(File.join(dir, "git"), 0o755)
+  script = "PTDIR=/nonexistent\n" + Beryl::Apply::PoudriereBuild.branch_script("quarterly") + "echo \"$BR\"\n"
+  buf = IO::Memory.new
+  Process.run("sh", ["-c", script], output: buf, env: {"PATH" => "#{dir}:/usr/bin:/bin"})
+  buf.to_s.strip.lines.last
+ensure
+  FileUtils.rm_rf(dir) if dir
+end
+
+describe "Beryl::Apply::PoudriereBuild.branch_script" do
+  it "prend le trimestre en cours quand sa branche existe" do
+    pick_branch("2026-10", true).should eq("2026Q4")
+    pick_branch("2027-03", true).should eq("2027Q1")
+    pick_branch("2026-06", true).should eq("2026Q2")
+  end
+
+  it "se replie sur le trimestre précédent tant que la branche n'est pas publiée" do
+    pick_branch("2026-10", false).should eq("2026Q3")
+    pick_branch("2027-01", false).should eq("2026Q4")
+  end
+
+  it "accepte une branche fixe" do
+    Beryl::Apply::PoudriereBuild.branch_script("main").should contain("BR=main\n")
+  end
+
+  it "est inséré avant la mise à jour de l'arbre" do
+    s = Beryl::Apply::PoudriereBuild.build_script("15.1", "amd64", "default", ["aloli"], ["/l"], "/p", nil,
+      ports_branch: "quarterly")
+    (s.index!("remote set-branches") < s.index!("poudriere ports -u -p")).should be_true
+  end
+end
+
+describe "Beryl::Apply::PoudriereBuild — force" do
+  it "lance un build forcé même si tout est à jour" do
+    with_latest("15.1") do
+      sh = builder_shell
+      r = pb.apply(sh, pb_params(TWO + "\nforce: \"1\"\n"), dry_run: false, context: pb_ctx)
+      r.outcome.should eq(Beryl::Apply::Outcome::Applied)
+      r.message.should contain("forcé")
+      launched?(sh).should be_true
+    end
+  end
+
+  it "force: false — rien à faire si tout est à jour" do
+    with_latest("15.1") do
+      sh = builder_shell
+      r = pb.apply(sh, pb_params(TWO + "\nforce: \"false\"\n"), dry_run: false, context: pb_ctx)
+      r.outcome.should eq(Beryl::Apply::Outcome::Skipped)
+      launched?(sh).should be_false
     end
   end
 end

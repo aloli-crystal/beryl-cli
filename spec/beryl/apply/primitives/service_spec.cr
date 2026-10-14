@@ -98,3 +98,21 @@ describe Beryl::Apply::ServiceReload do
     shell.ran?(/service sshd reload/).should be_false
   end
 end
+
+describe Beryl::Apply::ServiceRestart do
+  it "skip si le service ne tourne pas" do
+    shell = FakeShell.new
+    shell.stub(/onestatus/, exit_code: 1)
+    r = prim("service-restart").apply(shell, apply_params("name: app\n"), dry_run: false, context: ctx)
+    r.outcome.should eq(Beryl::Apply::Outcome::Skipped)
+    shell.ran?(/restart/).should be_false
+  end
+
+  it "redémarre un service qui tourne, détaché de la session" do
+    shell = FakeShell.new
+    shell.stub(/onestatus/, exit_code: 0)
+    r = prim("service-restart").apply(shell, apply_params("name: app\n"), dry_run: false, context: ctx)
+    r.outcome.should eq(Beryl::Apply::Outcome::Applied)
+    shell.ran?(%r{service app restart </dev/null}).should be_true
+  end
+end

@@ -2,6 +2,7 @@ require "../config"
 require "../providers"
 require "./credentials"
 require "./dns_setup"
+require "./account_utils"
 require "./machine_kind"
 
 module Beryl::CLI
@@ -221,7 +222,7 @@ module Beryl::CLI
         end
         if v6 = ipv6
           begin
-            rev.set_reverse(v6, fqdn)
+            rev.set_reverse(v6, fqdn, plan.ipv6_block)
             log.call("✓ reverse #{v6} → #{fqdn}")
           rescue ex
             if reverse_already_set?(ex)
@@ -243,7 +244,7 @@ module Beryl::CLI
         STDERR.puts "#{cmd} : forward DNS posé ✓, mais des étapes SECONDAIRES ont échoué :"
         warnings.each { |msg| STDERR.puts "  ⚠ #{msg}" }
         STDERR.puts "  (Le host reste joignable par son nom — ces étapes sont secondaires.)"
-        STDERR.puts "  → pour rejouer le reverse quand l'API répond : beryl dns #{fqdn}"
+        STDERR.puts "  → pour rejouer le reverse quand l'API répond : beryl dns #{Beryl::CLI::AccountUtils.host_ref(host)} --apply"
       end
       Result.new(Outcome::Applied, short, warnings)
     end

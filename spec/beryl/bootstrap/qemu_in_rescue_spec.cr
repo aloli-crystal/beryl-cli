@@ -182,6 +182,12 @@ describe Beryl::Bootstrap::QemuInRescue do
       make_bootstrap(install_type: "packages", packages: ["sudo", "zsh"]).packages.should eq(["sudo", "zsh"])
     end
 
+    it "pkgbase : le dépôt suit la version à installer, pas mfsBSD (15.1 via mfsBSD 15.0)" do
+      sh = make_bootstrap(install_type: "packages", freebsd_version: "15.1", mfsbsd_version: "15.0").render_install_pkgbase
+      sh.should contain("/${ABI}/base_release_1")
+      sh.should_not contain("base_release_0")
+    end
+
     it "rend install-pkgbase.sh multi-disque + users + packages + root COUPÉ (placeholders substitués)" do
       dp = Beryl::Bootstrap::DataPoolSpec.new(
         name: "zdata", raid: 0, disks: ["/dev/sdc", "/dev/sdd"], mountpoint: "/data")
@@ -191,7 +197,7 @@ describe Beryl::Bootstrap::QemuInRescue do
         packages: ["sudo", "zsh", "curl", "git"], sudoers: ["%wheel ALL=(ALL) NOPASSWD:ALL"],
       ).render_install_pkgbase
       # Plus aucun placeholder résiduel.
-      %w[__BOOT_DISKS__ __BOOT_RAID__ __USERS_TSV_B64__ __PACKAGES__ __SUDOERS_B64__ __DATA_POOLS_SCRIPT_B64__ __SYSTEM_DATASETS_SCRIPT_B64__ __ROOT_KEYS_B64__ __ABI__].each do |ph|
+      %w[__BOOT_DISKS__ __BOOT_RAID__ __USERS_TSV_B64__ __PACKAGES__ __SUDOERS_B64__ __DATA_POOLS_SCRIPT_B64__ __SYSTEM_DATASETS_SCRIPT_B64__ __ROOT_KEYS_B64__ __ABI__ __BASE_RELEASE__].each do |ph|
         sh.should_not contain(ph)
       end
       # Sans profil Option I : root reste COUPÉ (durcissement historique).

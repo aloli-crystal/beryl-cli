@@ -156,23 +156,62 @@ describe Beryl::CLI::Scan do
       parsed["freebsd"]["zfs"]["zroot"]["raid"].as_i.should eq(1)
       parsed["freebsd"]["zfs"]["zroot"]["disks"].as_a.size.should eq(2)
     end
+
+    it "fusionne le bloc ovh : garde prix, baie et IP posés par --discover" do
+      existing = <<-YAML
+        provider: ovh
+        ovh:
+          service_name: ns3139679.ip-51-77-217.eu
+          commercial_name: KS-C
+          rack: GRA0327A07A
+          ipv4: 51.77.217.2
+          ipv6: "2001:41d0:306:3dc7::1"
+          price_eur: 136.69
+        YAML
+      scan_yaml = <<-YAML
+        provider: ovh
+        ovh:
+          service_name: ns3139679.ip-51-77-217.eu
+          commercial_name: KS-C | Intel Xeon E5-1650v2
+        YAML
+      ovh = YAML.parse(Beryl::CLI::Scan.merge_scan_into(existing, scan_yaml))["ovh"]
+      ovh["price_eur"].as_f.should eq(136.69)
+      ovh["rack"].as_s.should eq("GRA0327A07A")
+      ovh["ipv4"].as_s.should eq("51.77.217.2")
+      ovh["ipv6"].as_s.should eq("2001:41d0:306:3dc7::1")
+      ovh["commercial_name"].as_s.should eq("KS-C | Intel Xeon E5-1650v2") # rafraîchi
+    end
+  end
+
+  describe ".disk_choice_hint" do
+    it "cite les vrais noms de disques" do
+      candidates = %w[nvme0n1 nvme1n1 nvme2n1].map { |n| sample_disk(n) }
+      Beryl::CLI::Scan.disk_choice_hint(candidates).should eq("1,2 | nvme0n1,nvme1n1 | all")
+    end
   end
 
   describe ".parse_pool_spec" do
-    it "parse `data:sda,sdb:10` → pool zdata, mountpoint /data, non-boot" do
-      candidates = [sample_disk("sda"), sample_disk("sdb"), sample_disk("sdc")]
-      pool = Beryl::CLI::Scan.parse_pool_spec("data:sda,sdb:10", candidates)
+    it "parse `data:sda,sdb,sdc,sdd:10` → pool zdata, mountpoint /data, non-boot" do
+      candidates = %w[sda sdb sdc sdd sde].map { |n| sample_disk(n) }
+      pool = Beryl::CLI::Scan.parse_pool_spec("data:sda,sdb,sdc,sdd:10", candidates)
       pool.name.should eq("zdata")
       pool.mountpoint.should eq("/data")
       pool.raid.should eq(10)
       pool.boot.should be_false
-      pool.disks.map(&.name).should eq(["sda", "sdb"])
+      pool.disks.map(&.name).should eq(["sda", "sdb", "sdc", "sdd"])
     end
 
     it "accepte `all` pour prendre tous les disques restants" do
       candidates = [sample_disk("sda"), sample_disk("sdb"), sample_disk("sdc")]
-      pool = Beryl::CLI::Scan.parse_pool_spec("data:all:6", candidates)
+      pool = Beryl::CLI::Scan.parse_pool_spec("data:all:5", candidates)
       pool.disks.map(&.name).should eq(["sda", "sdb", "sdc"])
+    end
+
+    it "refuse un RAID impossible avec le nombre de disques choisis" do
+      candidates = [sample_disk("sda"), sample_disk("sdb")]
+      expect_raises(ArgumentError, /RAID 10 impossible avec 2 disque/) do
+        Beryl::CLI::Scan.parse_pool_spec("data:sda,sdb:10", candidates)
+      end
     end
 
     it "refuse un format sans 2 `:` (SHORTNAME:DISKS:RAID requis)" do
@@ -182,7 +221,7 @@ describe Beryl::CLI::Scan do
     end
 
     it "refuse un RAID inconnu (ex: 42)" do
-      expect_raises(ArgumentError, /niveau RAID 42/) do
+      expect_raises(ArgumentError, /RAID invalide : "42" — possibles avec 1 disque\(s\) : 0=stripe/) do
         Beryl::CLI::Scan.parse_pool_spec("data:sda:42", [sample_disk])
       end
     end
@@ -285,17 +324,38 @@ describe Beryl::CLI::Scan do
     end
   end
 
+  describe ".validate_raid_for!" do
+    it "accepte un niveau réalisable avec ce nombre de disques" do
+      Beryl::CLI::Scan.validate_raid_for!("1", 2).should eq(1)
+      Beryl::CLI::Scan.validate_raid_for!("10", 4).should eq(10)
+    end
+
+    it "refuse un niveau impossible en citant les niveaux possibles" do
+      ex = expect_raises(ArgumentError) { Beryl::CLI::Scan.validate_raid_for!("6", 2) }
+      ex.message.not_nil!.should contain("RAID 6 impossible avec 2 disque(s) — possibles : 0=stripe, 1=mirror")
+      expect_raises(ArgumentError) { Beryl::CLI::Scan.validate_raid_for!("10", 5) }
+    end
+
+    it "réponse illisible ou niveau inconnu : ne cite que les niveaux possibles" do
+      ex = expect_raises(ArgumentError) { Beryl::CLI::Scan.validate_raid_for!("o", 2) }
+      ex.message.not_nil!.should eq(%(RAID invalide : "o" — possibles avec 2 disque(s) : 0=stripe, 1=mirror))
+      ex = expect_raises(ArgumentError) { Beryl::CLI::Scan.validate_raid_for!("42", 3) }
+      ex.message.not_nil!.should contain("possibles avec 3 disque(s) : 0=stripe, 1=mirror, 5=raidz")
+      ex.message.not_nil!.should_not contain("10")
+    end
+  end
+
   describe ".stripe_warning" do
     it "avertit pour un zroot en stripe sur plusieurs disques" do
       w = Beryl::CLI::Scan.stripe_warning("zroot", 4, 0).not_nil!
       w.should contain("AUCUNE redondance")
-      w.should contain("5=raidz, 6=raidz2, 10=mirror_stripe")
+      w.should contain("possibles ici : 1=mirror, 5=raidz, 6=raidz2, 10=mirror_stripe.")
     end
 
     it "propose seulement les niveaux possibles pour le nombre de disques" do
       Beryl::CLI::Scan.stripe_warning("zroot", 2, 0).not_nil!.should contain("possibles ici : 1=mirror.")
-      Beryl::CLI::Scan.stripe_warning("zroot", 3, 0).not_nil!.should contain("possibles ici : 5=raidz.")
-      Beryl::CLI::Scan.stripe_warning("zroot", 5, 0).not_nil!.should contain("5=raidz, 6=raidz2.")
+      Beryl::CLI::Scan.stripe_warning("zroot", 3, 0).not_nil!.should contain("possibles ici : 1=mirror, 5=raidz.")
+      Beryl::CLI::Scan.stripe_warning("zroot", 5, 0).not_nil!.should contain("possibles ici : 1=mirror, 5=raidz, 6=raidz2, 7=raidz3.")
     end
 
     it "se tait pour un seul disque, un niveau redondant ou un pool de données" do
@@ -548,6 +608,54 @@ describe Beryl::CLI::Scan do
 
     it "retombe sur new-<ns> quand le displayName est vide" do
       Beryl::CLI::Scan.discover_short_name("   ", "ns42.ip-9-9-9.eu").should eq("new-ns42")
+    end
+
+    it "réduit un displayName FQDN du domaine cible à son nom court" do
+      Beryl::CLI::Scan.discover_short_name("tika.aloli.net", "ns1.ip-1-2-3.eu", "aloli.net").should eq("tika")
+      Beryl::CLI::Scan.discover_short_name("Tika.Aloli.Net.", "ns1.ip-1-2-3.eu", "aloli.net").should eq("tika")
+    end
+
+    it "garde un FQDN d'un autre domaine en entier (slugifié)" do
+      Beryl::CLI::Scan.discover_short_name("qwert.yuiop.ovh", "ns1.ip-1-2-3.eu", "aloli.net").should eq("qwert-yuiop-ovh")
+    end
+  end
+
+  describe "AccountUtils.host_ref" do
+    existing = [
+      {account: "quimeo", domain: "quimeo.net", short: "tika"},
+      {account: "aloli", domain: "aloli.org", short: "fiona"},
+    ]
+
+    it "nom court seul quand il est unique" do
+      Beryl::CLI::AccountUtils.host_ref("loulou", "aloli", "aloli.net", existing).should eq("loulou")
+    end
+
+    it "société/nom quand une autre société a le même nom" do
+      Beryl::CLI::AccountUtils.host_ref("tika", "aloli", "aloli.net", existing).should eq("aloli/tika")
+    end
+
+    it "société/domaine/nom quand un autre domaine de la société a le même nom" do
+      Beryl::CLI::AccountUtils.host_ref("fiona", "aloli", "aloli.net", existing).should eq("aloli/aloli.net/fiona")
+    end
+  end
+
+  describe ".discover_next_steps" do
+    it "cite les noms des hosts : rescue PUIS scan --apply" do
+      out = Beryl::CLI::Scan.discover_next_steps("aloli", ["tika", "aloli/loulou"], false)
+      out.should contain("beryl rescue tika --apply && beryl scan tika --apply")
+      out.should contain("beryl rescue aloli/loulou --apply && beryl scan aloli/loulou --apply")
+      out.should contain("REDÉMARRAGE")
+      out.should_not contain("<host>")
+      out.should_not contain("--discover")
+    end
+
+    it "en dry-run, indique d'abord comment écrire les squelettes" do
+      out = Beryl::CLI::Scan.discover_next_steps("aloli", ["tika"], true)
+      out.lines.first.should eq("Pour écrire ces squelettes : beryl scan --discover aloli --apply")
+    end
+
+    it "ne dit rien quand il n'y a aucun host" do
+      Beryl::CLI::Scan.discover_next_steps("aloli", [] of String, true).should eq("")
     end
   end
 end

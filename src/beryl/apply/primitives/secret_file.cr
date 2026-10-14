@@ -27,6 +27,11 @@ module Beryl::Apply
   #         content: |
   #           @@USER@@|{{ smarthost }}:@@SECRET@@
   #
+  # Variables PAR SERVEUR : pour chaque nom, beryl cherche d'abord
+  # `<NOM>__<HÔTE>` (ex. `PARTIDUO_AGENT_TOKEN__LOULOU`), puis `<NOM>`. Avec
+  # `per_host: true`, seule la variante du serveur est acceptée : un jeton ou
+  # une clé propre à chaque serveur n'est jamais pris dans la valeur commune.
+  #
   # Note : les noms de variables (sous-map `env`) sont en DUR — l'Executor
   # n'interpole que les strings de premier niveau (donc `content`), pas les
   # sous-maps. Les `{{ … }}` non secrets vont dans `content`.
@@ -41,6 +46,7 @@ module Beryl::Apply
     def apply(shell : Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Context) : StepResult
       content = required_string(params, "content")
       env_map = parse_env_map(params)
+      per_host = params["per_host"]?.try(&.as_bool?) == true
       if env_map.empty?
         return StepResult.failed("secret-file : sous-map `env` (placeholder → variable d'env) requis.")
       end
@@ -54,10 +60,19 @@ module Beryl::Apply
             "placeholder `#{placeholder}` absent du contenu — `#{var_name}` ne serait pas injecté."
           )
         end
-        value = ENV[var_name]?
-        if value.nil? || value.empty?
+        value = Apply.secret(var_name, context, per_host: per_host)
+        if value.nil?
+          host = context.vars["hostname"]? || ""
+          wanted =
+            if per_host && !host.empty?
+              "`#{Apply.host_secret_name(var_name, host)}` (propre à ce serveur, per_host)"
+            elsif host.empty?
+              "`#{var_name}`"
+            else
+              "`#{Apply.host_secret_name(var_name, host)}` ou `#{var_name}`"
+            end
           return StepResult.failed(
-            "variable d'environnement `#{var_name}` absente ou vide. " \
+            "variable #{wanted} absente ou vide. " \
             "Posez-la dans le coffre de la société (`beryl env edit <société>`) puis relancez."
           )
         end
@@ -67,7 +82,7 @@ module Beryl::Apply
       # Délègue à FileWrite (idempotence SHA-256 + écriture SFTP). Ses
       # messages ne citent QUE le chemin → les valeurs ne fuitent pas.
       # `mode` par défaut 0600 (fichier sensible) si non précisé.
-      delegated = params.dup
+      delegated = params.reject("per_host")
       delegated["content"] = YAML::Any.new(rendered)
       delegated["mode"] = params["mode"]? || YAML::Any.new("0600")
       super(shell, delegated, dry_run, context)

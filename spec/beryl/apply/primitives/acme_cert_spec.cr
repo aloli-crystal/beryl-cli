@@ -1,5 +1,6 @@
 require "../../../spec_helper"
 require "../../../support/fake_shell"
+require "../../../support/apply_helpers"
 
 private def dom(list : Array(String)) : YAML::Any
   YAML::Any.new(list.map { |d| YAML::Any.new(d) })
@@ -27,8 +28,7 @@ describe Beryl::Apply::AcmeCert do
         "service nginx reload", "/home/acme", "letsencrypt", "standalone", nil, "nginx", "ec-256", nil, nil)
       s.should contain("--issue --server letsencrypt -d pkg.quimeo.net -d pkg.aloli.net --standalone --home /home/acme")
       s.should contain("--install-cert -d pkg.quimeo.net --ecc")
-      s.should contain("--fullchain-file \"$FC\"")
-      s.should contain("--key-file \"$KEY\"")
+      s.should contain("--fullchain-file /ssl/fc.pem --key-file /ssl/key.pem")
       s.should contain("--reloadcmd 'service nginx reload'")
       s.should contain("trap 'service nginx onestart >/dev/null 2>&1 || true' EXIT")
       s.should contain("service nginx onestop")
@@ -57,14 +57,14 @@ describe Beryl::Apply::AcmeCert do
 
     it "dns : --dns <provider> + exports des credentials, sans --standalone" do
       s = Beryl::Apply::AcmeCert.issue_script(
-        ["quimeo.review", "*.quimeo.review"], "/fc", "/k", "service nginx reload", "/h",
+        ["example.review", "*.example.review"], "/fc", "/k", "service nginx reload", "/h",
         "letsencrypt", "dns", nil, nil, "ec-256", nil, nil, "dns_ovh",
         {"OVH_AK" => "ak", "OVH_END_POINT" => "ovh-eu"})
       s.should contain("--dns dns_ovh")
       s.should_not contain("--standalone")
       s.should contain("export OVH_AK=ak")
       s.should contain("export OVH_END_POINT=ovh-eu")
-      s.should contain("-d '*.quimeo.review'")
+      s.should contain("-d '*.example.review'")
     end
   end
 
@@ -154,6 +154,64 @@ describe Beryl::Apply::AcmeCert do
         FakeShell.new,
         params({"domains" => dom(["a.net"]), "fullchain" => "/fc", "key" => "/k",
                 "method" => "dns", "dns_provider" => "dns_ovh", "stop_service" => "nginx"}), false, ctx)
+    end
+  end
+
+  describe ".failure_summary" do
+    it "garde les lignes d'erreur d'acme.sh, pas le lien final vers le wiki" do
+      output = <<-OUT
+        [Mon Oct  5 15:21:44 CEST 2026] Using CA: https://acme-v02.api.letsencrypt.org/directory
+        [Mon Oct  5 15:21:46 CEST 2026] Error add txt for domain:_acme-challenge.qwerty.example.net
+        [Mon Oct  5 15:21:47 CEST 2026] Please add '--debug' or '--log' to see more information.
+        [Mon Oct  5 15:21:47 CEST 2026] See: https://github.com/acmesh-official/acme.sh/wiki/How-to-debug-acme.sh
+        OUT
+      s = Beryl::Apply::AcmeCert.failure_summary(output, "", 1)
+      s.should eq("Error add txt for domain:_acme-challenge.qwerty.example.net")
+    end
+
+    it "repli : dernières lignes quand aucune ne ressemble à une erreur" do
+      Beryl::Apply::AcmeCert.failure_summary("a\nb\nc\nd\n", "", 1).should eq("b | c | d")
+      Beryl::Apply::AcmeCert.failure_summary("", "", 3).should eq("échec (code 3)")
+    end
+  end
+
+  it "conventions du port : CERT_HOME passé à acme.sh, pas de copie sans chemins explicites" do
+    s = Beryl::Apply::AcmeCert.issue_script(
+      ["a.example.net"], nil, nil, "sudo service nginx reload", "/var/db/acme/.acme.sh",
+      "letsencrypt", "dns", nil, nil, "ec-256", nil, nil, "dns_ovh")
+    s.should contain("--home /var/db/acme/.acme.sh --cert-home /var/db/acme/certs")
+    s.should contain("--install-cert -d a.example.net --ecc")
+    s.should contain("--reloadcmd 'sudo service nginx reload'")
+    s.should_not contain("--fullchain-file")
+    s.should_not contain("--log") # journal via LOG_FILE d'account.conf (recette acme)
+  end
+
+  it "chemin du fullchain dans CERT_HOME (suffixe _ecc pour une clé EC)" do
+    Beryl::Apply::AcmeCert.cert_home_fullchain("/var/db/acme/certs", "a.example.net", "ec-256")
+      .should eq("/var/db/acme/certs/a.example.net_ecc/fullchain.cer")
+    Beryl::Apply::AcmeCert.cert_home_fullchain("/var/db/acme/certs", "a.example.net", "4096")
+      .should eq("/var/db/acme/certs/a.example.net/fullchain.cer")
+  end
+
+  describe ".domain_flags (mode alias DNS)" do
+    it "sans alias : simples -d" do
+      Beryl::Apply::AcmeCert.domain_flags(["a.example.net", "b.example.net"], {} of String => String)
+        .should eq("-d a.example.net -d b.example.net")
+    end
+
+    it "mélange : alias pour un domaine, `no` pour les autres (wiki acme.sh, section 5)" do
+      flags = Beryl::Apply::AcmeCert.domain_flags(["pkg.example.net", "pkg.example.org"],
+        {"pkg.example.org" => "pkg.example.net"})
+      flags.should eq("-d pkg.example.net --challenge-alias no -d pkg.example.org --challenge-alias pkg.example.net")
+    end
+  end
+
+  it "refuse un alias pour un domaine absent de `domains`" do
+    shell = FakeShell.new
+    params = apply_params({domains: ["a.example.net"], method: "dns", dns_provider: "dns_ovh",
+                           challenge_aliases: [{domain: "b.example.org", alias: "a.example.net"}]}.to_yaml)
+    expect_raises(Beryl::Apply::Primitive::PrimitiveError, /absent/) do
+      prim("acme-cert").apply(shell, params, dry_run: true, context: ctx)
     end
   end
 end

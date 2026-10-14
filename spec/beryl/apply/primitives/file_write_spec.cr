@@ -13,6 +13,25 @@ describe Beryl::Apply::FileWrite do
     shell.writes.should be_empty
   end
 
+  it "if_absent : ne touche JAMAIS un fichier existant, même au contenu différent" do
+    shell = FakeShell.new
+    shell.stub(/test -e/, exit_code: 0)
+    shell.stub(/sha256 -q/, stdout: "autre-contenu")
+    result = prim("file-write").apply(shell, apply_params({path: "/w/index.html", content: "test\n", if_absent: true}.to_yaml), dry_run: false, context: ctx)
+    result.outcome.should eq(Beryl::Apply::Outcome::Skipped)
+    result.message.should contain("laissé tel quel")
+    shell.writes.should be_empty
+  end
+
+  it "if_absent : crée le fichier s'il manque" do
+    shell = FakeShell.new
+    shell.stub(/test -e/, exit_code: 1)
+    shell.stub(/sha256 -q/, stdout: "")
+    result = prim("file-write").apply(shell, apply_params({path: "/w/index.html", content: "test\n", if_absent: true}.to_yaml), dry_run: false, context: ctx)
+    result.outcome.should eq(Beryl::Apply::Outcome::Applied)
+    shell.writes.size.should eq(1)
+  end
+
   it "écrit + chmod si le fichier est absent" do
     shell = FakeShell.new
     shell.stub(/sha256 -q/, stdout: "")

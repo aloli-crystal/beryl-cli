@@ -74,7 +74,7 @@ module Beryl::Apply
 
       # 3. Restart si l'écoute réseau vient d'être coupée.
       if restart_needed && (svc = string(params, "service"))
-        shell.exec("service #{Process.quote(svc)} restart")
+        shell.exec(Primitive.service_command(svc, "restart"))
       end
 
       note = restart_needed ? " + skip-networking (redémarré)" : ""

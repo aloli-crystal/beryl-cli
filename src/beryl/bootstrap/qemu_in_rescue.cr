@@ -432,6 +432,7 @@ module Beryl::Bootstrap
         .gsub("__HOSTNAME__", @hostname)
         .gsub("__FQDN__", @fqdn)
         .gsub("__ABI__", @abi)
+        .gsub("__BASE_RELEASE__", Beryl::Bootstrap.base_release_branch(@freebsd_version))
         .gsub("__SWAP_GB__", @swap_gb.to_s)
         .gsub("__BOOT_ASHIFT__", @boot_ashift.to_s)
         .gsub("__TIMEZONE__", @timezone)

@@ -164,7 +164,7 @@ module Beryl::CLI::Wipe
       target_disks.each { |disk| puts "  • #{disk} → #{erase_plan(disk, passes, hardware, sanitize)}" }
       puts "  • puis, par disque → sgdisk --zap-all + 10 Mo de zéros en tête (GPT propre)"
       puts "  • vérification → relecture de 7 sondages/disque, doivent être à zéro" if verify
-      puts "Pour exécuter : #{Beryl.rerun_hint("wipe", args, replace_host: {raw.not_nil!, "#{host.account_name}/#{host.fqdn}"})}"
+      puts "Pour exécuter : #{Beryl.rerun_hint("wipe", args, replace_host: {raw.not_nil!, Beryl::CLI::AccountUtils.host_ref(host)})}"
       return EXIT_OK
     end
 

@@ -52,6 +52,25 @@ module Beryl::Apply
   #             path: /usr/local/poudriere/aloli-ports      # optionnel (défaut : /usr/local/poudriere/<name>-ports)
   #             pkglist: /usr/local/etc/poudriere.d/aloli-pkglist   # optionnel
   #         reapply: /usr/local/poudriere/quimeo-ports/reapply-base-patches.sh  # optionnel
+  #         schedule: "0 3 * * 0"         # optionnel : build planifié (cron)
+  #         ports_branch: quarterly       # optionnel : branche de l'arbre de ports
+  #
+  # `ports_branch` : branche git de l'arbre de ports de base (`ports`), mise
+  # en place avant chaque build. `quarterly` = branche du trimestre EN COURS
+  # (`2026Q4`…), calculée par le script lui-même à chaque build — le build
+  # planifié avance donc tout seul d'un trimestre à l'autre, comme le dépôt
+  # officiel `quarterly` des serveurs (repli sur le trimestre précédent tant
+  # que la nouvelle branche n'est pas publiée). Autre valeur = nom de branche
+  # fixe (`main`…). Absent = branche laissée telle quelle. Changer de branche
+  # reconstruit presque tout (versions différentes).
+  #
+  # `schedule` (5 champs cron) : pose sur le builder un script
+  # `/usr/local/etc/poudriere.d/beryl-build-<majeur>.sh` et une entrée
+  # `/usr/local/etc/cron.d/beryl-poudriere-<majeur>` qui relancent LE MÊME
+  # build que `beryl apply` (verrou partagé, overlays gérés mis à jour en
+  # avance rapide, arbre de ports frais → correctifs de sécurité), sur la
+  # mineure visée au dernier apply. Régénérés à chaque apply. Échec signalé
+  # par mail (sortie de cron), détail dans le journal des builds.
   #
   # Champs d'un overlay : `name` obligatoire ; sans `git`, l'overlay n'est
   # pas mis à jour par beryl (son commit est tout de même suivi si `path`
@@ -77,6 +96,14 @@ module Beryl::Apply
     # sera construit (nil = non suivi, pas un dépôt git), `fresh` = clone
     # prévu (dry-run), `notes` = actions faites (ou prévues) sur l'overlay,
     # `infos` = constats sans action (ne rendent pas le step « Applied »).
+    # Overlay vu par le build planifié : `branch` non nil = géré par beryl
+    # (mis à jour en avance rapide avant le build ; "" = branche courante) ;
+    # `tracked` = dépôt git dont le commit construit est enregistré.
+    record ScheduledOverlay, name : String, path : String, branch : String?, tracked : Bool
+
+    CRON_DIR      = "/usr/local/etc/cron.d"
+    POUDRIERE_ETC = "/usr/local/etc/poudriere.d"
+
     record OverlayState, overlay : Overlay, path : String, commit : String?,
       fresh : Bool, notes : Array(String), infos : Array(String)
 
@@ -145,7 +172,7 @@ module Beryl::Apply
     def self.build_script(version : String, arch : String, ports : String,
                           overlays : Array(String), pkglists : Array(String), pkgdir : String,
                           reapply : String?, commits : Hash(String, String)? = nil,
-                          state : String? = nil) : String
+                          state : String? = nil, ports_branch : String? = nil) : String
       major = version.split('.').first
       jail = jail_name(version, arch)
       set = set_name(version, arch, ports)
@@ -161,6 +188,7 @@ module Beryl::Apply
         else
           "true"
         end
+      branch_block = ports_branch ? branch_script(ports_branch) : ""
       ov_args = overlays.map { |o| " -O #{Process.quote(o)}" }.join
       list_args = pkglists.map { |f| " -f #{Process.quote(f)}" }.join
       # État « construit » : écrit seulement ici, après un bulk et un
@@ -189,7 +217,7 @@ module Beryl::Apply
         git -C "$PTDIR" reset -q --hard 2>/dev/null || true
         git -C "$PTDIR" clean -qfd 2>/dev/null || true
       fi
-      poudriere ports -u -p #{Process.quote(ports)}
+      #{branch_block}poudriere ports -u -p #{Process.quote(ports)}
       #{reapply_line}
       poudriere bulk -j #{Process.quote(jail)} -p #{Process.quote(ports)}#{ov_args}#{list_args}
       ln -sfh #{Process.quote(set)} #{Process.quote(ali)}
@@ -204,6 +232,14 @@ module Beryl::Apply
       ports = string(params, "ports") || "default"
       pkgdir = string(params, "pkgdir") || DEFAULT_PKGDIR
       reapply = string(params, "reapply")
+      ports_branch = string(params, "ports_branch").try(&.strip).presence
+      if ports_branch && !ports_branch.matches?(/\A[A-Za-z0-9._\/-]+\z/)
+        raise PrimitiveError.new("`ports_branch` invalide : #{ports_branch.inspect}")
+      end
+      # `force` : build lancé même si rien n'a changé (bascule de branche de
+      # l'arbre de ports, reconstruction voulue). Booléen ou chaîne (valeur
+      # interpolée d'un paramètre de recette : "true", "1", "yes", "oui").
+      force = params["force"]?.try { |v| v.as_bool? || %w(true 1 yes oui).includes?(v.as_s?.try(&.strip.downcase) || "") } || false
       overlays = parse_overlays(params)
       pkglists = (overlays.compact_map(&.pkglist) + [string(params, "pkglist")].compact).uniq
       if pkglists.empty?
@@ -243,13 +279,30 @@ module Beryl::Apply
         states << st
       end
 
+      # Build PLANIFIÉ (`schedule:`, format cron) : script + entrée cron.d
+      # posés sur le builder, régénérés à chaque apply (la version visée suit).
+      sched_notes = [] of String
+      if schedule = string(params, "schedule")
+        unless schedule.split.size == 5
+          raise PrimitiveError.new("`schedule` attend 5 champs cron (ex. \"0 3 * * 0\"), reçu #{schedule.inspect}")
+        end
+        sched = states.map do |s|
+          ScheduledOverlay.new(s.overlay.name, s.path, s.overlay.git ? (s.overlay.branch || "") : nil,
+            !s.commit.nil? || s.fresh)
+        end
+        script = self.class.scheduled_script(target, arch, ports, sched, pkglists, pkgdir, reapply, ports_branch)
+        if note = install_schedule(shell, major, schedule, script, pkgdir, dry_run)
+          sched_notes << note
+        end
+      end
+
       state_file = self.class.state_path(pkgdir, major)
       built = self.class.parse_state(shell.exec("cat #{Process.quote(state_file)} 2>/dev/null", raise_on_error: false).stdout)
       changed = states.select { |s| s.fresh || ((c = s.commit) && built[s.overlay.name]? != c) }
-      notes = states.flat_map(&.notes)
+      notes = states.flat_map(&.notes) + sched_notes
       infos = states.flat_map(&.infos)
 
-      unless new_minor || !changed.empty?
+      unless new_minor || !changed.empty? || force
         summary = states.map { |s| s.commit ? "#{s.overlay.name}@#{short(s.commit)}" : s.overlay.name }.join(", ")
         msg = "dépôt majeur #{major} déjà à jour sur #{current} (overlays inchangés : #{summary})"
         msg = "#{msg} ; #{infos.join(" ; ")}" unless infos.empty?
@@ -259,6 +312,7 @@ module Beryl::Apply
 
       reasons = [] of String
       reasons << "FreeBSD #{target}#{current ? " (← #{current})" : " (initial)"}" if new_minor
+      reasons << "forcé (force)" if force && !new_minor && changed.empty?
       changed.each do |s|
         prev = built[s.overlay.name]?
         reasons << "overlay #{s.overlay.name} #{prev ? short(prev) : "∅"} → #{s.commit ? short(s.commit) : "nouveau"}"
@@ -272,7 +326,7 @@ module Beryl::Apply
       states.each { |s| (c = s.commit) && (commits[s.overlay.name] = c) }
       script_path = "/tmp/beryl-poudriere-build-#{major}.sh"
       script = self.class.build_script(target, arch, ports, overlays.map(&.name), pkglists, pkgdir,
-        reapply, commits, state_file)
+        reapply, commits, state_file, ports_branch)
       shell.write_file(script_path, script, "0755")
       # Lock AVANT lancement (les applies concurrents skippent). Le script
       # détaché retire le lock à la fin (succès ou échec).
@@ -324,6 +378,102 @@ module Beryl::Apply
 
     # Clone / met à jour / enregistre un overlay ; renvoie son état, ou un
     # `StepResult` d'échec.
+    # Fragment shell (dans `build_script`) qui place l'arbre de ports ($PTDIR)
+    # sur la branche voulue. `quarterly` : trimestre courant calculé À
+    # L'EXÉCUTION (date UTC), repli sur le précédent si la branche n'existe pas
+    # encore. L'arbre poudriere est un clone superficiel à branche unique : la
+    # branche est ajoutée aux refspecs (sans quoi `poudriere ports -u` ne la
+    # mettrait jamais à jour), puis récupérée et suivie. Pur.
+    def self.branch_script(ports_branch : String) : String
+      pick =
+        if ports_branch == "quarterly"
+          <<-'SH'
+          Y=$(date -u +%Y); M=$(date -u +%m); M=${M#0}; Q=$(( (M - 1) / 3 + 1 ))
+          BR="${Y}Q${Q}"
+          if ! git -C "$PTDIR" ls-remote --exit-code --heads origin "$BR" >/dev/null 2>&1; then
+            if [ "$Q" -eq 1 ]; then BR="$((Y - 1))Q4"; else BR="${Y}Q$((Q - 1))"; fi
+          fi
+          SH
+        else
+          "BR=#{Process.quote(ports_branch)}"
+        end
+      String.build do |io|
+        io << pick << '\n'
+        io << <<-'SH'
+        if [ -d "$PTDIR/.git" ] && [ "$(git -C "$PTDIR" rev-parse --abbrev-ref HEAD)" != "$BR" ]; then
+          git -C "$PTDIR" remote set-branches --add origin "$BR"
+          git -C "$PTDIR" fetch -q --depth 1 origin "+refs/heads/$BR:refs/remotes/origin/$BR"
+          git -C "$PTDIR" checkout -q -B "$BR" "origin/$BR"
+          git -C "$PTDIR" branch -q --set-upstream-to="origin/$BR" "$BR"
+          echo "beryl: arbre de ports $PTDIR basculé sur $BR"
+        fi
+        SH
+        io << '\n'
+      end
+    end
+
+    # Script du build PLANIFIÉ (cron) : le MÊME build que celui lancé par
+    # `beryl apply` (`build_script`), précédé du verrou partagé et de la mise
+    # à jour en avance rapide des overlays gérés par beryl, suivi de
+    # l'enregistrement des commits réellement construits (lus à l'exécution).
+    # Reconstruit la mineure visée au dernier apply ; une NOUVELLE mineure
+    # reste l'affaire de `beryl apply` (qui régénère ce script). Pur.
+    def self.scheduled_script(version : String, arch : String, ports : String,
+                              overlays : Array(ScheduledOverlay), pkglists : Array(String),
+                              pkgdir : String, reapply : String?, ports_branch : String? = nil) : String
+      major = version.split('.').first
+      lock = Process.quote("#{pkgdir}/.beryl-build-#{major}.lock")
+      state = state_path(pkgdir, major)
+      updates = overlays.compact_map do |o|
+        next unless br = o.branch
+        p = Process.quote(o.path)
+        ref = br.empty? ? "\"$(git -C #{p} rev-parse --abbrev-ref HEAD)\"" : Process.quote(br)
+        "git -C #{p} fetch -q origin #{ref}\ngit -C #{p} merge -q --ff-only FETCH_HEAD"
+      end
+      record_lines = overlays.select(&.tracked).map do |o|
+        "printf '%s %s\\n' #{Process.quote(o.name)} \"$(git -C #{Process.quote(o.path)} rev-parse HEAD)\" >> \"$TMP\""
+      end
+      body = build_script(version, arch, ports, overlays.map(&.name), pkglists, pkgdir, reapply,
+        ports_branch: ports_branch)
+        .sub("#!/bin/sh\nset -eu\n", "")
+      String.build do |io|
+        io << "#!/bin/sh\n"
+        io << "# Géré par beryl (poudriere-build, schedule) — build planifié du majeur #{major}.\n"
+        io << "set -eu\n"
+        io << "if [ -f #{lock} ]; then echo \"build majeur #{major} déjà en cours (lock) — rien à faire\"; exit 0; fi\n"
+        io << "touch #{lock}\ntrap 'rm -f #{lock}' EXIT\n"
+        updates.each { |u| io << u << '\n' }
+        io << body.chomp << '\n'
+        unless record_lines.empty?
+          io << "TMP=#{Process.quote("#{state}.tmp")}\n: > \"$TMP\"\n"
+          record_lines.each { |l| io << l << '\n' }
+          io << "mv -f \"$TMP\" #{Process.quote(state)}\n"
+        end
+      end
+    end
+
+    # Pose (ou met à jour) le script planifié et son entrée cron.d. Renvoie une
+    # note si quelque chose change, nil sinon. Un échec du build est signalé
+    # par mail (sortie de cron → root → relais) ; le détail va dans le journal
+    # des builds beryl.
+    private def install_schedule(shell : Shell, major : String, schedule : String, script : String,
+                                 pkgdir : String, dry_run : Bool) : String?
+      script_path = "#{POUDRIERE_ETC}/beryl-build-#{major}.sh"
+      cron_path = "#{CRON_DIR}/beryl-poudriere-#{major}"
+      log = "#{pkgdir}/.beryl-build-#{major}.log"
+      cron = "# Géré par beryl (poudriere-build, schedule) — build planifié du majeur #{major}.\n" \
+             "SHELL=/bin/sh\n" \
+             "#{schedule} root /bin/sh #{script_path} > #{log} 2>&1 || echo \"build poudriere #{major} en échec — voir #{log}\"\n"
+      changed = [] of String
+      {script_path => {script, "0755"}, cron_path => {cron, "0644"}}.each do |path, (content, mode)|
+        current = shell.exec("cat #{Process.quote(path)} 2>/dev/null", raise_on_error: false).stdout
+        next if current == content
+        changed << path
+        shell.write_file(path, content, mode) unless dry_run
+      end
+      changed.empty? ? nil : "build planifié « #{schedule} » → #{changed.join(", ")}"
+    end
+
     private def sync_overlay(shell : Shell, ov : Overlay, trees : Hash(String, String), dry_run : Bool) : OverlayState | StepResult
       registered = trees[ov.name]?
       if (p = ov.path) && registered && registered != p

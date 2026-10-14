@@ -69,7 +69,7 @@ module Beryl::Apply
       return StepResult.applied("#{msg} (dry-run)") if dry_run
 
       shell.exec("sysrc #{Process.quote("#{enable_var}=YES")}") if need_enable
-      shell.exec("service #{Process.quote(svc)} start") if need_start
+      shell.exec(Primitive.service_command(svc, "start")) if need_start
       StepResult.applied(msg)
     end
   end
@@ -133,7 +133,32 @@ module Beryl::Apply
     end
   end
 
+  # Primitive `service-restart` : `service <svc> restart`, pour un service qui
+  # ne relit sa configuration qu'au démarrage (ex. un fichier d'environnement
+  # lu par son script rc.d). Skip si le service n'est pas démarré : le premier
+  # démarrage reste l'affaire de `service-enable`. À combiner avec
+  # `if_changed: true`, juste après l'étape qui écrit la configuration.
+  #
+  #     - secret-file: { path: /usr/local/etc/app/app.env, … }
+  #     - service-restart: { name: app, if_changed: true }
+  class ServiceRestart < ServicePrimitive
+    def name : String
+      "service-restart"
+    end
+
+    def apply(shell : Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Context) : StepResult
+      svc = required_string(params, "name")
+      unless running?(shell, svc)
+        return StepResult.skipped("#{svc} non démarré → rien à redémarrer")
+      end
+      return StepResult.applied("#{svc} : restart (dry-run)") if dry_run
+      shell.exec(Primitive.service_command(svc, "restart"))
+      StepResult.applied("#{svc} : restart")
+    end
+  end
+
   Primitive.register(ServiceEnable.new)
   Primitive.register(ServiceDisable.new)
   Primitive.register(ServiceReload.new)
+  Primitive.register(ServiceRestart.new)
 end

@@ -104,6 +104,20 @@ describe Beryl::Providers::Ovh do
       req.body.should contain(%("reverse":"qgra.popi.net."))
     end
 
+    it "IPv6 : utilise le bloc DÉCLARÉ quand il est fourni (Kimsufi = /128, pas de /64)" do
+      # Terrain (KS-C, 5 oct. 2026) : le /64 dérivé → 404 ; le serveur n'a
+      # qu'un /128, déclaré tel quel par /dedicated/server/{sn}/ips.
+      transport = FakeOvhTransport.new
+      transport.stub("POST", /ip\/.+\/reverse$/, status: 200,
+        body: %({"ipReverse":"2001:41d0:303:9702::1","reverse":"qwerty.example.net."}))
+      provider = Beryl::Providers::Ovh.new(build_fake_ovh_client(transport))
+      provider.set_reverse("2001:41d0:303:9702::1", "qwerty.example.net", "2001:41d0:303:9702::1/128")
+
+      req = transport.requests.find! { |r| r.method == "POST" }
+      req.url.should contain("/ip/2001:41d0:303:9702::1%2F128/reverse")
+      req.body.should contain(%("ipReverse":"2001:41d0:303:9702::1"))
+    end
+
     it "IPv4 : poste le reverse sur l'adresse elle-même (bloc == /32)" do
       transport = FakeOvhTransport.new
       transport.stub(
@@ -122,6 +136,12 @@ describe Beryl::Providers::Ovh do
   end
 
   describe "#required_access_rules" do
+    it "permet de lire et de remplacer les serveurs DNS d'un domaine" do
+      rules = Beryl::Providers::Ovh.new.required_access_rules
+      rules.should contain({verb: "GET", path: "/domain/*"})
+      rules.should contain({verb: "POST", path: "/domain/*/nameServers/update"})
+    end
+
     it "liste les routes OVH à injecter dans la consumer key générée" do
       rules = Beryl::Providers::Ovh.new.required_access_rules
       paths = rules.map { |r| r[:path] }
@@ -210,6 +230,50 @@ describe Beryl::Providers::Ovh do
     end
   end
 
+  describe "#server_display_name" do
+    it "prend le nom de l'interface (iam.displayName), pas le reverse de /services" do
+      transport = FakeOvhTransport.new
+      transport.stub("GET", /ns123\.eu$/, status: 200,
+        body: %({"reverse":"qwert.yuiop.ovh.","iam":{"displayName":"qwerty"}}))
+      transport.stub("GET", /ns123\.eu\/serviceInfos$/, status: 200, body: %({"serviceId":42}))
+      transport.stub("GET", /services\/42$/, status: 200,
+        body: %({"resource":{"displayName":"qwert.yuiop.ovh"}}))
+      provider = Beryl::Providers::Ovh.new(build_fake_ovh_client(transport))
+      provider.server_display_name("ns123.eu").should eq("qwerty")
+    end
+
+    it "se replie sur /services quand le bloc iam est absent" do
+      transport = FakeOvhTransport.new
+      transport.stub("GET", /ns123\.eu$/, status: 200, body: %({"reverse":"ns123.eu"}))
+      transport.stub("GET", /ns123\.eu\/serviceInfos$/, status: 200, body: %({"serviceId":42}))
+      transport.stub("GET", /services\/42$/, status: 200, body: %({"resource":{"displayName":"adi"}}))
+      provider = Beryl::Providers::Ovh.new(build_fake_ovh_client(transport))
+      provider.server_display_name("ns123.eu").should eq("adi")
+    end
+
+    it "renvoie nil quand le nom vaut le service_name (jamais renommé)" do
+      transport = FakeOvhTransport.new
+      transport.stub("GET", /ns123\.eu$/, status: 200, body: %({"iam":{"displayName":"ns123.eu"}}))
+      provider = Beryl::Providers::Ovh.new(build_fake_ovh_client(transport))
+      provider.server_display_name("ns123.eu").should be_nil
+    end
+  end
+
+  describe ".period_months" do
+    it "convertit les durées ISO 8601 en mois" do
+      Beryl::Providers::Ovh.period_months("P1M").should eq(1)
+      Beryl::Providers::Ovh.period_months("P1Y").should eq(12)
+      Beryl::Providers::Ovh.period_months("P12M").should eq(12)
+      Beryl::Providers::Ovh.period_months("P1Y6M").should eq(18)
+    end
+
+    it "renvoie nil pour une durée illisible ou nulle" do
+      Beryl::Providers::Ovh.period_months("1 mois").should be_nil
+      Beryl::Providers::Ovh.period_months("P0M").should be_nil
+      Beryl::Providers::Ovh.period_months("P").should be_nil
+    end
+  end
+
   describe "#monthly_price" do
     it "résout serviceInfos → serviceId → /services/{id} → prix" do
       transport = FakeOvhTransport.new
@@ -218,6 +282,24 @@ describe Beryl::Providers::Ovh do
         body: %({"billing":{"pricing":{"price":{"value":89.99,"currencyCode":"EUR"}}}}))
       provider = Beryl::Providers::Ovh.new(build_fake_ovh_client(transport))
       provider.monthly_price("ns123.eu").should eq("89.99")
+    end
+
+    it "ramène au mois un prix facturé à l'année (pricing.duration P1Y)" do
+      transport = FakeOvhTransport.new
+      transport.stub("GET", /ns123\.eu\/serviceInfos$/, status: 200, body: %({"serviceId":42}))
+      transport.stub("GET", /services\/42$/, status: 200,
+        body: %({"billing":{"pricing":{"duration":"P1Y","price":{"value":136.69}}}}))
+      provider = Beryl::Providers::Ovh.new(build_fake_ovh_client(transport))
+      provider.monthly_price("ns123.eu").should eq("11.39")
+    end
+
+    it "lit la période dans renew.current.period à défaut de pricing.duration" do
+      transport = FakeOvhTransport.new
+      transport.stub("GET", /ns123\.eu\/serviceInfos$/, status: 200, body: %({"serviceId":42}))
+      transport.stub("GET", /services\/42$/, status: 200,
+        body: %({"billing":{"pricing":{"price":{"value":60}},"renew":{"current":{"period":"P6M"}}}}))
+      provider = Beryl::Providers::Ovh.new(build_fake_ovh_client(transport))
+      provider.monthly_price("ns123.eu").should eq("10.00")
     end
 
     it "renvoie nil si le prix n'est pas exposé" do

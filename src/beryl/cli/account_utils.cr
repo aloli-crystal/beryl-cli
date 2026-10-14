@@ -276,4 +276,29 @@ module Beryl::CLI::AccountUtils
     end
     true
   end
+
+  # Forme la plus courte, sans ambiguïté, pour désigner un host en ligne de
+  # commande (cf. `split_host_path`) : `tika` si le nom court est unique dans
+  # toute la config ; `aloli/tika` s'il existe aussi dans une autre société ;
+  # `aloli/aloli.net/tika` s'il existe aussi dans un autre domaine de la même
+  # société. `existing` = hosts connus (le host lui-même peut y figurer).
+  def self.host_ref(short : String, account : String, domain : String,
+                    existing : Array(NamedTuple(account: String, domain: String, short: String))) : String
+    homonyms = existing.select { |e| e[:short] == short && !(e[:account] == account && e[:domain] == domain) }
+    return short if homonyms.empty?
+    return "#{account}/#{short}" if homonyms.none? { |e| e[:account] == account }
+    "#{account}/#{domain}/#{short}"
+  end
+
+  # Idem pour un host résolu, en relisant la config pour connaître les
+  # homonymes. Repli sûr `société/nom` si la config ne se relit pas.
+  def self.host_ref(host : Beryl::Config::ResolvedHost) : String
+    root = Beryl::Config::Root.load(File.dirname(host.account.path))
+    existing = root.all_hosts_by_fqdn.values.map do |e|
+      {account: e[:account].name, domain: e[:domain].name, short: e[:node].name}
+    end
+    host_ref(host.short_name, host.account_name, host.domain_name, existing)
+  rescue
+    "#{host.account_name}/#{host.short_name}"
+  end
 end

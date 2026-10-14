@@ -78,6 +78,19 @@ module Beryl::Config
       end
     end
 
+    # Niveaux réalisables avec `disks_count` disques (mêmes règles que
+    # `validate!`), dans l'ordre croissant. Sert à ne PROPOSER que ceux-là.
+    def possible_levels(disks_count : Int) : Array(Int32)
+      MIN_DISKS.keys.sort.select do |raid|
+        disks_count >= MIN_DISKS[raid] && !(raid == 10 && disks_count.odd?)
+      end
+    end
+
+    # Légende `0=stripe 1=mirror …` des niveaux donnés.
+    def legend(levels : Array(Int32), separator : String = " ") : String
+      levels.map { |raid| "#{raid}=#{RAID_TO_ZFS[raid]}" }.join(separator)
+    end
+
     class UnknownRaidLevel < Exception
     end
 

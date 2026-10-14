@@ -1,3 +1,4 @@
+require "file_utils"
 require "../../spec_helper"
 
 private CENTRAL = File.expand_path(File.join(__DIR__, "..", "..", "fixtures", "recipes", "central", "recipes"))
@@ -46,5 +47,19 @@ describe Beryl::Apply::Recipe do
         Beryl::Apply::Recipe.load(central("bad-name"))
       end
     end
+  end
+end
+
+describe "Beryl::Apply::Recipe — requires en forme map" do
+  it "lit noms et arguments" do
+    dir = File.tempname("beryl-recipes")
+    Dir.mkdir_p(dir)
+    path = File.join(dir, "app.recipe.yml")
+    File.write(path, "requires:\n  - acme\n  - nginx-base: { package: nginx, port: 80 }\n")
+    r = Beryl::Apply::Recipe.load(path)
+    r.requires.should eq(["acme", "nginx-base"])
+    r.requires_args.should eq({"nginx-base" => {"package" => "nginx", "port" => "80"}})
+  ensure
+    FileUtils.rm_rf(dir) if dir
   end
 end

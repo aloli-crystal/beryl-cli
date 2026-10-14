@@ -8,6 +8,7 @@ require "../providers"
 require "ssh"
 require "./credentials"
 require "./dns_setup"
+require "./account_utils"
 require "./dns_apply"
 require "./provider_shortcut"
 require "./config_git"
@@ -244,7 +245,7 @@ module Beryl::CLI::Scan
     # un échec ici (zone introuvable, API qui 404…) affiche un warning
     # et laisse le scan continuer vers la détection disques + l'écriture
     # du host. Constaté qsbg, 9 juin 2026 : un 404 OVH sur une zone Gandi
-    # avortait TOUT le scan (ni disques, ni --write). Plus jamais.
+    # avortait TOUT le scan (ni disques, ni --apply). Plus jamais.
     #
     # En dry-run, chaque flux respecte le flag et n'appelle aucune API.
     dns_short : String? = nil
@@ -351,7 +352,7 @@ module Beryl::CLI::Scan
       unless args.any? { |a| a.starts_with?("--hostname") || a == "-H" }
         extras << "--hostname=#{short}"
       end
-      STDERR.puts "Pour exécuter : #{Beryl.rerun_hint("scan", args, extras, replace_host: {raw, "#{host.account_name}/#{host.fqdn}"})}"
+      STDERR.puts "Pour exécuter : #{Beryl.rerun_hint("scan", args, extras, replace_host: {raw, Beryl::CLI::AccountUtils.host_ref(host)})}"
       return EXIT_OK
     end
 
@@ -465,7 +466,7 @@ module Beryl::CLI::Scan
       STDERR.puts "--- fin ---"
       STDERR.puts
       STDERR.puts "Pour écrire ce YAML automatiquement à l'emplacement indiqué :"
-      STDERR.puts "  #{rerun_with_write(args, short, raw, "#{host.account_name}/#{host.fqdn}")}"
+      STDERR.puts "  #{rerun_with_write(args, short, raw, Beryl::CLI::AccountUtils.host_ref(host))}"
     end
     EXIT_OK
   rescue ex : Beryl::Config::Root::HostNotFound
@@ -671,7 +672,7 @@ module Beryl::CLI::Scan
     when "2"
       cid = prepare_storcli(conn, url)
       Beryl::CLI::RaidController.to_jbod!(conn, cid)
-      after_raid_reconfig(conn, "JBOD (disques bruts pour ZFS)")
+      after_raid_reconfig(conn, host, "JBOD (disques bruts pour ZFS)")
     when "3"
       cid = prepare_storcli(conn, url)
       # Nombre de disques = ce que voit le CONTRÔLEUR (storcli), pas l'OS :
@@ -685,7 +686,7 @@ module Beryl::CLI::Scan
         n
       end
       Beryl::CLI::RaidController.recreate_on!(conn, cid, slots, level)
-      after_raid_reconfig(conn, "nouveau volume RAID#{level}")
+      after_raid_reconfig(conn, host, "nouveau volume RAID#{level}")
     else
       disks # option 1 : tels quels, le scan continue avec ces disques
     end
@@ -704,11 +705,11 @@ module Beryl::CLI::Scan
   # Après reconfig : propose le reboot AUTO du rescue (le netboot OVH reste
   # en rescue). Si accepté → reboot + attente + re-scan, retourne les
   # nouveaux disques. Si refusé → instructions manuelles + nil (stop).
-  private def self.after_raid_reconfig(conn : SSH::Connection, what : String) : Array(Disk)?
+  private def self.after_raid_reconfig(conn : SSH::Connection, host : Beryl::Config::ResolvedHost, what : String) : Array(Disk)?
     STDERR.puts
     STDERR.puts "✅ Contrôleur reconfiguré : #{what}."
     if ask("Rebooter le rescue et reprendre le scan automatiquement ? [O/n] : ", default: "O").downcase.starts_with?("n")
-      STDERR.puts "   → rebootez le rescue (manager OVH → rescue → redémarrer), puis relancez `beryl scan <host> --write`."
+      STDERR.puts "   → rebootez le rescue (manager OVH → rescue → redémarrer), puis relancez `beryl scan #{host.fqdn} --apply`."
       return nil
     end
     reboot_rescue_and_rescan(conn)
@@ -869,11 +870,23 @@ module Beryl::CLI::Scan
   # termine.
   private def self.pick_disks_for(pool_name : String, candidates : Array(Disk), flag : String?, non_interactive : Bool) : Array(Disk)
     return resolve_disk_selection(candidates, flag) if flag
+    # Un seul disque : rien à choisir, on ne pose pas la question.
+    if candidates.size == 1
+      STDERR.puts "  → #{pool_name} : un seul disque disponible, #{candidates.first.name} retenu."
+      return candidates.dup
+    end
     raise "--non-interactive requiert --disks=LIST (ou --pool=NAME:DISKS:RAID)" if non_interactive
     ask_until_valid(
-      "Disques à utiliser pour #{pool_name} ? (1,2 | sda,sdb | 'all') [défaut : all] : ",
+      "Disques à utiliser pour #{pool_name} ? (#{disk_choice_hint(candidates)}) [défaut : all] : ",
       default: "all",
     ) { |ans| resolve_disk_selection(candidates, ans) }
+  end
+
+  # Exemples de réponse construits sur les VRAIS disques (pas `sda,sdb` en
+  # dur) : `1,2 | nvme0n1,nvme1n1 | all`. Appelé avec au moins 2 disques.
+  def self.disk_choice_hint(candidates : Array(Disk)) : String
+    pair = candidates.first(2)
+    "#{(1..pair.size).join(",")} | #{pair.map(&.name).join(",")} | all"
   end
 
   def self.resolve_disk_selection(all : Array(Disk), answer : String) : Array(Disk)
@@ -941,7 +954,7 @@ module Beryl::CLI::Scan
       return DEFAULT_RAID
     end
     if flag
-      level = validate_raid!(flag)
+      level = validate_raid_for!(flag, count)
       stripe_warning(pool_name, count, level).try { |w| STDERR.puts w }
       return level
     end
@@ -949,11 +962,12 @@ module Beryl::CLI::Scan
       stripe_warning(pool_name, count, DEFAULT_RAID).try { |w| STDERR.puts w }
       return DEFAULT_RAID
     end
+    legend = Beryl::Config::Zpool.legend(Beryl::Config::Zpool.possible_levels(count))
     loop do
       level = ask_until_valid(
-        "Niveau RAID de #{pool_name} (0=stripe 1=mirror 5=raidz 6=raidz2 7=raidz3 10=mirror_stripe) [défaut : #{DEFAULT_RAID}] : ",
+        "Niveau RAID de #{pool_name} sur #{count} disques (#{legend}) [défaut : #{DEFAULT_RAID}] : ",
         default: DEFAULT_RAID.to_s,
-      ) { |ans| validate_raid!(ans) }
+      ) { |ans| validate_raid_for!(ans, count) }
       warning = stripe_warning(pool_name, count, level)
       return level unless warning
       STDERR.puts warning
@@ -973,14 +987,28 @@ module Beryl::CLI::Scan
   # Renvoie le message d'avertissement, ou nil si rien à signaler.
   def self.stripe_warning(pool_name : String, count : Int32, level : Int32) : String?
     return nil unless pool_name == "zroot" && count > 1 && level == 0
-    alternatives = [] of String
-    alternatives << "1=mirror" if count == 2
-    alternatives << "5=raidz" if count >= 3
-    alternatives << "6=raidz2" if count >= 4
-    alternatives << "10=mirror_stripe" if count >= 4 && count.even?
+    redundant = Beryl::Config::Zpool.possible_levels(count) - [0]
     "  ⚠ zroot en RAID 0 (stripe) sur #{count} disques : AUCUNE redondance, " \
     "un seul disque perdu = système perdu.\n" \
-    "    Niveaux redondants possibles ici : #{alternatives.join(", ")}."
+    "    Niveaux redondants possibles ici : #{Beryl::Config::Zpool.legend(redundant, ", ")}."
+  end
+
+  # `validate_raid!` + compatibilité avec le nombre de disques (règles de
+  # `Zpool.validate!`, appliquées dès le scan au lieu du bootstrap). Lève
+  # `ArgumentError` (re-prompt en interactif) en citant les niveaux possibles.
+  def self.validate_raid_for!(answer : String, count : Int32) : Int32
+    possible = Beryl::Config::Zpool.possible_levels(count)
+    choices = Beryl::Config::Zpool.legend(possible, ", ")
+    level = answer.strip.to_i?
+    unless level && Beryl::Config::Zpool.known?(level)
+      # Lettre, valeur vide ou niveau inconnu : on ne cite QUE les niveaux
+      # possibles avec ces disques, pas les six.
+      raise ArgumentError.new(
+        "RAID invalide : #{answer.strip.inspect} — possibles avec #{count} disque(s) : #{choices}"
+      )
+    end
+    return level if possible.includes?(level)
+    raise ArgumentError.new("RAID #{level} impossible avec #{count} disque(s) — possibles : #{choices}")
   end
 
   # Valide une chaîne RAID. Lève `ArgumentError` sur entrée non-numérique
@@ -1027,7 +1055,7 @@ module Beryl::CLI::Scan
       )
     end
     disks = resolve_disk_selection(remaining, disks_str)
-    raid = validate_raid!(raid_str)
+    raid = validate_raid_for!(raid_str, disks.size)
     PoolSpec.data(short, disks, raid)
   end
 
@@ -1098,7 +1126,7 @@ module Beryl::CLI::Scan
         if mp = pool.mountpoint
           io << "      mountpoint: " << mp << "   # point de montage FreeBSD\n"
         end
-        io << "      raid: " << pool.raid << "             # 0=stripe 1=mirror 5=raidz 6=raidz2 7=raidz3 10=mirror_stripe\n"
+        io << "      raid: " << pool.raid << "             # " << Beryl::Config::Zpool.legend(Beryl::Config::Zpool.possible_levels(pool.disks.size)) << "\n"
         io << "      disks:\n"
         pool.disks.each { |d| io << "        - " << d.dev_path << "  # " << d.human_size << " " << d.kind << " " << d.model << '\n' }
       end
@@ -1145,7 +1173,11 @@ module Beryl::CLI::Scan
       if ks == "freebsd"
         result[k] = merge_freebsd(v, scan[fb_key]?)
       elsif ks && scan.has_key?(k)
-        result[k] = scan[k] # provider + bloc provider → rafraîchis par scan
+        # provider, bloc provider, hardware → rafraîchis par scan. Un BLOC
+        # (mapping des deux côtés) est FUSIONNÉ, pas remplacé : les sous-clés
+        # que ce scan n'apporte pas restent (ex. `ovh.price_eur`, `rack`,
+        # `ipv4`, `ipv6` posés par `--discover` ou `info --refresh`).
+        result[k] = merge_block(v, scan[k])
       elsif ks && KNOWN_PROVIDER_BLOCKS.includes?(ks) && ks != effective
         next # bloc d'un ancien provider → retiré (provider changé)
       else
@@ -1161,6 +1193,19 @@ module Beryl::CLI::Scan
       io << "# vos autres clés (apply_recipes, proxy_jump…) sont préservées.\n"
       io << result.to_yaml.sub(/\A---\n/, "")
     end
+  end
+
+  # Fusion superficielle de deux blocs : sous-clés de l'ancien gardées,
+  # celles du scan prioritaires. Si l'un des deux n'est pas un mapping, la
+  # valeur du scan l'emporte.
+  private def self.merge_block(old_v : YAML::Any, scan_v : YAML::Any) : YAML::Any
+    old_h = old_v.as_h?
+    scan_h = scan_v.as_h?
+    return scan_v unless old_h && scan_h
+    merged = {} of YAML::Any => YAML::Any
+    old_h.each { |k, v| merged[k] = v }
+    scan_h.each { |k, v| merged[k] = v }
+    YAML::Any.new(merged)
   end
 
   # Fusionne le bloc `freebsd:` : garde les sous-clés de l'opérateur
@@ -1297,16 +1342,21 @@ module Beryl::CLI::Scan
     puts "#{account} : #{new_servers.size} nouveau(x) serveur(s) sur #{all.size} — récupération des métadonnées…"
 
     written = 0
+    planned = [] of String
+    existing = root.all_hosts_by_fqdn.values.map do |e|
+      {account: e[:account].name, domain: e[:domain].name, short: e[:node].name}
+    end
     new_servers.each do |sn|
       detail = ovh.server_detail(sn)
       ipv6 = ovh.ipv6_address(sn)
       price = ovh.monthly_price(sn)
-      short = discover_short_name(ovh.server_display_name(sn), sn)
+      short = discover_short_name(ovh.server_display_name(sn), sn, domain)
       path = File.join(config_root, account, domain, "#{short}.host.yml")
       if File.exists?(path)
         puts "  ↷ #{sn} → #{short} : #{path} existe déjà, ignoré."
         next
       end
+      planned << Beryl::CLI::AccountUtils.host_ref(short, account, domain, existing)
       if dry_run
         puts "  [dry-run] écrirait #{path} (#{detail[:commercial] || "gamme ?"}#{price ? ", #{price} €/mois" : ""})"
         next
@@ -1319,7 +1369,7 @@ module Beryl::CLI::Scan
 
     puts
     puts "#{written} squelette(s) écrit(s) sous #{config_root}/#{account}/#{domain}/."
-    puts "Renommez si besoin, puis complétez disques/ZFS via `beryl scan <host> --write` (mode rescue)."
+    puts discover_next_steps(account, planned, dry_run)
     EXIT_OK
   end
 
@@ -1342,17 +1392,39 @@ module Beryl::CLI::Scan
   # Nom court d'un serveur découvert : le displayName OVH nettoyé s'il
   # existe, sinon un placeholder `new-<id>` (partie ns du serviceName) à
   # renommer par l'opérateur.
-  def self.discover_short_name(display : String?, service_name : String) : String
+  # Un displayName qui est déjà le FQDN du domaine cible (`tika.aloli.net`
+  # pour le domaine `aloli.net`) donne son nom court (`tika`) : sinon le
+  # host deviendrait `tika-aloli-net.aloli.net`.
+  def self.discover_short_name(display : String?, service_name : String, domain : String? = nil) : String
     if (d = display) && !d.strip.empty?
-      slug = d.strip.downcase.gsub(/[^a-z0-9]+/, "-").strip('-')
+      d = d.strip.downcase.rchop('.')
+      if (dom = domain) && d.ends_with?(".#{dom.downcase}")
+        d = d.rchop(".#{dom.downcase}")
+      end
+      slug = d.gsub(/[^a-z0-9]+/, "-").strip('-')
       return slug unless slug.empty?
     end
     "new-#{service_name.split('.').first}"
   end
 
+  # Suite à donner après `--discover`, avec les VRAIS noms de hosts (pas de
+  # `<host>` générique). En dry-run : d'abord relancer avec `--apply`. Le
+  # scan des disques exige le rescue : `beryl rescue` vient AVANT `scan`.
+  def self.discover_next_steps(account : String, hosts : Array(String), dry_run : Bool) : String
+    return "" if hosts.empty?
+    String.build do |io|
+      if dry_run
+        io << "Pour écrire ces squelettes : beryl scan --discover " << account << " --apply\n"
+      end
+      io << "Renommez si besoin (fichier .host.yml), puis, pour chaque serveur, passez-le\n"
+      io << "en rescue avant de lire ses disques (⚠ rescue = REDÉMARRAGE du serveur, coupure) :\n"
+      hosts.each { |h| io << "  beryl rescue " << h << " --apply && beryl scan " << h << " --apply\n" }
+    end.chomp
+  end
+
   # Squelette host.yml minimal : en-tête + provider + bloc ovh (API, sans
   # rescue). Réutilise `Info.ovh_block`. Les disques/ZFS/hardware seront
-  # ajoutés plus tard par `beryl scan <host> --write`.
+  # ajoutés plus tard par `beryl scan <host> --apply`.
   private def self.discover_skeleton(short : String, domain : String, service_name : String,
                                      detail : NamedTuple(commercial: String?, rack: String?, ipv4: String?),
                                      ipv6 : String?, price : String?) : String
@@ -1361,7 +1433,7 @@ module Beryl::CLI::Scan
       "# #{short}.#{domain}",
       "# Généré par `beryl scan --discover` le #{stamp} — SQUELETTE minimal.",
       "# Métadonnées OVH via API (sans rescue). Complétez disques/ZFS/hardware",
-      "# via `beryl scan #{short}.#{domain} --write` en mode rescue.",
+      "# via `beryl scan #{short}.#{domain} --apply` en mode rescue.",
       "",
       "installed: false # sauté par update/upgrade/os-upgrade ; retiré par `beryl bootstrap`",
       "provider: ovh",
@@ -1377,8 +1449,8 @@ module Beryl::CLI::Scan
   end
 
   # Construit la commande à proposer quand beryl scan affiche un YAML
-  # en mode suggestion (pas de --write) : même args, mais en ajoutant
-  # `--write` et, si l'opérateur n'a pas passé `--hostname`, le short
+  # en mode suggestion (dry-run) : même args, mais en ajoutant
+  # `--apply` et, si l'opérateur n'a pas passé `--hostname`, le short
   # résolu interactivement pour éviter le re-prompt.
   def self.rerun_with_write(
     args : Array(String),

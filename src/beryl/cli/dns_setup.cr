@@ -19,8 +19,12 @@ module Beryl::CLI::DnsSetup
     getter zone : String       # ex. example.net
     getter ipv4 : String
     getter ipv6 : String?
+    # Bloc IPv6 TEL QUE DÉCLARÉ par l'hébergeur (`…::/64`, ou `…::1/128` sur
+    # une Kimsufi qui n'a qu'une adresse) : c'est lui le « service IP » du
+    # reverse. nil → bloc /64 dérivé de l'adresse.
+    getter ipv6_block : String?
 
-    def initialize(@service_name, @fqdn, @short_name, @zone, @ipv4, @ipv6)
+    def initialize(@service_name, @fqdn, @short_name, @zone, @ipv4, @ipv6, @ipv6_block : String? = nil)
     end
   end
 
@@ -39,15 +43,17 @@ module Beryl::CLI::DnsSetup
     # Liste des IPs affectées au serveur. On cherche la première v6.
     # Format des IPs : "51.83.6.X/32" pour v4, "2001:...::/64" pour v6.
     ipv6 = nil
+    ipv6_block = nil
     client.dedicated_servers.ips(service_name).each do |cidr|
       next unless cidr.includes?(':')
       base = cidr.split('/').first
       ipv6 = derive_ipv6_address(base, cidr)
+      ipv6_block = cidr
       break
     end
 
     fqdn = "#{short_name}.#{zone}"
-    Plan.new(service_name, fqdn, short_name, zone, ipv4, ipv6)
+    Plan.new(service_name, fqdn, short_name, zone, ipv4, ipv6, ipv6_block)
   end
 
   # À partir d'un bloc CIDR IPv6 (ex. "2001:41d0:2:6e01::/64"), déduit

@@ -38,4 +38,36 @@ describe Beryl::Apply::PkgVersioned do
       shell, apply_params("{base: mariadb, version: latest}"), dry_run: false, context: ctx)
     result.outcome.should eq(Beryl::Apply::Outcome::Failed)
   end
+
+  it "rafraîchit le catalogue AVANT de chercher la dernière version (dépôt tout juste ajouté)" do
+    shell = FakeShell.new
+    shell.stub(/pkg rquery/, stdout: "17.6 postgresql17-server\n")
+    shell.stub(/pkg info -e/, exit_code: 1)
+    prim("pkg-versioned").apply(shell, apply_params({base: "postgresql", only: "server"}.to_yaml), dry_run: true, context: ctx)
+    upd = shell.commands.index { |c| c.includes?("pkg update -q") }.not_nil!
+    rq = shell.commands.index { |c| c.includes?("pkg rquery") }.not_nil!
+    upd.should be < rq
+  end
+
+  it "`latest` garde la version majeure déjà installée (jamais de montée de majeure par apply)" do
+    shell = FakeShell.new
+    shell.stub(/pkg query/, stdout: "nginx-1.28.0\npostgresql18-client\npostgresql18-server\n")
+    shell.stub(/pkg rquery/, stdout: "19.0 postgresql19-server\n")
+    shell.stub(/pkg info -e 'postgresql18-server'|pkg info -e postgresql18-server/, exit_code: 0)
+    shell.stub(/pkg info -e 'postgresql18-client'|pkg info -e postgresql18-client/, exit_code: 0)
+    result = prim("pkg-versioned").apply(
+      shell, apply_params("{base: postgresql, version: latest}"), dry_run: false, context: ctx)
+    result.outcome.should eq(Beryl::Apply::Outcome::Skipped)
+    shell.ran?(/pkg install/).should be_false
+    shell.ran?(/pkg rquery/).should be_false
+  end
+
+  it "`latest` complète la majeure en place (client manquant) sans en changer" do
+    shell = FakeShell.new
+    shell.stub(/pkg query/, stdout: "postgresql18-server\n")
+    shell.stub(/pkg info -e/, exit_code: 1)
+    prim("pkg-versioned").apply(
+      shell, apply_params("{base: postgresql, version: latest}"), dry_run: false, context: ctx)
+    shell.ran?(/pkg install -y postgresql18-server postgresql18-client/).should be_true
+  end
 end

@@ -9,6 +9,15 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `pkg-versioned` : `latest` garde la version majeure déjà installée
+
+`version: latest` visait la majeure la plus récente du dépôt même quand une
+autre était en place : sur loulou (14 oct. 2026), le dry-run annonçait
+`postgresql19-server` sur un cluster déjà initialisé. `pkg install` aurait
+remplacé le paquet et le serveur serait reparti sans ses données
+(`dataNN` → `data19`). `latest` ne vaut plus qu'à la première installation ;
+une montée de majeure reste une migration manuelle (pg_upgrade).
+
 === `update` / `upgrade` : cascade d'utilisateurs SSH et serveurs pas encore installés
 
 `beryl update` et `beryl upgrade` se connectaient seulement avec l'utilisateur
@@ -35,6 +44,337 @@ installe. `pkg upgrade` est vérifié (échec → code d'erreur), `--reboot` est
 respecté (pkgbase et freebsd-update), et une cible antérieure est refusée même
 avec `--to` (jamais de descente de release). Le résumé de flotte affiche
 « release à jour », les correctifs n'étant visibles qu'au détail par serveur.
+
+=== Secrets du coffre par serveur (`<NOM>__<HÔTE>`)
+
+`secret-file` et les paramètres `from_env` cherchent d'abord la variante propre
+au serveur, `<NOM>__<HÔTE>` (nom court en majuscules, ex.
+`PARTIDUO_AGENT_TOKEN__LOULOU`), puis la variable commune de la société.
+`secret-file` accepte `per_host: true` : seule la variante du serveur est
+acceptée (jeton, clé propres à chaque serveur), et le message d'erreur nomme
+la variable attendue. Helpers `Apply.secret` et `Apply.host_secret_name`.
+
+=== `netif6` : demandes NDP d'un routeur hors préfixe acceptées
+
+Avec une passerelle globale, le routeur OVH interroge le serveur (NDP « who
+has ») depuis une adresse hors de son /64 ; FreeBSD ignorait ces demandes et
+le serveur restait injoignable en entrée (il sortait, mais personne ne le
+joignait : qwerty, 8 oct. 2026, capture tcpdump). La primitive active
+`net.inet6.icmp6.nd6_onlink_ns_rfc4861=1`, à chaud et dans /etc/sysctl.conf.
+
+=== `netif6` : passerelle IPv6 globale (anciennes gammes OVH) et changement de passerelle
+
+Une passerelle globale (hors du /64 du serveur, `<bloc /56>ff:ff:ff:ff:ff` sur
+les anciennes gammes OVH) reçoit une route hôte sur le lien, à chaud (`route
+-6 add -host GW -interface IFACE`) et au boot (`ipv6_static_routes` +=
+`beryl_gw`, appliquée avant `ipv6_defaultrouter`). Changer de passerelle
+utilise `route -6 change default` : `add` échouait en silence (« route already
+in table »). Cas réel : qwerty, `fe80::1` sans réponse (8 oct. 2026).
+
+=== Primitive `postgresql-role`
+
+Garantit qu'un rôle PostgreSQL existe (sans mot de passe, socket Unix), avec
+au besoin `createdb: true` ; ajoute `CREATEDB` à un rôle existant qui ne l'a
+pas, ne retire jamais rien. Même filtrage des noms que `postgresql-database`.
+
+=== Primitive `service-restart`
+
+`service <svc> restart` pour un service qui ne relit sa configuration qu'au
+démarrage (fichier d'environnement lu par son script rc.d) ; sautée si le
+service ne tourne pas (le premier démarrage reste à `service-enable`). Passe
+par `Primitive.service_command` (pas de blocage de la session SSH). À
+combiner avec `if_changed: true` juste après l'étape qui écrit la configuration.
+
+=== `poudriere-build` : option `force`
+
+`force: true` (ou chaîne "true"/"1"/"yes"/"oui", pour une valeur interpolée)
+lance le build même si ni la mineure ni les overlays n'ont changé : bascule
+de branche de l'arbre de ports, reconstruction voulue. Usage ponctuel par un
+paramètre de recette `from_env` (ex. `BERYL_FORCE_BUILD=1 beryl apply …`).
+
+=== `poudriere-build` : `ports_branch` (arbre de ports trimestriel)
+
+Paramètre `ports_branch` : branche git de l'arbre de ports de base, mise en
+place avant chaque build. `quarterly` = branche du trimestre en cours
+(`2026Q4`…), calculée par le script à chaque exécution — le build planifié
+avance tout seul d'un trimestre à l'autre, comme le dépôt officiel
+`quarterly` des serveurs (repli sur le trimestre précédent tant que la
+nouvelle branche n'est pas publiée). Autre valeur = branche fixe. La branche
+est ajoutée aux refspecs du clone superficiel de poudriere, sans quoi
+`poudriere ports -u` ne la mettrait pas à jour.
+
+=== `service start`/`restart` : l'apply ne reste plus suspendu
+
+Un script rc.d qui lance son démon sans fermer ses descripteurs (daemon(8)
+sans `-f`) lui transmettait stdin/stdout de la session SSH : `beryl apply`
+attendait indéfiniment la fin d'un démon qui ne finit jamais (`partiduo_admin`
+sur loulou, 6 oct. 2026). `service-enable` (start), `pkg-upgrade` (restart) et
+`mariadb-secure` (restart) passent par `Primitive.service_command` : stdin sur
+/dev/null, sortie dans un fichier temporaire relu ensuite (sortie et code de
+retour de `service` conservés).
+
+=== Primitive `command` : action d'appli unique, gardée
+
+Lance une commande UNE fois, gardée par `unless` (OBLIGATOIRE : code 0 → déjà
+fait, skip) : `run`, `unless`, `user` (via `su -m`), `env_file` (VAR=valeur,
+chargé avec `set -a`), `if_set` (vide → étape sautée), `show_output` (sortie
+dans le compte rendu). Toujours via `sh -c` (shell distant csh). En dry-run,
+seule la garde est jouée (à écrire en lecture seule). Dernier recours, pour
+une action qu'aucune primitive ne couvre — premier usage : l'amorçage du premier
+super-admin d'une appli.
+
+=== Primitive `postgresql-database` : rôle et base créés par la recette
+
+Garantit qu'une base PostgreSQL existe avec son rôle propriétaire (`name`,
+`owner`, `encoding` = UTF8 par défaut). Rôle sans mot de passe (connexion par
+le socket Unix sous l'utilisateur système du même nom). Idempotente ; jamais
+de suppression ni de changement de propriétaire (base existante à un autre
+rôle → échec explicite) ; noms filtrés (pas de guillemet ni d'espace). En
+dry-run sur un serveur neuf (PostgreSQL pas encore démarré) : annoncée, sans
+échec. Remplace le geste manuel `createuser`/`createdb` avant le premier apply.
+
+=== Option d'étape `deferred: true` : monit rechargé une seule fois par apply
+
+Une étape `deferred: true` n'est pas jouée sur place mais une seule fois en fin
+d'apply, même si plusieurs recettes la demandent (dédoublonnage sur primitive +
+paramètres) ; combinable avec `if_changed`, jouée aussi après un échec. Cause :
+chaque recette qui dépose une sonde rechargeait monit, et chaque rechargement
+envoie une alerte « Monit instance changed » (deux courriels identiques sur le
+builder, 6 oct. 2026). Pas pour nginx : une recette suivante peut avoir besoin
+de la conf rechargée aussitôt (défi ACME en webroot).
+
+=== OVH : droits sur les serveurs DNS d'un domaine
+
+La consumer key demande en plus `GET /domain/*` (fiche du domaine, liste des
+serveurs DNS) et `POST /domain/*/nameServers/update` (remplacement des
+serveurs DNS d'un domaine transféré chez OVH). Effet après régénération :
+`beryl add-provider <société>/ovh --regen-credentials --apply`.
+
+=== Plusieurs recettes web sur un même serveur : `requires:` avec arguments, garde « une recette par fichier », `file-absent`
+
+* `requires:` accepte la forme map `- recette: { arg: valeur }` : une recette
+  impose des arguments à sa dépendance (ex. `partiduo-base` →
+  `nginx-base: { package: nginx, http_extra: "include partiduo/*.conf;" }`),
+  sans rien à ajouter dans le host.yml. Les arguments de l'hôte restent
+  prioritaires ; deux recettes qui imposent des valeurs différentes au même
+  argument → erreur explicite (`ConflictingRequiredArgs`) avant toute
+  exécution.
+* Garde AVANT exécution : deux recettes (ou deux jeux d'arguments d'une même
+  recette) qui écriraient le même fichier (`file-write`, `secret-file`) →
+  erreur `DuplicatePath` citant les deux recettes. Auparavant la seconde
+  écrasait silencieusement la première à chaque apply (cas réel :
+  `static-site-https` et `poudriere-nginx` écrivaient tous deux `nginx.conf`).
+  `line-in-file` n'est pas concerné (plusieurs recettes peuvent ajouter
+  chacune leur ligne).
+* Primitive `file-absent` (`path`) : garantit qu'un fichier n'existe pas
+  (refuse un dossier) — migrations de recettes, retrait d'un fichier qu'une
+  version précédente posait.
+
+=== `postgresql-initdb` : `oneinitdb`, et résultat vérifié
+
+Cause réelle (loulou, 6 oct.) : `service postgresql initdb` sur un service
+pas encore activé — `postgresql_enable` est posé à l'étape suivante — est
+ignoré par rc.subr, qui avertit (« use 'oneinitdb' ») et rend 0. La primitive
+utilise désormais `oneinitdb`, la forme prévue par rc.subr pour ce cas.
+`service postgresql initdb` peut rendre 0 sans avoir créé le cluster ; la
+primitive annonçait alors « initialisé » et le démarrage échouait plus loin
+(« directory /var/db/postgres/data18 does not exist », loulou, 6 oct.). Elle
+vérifie maintenant la présence de `PG_VERSION` après l'initialisation, et
+échoue sinon en citant la sortie d'initdb.
+
+=== `pkg-versioned` : catalogue rafraîchi avant la résolution de `latest`
+
+`pkg rquery -U` n'interroge que les catalogues déjà téléchargés : sur un
+serveur neuf, un dépôt ajouté plus tôt dans le même apply (`pkg-repo-*`)
+faisait échouer la requête, d'où « aucun paquet postgresql*-server dans le
+dépôt » (loulou, 6 oct. 2026). `pkg update -q` est lancé avant.
+
+=== `poudriere-build` : build planifié (`schedule:`)
+
+`schedule: "<cron>"` pose sur le builder `/usr/local/etc/poudriere.d/
+beryl-build-<majeur>.sh` et `/usr/local/etc/cron.d/beryl-poudriere-<majeur>`,
+régénérés à chaque apply : le MÊME build que `beryl apply` (verrou partagé,
+overlays gérés mis à jour en avance rapide, arbre de ports frais pour les
+correctifs de sécurité, reapply, bulk de tous les overlays, alias, commits
+construits enregistrés), sur la mineure visée au dernier apply. Échec
+signalé par mail (sortie de cron), détail dans le journal des builds.
+Remplace les crons maison écrits à la main.
+
+=== Nouvelle commande `beryl dns-record`
+
+`beryl dns-record <zone> <sous-domaine|@> <A|AAAA|CNAME|MX|TXT> <cible>
+[--account=X] [--apply]` : pose (ou corrige) un enregistrement DNS
+quelconque dans une zone gérée, via le `dns_provider` du domaine et les
+identifiants du coffre de la société propriétaire (retrouvée d'après la
+zone). Complète `dns` (enregistrements d'un host) et `dns-alias` (alias
+A/AAAA) : CNAME de validation ACME, TXT, MX… Cible validée (adresses A/AAAA)
+et normalisée (CNAME et MX en nom absolu, point final). Idempotent, zone
+rafraîchie ; simulation par défaut.
+
+=== `acme-cert` : mode alias DNS (`challenge_aliases`)
+
+Pour un certificat couvrant un nom dont la zone DNS n'est pas accessible
+avec les identifiants de la société (autre compte OVH), le « mode alias
+DNS » d'acme.sh (wiki DNS-alias-mode) : un CNAME `_acme-challenge.<nom>` →
+`_acme-challenge.<alias>` posé une fois, puis acme.sh écrit le TXT dans la
+zone de l'alias. `challenge_aliases: [{domain, alias}]` ; les autres domaines
+reçoivent `--challenge-alias no` (mélange documenté). Un alias pour un
+domaine absent de `domains` est refusé.
+
+=== Option d'étape `if_changed` (rechargements utiles seulement)
+
+Toute étape de recette peut porter `if_changed: true` : elle n'est jouée que
+si une étape PRÉCÉDENTE de la même recette a modifié quelque chose
+(l'équivalent des « handlers » d'Ansible) ; sinon `skip`. Le suivi repart de
+zéro à chaque recette. Sert aux `service-reload` : recharger nginx ou monit
+à chaque apply sans changement était inutile — et chaque rechargement de
+monit envoie une alerte « instance changed ».
+
+=== Conventions FreeBSD : `acme-cert` et nouvelle primitive `line-in-file`
+
+* `acme-cert` suit le port `security/acme.sh` : acme.sh exécuté par
+  l'utilisateur `acme` (`user:`, `su -m`), home `/var/db/acme/.acme.sh`,
+  certificats laissés dans `CERT_HOME` (`/var/db/acme/certs`, `--cert-home`)
+  — `fullchain`/`key` deviennent optionnels (copie seulement si demandée).
+  L'option `--log` ajoutée plus tôt est retirée : le journal passe par
+  `LOG_FILE` d'account.conf (recette `acme`), comme le prévoit le port.
+  ⚠️ Changement de défauts : un serveur sur l'ancien schéma (home
+  `/usr/local/etc/acme.sh`, root) doit être migré avant son prochain apply.
+* `line-in-file` : garantit une ligne dans un fichier existant sans réécrire
+  le reste (remplace la ligne qui correspond à `match`, sinon ajoute), mode
+  et propriétaire conservés. Pour régler un fichier du système en gardant
+  son contenu d'origine (ex. `/etc/mail/aliases`).
+
+=== `acme-cert` : journal et message d'échec lisible
+
+Un échec d'émission n'affichait que la dernière ligne d'acme.sh — un lien
+vers son wiki — et rien n'était conservé. L'émission journalise désormais
+dans `/var/log/acme.sh.log` (`--log`, repris aussi par le cron de
+renouvellement) et le message d'échec reprend les lignes d'ERREUR d'acme.sh
+(horodatage retiré), avec le chemin du journal.
+
+=== `bootstrap` enchaîne `apply`
+
+Une fois FreeBSD installé et le serveur revenu sur son disque, `bootstrap
+--apply` lance `beryl apply <host> --apply` : les recettes du serveur, dont
+celles par défaut de la société (relais SMTP, supervision…), sont posées
+sans étape de plus — aucun serveur ne reste sans courrier ni alertes.
+`--no-apply` garde l'ancien comportement ; la simulation annonce l'étape.
+Si l'`apply` échoue, l'installation reste acquise et la commande de reprise
+est affichée.
+
+=== Messages « Pour exécuter » avec le nom le plus court
+
+`rescue`, `wipe`, `scan`, `boot-hd` et `bootstrap` proposaient
+`aloli/qwerty.aloli.net` ; ils proposent désormais `qwerty` (ou
+`société/nom` en cas d'homonyme), via `AccountUtils.host_ref` partagé.
+
+=== `file-write` : option `if_absent`
+
+`if_absent: true` crée le fichier s'il manque et ne le modifie JAMAIS
+ensuite (même contenu différent) : pour une page par défaut ou un exemple
+de conf à personnaliser. Utilisé par la recette `static-site` pour sa page
+de test, qui ne peut ainsi pas écraser un vrai `index.html`.
+
+=== `dns` : reverse IPv6 sur le bloc déclaré (Kimsufi /128)
+
+Le reverse IPv6 se pose au niveau du BLOC d'IP chez OVH. beryl dérivait
+toujours un /64 de l'adresse : juste sur une Advance (qgra, juin 2026),
+faux sur une Kimsufi qui n'a qu'un /128 (KS-C, octobre 2026 : 404 « This
+service does not exist »). Le reverse utilise désormais le bloc tel que
+déclaré par `/dedicated/server/{sn}/ips`, le /64 dérivé ne servant plus
+que de repli. Le message de reprise propose la commande complète, avec le
+nom le plus court (`beryl dns qwerty --apply`).
+
+=== `bootstrap` pkgbase : installe la dernière release, pas celle de mfsBSD
+
+En `install_type: packages`, le système est installé par `pkg` depuis le
+dépôt `base_release_<mineure>` : mfsBSD n'est qu'un outil d'installation.
+Le script avait `base_release_0` en dur, d'où une installation en 15.0
+alors que 15.1 était publiée. La version installée est désormais la
+dernière release publiée de la même majeure que mfsBSD (15.1 aujourd'hui,
+via mfsBSD SE 15.0) ; `--freebsd-version` la force sans exiger une image
+mfsBSD de cette version. Le dépôt enregistré sur le serveur installé suit
+(cohérent avec `os-upgrade`). La simulation l'affiche : « FreeBSD 15.1
+(outil d'installation : mfsBSD 15.0) ». Mode `distribution_sets` inchangé.
+
+=== Documentation : README
+
+* Nouvelle section « Niveaux RAID (ZFS) » (FR et EN) : correspondance entre
+  les numéros demandés par `scan` et les modes ZFS, avec disques minimum,
+  pannes tolérées, capacité utile et repères de choix.
+* Commandes d'exemple corrigées : `--write` (option disparue) → `--apply`,
+  et `--apply` ajouté aux commandes qui sont en simulation par défaut
+  (`init`, `add-provider`, `add-domain`, `rescue`, `scan`, `wipe`,
+  `bootstrap`) ; le démarrage rapide le rappelle.
+
+=== Clés `role` et `notes` dans le host.yml
+
+* `role:` (rôle fonctionnel court : `vpn`, `backup`, `web`…) et `notes:`
+  (texte libre multiligne) : des CLÉS et non des commentaires, car
+  `beryl scan --apply` réécrit le fichier et perd les commentaires.
+* `beryl info` : colonne RÔLE dans la liste, rôle et notes dans la fiche ;
+  inventaire HTML/AsciiDoc : colonne Rôle, notes sur la page du serveur ;
+  `beryl show` : rôle et notes.
+* L'ancienne colonne « Rôle » du tableau Réseau (bastion / caché / public)
+  devient « Accès » (« Accès réseau » sur la fiche) pour ne pas confondre.
+
+=== Prix OVH ramené au mois
+
+`ovh.price_eur` (et l'affichage `--discover`) prenait le prix de la période
+de facturation tel quel : un serveur facturé à l'année apparaissait à
+136,69 €/mois au lieu de 11,39. La période (`billing.pricing.duration`, à
+défaut `billing.renew.current.period`, ISO 8601 `P1M`/`P1Y`/`P6M`…) est
+désormais lue et le prix divisé en conséquence ; sans période, il reste
+considéré comme mensuel.
+
+=== `scan --apply` : les blocs existants sont fusionnés, plus écrasés
+
+Sur un host.yml existant, `scan` remplaçait en entier le bloc du provider
+(et `hardware:`) par le sien : `ovh.price_eur`, `rack`, `ipv4` et `ipv6`,
+posés par `--discover` ou `info --refresh`, disparaissaient alors que
+l'en-tête promet de préserver les autres clés. Les blocs sont désormais
+fusionnés : les sous-clés existantes restent, celles du scan sont
+rafraîchies.
+
+=== `scan` : seuls les choix possibles sont proposés (disques, niveau RAID)
+
+* La question du niveau RAID ne liste que les niveaux réalisables avec le
+  nombre de disques choisis (2 disques : `0=stripe 1=mirror`), au lieu des
+  six ; idem pour le commentaire écrit à côté de `raid:` dans le host.yml.
+* Une réponse illisible (« o ») ou un niveau inconnu est refusé en citant
+  lui aussi les seuls niveaux possibles avec ces disques.
+* Un niveau impossible (raidz2 sur 2 disques, RAID 10 sur un nombre impair…)
+  est refusé dès le scan — question reposée en interactif, erreur avec
+  `--raid`/`--pool` — au lieu de passer jusqu'au `bootstrap`. Mêmes règles
+  que `Zpool.validate!` (nouveaux `Zpool.possible_levels` et `Zpool.legend`).
+* L'avertissement « zroot en stripe » propose aussi le miroir à 3 disques et
+  plus, et raidz3 à partir de 5.
+* Choix des disques : avec un seul disque disponible, il est retenu
+  d'office (plus de question) ; sinon l'exemple de réponse cite les vrais
+  disques (`1,2 | nvme0n1,nvme1n1 | all`) au lieu de `sda,sdb` en dur.
+
+=== `scan --discover` : suite à donner avec les vrais noms, plus de `--write`
+
+* Fin de `--discover` : la suite est donnée pour chaque serveur, dans le
+  bon ordre (`beryl rescue tika --apply && beryl scan tika --apply`, le scan des
+  disques exigeant le rescue), avec un avertissement
+  (rescue = redémarrage du serveur), au lieu d'un `beryl scan <host>`
+  générique ; en dry-run, la commande d'écriture (`--discover <société>
+  --apply`) est rappelée d'abord. Le host est désigné par son nom court,
+  ou `société/nom` (voire `société/domaine/nom`) s'il a un homonyme.
+* Nom du serveur : lu dans `iam.displayName` de `/dedicated/server/{sn}`,
+  le nom affiché dans l'interface OVH. `resource.displayName` de
+  `/services/{id}`, lu jusqu'ici, peut contenir le reverse DNS ou un FQDN
+  (interface « qwerty », `/services` « qwert.yuiop.ovh ») ; il ne sert plus
+  que de repli si le bloc `iam` est absent.
+* Nom court : un displayName OVH qui est déjà le FQDN du domaine cible
+  (`tika.aloli.net` pour `aloli.net`) donne `tika`, et non
+  `tika-aloli-net` (qui aurait produit `tika-aloli-net.aloli.net`).
+* L'option `--write` n'existe plus (remplacée par `--apply`) : les messages
+  qui la citaient encore (en-tête des squelettes, reboot du rescue après
+  reconfiguration RAID, `add-domain`) indiquent `--apply`, avec le nom réel
+  du host quand il est connu.
 
 === `scan` : garde-fou zroot en stripe sur plusieurs disques
 

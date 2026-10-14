@@ -287,6 +287,18 @@ describe Beryl::Config::ResolvedHost do
     ex.message.not_nil!.should contain("dedicated | vps")
   end
 
+  it "role / notes : lus depuis le host.yml" do
+    rh = Beryl::Config::Root.load(fixture("ssh-host-override")).resolve("infohw")
+    rh.role.should eq("apps-crystal")
+    rh.notes.should eq("Applications marteen.\nDisque à surveiller.")
+  end
+
+  it "role / notes : nil quand absents" do
+    rh = Beryl::Config::Root.load(fixture("ssh-host-override")).resolve("netbast")
+    rh.role.should be_nil
+    rh.notes.should be_nil
+  end
+
   it "hardware = nil si le host n'a pas été scanné (pas de bloc hardware:)" do
     rh = Beryl::Config::Root.load(fixture("ssh-host-override")).resolve("netbast")
     rh.hardware.should be_nil

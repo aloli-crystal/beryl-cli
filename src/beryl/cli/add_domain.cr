@@ -164,7 +164,7 @@ module Beryl::CLI::AddDomain
     STDERR.puts
     STDERR.puts "Prochaines étapes :"
     STDERR.puts "  beryl rescue <host> --account=#{account} --domain=#{domain_name}"
-    STDERR.puts "  beryl scan <host> --account=#{account} --domain=#{domain_name} --dns --write"
+    STDERR.puts "  beryl scan <host> --account=#{account} --domain=#{domain_name} --dns --apply"
     EXIT_OK
   rescue ex : Beryl::CLI::AccountUtils::Aborted
     STDERR.puts "beryl : abandon"

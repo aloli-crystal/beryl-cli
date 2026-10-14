@@ -26,10 +26,11 @@ describe Beryl::CLI::Info do
       out.should contain("== Synthèse")
       out.should contain("| Serveurs | 1") # synthèse = tableau
       out.should contain("== Matériel")
-      out.should contain("| Host | Nom commercial | Baie | CPU | RAM | Disques | Prix/mois")
-      out.should contain("16RA09") # rack
+      out.should contain("| Host | Rôle | Nom commercial | Baie | CPU | RAM | Disques | Prix/mois")
+      out.should contain("| infohw | apps-crystal |") # rôle fonctionnel
+      out.should contain("16RA09")                    # rack
       out.should contain("== Réseau")
-      out.should contain("| Host | IPv4 publique | IPv6 publique | vRack | Rôle")
+      out.should contain("| Host | IPv4 publique | IPv6 publique | vRack | Accès")
       out.should contain("1.2.3.4")
       out.should contain("2001:db8::1")
       out.should contain("89.99 €")                   # prix lu depuis un NOMBRE YAML (pas une chaîne)
@@ -138,6 +139,8 @@ describe Beryl::CLI::Info do
       out.should contain("← Inventaire")
       out.should contain("Service OVH")
       out.should contain("zroot")
+      out.should contain("<tr><th>Rôle</th><td>apps-crystal</td></tr>")
+      out.should contain("<h2>Notes</h2>\n<p class=\"notes\">Applications marteen.\nDisque à surveiller.</p>")
     end
 
     it "page serveur : « injoignable » quand l'usage est nil (demandé)" do

@@ -17,3 +17,7 @@ hardware:
     - 4 x 7680 GB SSD
 freebsd:
   hostname: infohw
+notes: |
+  Applications marteen.
+  Disque à surveiller.
+role: apps-crystal

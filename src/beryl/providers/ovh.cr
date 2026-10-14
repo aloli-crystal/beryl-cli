@@ -42,15 +42,18 @@ module Beryl::Providers
       client.domains.refresh(zone)
     end
 
-    def set_reverse(ip : String, reverse : String) : Nil
+    def set_reverse(ip : String, reverse : String, block : String? = nil) : Nil
       target = reverse.ends_with?(".") ? reverse : "#{reverse}."
-      # IPv6 : OVH gère le reverse au niveau du BLOC /64 — le path doit
-      # porter le bloc, `ipReverse` l'adresse précise (sinon 404 « service
-      # does not exist » sur le /128). IPv4 : bloc == adresse (/32).
+      # IPv6 : OVH gère le reverse au niveau du BLOC déclaré pour le serveur —
+      # le path porte le bloc, `ipReverse` l'adresse précise. Ce bloc est le
+      # plus souvent un /64, MAIS une Kimsufi n'a qu'un /128 (constaté sur une
+      # KS-C le 5 oct. 2026 : le /64 dérivé → 404 « service does not exist »).
+      # D'où : bloc déclaré (`block`, lu dans /dedicated/server/{sn}/ips) en
+      # priorité, /64 dérivé de l'adresse à défaut. IPv4 : bloc == adresse.
       #
       # L'encodage du `/` du bloc (`…::/64` → `%2F`) est fait par le shard
       # api-ovh ≥ 0.7.3 (`encode_ip`) — on lui passe le bloc nu.
-      path_ip = ip.includes?(':') ? Beryl::CLI::DnsSetup.ipv6_block_64(ip) : ip
+      path_ip = ip.includes?(':') ? (block || Beryl::CLI::DnsSetup.ipv6_block_64(ip)) : ip
       client.ips.set_reverse(ip: path_ip, reverse: target, ip_reverse: ip)
     end
 
@@ -208,22 +211,39 @@ module Beryl::Providers
       nil
     end
 
-    # Prix de renouvellement MENSUEL du serveur (HT, devise du compte), via
-    # `serviceInfos` → `serviceId` → `GET /services/{id}` (champ
-    # `billing.pricing.price.value`). Chaîne formatée "89.99", nil si l'API ne
-    # répond pas / ne l'expose pas / droit `GET /services/*` absent. Best-effort.
+    # Prix de renouvellement RAMENÉ AU MOIS (HT, devise du compte), via
+    # `serviceInfos` → `serviceId` → `GET /services/{id}`. Le champ
+    # `billing.pricing.price.value` est le prix de la PÉRIODE de facturation :
+    # un serveur facturé à l'année (constaté : KS-C à 136.69/an) doit être
+    # divisé par 12. Période lue dans `billing.pricing.duration`, sinon
+    # `billing.renew.current.period` (ISO 8601 : P1M, P1Y, P12M…) ; absente →
+    # mensuel. Chaîne formatée "89.99", nil si l'API ne répond pas / ne
+    # l'expose pas / droit `GET /services/*` absent. Best-effort.
     def monthly_price(service_name : String) : String?
       infos = client.call("GET", "/dedicated/server/#{service_name}/serviceInfos")
       sid = infos.try(&.["serviceId"]?).try(&.as_i?)
       return nil unless sid
       svc = client.call("GET", "/services/#{sid}")
       return nil unless svc
-      v = svc["billing"]?.try(&.["pricing"]?).try(&.["price"]?).try(&.["value"]?)
+      billing = svc["billing"]?
+      v = billing.try(&.["pricing"]?).try(&.["price"]?).try(&.["value"]?)
       val = v.try(&.as_f?) || v.try(&.as_i?).try(&.to_f)
       return nil unless val
-      "%.2f" % val
+      period = billing.try(&.["pricing"]?).try(&.["duration"]?).try(&.as_s?) ||
+               billing.try(&.["renew"]?).try(&.["current"]?).try(&.["period"]?).try(&.as_s?)
+      months = period.try { |p| self.class.period_months(p) } || 1
+      "%.2f" % (val / months)
     rescue
       nil
+    end
+
+    # Nombre de mois d'une durée ISO 8601 de facturation (`P1M` → 1,
+    # `P1Y` → 12, `P6M` → 6, `P1Y6M` → 18). nil si illisible ou nulle.
+    def self.period_months(iso : String) : Int32?
+      m = iso.strip.upcase.match(/\AP(?:(\d+)Y)?(?:(\d+)M)?\z/)
+      return nil unless m
+      months = (m[1]?.try(&.to_i) || 0) * 12 + (m[2]?.try(&.to_i) || 0)
+      months > 0 ? months : nil
     end
 
     # Liste les `serviceName` de TOUS les serveurs dédiés du compte
@@ -246,20 +266,30 @@ module Beryl::Providers
       nil
     end
 
-    # `displayName` OVH du serveur (nom convivial du panel, ex. "adi"), via
-    # `serviceInfos` → `serviceId` → `GET /services/{id}`. nil si non défini,
-    # égal au serviceName, ou droit `GET /services/*` absent. Best-effort.
+    # Nom du serveur TEL QU'AFFICHÉ dans l'interface OVH (ex. "qwerty") :
+    # `iam.displayName` de `GET /dedicated/server/{sn}`. ⚠️ PAS
+    # `resource.displayName` de `/services/{id}` : celui-ci peut valoir le
+    # reverse DNS ou un FQDN (constaté le 1ᵉʳ oct. 2026 : interface
+    # « qwerty », `/services` « qwert.yuiop.ovh »). `/services` ne sert plus
+    # que de repli si le bloc `iam` est absent. nil si non défini, égal au
+    # serviceName, ou API muette. Best-effort.
     def server_display_name(service_name : String) : String?
-      infos = client.call("GET", "/dedicated/server/#{service_name}/serviceInfos")
-      sid = infos.try(&.["serviceId"]?).try(&.as_i?)
-      return nil unless sid
-      svc = client.call("GET", "/services/#{sid}")
-      name = svc.try(&.["resource"]?).try(&.["displayName"]?).try(&.as_s?) ||
-             svc.try(&.["displayName"]?).try(&.as_s?)
+      srv = client.call("GET", "/dedicated/server/#{service_name}")
+      name = srv.try(&.["iam"]?).try(&.["displayName"]?).try(&.as_s?)
+      name ||= services_display_name(service_name)
       return nil if name.nil? || name.empty? || name == service_name
       name
     rescue
       nil
+    end
+
+    private def services_display_name(service_name : String) : String?
+      infos = client.call("GET", "/dedicated/server/#{service_name}/serviceInfos")
+      sid = infos.try(&.["serviceId"]?).try(&.as_i?)
+      return nil unless sid
+      svc = client.call("GET", "/services/#{sid}")
+      svc.try(&.["resource"]?).try(&.["displayName"]?).try(&.as_s?) ||
+        svc.try(&.["displayName"]?).try(&.as_s?)
     end
 
     # Index { IP principale => service_name } de TOUS les serveurs dédiés du
@@ -437,6 +467,10 @@ module Beryl::Providers
         {verb: "PUT", path: "/domain/zone/*/record/*"},    # màj d'un record (ensure_record)
         {verb: "DELETE", path: "/domain/zone/*/record/*"}, # suppression d'un record
         {verb: "POST", path: "/domain/zone/*/refresh"},
+        # Domaine (≠ zone) : fiche + serveurs DNS (/domain/{d}/nameServer…), et
+        # leur remplacement (domaine transféré chez OVH, outil zimbra, oct. 2026).
+        {verb: "GET", path: "/domain/*"},
+        {verb: "POST", path: "/domain/*/nameServers/update"},
         {verb: "PUT", path: "/ip/*/reverse"},
         {verb: "POST", path: "/ip/*/reverse"},
         {verb: "GET", path: "/services/*"}, # prix/mois (billing) + infos service

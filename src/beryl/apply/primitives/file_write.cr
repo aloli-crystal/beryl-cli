@@ -15,6 +15,9 @@ module Beryl::Apply
   #           ligne 2
   #         mode: "0644"        # optionnel
   #         owner: root:wheel   # optionnel
+  #         if_absent: true     # optionnel : crée le fichier S'IL MANQUE,
+  #                             # ne le modifie JAMAIS ensuite (page par
+  #                             # défaut, exemple de conf à personnaliser…)
   #
   # Note : le contenu (valeur string) est déjà interpolé `{{ var }}`
   # par l'`Executor` ; `file-template` n'est qu'un alias explicite.
@@ -28,6 +31,10 @@ module Beryl::Apply
       content = required_string(params, "content")
       mode = string(params, "mode")
       owner = string(params, "owner")
+
+      if bool(params, "if_absent") && shell.exec("test -e #{Process.quote(path)}", raise_on_error: false).success?
+        return StepResult.skipped("#{path} existe déjà — laissé tel quel (if_absent)")
+      end
 
       desired_hash = Digest::SHA256.hexdigest(content)
       remote_hash = shell.exec("sha256 -q #{Process.quote(path)} 2>/dev/null", raise_on_error: false).stdout.strip

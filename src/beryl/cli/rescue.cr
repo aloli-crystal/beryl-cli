@@ -167,7 +167,7 @@ module Beryl::CLI::Rescue
       if dry_run
         log "4 DRY-RUN : OVHcloud → prepare_rescue(#{service_name}, ssh_key=#{host.ovh_ssh_key_name || "<auto>"})"
         log "4 DRY-RUN : puis wait_for_ssh(#{host.rescue_ssh_host}:#{host.port} as root, timeout #{timeout.total_minutes.to_i}m)" if wait
-        log "Pour exécuter : #{Beryl.rerun_hint("rescue", args, replace_host: {raw, "#{host.account_name}/#{host.fqdn}"})}"
+        log "Pour exécuter : #{Beryl.rerun_hint("rescue", args, replace_host: {raw, Beryl::CLI::AccountUtils.host_ref(host)})}"
         return EXIT_OK
       end
       task = trigger_ovh(host, ovh_client_factory)
@@ -183,7 +183,7 @@ module Beryl::CLI::Rescue
       if dry_run
         log "4 DRY-RUN : Scaleway → reboot(#{server_id}#{dry_zone ? ", zone=#{dry_zone}" : ""}, boot_type=Rescue)"
         log "4 DRY-RUN : puis wait_for_ssh(#{host.rescue_ssh_host}:#{host.port} as root, timeout #{timeout.total_minutes.to_i}m)" if wait
-        log "Pour exécuter : #{Beryl.rerun_hint("rescue", args, replace_host: {raw, "#{host.account_name}/#{host.fqdn}"})}"
+        log "Pour exécuter : #{Beryl.rerun_hint("rescue", args, replace_host: {raw, Beryl::CLI::AccountUtils.host_ref(host)})}"
         return EXIT_OK
       end
       trigger_scaleway(host, scaleway_client_factory, server_id, scaleway_zone_override)
@@ -198,7 +198,7 @@ module Beryl::CLI::Rescue
         log "4 DRY-RUN : Dedibox → prepare_rescue(#{server_id}, image=debian-12_amd64)"
         log "4 DRY-RUN : puis reboot(#{server_id}, reason=\"beryl rescue\")"
         log "4 DRY-RUN : puis wait_for_ssh(#{host.rescue_ssh_host}:#{host.port} as root, timeout #{timeout.total_minutes.to_i}m)" if wait
-        log "Pour exécuter : #{Beryl.rerun_hint("rescue", args, replace_host: {raw, "#{host.account_name}/#{host.fqdn}"})}"
+        log "Pour exécuter : #{Beryl.rerun_hint("rescue", args, replace_host: {raw, Beryl::CLI::AccountUtils.host_ref(host)})}"
         return EXIT_OK
       end
       trigger_dedibox(host, dedibox_client_factory, server_id)

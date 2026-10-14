@@ -74,3 +74,45 @@ describe Beryl::Apply::Netif6 do
     sh.ran?(/route -6 add default fe80::1%igb0/).should be_true
   end
 end
+
+describe "Beryl::Apply::Netif6 — passerelle globale (anciennes gammes OVH)" do
+  gw = "2001:41d0:303:97ff:ff:ff:ff:ff"
+
+  it "remplace fe80::1 par la passerelle globale : route sur le lien, change, rc.conf" do
+    sh = FakeShell.new
+    sh.stub(/route -n get default/, stdout: "igb0\n")
+    sh.stub(/ifconfig igb0 2>\/dev\/null/, stdout: "igb0: flags=...\n")
+    sh.stub(/ifconfig igb0 inet6/, stdout: "2001:41d0:303:9702::1\n")
+    sh.stub(/netstat -rn -f inet6/, stdout: "fe80::1%igb0\n")
+    sh.stub(/sysrc -n ifconfig_igb0_ipv6/, stdout: "inet6 2001:41d0:303:9702::1 prefixlen 64\n")
+    sh.stub(/sysrc -n ipv6_defaultrouter/, stdout: "fe80::1%igb0\n")
+    sh.stub(/sysrc -n ipv6_static_routes/, stdout: "\n")
+    sh.stub(/sysrc -n ipv6_route_beryl_gw/, stdout: "\n")
+    sh.stub(/sysctl -n net.inet6/, stdout: "0\n")
+    sh.stub(/grep -qx .*sysctl.conf/, exit_code: 1)
+    r = Beryl::Apply::Netif6.new.apply(sh, params({"address" => "2001:41d0:303:9702::1", "gateway" => gw}), false, ctx)
+    r.outcome.should eq(Beryl::Apply::Outcome::Applied)
+    sh.ran?(/route -6 add -host #{Regex.escape(gw)} -interface igb0/).should be_true
+    sh.ran?(/route -6 change default #{Regex.escape(gw)}/).should be_true
+    sh.ran?(/ipv6_static_routes\+=beryl_gw/).should be_true
+    sh.ran?(/sysctl net.inet6.icmp6.nd6_onlink_ns_rfc4861=1/).should be_true
+    sh.ran?(/>> \/etc\/sysctl.conf/).should be_true
+    sh.ran?(/ipv6_route_beryl_gw=#{Regex.escape(gw)} -prefixlen 128 -interface igb0/).should be_true
+    (sh.commands.index!(&.includes?("add -host")) < sh.commands.index!(&.includes?("change default"))).should be_true
+  end
+
+  it "skip quand tout est déjà en place" do
+    sh = FakeShell.new
+    sh.stub(/route -n get default/, stdout: "igb0\n")
+    sh.stub(/ifconfig igb0 2>\/dev\/null/, stdout: "igb0: flags=...\n")
+    sh.stub(/ifconfig igb0 inet6/, stdout: "2001:41d0:303:9702::1\n")
+    sh.stub(/netstat -rn -f inet6/, stdout: "#{gw}\n")
+    sh.stub(/sysrc -n ifconfig_igb0_ipv6/, stdout: "inet6 2001:41d0:303:9702::1 prefixlen 64\n")
+    sh.stub(/sysrc -n ipv6_defaultrouter/, stdout: "#{gw}\n")
+    sh.stub(/sysrc -n ipv6_static_routes/, stdout: "beryl_gw\n")
+    sh.stub(/sysrc -n ipv6_route_beryl_gw/, stdout: "#{gw} -prefixlen 128 -interface igb0\n")
+    sh.stub(/sysctl -n net.inet6.icmp6.nd6_onlink_ns_rfc4861/, stdout: "1\n")
+    r = Beryl::Apply::Netif6.new.apply(sh, params({"address" => "2001:41d0:303:9702::1", "gateway" => gw}), false, ctx)
+    r.outcome.should eq(Beryl::Apply::Outcome::Skipped)
+  end
+end

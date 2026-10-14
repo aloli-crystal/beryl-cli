@@ -4,7 +4,7 @@ require "../../beryl"
 #
 # Contexte : le dépôt `~/.config/beryl/<société>/` (ex: acme/beryl-config)
 # est versionné. Toute commande beryl qui ÉCRIT dans ce dépôt (`scan
-# --write`, `add-domain`, `env migrate/edit`, …) doit committer le
+# --apply`, `add-domain`, `env migrate/edit`, …) doit committer le
 # changement pour qu'il ne soit pas perdu/oublié (constaté le 9 juin
 # 2026 sur qgra : config disques corrigée à la main, jamais commitée).
 #

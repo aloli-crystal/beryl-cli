@@ -45,7 +45,7 @@ module Beryl::Providers
     def refresh_zone(zone : String) : Nil
     end
 
-    def set_reverse(ip : String, reverse : String) : Nil
+    def set_reverse(ip : String, reverse : String, block : String? = nil) : Nil
       raise "Gandi ne gère pas le reverse DNS (PTR de #{ip}) : il relève de l'hébergeur " \
             "propriétaire du bloc d'IP (ex: OVH). Posez le reverse via le compute provider."
     end

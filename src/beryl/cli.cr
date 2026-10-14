@@ -15,6 +15,7 @@ require "./cli/info"
 require "./cli/fmt"
 require "./cli/dns"
 require "./cli/dns_alias"
+require "./cli/dns_record"
 require "./cli/init"
 require "./cli/add_provider"
 require "./cli/add_domain"
@@ -136,6 +137,7 @@ module Beryl::CLI
     when "fmt"                then Beryl::CLI::Fmt.run(config_root, sub_args)
     when "dns"                then Beryl::CLI::Dns.run(config_root, sub_args)
     when "dns-alias"          then Beryl::CLI::DnsAlias.run(config_root, sub_args)
+    when "dns-record"         then Beryl::CLI::DnsRecord.run(config_root, sub_args)
     when "apply"              then Beryl::CLI::Apply.run(config_root, sub_args)
     when "rotate-key"         then Beryl::CLI::RotateKey.run(config_root, sub_args)
     when "vrack"              then Beryl::CLI::Vrack.run(config_root, sub_args)
@@ -175,6 +177,7 @@ module Beryl::CLI
     {"bootstrap", "b", "Installe FreeBSD 15 (mfsBSD-in-QEMU)"},
     {"dns", "", "Pose les records DNS (forward + reverse + rename)"},
     {"dns-alias", "", "Pose un alias DNS A/AAAA <label>.<zone> → IP d'un host (forward seul ; ex. failover headscale)"},
+    {"dns-record", "", "Pose un enregistrement DNS quelconque (A, AAAA, CNAME, MX, TXT) dans une zone gérée"},
     {"env", "e", "Gère le coffre de credentials chiffré (.env.toml.age)"},
     {"fmt", "", "Normalise les host.yml (clés triées, commentaires gardés, FQDN en tête)"},
     {"follow-install", "fi", "Suit l'installation FreeBSD en cours"},
@@ -355,6 +358,7 @@ module Beryl::CLI
     puts "account:        #{rh.account_name}"
     puts "domain:         #{rh.domain_name}"
     puts "group:          #{rh.group_name || "-"}"
+    puts "role:           #{rh.role || "-"}"
     puts "provider:       #{rh.provider || "-"}"
     puts "dns_provider:   #{rh.dns_provider || "-"}"
     puts "os:             #{rh.os}"
@@ -362,6 +366,10 @@ module Beryl::CLI
     puts "port:           #{rh.port}"
     puts "user:           #{rh.user}"
     puts "virtual:        #{rh.virtual}"
+    if notes = rh.notes
+      puts "notes:"
+      notes.each_line { |l| puts "  #{l}" }
+    end
     puts "fichiers mergés depuis :"
     puts "  _default.yml"
     puts "  #{rh.domain.source_path}"
