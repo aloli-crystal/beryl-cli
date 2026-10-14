@@ -447,6 +447,26 @@ Rules of thumb:
   backups. For a multi-disk zroot in `0`, `beryl scan` warns and asks for
   confirmation.
 
+== Package builds (poudriere)
+
+On a builder managed by the `poudriere-build` primitive, `beryl build-status`
+shows the build state, read-only: running (since when, phase, packages being
+built), succeeded, failed or never built; counters; FAILED packages first
+with the path of their poudriere log; built packages, longest first; last
+successful build and overlay commits. Output is in French.
+
+[source,sh]
+----
+beryl build-status pkg.example.net
+beryl build-status pkg.example.net --major 15 --follow
+beryl build-status pkg.example.net --all --sort name
+beryl build-status pkg.example.net --json
+----
+
+`--follow` refreshes every 30 s until the build ends, then exits 0 (success)
+or 1 (failure). Exit codes: 0 success / running, 1 last build failed,
+2 SSH / usage.
+
 == Licence
 
 MIT © ALOLI sas. See link:LICENSE[LICENSE].

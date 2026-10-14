@@ -9,6 +9,25 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `build-status` : état lisible des builds de paquets poudriere
+
+Nouvelle sous-commande `beryl build-status <hôte>` (alias `bst`), en LECTURE
+SEULE, pour un builder géré par la primitive `poudriere-build`. Elle remplace
+le `ssh … ls -l .beryl-build-15.*; cat …overlays; poudriere status; tail …`
+tapé à la main : une seule connexion (script composé, escalade sudo comme
+`apply`) lit les dates des fichiers `.beryl-build-<majeur>.{lock,log,overlays}`,
+les commits du dernier build réussi, les lignes utiles du journal
+(`Building`/`Finished`/`Crashed`/`Skipping`/`Ignoring`, `Logs:`, bilan,
+`Error:`) et `poudriere status -H -f -l`. Affichage par majeur : en cours
+(depuis, build, phase, temps du bulk) / succès / ÉCHEC (journal plus récent
+que `.overlays`, sans ligne `OK`) / jamais construit ; compteurs ; paquets
+en construction avec leur durée ; ÉCHECS en tête avec la phase et le journal
+poudriere du paquet (`<LOGS>/logs/errors/<paquet>.log`) ; paquets construits
+les plus longs d'abord (`--sort name`, `--all`) ; sautés / ignorés ; fin du
+journal en cas d'échec. Options `--major N`, `--follow` (rafraîchit toutes
+les 30 s jusqu'à la fin du build), `--json`, `--pkgdir DIR`, `-a`/`-d`.
+Sortie 0 succès / en cours, 1 dernier build en échec, 2 SSH / usage.
+Analyse et rendu dans `Beryl::BuildReport` (pur, testé sans SSH).
 === `beryl pg-upgrade` : migration PostgreSQL vers une version majeure
 
 Nouvelle sous-commande générique, sur la procédure du fichier `UPDATING` des

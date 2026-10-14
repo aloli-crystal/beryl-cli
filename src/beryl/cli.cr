@@ -31,6 +31,7 @@ require "./cli/env"
 require "./cli/headscale_authkey"
 require "./cli/pkg_ops"
 require "./cli/os_upgrade"
+require "./cli/build_status"
 require "./cli/pg_upgrade"
 
 # Point d'entrée CLI de beryl.
@@ -132,6 +133,7 @@ module Beryl::CLI
     when "boot-hd"            then Beryl::CLI::BootHd.run(config_root, sub_args)
     when "wipe"               then Beryl::CLI::Wipe.run(config_root, sub_args)
     when "bootstrap"          then Beryl::CLI::Bootstrap.run(config_root, sub_args)
+    when "build-status"       then Beryl::CLI::BuildStatus.run(config_root, sub_args)
     when "follow-install"     then Beryl::CLI::FollowInstall.run(config_root, sub_args)
     when "scan"               then Beryl::CLI::Scan.run(config_root, sub_args)
     when "info"               then Beryl::CLI::Info.run(config_root, sub_args)
@@ -177,6 +179,7 @@ module Beryl::CLI
     {"bake-seed", "bs", "cloud-init seed.img pour Ubuntu Server live"},
     {"boot-hd", "bh", "Bascule sur le disque via l'API (inverse rescue)"},
     {"bootstrap", "b", "Installe FreeBSD 15 (mfsBSD-in-QEMU)"},
+    {"build-status", "bst", "État des builds de paquets poudriere d'un builder (en cours, échecs, durées)"},
     {"dns", "", "Pose les records DNS (forward + reverse + rename)"},
     {"dns-alias", "", "Pose un alias DNS A/AAAA <label>.<zone> → IP d'un host (forward seul ; ex. failover headscale)"},
     {"dns-record", "", "Pose un enregistrement DNS quelconque (A, AAAA, CNAME, MX, TXT) dans une zone gérée"},
@@ -254,6 +257,7 @@ module Beryl::CLI
     when "boot-hd"        then Beryl::CLI::BootHd.run(config_root, ["--help"])
     when "wipe"           then Beryl::CLI::Wipe.run(config_root, ["--help"])
     when "bootstrap"      then Beryl::CLI::Bootstrap.run(config_root, ["--help"])
+    when "build-status"   then Beryl::CLI::BuildStatus.run(config_root, ["--help"])
     when "follow-install" then Beryl::CLI::FollowInstall.run(config_root, ["--help"])
     when "scan"           then Beryl::CLI::Scan.run(config_root, ["--help"])
     when "info"           then Beryl::CLI::Info.run(config_root, ["--help"])

@@ -69,6 +69,7 @@ Chaque commande est utilisable sous sa forme longue ou sa forme courte :
 |`scan` |`s` |Détecte les disques et propose un YAML host
 |`apply` |`a` |Synchronise packages/users/clés SSH
 |`pg-upgrade` | |Migre PostgreSQL vers une version majeure (pg_upgrade)
+|`build-status` |`bst` |État des builds de paquets poudriere d'un builder (lecture seule)
 |`prep-rescue` |`pr` |HTTP local pour préparer un rescue Debian
 |`bake-seed` |`bs` |cloud-init seed.img pour Ubuntu Server live
 |`version` |`v` |Affiche la version
@@ -240,6 +241,26 @@ défaut.
 |`--no-dump` | |Pas de sauvegarde `pg_dumpall` préalable
 |`--new-data=DIR` | |Data dir du nouveau cluster (si `postgresql_data` est personnalisé)
 |`--cleanup` | |Supprime l'ancien data dir, les paquets de secours et `/tmp/pg-upgrade`
+|`--account=NAME` |`-a` |Forcer la société
+|`--domain=NAME` |`-d` |Forcer le domaine
+|`--help` |`-h` |Aide
+|===
+
+=== `beryl build-status <host>`
+
+Lecture seule (builder géré par la primitive `poudriere-build`). Sortie : 0
+succès / en cours, 1 dernier build en échec, 2 SSH / usage.
+
+[cols="2,1,4",options="header"]
+|===
+|Long |Court |Description
+
+|`--major=N` | |Majeur FreeBSD (défaut : tous ceux trouvés)
+|`--all` | |Liste complète des paquets (défaut : les 10 plus longs)
+|`--sort=ORDRE` | |`duration` (défaut, plus longs d'abord) ou `name`
+|`--follow` | |Rafraîchit toutes les 30 s jusqu'à la fin du build
+|`--json` | |Sortie machine
+|`--pkgdir=DIR` | |Répertoire des paquets (défaut : `/usr/local/poudriere/data/packages`)
 |`--account=NAME` |`-a` |Forcer la société
 |`--domain=NAME` |`-d` |Forcer le domaine
 |`--help` |`-h` |Aide

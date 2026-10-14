@@ -448,6 +448,27 @@ Repères :
   entièrement aux sauvegardes. Pour un zroot de plusieurs disques en `0`,
   `beryl scan` avertit et demande confirmation.
 
+== Builds de paquets (poudriere)
+
+Sur un builder géré par la primitive `poudriere-build`, `beryl build-status`
+affiche l'état des builds en lecture seule : en cours (depuis quand, phase,
+paquets en construction), succès, échec ou jamais construit ; compteurs ;
+paquets en ÉCHEC en tête avec le chemin de leur journal poudriere ; paquets
+construits les plus longs d'abord ; dernier build réussi et commits des
+overlays.
+
+[source,sh]
+----
+beryl build-status pkg.example.net
+beryl build-status pkg.example.net --major 15 --follow
+beryl build-status pkg.example.net --all --sort name
+beryl build-status pkg.example.net --json
+----
+
+`--follow` rafraîchit toutes les 30 s jusqu'à la fin du build, puis sort
+avec 0 (succès) ou 1 (échec). Codes de sortie : 0 succès / en cours,
+1 dernier build en échec, 2 SSH / usage.
+
 == Licence
 
 MIT © ALOLI sas. Voir link:LICENSE[LICENSE].
