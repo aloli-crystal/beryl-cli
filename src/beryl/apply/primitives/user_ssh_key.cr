@@ -25,7 +25,7 @@ module Beryl::Apply
       home = line.split(':')[5]?
       home = "/home/#{user}" if home.nil? || home.empty?
       key = "#{home}/.ssh/id_ed25519"
-      if shell.exec("test -e #{Process.quote(key)}", raise_on_error: false).success?
+      if Primitive.probe?(shell, "test -e #{Process.quote(key)}")
         return StepResult.skipped("#{user} : clé ssh déjà présente")
       end
 

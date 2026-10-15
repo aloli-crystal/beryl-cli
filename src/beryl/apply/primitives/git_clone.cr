@@ -23,7 +23,7 @@ module Beryl::Apply
       dest = required_string(params, "dest")
       user = string(params, "user")
 
-      if shell.exec("test -e #{Process.quote(dest)}", raise_on_error: false).success?
+      if Primitive.probe?(shell, "test -e #{Process.quote(dest)}")
         return StepResult.skipped("#{dest} déjà présent")
       end
       return StepResult.applied("clone #{repo} → #{dest} (dry-run)") if dry_run

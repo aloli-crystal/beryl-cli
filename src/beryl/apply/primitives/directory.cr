@@ -26,8 +26,8 @@ module Beryl::Apply
       mode = string(params, "mode")
       q = Process.quote(path)
 
-      is_dir = shell.exec("test -d #{q}", raise_on_error: false).success?
-      if !is_dir && shell.exec("test -e #{q}", raise_on_error: false).success?
+      is_dir = Primitive.probe?(shell, "test -d #{q}")
+      if !is_dir && Primitive.probe?(shell, "test -e #{q}")
         raise PrimitiveError.new("#{path} existe mais n'est pas un dossier — refus de clobberer.")
       end
 
@@ -53,13 +53,13 @@ module Beryl::Apply
 
     private def current_owner(shell : Shell, path : String, exists : Bool) : String?
       return nil unless exists
-      r = shell.exec("stat -f '%Su:%Sg' #{Process.quote(path)}", raise_on_error: false)
+      r = Primitive.read_probe(shell, "stat -f '%Su:%Sg' #{Process.quote(path)}")
       r.success? ? r.stdout.strip : nil
     end
 
     private def current_mode(shell : Shell, path : String, exists : Bool) : String?
       return nil unless exists
-      r = shell.exec("stat -f '%Lp' #{Process.quote(path)}", raise_on_error: false)
+      r = Primitive.read_probe(shell, "stat -f '%Lp' #{Process.quote(path)}")
       r.success? ? r.stdout.strip : nil
     end
   end

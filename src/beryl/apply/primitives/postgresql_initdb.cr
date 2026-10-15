@@ -16,7 +16,7 @@ module Beryl::Apply
     def apply(shell : Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Context) : StepResult
       # Pas de serveur PostgreSQL installé (ex. only: client) → rien à
       # initialiser, et `service postgresql oneinitdb` échouerait.
-      unless shell.exec("test -f /usr/local/etc/rc.d/postgresql", raise_on_error: false).success?
+      unless Primitive.probe?(shell, "test -f /usr/local/etc/rc.d/postgresql")
         return StepResult.skipped("serveur PostgreSQL non installé — initdb ignoré")
       end
 
@@ -39,7 +39,7 @@ module Beryl::Apply
     end
 
     private def initialized?(shell : Shell) : Bool
-      shell.exec("ls /var/db/postgres/data*/PG_VERSION >/dev/null 2>&1", raise_on_error: false).success?
+      Primitive.probe?(shell, "ls /var/db/postgres/data*/PG_VERSION >/dev/null 2>&1")
     end
   end
 

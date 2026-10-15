@@ -16,15 +16,15 @@ module Beryl::Apply
     # Le script rc du service existe-t-il ? (base ou ports). Sert au
     # garde-fou `if_present` : un service non installé n'est pas une erreur.
     protected def rc_present?(shell : Shell, svc : String) : Bool
-      shell.exec(
+      Primitive.probe?(
+        shell,
         "test -f #{Process.quote("/usr/local/etc/rc.d/#{svc}")} -o -f #{Process.quote("/etc/rc.d/#{svc}")}",
-        raise_on_error: false,
-      ).success?
+      )
     end
 
     # `service <svc> onestatus` retourne 0 si le service tourne.
     protected def running?(shell : Shell, svc : String) : Bool
-      shell.exec("service #{Process.quote(svc)} onestatus", raise_on_error: false).success?
+      Primitive.probe?(shell, "service #{Process.quote(svc)} onestatus")
     end
   end
 

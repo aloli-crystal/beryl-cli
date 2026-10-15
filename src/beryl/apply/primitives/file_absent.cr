@@ -18,9 +18,9 @@ module Beryl::Apply
       path = required_string(params, "path").strip
       raise PrimitiveError.new("`file-absent` : chemin vide") if path.empty? || path == "/"
       q = Process.quote(path)
-      exists = shell.exec("test -e #{q} -o -L #{q}", raise_on_error: false).success?
+      exists = Primitive.probe?(shell, "test -e #{q} -o -L #{q}")
       return StepResult.skipped("#{path} déjà absent") unless exists
-      if shell.exec("test -d #{q}", raise_on_error: false).success?
+      if Primitive.probe?(shell, "test -d #{q}")
         raise PrimitiveError.new("`file-absent` : #{path} est un dossier — refus de le supprimer")
       end
       return StepResult.applied("#{path} : supprimé (dry-run)") if dry_run

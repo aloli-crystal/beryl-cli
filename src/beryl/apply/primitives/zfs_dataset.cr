@@ -91,7 +91,7 @@ module Beryl::Apply
 
     # Le dataset existe-t-il ? (csh-safe : pas de redir Bourne ; SudoShell→sh).
     def self.exists?(shell : Shell, dataset : String) : Bool
-      shell.exec("zfs list -H -o name #{Process.quote(dataset)}", raise_on_error: false).success?
+      Primitive.probe?(shell, "zfs list -H -o name #{Process.quote(dataset)}")
     end
 
     # Nom de client : strict (c'est un tenant, va dans un chemin ZFS + montage).

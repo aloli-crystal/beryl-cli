@@ -14,7 +14,7 @@ module Beryl::Apply
     end
 
     def apply(shell : Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Context) : StepResult
-      present = shell.exec("ls /var/db/clamav/*.c?d >/dev/null 2>&1", raise_on_error: false).success?
+      present = Primitive.probe?(shell, "ls /var/db/clamav/*.c?d >/dev/null 2>&1")
       return StepResult.skipped("base ClamAV déjà présente") if present
       return StepResult.applied("téléchargerait la base ClamAV (dry-run)") if dry_run
 

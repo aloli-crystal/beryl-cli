@@ -9,6 +9,17 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Sondes de lecture : une sonde cassée n'est plus un « pas encore fait »
+
+Les 36 sondes oui/non des primitives (`test -e`, `pkg info -e`, `zfs list`,
+`service … onestatus`, `jls`, `ifconfig`…) et les lectures `sysrc -n` /
+`stat` passent par `Primitive.probe?` / `Primitive.read_probe`. Une sonde
+que le shell n'a pas pu jouer (code 125/126/127, erreur de syntaxe sh ou
+csh) met l'étape en FAILED, en dry-run comme en `--apply`, au lieu d'être
+lue comme « absent » (« would apply » muet). Une réponse « non », même
+avec du stderr (`zfs list` d'un dataset absent), reste un non. Critères
+partagés avec la garde `unless` de `command`.
+
 === Messages et exemples : `nginx-lite` au lieu de `nginx-base`
 
 La recette `nginx-base` est retirée de beryl-recipes (0.0.36) au profit de

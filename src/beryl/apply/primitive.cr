@@ -148,6 +148,44 @@ module Beryl::Apply
       "cat \"$out\"; rm -f \"$out\"; exit $rc; }"
     end
 
+    # Codes qui disent que le SHELL n'a pas pu jouer une commande, pas qu'elle
+    # répond « non » : décodage impossible (cf. `Apply.sh_line`), commande non
+    # exécutable, commande introuvable.
+    SHELL_FAILURE_CODES = {Apply::DECODE_FAILED, 126, 127}
+
+    # Messages d'erreur du shell lui-même (sh FreeBSD, et csh quand il lit la
+    # ligne — cas réel sur qwerty, 14 oct. 2026). Une sonde ou une garde
+    # légitime ne les produit pas en répondant « non ».
+    SHELL_ERROR_RE = /Unmatched ['"`]|Illegal variable name|Command not found|Syntax error|Bad substitution|Missing name for redirect|Undefined variable|parameter (null or )?not set/i
+
+    # Vrai si la commande ne s'est pas exécutée correctement (≠ « non ») :
+    # l'étape doit alors être FAILED, jamais un « would apply » muet.
+    def self.broken_probe?(exit_code : Int32, stderr : String) : Bool
+      return false if exit_code == 0
+      SHELL_FAILURE_CODES.includes?(exit_code) || stderr.matches?(SHELL_ERROR_RE)
+    end
+
+    # Sonde en LECTURE de l'état (`test -e`, `pkg info -e`, `sysrc -n`…) : le
+    # résultat tel quel, que la commande réponde oui ou non, mais
+    # `ProbeFailed` (→ étape FAILED) si le shell n'a pas pu la jouer. Sans ce
+    # filtre, une sonde cassée passait pour « pas encore fait » : « would
+    # apply » muet en dry-run.
+    def self.read_probe(shell : Shell, command : String) : SSH::Result
+      res = shell.exec(command, raise_on_error: false)
+      if broken_probe?(res.exit_code, res.stderr)
+        detail = res.stderr.strip.lines.map(&.strip).reject(&.empty?).last(3).join(" | ")
+        raise ProbeFailed.new("sonde `#{command}` cassée (code #{res.exit_code}) : " \
+                              "#{detail.empty? ? "aucune sortie" : detail}")
+      end
+      res
+    end
+
+    # Sonde oui/non : vrai si `command` sort en 0, faux si elle répond « non »,
+    # `ProbeFailed` si elle n'a pas pu s'exécuter (cf. `read_probe`).
+    def self.probe?(shell : Shell, command : String) : Bool
+      read_probe(shell, command).success?
+    end
+
     # Comme `string` mais lève `MissingParam` si absent — pour les
     # paramètres obligatoires (`name`, `path`, `key`, …).
     protected def required_string(params : Hash(String, YAML::Any), key : String) : String
@@ -172,6 +210,10 @@ module Beryl::Apply
 
     # Levée quand un paramètre obligatoire d'un step est absent.
     class MissingParam < PrimitiveError
+    end
+
+    # Levée quand une sonde de lecture n'a pas pu s'exécuter (cf. `read_probe`).
+    class ProbeFailed < PrimitiveError
     end
   end
 end

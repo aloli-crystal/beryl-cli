@@ -105,8 +105,8 @@ module Beryl::Apply
       conf = "/etc/jail.conf.d/#{jname}.conf"
       fstab = "#{jail_path}.fstab"
 
-      running = shell.exec("jls -j #{jname}", raise_on_error: false).success?
-      present = running || shell.exec("test -d #{jail_path}", raise_on_error: false).success?
+      running = Primitive.probe?(shell, "jls -j #{jname}")
+      present = running || Primitive.probe?(shell, "test -d #{jail_path}")
       unless present
         return StepResult.skipped("jail #{jname} absente")
       end

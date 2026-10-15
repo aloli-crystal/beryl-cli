@@ -18,7 +18,7 @@ module Beryl::Apply
       key = required_string(params, "key")
       value = required_string(params, "value")
 
-      probe = shell.exec("sysrc -n #{Process.quote(key)} 2>/dev/null", raise_on_error: false)
+      probe = Primitive.read_probe(shell, "sysrc -n #{Process.quote(key)} 2>/dev/null")
       current = probe.success? ? probe.stdout.chomp : nil
 
       if current == value

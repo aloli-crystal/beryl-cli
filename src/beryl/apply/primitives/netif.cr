@@ -44,7 +44,7 @@ module Beryl::Apply
       # boot) et renverrait une erreur opaque. On échoue tôt en listant les
       # interfaces — le nom du NIC vRack varie selon le matériel (ix, igb,
       # bce, mlxen…), `ix1` n'est qu'un défaut.
-      unless shell.exec("ifconfig #{Process.quote(iface)} 2>/dev/null", raise_on_error: false).success?
+      unless Primitive.probe?(shell, "ifconfig #{Process.quote(iface)} 2>/dev/null")
         available = shell.exec("ifconfig -l 2>/dev/null", raise_on_error: false).stdout.strip
         return StepResult.failed("interface #{iface} absente — interfaces disponibles : #{available}")
       end

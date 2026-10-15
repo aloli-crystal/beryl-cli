@@ -62,7 +62,7 @@ module Beryl::Apply
       desired = self.class.build_conf(address, listen_port, private_key, peers)
 
       current = shell.exec("cat #{Process.quote(conf_path)} 2>/dev/null", raise_on_error: false).stdout
-      up = shell.exec("ifconfig #{Process.quote(iface)} >/dev/null 2>&1", raise_on_error: false).success?
+      up = Primitive.probe?(shell, "ifconfig #{Process.quote(iface)} >/dev/null 2>&1")
       rc_iface = shell.exec("sysrc -n wireguard_interfaces 2>/dev/null", raise_on_error: false).stdout.split
       rc_on = shell.exec("sysrc -n wireguard_enable 2>/dev/null", raise_on_error: false).stdout.strip.upcase == "YES"
 

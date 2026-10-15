@@ -21,8 +21,8 @@ module Beryl::Apply
       qp = Process.quote(path)
       qt = Process.quote(target)
 
-      is_link = shell.exec("test -L #{qp}", raise_on_error: false).success?
-      if !is_link && shell.exec("test -e #{qp}", raise_on_error: false).success?
+      is_link = Primitive.probe?(shell, "test -L #{qp}")
+      if !is_link && Primitive.probe?(shell, "test -e #{qp}")
         raise PrimitiveError.new("#{path} existe et n'est pas un lien symbolique — refus de clobberer.")
       end
 

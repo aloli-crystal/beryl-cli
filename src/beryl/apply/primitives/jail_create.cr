@@ -57,11 +57,11 @@ module Beryl::Apply
       end
 
       # Idempotence : jail déjà démarrée ?
-      if shell.exec("jls -j #{jname}", raise_on_error: false).success?
+      if Primitive.probe?(shell, "jls -j #{jname}")
         return StepResult.skipped("jail #{jname} déjà démarrée")
       end
       # Le base partagé doit exister (sinon les nullfs RO échoueront).
-      unless shell.exec("test -d #{base}/bin", raise_on_error: false).success?
+      unless Primitive.probe?(shell, "test -d #{base}/bin")
         return StepResult.failed("base partagé #{base} absent — appliquez `jail-base` d'abord")
       end
 

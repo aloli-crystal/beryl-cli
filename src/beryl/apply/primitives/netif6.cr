@@ -79,7 +79,7 @@ module Beryl::Apply
         return StepResult.failed("auto-détection de l'interface publique impossible — précisez `iface:`") if iface.empty?
       end
 
-      unless shell.exec("ifconfig #{Process.quote(iface)} 2>/dev/null", raise_on_error: false).success?
+      unless Primitive.probe?(shell, "ifconfig #{Process.quote(iface)} 2>/dev/null")
         available = shell.exec("ifconfig -l 2>/dev/null", raise_on_error: false).stdout.strip
         return StepResult.failed("interface #{iface} absente — interfaces disponibles : #{available}")
       end
@@ -105,7 +105,7 @@ module Beryl::Apply
       statics = shell.exec("sysrc -n ipv6_static_routes 2>/dev/null", raise_on_error: false).stdout.split
       rc_gw_route = shell.exec("sysrc -n ipv6_route_#{GW_ROUTE} 2>/dev/null", raise_on_error: false).stdout.strip
       ns_live = shell.exec("sysctl -n #{NS_SYSCTL} 2>/dev/null", raise_on_error: false).stdout.strip == "1"
-      ns_boot = shell.exec("grep -qx #{Process.quote("#{NS_SYSCTL}=1")} /etc/sysctl.conf 2>/dev/null", raise_on_error: false).success?
+      ns_boot = Primitive.probe?(shell, "grep -qx #{Process.quote("#{NS_SYSCTL}=1")} /etc/sysctl.conf 2>/dev/null")
       ns_ok = !onlink || (ns_live && ns_boot)
       rc_gw_ok =
         if onlink

@@ -82,7 +82,7 @@ module Beryl::Apply
     # `tailscale status` retourne 0 si une session est active.
     # Exit non-zéro = pas joint (ou tailscaled down).
     private def already_joined?(shell : Shell) : Bool
-      shell.exec("tailscale status --json >/dev/null 2>&1", raise_on_error: false).success?
+      Primitive.probe?(shell, "tailscale status --json >/dev/null 2>&1")
     end
   end
 

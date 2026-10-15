@@ -50,7 +50,7 @@ module Beryl::Apply
       guard_res = shell.exec(wrap(guard, user, env_file), raise_on_error: false)
       return StepResult.skipped("déjà fait (garde `unless` satisfaite)") if guard_res.success?
       guard_err = summary(guard_res.stderr)
-      if self.class.broken_guard?(guard_res.exit_code, guard_res.stderr)
+      if Primitive.broken_probe?(guard_res.exit_code, guard_res.stderr)
         return StepResult.failed("garde `unless` cassée (code #{guard_res.exit_code}) : " \
                                  "#{guard_err.empty? ? "aucune sortie" : guard_err} — rien n'a été lancé")
       end
@@ -66,23 +66,6 @@ module Beryl::Apply
       end
       out = res.stdout.strip
       StepResult.applied(show && !out.empty? ? "#{run}\n#{out}" : run)
-    end
-
-    # Codes qui disent que le SHELL n'a pas pu jouer la garde, pas qu'elle
-    # répond « non » : décodage impossible (cf. `Apply.sh_line`), commande non
-    # exécutable, commande introuvable.
-    SHELL_FAILURE_CODES = {Apply::DECODE_FAILED, 126, 127}
-
-    # Messages d'erreur du shell lui-même (sh FreeBSD, et csh quand il lit la
-    # ligne — cas réel sur qwerty, 14 oct. 2026). Une garde légitime ne les
-    # produit pas en répondant « non ».
-    SHELL_ERROR_RE = /Unmatched ['"`]|Illegal variable name|Command not found|Syntax error|Bad substitution|Missing name for redirect|Undefined variable|parameter (null or )?not set/i
-
-    # Vrai si la garde ne s'est pas exécutée correctement (≠ « pas encore
-    # fait ») : l'étape doit alors être FAILED, jamais un « would apply » muet.
-    def self.broken_guard?(exit_code : Int32, stderr : String) : Bool
-      return false if exit_code == 0
-      SHELL_FAILURE_CODES.includes?(exit_code) || stderr.matches?(SHELL_ERROR_RE)
     end
 
     private def summary(text : String) : String

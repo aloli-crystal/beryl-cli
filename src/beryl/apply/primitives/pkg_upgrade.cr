@@ -76,7 +76,7 @@ module Beryl::Apply
       end
 
       installed = packages.select do |p|
-        shell.exec("pkg info -e #{Process.quote(p)}", raise_on_error: false).success?
+        Primitive.probe?(shell, "pkg info -e #{Process.quote(p)}")
       end
       absent = packages - installed
       absent_note = absent.empty? ? "" : " ; non installé(s), ignoré(s) : #{absent.join(", ")}"
@@ -117,7 +117,7 @@ module Beryl::Apply
     # `sysrc -n <svc>_enable` vaut-il YES (casse ignorée) ? Variable absente
     # → non activé.
     private def enabled?(shell : Shell, svc : String) : Bool
-      shell.exec("sysrc -n #{Process.quote("#{svc}_enable")} 2>/dev/null", raise_on_error: false)
+      Primitive.read_probe(shell, "sysrc -n #{Process.quote("#{svc}_enable")} 2>/dev/null")
         .stdout.strip.upcase == "YES"
     end
 

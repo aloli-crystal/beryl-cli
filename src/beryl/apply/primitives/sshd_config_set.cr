@@ -89,10 +89,10 @@ module Beryl::Apply
     # en TÊTE de fichier (premier-match → drop-ins prioritaires). Retourne
     # true s'il a fallu l'ajouter. En dry-run : détecte sans modifier.
     private def ensure_include(shell : Shell, dry_run : Bool) : Bool
-      present = shell.exec(
+      present = Primitive.probe?(
+        shell,
         "grep -qE '^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\\.d/' /etc/ssh/sshd_config",
-        raise_on_error: false,
-      ).success?
+      )
       return false if present
       return true if dry_run
 

@@ -158,8 +158,8 @@ describe "Beryl::Apply::Command, ancienne ligne sous csh" do
       with_login_shell("csh") do |csh, _dir|
         res = csh.exec("sudo sh -c #{Process.quote("case x in\n  *) echo $(echo y) ;;\nesac")}")
         res.success?.should be_false
-        res.stderr.should match(Beryl::Apply::Command::SHELL_ERROR_RE)
-        Beryl::Apply::Command.broken_guard?(res.exit_code, res.stderr).should be_true
+        res.stderr.should match(Beryl::Apply::Primitive::SHELL_ERROR_RE)
+        Beryl::Apply::Primitive.broken_probe?(res.exit_code, res.stderr).should be_true
       end
     end
   else

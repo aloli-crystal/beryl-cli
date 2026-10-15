@@ -32,7 +32,7 @@ module Beryl::Apply
       mode = string(params, "mode")
       owner = string(params, "owner")
 
-      if bool(params, "if_absent") && shell.exec("test -e #{Process.quote(path)}", raise_on_error: false).success?
+      if bool(params, "if_absent") && Primitive.probe?(shell, "test -e #{Process.quote(path)}")
         return StepResult.skipped("#{path} existe déjà — laissé tel quel (if_absent)")
       end
 

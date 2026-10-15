@@ -58,7 +58,7 @@ module Beryl::Apply
 
       shell.exec("mkdir -p #{Process.quote(File.dirname(PATH))}")
       shell.write_file(PATH, render(directives), mode: "0644")
-      if shell.exec("service clamav_clamd onestatus", raise_on_error: false).success?
+      if Primitive.probe?(shell, "service clamav_clamd onestatus")
         shell.exec("service clamav_clamd restart")
         msg += " (clamd redémarré)"
       end

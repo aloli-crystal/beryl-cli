@@ -27,7 +27,7 @@ module Beryl::Apply
       end
 
       # Le node doit être connecté (headscale-join joué avant).
-      unless shell.exec("tailscale status --json >/dev/null 2>&1", raise_on_error: false).success?
+      unless Primitive.probe?(shell, "tailscale status --json >/dev/null 2>&1")
         return StepResult.failed("tailscaled non connecté au mesh — jouez `headscale-node` d'abord")
       end
 

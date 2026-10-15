@@ -26,7 +26,7 @@ module Beryl::Apply
       sha256 = string(params, "sha256")
 
       if c = creates
-        if shell.exec("test -e #{Process.quote(c)}", raise_on_error: false).success?
+        if Primitive.probe?(shell, "test -e #{Process.quote(c)}")
           return StepResult.skipped("#{c} déjà présent")
         end
       end

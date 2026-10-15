@@ -51,7 +51,7 @@ module Beryl::Apply
         end
 
       packages = components.map { |c| "#{base}#{num}-#{c}" }
-      missing = packages.reject { |p| shell.exec("pkg info -e #{Process.quote(p)}", raise_on_error: false).success? }
+      missing = packages.reject { |p| Primitive.probe?(shell, "pkg info -e #{Process.quote(p)}") }
       return StepResult.skipped("#{packages.join(", ")} déjà installé(s)") if missing.empty?
       return StepResult.applied("installerait #{missing.join(", ")} (dry-run)") if dry_run
 

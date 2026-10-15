@@ -267,7 +267,7 @@ module Beryl::Apply
       # Lock AVANT toute mise à jour git : on ne touche pas aux arbres
       # pendant qu'un build les lit.
       lock = "#{pkgdir}/.beryl-build-#{major}.lock"
-      if shell.exec("test -f #{Process.quote(lock)}", raise_on_error: false).success?
+      if Primitive.probe?(shell, "test -f #{Process.quote(lock)}")
         return StepResult.skipped("build majeur #{major} déjà en cours (lock présent)")
       end
 
@@ -484,7 +484,7 @@ module Beryl::Apply
       infos = [] of String
       commit : String? = nil
       fresh = false
-      is_git = shell.exec("test -d #{Process.quote("#{path}/.git")}", raise_on_error: false).success?
+      is_git = Primitive.probe?(shell, "test -d #{Process.quote("#{path}/.git")}")
 
       if url = ov.git
         if is_git
@@ -492,7 +492,7 @@ module Beryl::Apply
           return r if r.is_a?(StepResult)
           commit = r
         else
-          if shell.exec("test -e #{Process.quote(path)}", raise_on_error: false).success?
+          if Primitive.probe?(shell, "test -e #{Process.quote(path)}")
             return StepResult.failed("overlay #{ov.name} : #{path} existe mais n'est pas un dépôt git — refus de l'écraser")
           end
           branch_opt = ov.branch.try { |b| " -b #{Process.quote(b)}" } || ""
@@ -511,7 +511,7 @@ module Beryl::Apply
       end
 
       unless registered
-        exists = fresh || commit || shell.exec("test -d #{Process.quote(path)}", raise_on_error: false).success?
+        exists = fresh || commit || Primitive.probe?(shell, "test -d #{Process.quote(path)}")
         unless exists
           return StepResult.failed("overlay #{ov.name} introuvable : ni enregistré dans poudriere, ni présent sur #{path} (ajoutez `git:` pour le cloner)")
         end
@@ -548,7 +548,7 @@ module Beryl::Apply
         remote = res.stdout.split.first?
         return StepResult.failed("overlay #{ov.name} : branche distante #{branch} illisible (git ls-remote) : #{first_line(res)}") if !res.success? || remote.nil?
         return local if remote == local
-        if shell.exec("#{g} merge-base --is-ancestor #{remote} HEAD", raise_on_error: false).success?
+        if Primitive.probe?(shell, "#{g} merge-base --is-ancestor #{remote} HEAD")
           infos << "overlay #{ov.name} : commits locaux non poussés (conservés)"
           return local
         end
@@ -563,13 +563,13 @@ module Beryl::Apply
       return StepResult.failed("overlay #{ov.name} : #{ref} introuvable après fetch") if remote.empty?
       return local if remote == local
 
-      if shell.exec("#{g} merge-base --is-ancestor HEAD #{Process.quote(ref)}", raise_on_error: false).success?
+      if Primitive.probe?(shell, "#{g} merge-base --is-ancestor HEAD #{Process.quote(ref)}")
         m = shell.exec("#{g} merge -q --ff-only #{Process.quote(ref)}", raise_on_error: false)
         return StepResult.failed("overlay #{ov.name} : avance rapide impossible : #{first_line(m)}") unless m.success?
         notes << "overlay #{ov.name} mis à jour #{short(local)} → #{short(remote)}"
         return remote
       end
-      if shell.exec("#{g} merge-base --is-ancestor #{Process.quote(ref)} HEAD", raise_on_error: false).success?
+      if Primitive.probe?(shell, "#{g} merge-base --is-ancestor #{Process.quote(ref)} HEAD")
         infos << "overlay #{ov.name} : commits locaux non poussés (conservés)"
         return local
       end

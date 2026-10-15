@@ -55,7 +55,7 @@ module Beryl::Apply
     # `pw show <user>`, qui est une syntaxe invalide — `pw` attend
     # `usershow`/`groupshow`/… ; validé sur le banc QEMU FreeBSD.)
     private def exists?(shell : Shell, user : String) : Bool
-      shell.exec("pw usershow #{Process.quote(user)} >/dev/null 2>&1", raise_on_error: false).success?
+      Primitive.probe?(shell, "pw usershow #{Process.quote(user)} >/dev/null 2>&1")
     end
   end
 
