@@ -54,6 +54,65 @@ l'image officielle.
 d'empreinte. `--freebsd-version` prend l'image maison si sa version est la
 même, l'image officielle sinon.
 
+== Nouvelle version de FreeBSD
+
+=== Quand faut-il une nouvelle image ?
+
+* *Nouvelle majeure* (16.0, 17.0…) : toujours. L'image ne sait installer
+  que sa propre majeure.
+* *Nouvelle mineure* (15.2, 15.3…) : pas pour les hôtes en
+  `install_type: packages` (pkgbase, le cas des deux sociétés au
+  15 octobre 2026) : l'image 15.1 installe déjà la dernière release de la
+  branche 15 depuis le dépôt `base_release_<mineure>`. Seuls les hôtes en
+  `install_type: distribution_sets` installent la version *de l'image* ;
+  pour eux, une image de la nouvelle mineure est nécessaire. Sans elle, le
+  bootstrap le signale et installe la version de l'image.
+
+=== Marche à suivre (ex. 16.0)
+
+. *Sources de mfsBSD.* Pour une nouvelle majeure, vérifier que mfsBSD la
+  prend en charge : si le projet a publié des correctifs depuis le commit
+  épinglé (`MFSBSD_REF` dans `build-mfsbsd-se.sh` du dépôt
+  `papilip/mfsbsd-se`), relever ce commit, le commiter et le pousser.
+  Pour une mineure, le commit épinglé suffit en général.
+. *Machine virtuelle.* Vérifier que `vmactions/freebsd-vm` propose la
+  release (tableau de son README). Sinon : construire à la main sur une
+  machine FreeBSD de la même majeure (voir le README du dépôt), puis
+  publier la release à la main avec l'image et son `.sha256`.
+. *Construction et publication* :
++
+[source,sh]
+----
+gh workflow run build.yml --repo papilip/mfsbsd-se -f version=16.0
+gh run watch --repo papilip/mfsbsd-se
+----
++
+Le flux refuse d'écraser une release existante : pour reconstruire une
+version, supprimer d'abord sa release.
+. *Contrôle.* Les notes de la release donnent l'empreinte et les trois
+  lignes de configuration. Pour un contrôle indépendant :
++
+[source,sh]
+----
+B=https://github.com/papilip/mfsbsd-se/releases/download/mfsbsd-se-16.0
+curl -fLO $B/mfsbsd-se-16.0-RELEASE-amd64.iso -fLO $B/mfsbsd-se-16.0-RELEASE-amd64.iso.sha256
+shasum -a 256 -c mfsbsd-se-16.0-RELEASE-amd64.iso.sha256
+bsdtar tf mfsbsd-se-16.0-RELEASE-amd64.iso | grep -E 'base.txz|kernel.txz|mfsroot'
+----
+. *Déclaration.* Remplacer les trois clés (`mfsbsd_url`,
+  `mfsbsd_version`, `mfsbsd_sha256`) dans la configuration de *chaque*
+  société, puis commiter chaque dépôt de configuration :
+  `~/.config/beryl/quimeo/_defaults.yml` et
+  `~/.config/beryl/aloli/_default.yml`. Pour essayer d'abord sur un seul
+  hôte, poser les trois clés dans le fichier de cet hôte : le niveau le
+  plus précis l'emporte.
+. *Validation.* Un bootstrap complet sur un serveur de test (voir
+  ci-dessous) avant de bootstrapper un serveur de production.
+
+Pour une nouvelle majeure, le reste du parc suit son propre chemin :
+`beryl os-upgrade` pour les serveurs en place, et une deuxième étape
+`poudriere-build` (`major: "16"`) pour le dépôt de paquets.
+
 == Valider
 
 Un bootstrap complet sur un serveur de test, avant de déclarer l'image

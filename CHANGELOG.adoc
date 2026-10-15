@@ -9,6 +9,13 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Image mfsBSD maison : marche à suivre pour une nouvelle version (0.6.43)
+
+`docs/mfsbsd-maison.adoc` : quand une nouvelle image est nécessaire
+(toujours pour une nouvelle majeure ; pour une mineure, seulement en
+`distribution_sets`), puis sources de mfsBSD, construction, contrôle,
+déclaration dans chaque société et validation.
+
 === `bootstrap` : image mfsBSD SE maison (0.6.42)
 
 mfsBSD n'a publié aucune image depuis le 20 janvier 2026 (pas de 15.1) et
