@@ -158,6 +158,35 @@ describe "Beryl::Apply::SecretFile — variables par serveur" do
     ENV.delete("T_TOKEN")
   end
 
+  it "if_absent (restauration d'une clé) : fichier présent → JAMAIS réécrit" do
+    begin
+      ENV["T_KEY"] = "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n"
+      shell = FakeShell.new
+      shell.stub(/test -e/, exit_code: 0) # la clé en service existe
+      result = prim("secret-file").apply(
+        shell,
+        apply_params({path: "/usr/local/etc/ssl/keys/poudriere.key", mode: "0400", owner: "root:wheel",
+                      if_absent: true, env: {"@@KEY@@" => "T_KEY"}, content: "@@KEY@@"}.to_yaml),
+        dry_run: false, context: ctx)
+      result.outcome.should eq(Beryl::Apply::Outcome::Skipped)
+      shell.writes.should be_empty
+    ensure
+      ENV.delete("T_KEY")
+    end
+  end
+
+  it "if_absent : variable absente du coffre → ÉCHEC même si le fichier existe (sauvegarde manquante signalée)" do
+    shell = FakeShell.new
+    shell.stub(/test -e/, exit_code: 0)
+    result = prim("secret-file").apply(
+      shell,
+      apply_params({path: "/usr/local/etc/ssl/keys/poudriere.key", if_absent: true,
+                    env: {"@@KEY@@" => "T_KEY_ABSENTE"}, content: "@@KEY@@"}.to_yaml),
+      dry_run: false, context: ctx)
+    result.outcome.should eq(Beryl::Apply::Outcome::Failed)
+    result.message.should contain("T_KEY_ABSENTE")
+  end
+
   it "nom du serveur normalisé (majuscules, tirets → _)" do
     Beryl::Apply.host_secret_name("X", "pkg-01").should eq("X__PKG_01")
   end

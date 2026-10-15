@@ -9,6 +9,26 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl env set` / `beryl env get` : une variable du coffre par un tube
+
+`secrets set` ne lit qu'une ligne et ne sait pas écrire dans une section :
+impossible d'y ranger une clé PEM (clé de signature du dépôt pkg, 14 oct.
+2026). Nouveau :
+
+* `… | beryl env set <société> <SECTION.VAR>` : valeur lue sur l'ENTRÉE
+  (tube obligatoire, jamais en argument ni au clavier, jamais affichée),
+  multi-ligne acceptée. Insertion CIBLÉE dans le texte déchiffré : section
+  créée si absente, commentaires conservés ; variable déjà présente
+  REFUSÉE (pas d'écrasement silencieux) ; TOML validé et valeur relue à
+  l'identique avant chiffrement ; auto-commit du coffre comme `env edit`.
+* `beryl env get <société> <SECTION.VAR>` : valeur brute sur la sortie, pour
+  un tube (vérification d'empreinte).
+
+Restauration de la clé de signature par `secret-file` + `if_absent` (recette
+`poudriere-builder`) : écrite seulement si elle manque, jamais d'écrasement
+de la clé en service ; une variable absente du coffre fait ÉCHOUER l'étape
+même quand le fichier existe (sauvegarde manquante signalée à chaque apply).
+
 === Image mfsBSD maison : marche à suivre pour une nouvelle version (0.6.43)
 
 `docs/mfsbsd-maison.adoc` : quand une nouvelle image est nécessaire

@@ -32,6 +32,8 @@ module Beryl::CLI::Env
       migrate [<société>...]    Migre .env.yml[société] vers <société>/.env.toml.age
       edit <société>            Édite le coffre d'une société dans $EDITOR
       show <société>            Affiche le plaintext du coffre (debug, à éviter en prod)
+      set <société> <SECTION.VAR>  Pose une variable, valeur lue sur l'ENTRÉE (tube), jamais affichée
+      get <société> <SECTION.VAR>  Écrit une variable sur la sortie (pour un tube : empreinte…)
 
     Le coffre est chiffré au roster `secrets` global. Lancer
     `secrets init` une fois sur ce poste si ce n'est pas déjà fait.
@@ -50,6 +52,8 @@ module Beryl::CLI::Env
     when "migrate" then cmd_migrate(config_root, rest)
     when "edit"    then cmd_edit(config_root, rest)
     when "show"    then cmd_show(config_root, rest)
+    when "set"     then cmd_set(config_root, rest)
+    when "get"     then cmd_get(config_root, rest)
     else
       STDERR.puts "beryl env : sous-commande inconnue : #{sub}"
       STDERR.puts USAGE
@@ -251,6 +255,115 @@ module Beryl::CLI::Env
   # ─────────────────────────────────────────────────────────────
   # show
   # ─────────────────────────────────────────────────────────────
+
+  # `beryl env set <société> <SECTION.VAR>` : pose UNE variable, valeur lue sur
+  # l'entrée standard (tube : `… | beryl env set quimeo builder.CLE`), jamais
+  # en argument ni au clavier, jamais affichée. Valeur multi-ligne acceptée
+  # (clé PEM). Insertion CIBLÉE dans le texte déchiffré : les commentaires du
+  # coffre sont conservés ; une variable déjà présente est REFUSÉE (on
+  # n'écrase pas un secret en silence). TOML validé avant chiffrement.
+  private def self.cmd_set(config_root : String, argv : Array(String)) : Int32
+    no_commit = argv.includes?("--no-commit")
+    positional = argv.reject(&.starts_with?("-"))
+    account, path = positional[0]?, positional[1]?
+    unless account && path && (sv = split_var(path))
+      STDERR.puts "USAGE : … | beryl env set <société> <SECTION.VAR> [--no-commit]"
+      return 64
+    end
+    section, var = sv
+    if STDIN.tty?
+      STDERR.puts "beryl env set : la valeur se passe par un TUBE (ex. `… | beryl env set #{account} #{path}`), pas au clavier."
+      return 64
+    end
+    value = STDIN.gets_to_end
+    if value.strip.empty?
+      STDERR.puts "beryl env set : valeur vide sur l'entrée — rien n'est écrit."
+      return 1
+    end
+    vault_path = File.join(config_root, account, Beryl::Config::EnvFile::VAULT_FILENAME)
+    unless File.exists?(vault_path)
+      STDERR.puts "beryl env set : #{vault_path} n'existe pas (`beryl env edit --create #{account}`)."
+      return 1
+    end
+    plaintext = Secrets::Vault.decrypt(File.read(vault_path), Secrets::MasterKey.read.identity)
+    updated = insert_var(plaintext, section, var, value)
+    unless updated
+      STDERR.puts "beryl env set : #{path} existe déjà dans le coffre #{account} — refusé (pas d'écrasement silencieux ; `beryl env edit #{account}`)."
+      return 1
+    end
+    begin
+      got = Beryl::Config::EnvFile.parse_vault_toml(updated)[section]?.try(&.[var]?)
+      raise "relecture différente de la valeur reçue" unless got == value
+    rescue ex
+      STDERR.puts "beryl env set : coffre résultant invalide (#{ex.message}) — rien n'est écrit."
+      return 1
+    end
+    File.write(vault_path, Secrets::Vault.encrypt(updated, Secrets::Recipients.encryption_keys))
+    File.chmod(vault_path, 0o600)
+    STDOUT.puts "[set] #{path} posé dans #{vault_path} (#{value.lines.size} ligne(s), valeur non affichée)."
+    Beryl::CLI::ConfigGit.commit([vault_path], "env : #{account} #{section}.#{var} posé (set)", no_commit)
+    0
+  rescue ex
+    STDERR.puts "beryl env set : #{ex.message}"
+    1
+  end
+
+  # `beryl env get <société> <SECTION.VAR>` : valeur brute sur la sortie, pour
+  # un tube (vérification d'empreinte…). Rien d'autre n'est écrit sur stdout.
+  private def self.cmd_get(config_root : String, argv : Array(String)) : Int32
+    account, path = argv[0]?, argv[1]?
+    unless account && path && (sv = split_var(path))
+      STDERR.puts "USAGE : beryl env get <société> <SECTION.VAR>"
+      return 64
+    end
+    section, var = sv
+    vault_path = File.join(config_root, account, Beryl::Config::EnvFile::VAULT_FILENAME)
+    value = Beryl::Config::EnvFile.load_vault(vault_path)[section]?.try(&.[var]?)
+    unless value
+      STDERR.puts "beryl env get : #{path} absent du coffre #{account}."
+      return 1
+    end
+    STDOUT.print value
+    0
+  rescue ex
+    STDERR.puts "beryl env get : #{ex.message}"
+    1
+  end
+
+  # « section.VAR » → {section, VAR} ; noms simples seulement. Pur.
+  def self.split_var(path : String) : {String, String}?
+    m = path.match(/\A([A-Za-z0-9_-]+)\.([A-Za-z0-9_]+)\z/) || return nil
+    {m[1], m[2]}
+  end
+
+  # Insère `var = value` dans la section `[section]` du TOML `plaintext`
+  # (créée à la fin si absente), sans toucher au reste ni aux commentaires.
+  # nil si la variable existe déjà dans la section. Pur.
+  def self.insert_var(plaintext : String, section : String, var : String, value : String) : String?
+    existing = Beryl::Config::EnvFile.parse_vault_toml(plaintext)[section]?
+    return nil if existing && existing.has_key?(var)
+    line = toml_assign(var, value)
+    lines = plaintext.lines(chomp: false)
+    if idx = lines.index { |l| l.strip == "[#{section}]" }
+      lines.insert(idx + 1, line)
+      lines.join
+    else
+      base = plaintext.ends_with?('\n') || plaintext.empty? ? plaintext : plaintext + "\n"
+      "#{base}\n[#{section}]\n#{line}"
+    end
+  end
+
+  # Affectation TOML : littérale multi-ligne (`'''…'''`, sans échappement)
+  # pour une valeur à retours à la ligne, chaîne basique échappée sinon.
+  private def self.toml_assign(var : String, value : String) : String
+    if value.includes?('\n')
+      raise "valeur contenant ''' : non représentable en chaîne littérale" if value.includes?("'''")
+      "#{var} = '''\n#{value}'''\n"
+    else
+      escaped = value.gsub('\\', "\\\\").gsub('"', "\\\"")
+      "#{var} = \"#{escaped}\"\n"
+    end
+  end
 
   private def self.cmd_show(config_root : String, argv : Array(String)) : Int32
     account = ""
