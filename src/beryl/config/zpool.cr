@@ -173,7 +173,7 @@ module Beryl::Config
     # sur les modes inconnus, où la lecture YAML elle-même n'a pas
     # de sens.
     def self.from_yaml(any : YAML::Any?, pool_name : String) : EncryptionConfig?
-      return nil unless any
+      return unless any
 
       # Forme legacy : booléen.
       if (b = any.as_bool?)
@@ -182,7 +182,7 @@ module Beryl::Config
 
       # Forme étendue : hash.
       h = any.as_h?
-      return nil unless h
+      return unless h
 
       mode_str = h[YAML::Any.new("mode")]?.try(&.as_s?) || "ssh_unlock"
       mode = case mode_str
@@ -309,7 +309,7 @@ module Beryl::Config
     # non monté). `beryl unlock` y charge LA clé → tous les datasets enfants
     # s'ouvrent. nil si pas de profil chiffrant.
     def encryption_root : String?
-      return nil unless @profile == "standard"
+      return unless @profile == "standard"
       "#{@name}/encrypted"
     end
 

@@ -345,7 +345,6 @@ module Beryl::CLI::Bootstrap
                when "ovh"      then host.ovh_service_name ? nil : "ovh.service_name"
                when "dedibox"  then host.dedibox_server_id ? nil : "dedibox.server_id"
                when "scaleway" then host.scaleway_server_id ? nil : "scaleway.server_id"
-               else                 nil
                end
     if missing = id_field
       STDERR.puts "beryl : provider=#{effective_provider} mais `#{missing}` absent du host.yml de #{host.fqdn}."

@@ -131,9 +131,9 @@ module Beryl::Apply
       end
       guard = if ss = stop_service
                 <<-GUARD
-                trap 'service #{Process.quote(ss)} onestart >/dev/null 2>&1 || true' EXIT
-                service #{Process.quote(ss)} onestop >/dev/null 2>&1 || true
-                GUARD
+                  trap 'service #{Process.quote(ss)} onestart >/dev/null 2>&1 || true' EXIT
+                  service #{Process.quote(ss)} onestop >/dev/null 2>&1 || true
+                  GUARD
               else
                 "true"
               end
@@ -144,15 +144,15 @@ module Beryl::Apply
       mkdirs = (fc = fullchain) && (k = key) ? "mkdir -p \"$(dirname #{Process.quote(fc)})\" \"$(dirname #{Process.quote(k)})\"" : "true"
       install = copy.empty? && reload.empty? ? "" : "#{Process.quote(ACME_BIN)} --install-cert -d #{Process.quote(domains.first)}#{ecc} --home #{Process.quote(home)} --cert-home #{Process.quote(cert_home)}#{copy}#{reload}"
       <<-SH
-      #!/bin/sh
-      set -u
-      #{exports}#{mkdirs}
-      #{guard}
-      #{Process.quote(ACME_BIN)} --issue --server #{Process.quote(server)} #{dflags} #{challenge} --home #{Process.quote(home)} --cert-home #{Process.quote(cert_home)} --keylength #{Process.quote(keylength)}#{hooks}
-      rc=$?
-      if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then exit "$rc"; fi
-      #{install}
-      SH
+        #!/bin/sh
+        set -u
+        #{exports}#{mkdirs}
+        #{guard}
+        #{Process.quote(ACME_BIN)} --issue --server #{Process.quote(server)} #{dflags} #{challenge} --home #{Process.quote(home)} --cert-home #{Process.quote(cert_home)} --keylength #{Process.quote(keylength)}#{hooks}
+        rc=$?
+        if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then exit "$rc"; fi
+        #{install}
+        SH
     end
 
     def apply(shell : Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Context) : StepResult

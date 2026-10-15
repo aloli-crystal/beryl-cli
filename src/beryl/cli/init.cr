@@ -137,7 +137,7 @@ module Beryl::CLI::Init
     STDERR.puts "  beryl add-provider #{account}/<provider>   # serveurs et/ou DNS : ovh, scaleway, dedibox, …"
     STDERR.puts "  beryl add-domain   #{account}/<domaine>    # example.net, …"
     EXIT_OK
-  rescue ex : Beryl::CLI::AccountUtils::Aborted
+  rescue Beryl::CLI::AccountUtils::Aborted
     STDERR.puts "beryl : abandon"
     EXIT_ABORTED
   end
@@ -236,72 +236,72 @@ module Beryl::CLI::Init
   # sans clés SSH : elles viennent du domaine via ssh_keys: + Merger).
   private def self.default_yaml_content : String
     <<-YAML
-    # ─────────────────────────────────────────────────────────────────
-    # Socle technique commun à TOUTES les sociétés (ADR-014).
-    # ─────────────────────────────────────────────────────────────────
-    # Hiérarchie de merge :
-    #   1. _default.yml (ce fichier)
-    #   2. <société>/<domaine>.yml
-    #   3. <société>/<domaine>/<groupe>.yml (optionnel)
-    #   4. <société>/<domaine>/<host>.yml OU
-    #      <société>/<domaine>/<groupe>/<host>.yml
-    # Le niveau le plus spécifique gagne.
-    #
-    # Les pools ZFS ne sont PAS ici : spécifiques à chaque host, sous
-    # `freebsd.zfs.<nom>:`. Exemple minimal :
-    #
-    #   freebsd:
-    #     zfs:
-    #       zroot:
-    #         boot: true     # exactement un pool avec boot: true
-    #         raid: 0        # 0=stripe 1=mirror 5=raidz 6=raidz2 7=raidz3 10=mirror_stripe
-    #         disks: [/dev/sda]
-    #
-    # Les clés SSH utilisateurs sont au niveau `<société>/<domaine>.yml`
-    # dans `ssh_keys:` (chaque domaine peut avoir ses clés, injectées
-    # dans tous les `authorized_keys` via le merger).
+      # ─────────────────────────────────────────────────────────────────
+      # Socle technique commun à TOUTES les sociétés (ADR-014).
+      # ─────────────────────────────────────────────────────────────────
+      # Hiérarchie de merge :
+      #   1. _default.yml (ce fichier)
+      #   2. <société>/<domaine>.yml
+      #   3. <société>/<domaine>/<groupe>.yml (optionnel)
+      #   4. <société>/<domaine>/<host>.yml OU
+      #      <société>/<domaine>/<groupe>/<host>.yml
+      # Le niveau le plus spécifique gagne.
+      #
+      # Les pools ZFS ne sont PAS ici : spécifiques à chaque host, sous
+      # `freebsd.zfs.<nom>:`. Exemple minimal :
+      #
+      #   freebsd:
+      #     zfs:
+      #       zroot:
+      #         boot: true     # exactement un pool avec boot: true
+      #         raid: 0        # 0=stripe 1=mirror 5=raidz 6=raidz2 7=raidz3 10=mirror_stripe
+      #         disks: [/dev/sda]
+      #
+      # Les clés SSH utilisateurs sont au niveau `<société>/<domaine>.yml`
+      # dans `ssh_keys:` (chaque domaine peut avoir ses clés, injectées
+      # dans tous les `authorized_keys` via le merger).
 
-    # OS cible par défaut. Aujourd'hui seul `freebsd` est câblé côté
-    # runtime ; `debian`, `ubuntu`, `alpine` arriveront plus tard.
-    os: freebsd
+      # OS cible par défaut. Aujourd'hui seul `freebsd` est câblé côté
+      # runtime ; `debian`, `ubuntu`, `alpine` arriveront plus tard.
+      os: freebsd
 
-    freebsd:
-      # Fuseau horaire. Format IANA. Exemples : Europe/Paris, UTC.
-      timezone: Europe/Paris
+      freebsd:
+        # Fuseau horaire. Format IANA. Exemples : Europe/Paris, UTC.
+        timezone: Europe/Paris
 
-      # Taille du swap en Go. Partition `gpt/swap0` sur le premier
-      # disque du pool boot.
-      swap_gb: 4
+        # Taille du swap en Go. Partition `gpt/swap0` sur le premier
+        # disque du pool boot.
+        swap_gb: 4
 
-      # Chemin d'installation :
-      #   distribution_sets : tarballs base.txz + kernel.txz (stable, ADR-013)
-      #   packages          : pkgbase (opt-in, non câblé runtime)
-      install_type: distribution_sets
+        # Chemin d'installation :
+        #   distribution_sets : tarballs base.txz + kernel.txz (stable, ADR-013)
+        #   packages          : pkgbase (opt-in, non câblé runtime)
+        install_type: distribution_sets
 
-      # Packages installés au bootstrap via `pkg -r /mnt install` hors
-      # chroot (ADR-013). Append + dédup par les niveaux suivants.
-      packages:
-        - sudo
-        - zsh
-        - curl
-        - git
+        # Packages installés au bootstrap via `pkg -r /mnt install` hors
+        # chroot (ADR-013). Append + dédup par les niveaux suivants.
+        packages:
+          - sudo
+          - zsh
+          - curl
+          - git
 
-      # Règles sudoers → /usr/local/etc/sudoers.d/beryl.
-      sudoers:
-        - '%wheel ALL=(ALL) NOPASSWD:ALL'
+        # Règles sudoers → /usr/local/etc/sudoers.d/beryl.
+        sudoers:
+          - '%wheel ALL=(ALL) NOPASSWD:ALL'
 
-      # Users créés au bootstrap. Merge par `name` : un groupe/host
-      # peut raffiner un user existant.
-      users:
-        - name: admin
-          primary_group: www
-          secondary_groups: [wheel]
-          shell: /usr/local/bin/zsh
+        # Users créés au bootstrap. Merge par `name` : un groupe/host
+        # peut raffiner un user existant.
+        users:
+          - name: admin
+            primary_group: www
+            secondary_groups: [wheel]
+            shell: /usr/local/bin/zsh
 
-        - name: deploy
-          primary_group: www
-          secondary_groups: []
-          shell: /bin/csh
-    YAML
+          - name: deploy
+            primary_group: www
+            secondary_groups: []
+            shell: /bin/csh
+      YAML
   end
 end

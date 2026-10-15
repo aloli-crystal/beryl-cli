@@ -85,13 +85,11 @@ module Beryl::CLI::Lock
     conn = host.connection
     failures = 0
     encrypted_pools.each do |pool|
-      begin
-        lock_one(conn, pool, force)
-      rescue ex
-        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl lock] " \
-                    "ÉCHEC pool #{pool.name} : #{ex.class}: #{ex.message}"
-        failures += 1
-      end
+      lock_one(conn, pool, force)
+    rescue ex
+      STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl lock] " \
+                  "ÉCHEC pool #{pool.name} : #{ex.class}: #{ex.message}"
+      failures += 1
     end
 
     if failures > 0

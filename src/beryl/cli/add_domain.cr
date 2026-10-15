@@ -166,7 +166,7 @@ module Beryl::CLI::AddDomain
     STDERR.puts "  beryl rescue <host> --account=#{account} --domain=#{domain_name}"
     STDERR.puts "  beryl scan <host> --account=#{account} --domain=#{domain_name} --dns --apply"
     EXIT_OK
-  rescue ex : Beryl::CLI::AccountUtils::Aborted
+  rescue Beryl::CLI::AccountUtils::Aborted
     STDERR.puts "beryl : abandon"
     EXIT_ABORTED
   end
@@ -203,7 +203,7 @@ module Beryl::CLI::AddDomain
       prov = Beryl::Providers.find(p)
       prov && prov.capable_of?(:compute)
     end
-    return nil if compute_capable.empty?
+    return if compute_capable.empty?
     # S'il y a un seul compute-capable, auto.
     if compute_capable.size == 1
       STDERR.puts "[beryl add-domain] 3 Hébergeur des serveurs (auto) : #{compute_capable.first}"
@@ -239,19 +239,17 @@ module Beryl::CLI::AddDomain
       remote_keys = provider.list_ssh_keys
     rescue ex
       STDERR.puts "beryl : impossible de lister les clés SSH chez #{provider.display_name} : #{ex.message}"
-      return nil
+      return
     end
 
     local_pubs = list_local_pub_files
 
     matches = remote_keys.map do |rk|
       local = local_pubs.find do |f|
-        begin
-          c = File.read_lines(f).first? || ""
-          Beryl::SshKeyInfo.new("", "", c).crypto_fingerprint == rk.crypto_fingerprint
-        rescue
-          false
-        end
+        c = File.read_lines(f).first? || ""
+        Beryl::SshKeyInfo.new("", "", c).crypto_fingerprint == rk.crypto_fingerprint
+      rescue
+        false
       end
       {remote: rk, local: local}
     end

@@ -183,7 +183,7 @@ module Beryl::CLI::PgUpgrade
   # Ligne de `df -kP <dir> | tail -1` → {système de fichiers, Ko disponibles}.
   def self.parse_df(line : String) : {String, Int64}?
     f = line.split
-    return nil unless f.size >= 6 && f[3].matches?(/\A\d+\z/)
+    return unless f.size >= 6 && f[3].matches?(/\A\d+\z/)
     {f[0], f[3].to_i64}
   end
 
@@ -679,10 +679,10 @@ module Beryl::CLI::PgUpgrade
         k, _, v = l.partition('=')
         {k.strip, v.strip} unless k.strip.empty?
       end.to_h
-      %w(old_major new_major old_data new_data pkg_dir home pg_user).each do |k|
+      %w[old_major new_major old_data new_data pkg_dir home pg_user].each do |k|
         refuse("aucune migration enregistrée (#{state_path} absent ou incomplet).") unless st[k]?.try { |v| !v.empty? }
       end
-      %w(old_data new_data pkg_dir home).each do |k|
+      %w[old_data new_data pkg_dir home].each do |k|
         refuse("#{state_path} : chemin #{k} invalide (#{st[k].inspect}).") unless PgUpgrade.safe_dir?(st[k])
       end
       refuse("#{state_path} : utilisateur invalide.") unless st["pg_user"].matches?(SAFE_NAME)

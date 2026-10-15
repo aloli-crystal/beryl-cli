@@ -17,58 +17,58 @@ private def running_output : String
   status = ["-", "default", "fbsd151amd64", "2026-10-14_22h45m38s", "parallel_build",
             "68", "0", "3", "64", "0", "0", "0", "1", "00:15:51", LOGS_RUN].join('\t')
   <<-OUT
-  @@NOW #{epoch(2026, 10, 14, 23, 1, 30)}
-  @@FILE .beryl-build-15.lock #{epoch(2026, 10, 14, 22, 45, 0)} 0
-  @@FILE .beryl-build-15.log #{epoch(2026, 10, 14, 23, 0, 0)} 21633
-  @@FILE .beryl-build-15.overlays #{epoch(2026, 10, 13, 14, 41, 0)} 95
-  @@BEGIN .beryl-build-15.overlays
-  maison 2c8175fc1bca02ea902de27d492c0e017d546b9a
-  partenaire cce6262c6eb45a86418614696c5450e365a9cd2a
+    @@NOW #{epoch(2026, 10, 14, 23, 1, 30)}
+    @@FILE .beryl-build-15.lock #{epoch(2026, 10, 14, 22, 45, 0)} 0
+    @@FILE .beryl-build-15.log #{epoch(2026, 10, 14, 23, 0, 0)} 21633
+    @@FILE .beryl-build-15.overlays #{epoch(2026, 10, 13, 14, 41, 0)} 95
+    @@BEGIN .beryl-build-15.overlays
+    maison 2c8175fc1bca02ea902de27d492c0e017d546b9a
+    partenaire cce6262c6eb45a86418614696c5450e365a9cd2a
 
-  @@BEGIN .beryl-build-15.log.events
-  [00:00:02] Logs: #{LOGS_RUN}
-  [00:07:46] [01] [00:00:00] Building   lang/crystal | crystal-1.21.0
-  [00:14:03] [01] [00:06:17] Finished   lang/crystal | crystal-1.21.0: Success
-  [00:14:03] [01] [00:00:00] Building   sysutils/partiduo-agent-devel | partiduo-agent-devel-0.1.12_4
-  [00:14:03] [02] [00:00:00] Building   finance/partiduo-admin-devel | partiduo-admin-devel-0.1.12_2
-  [00:14:24] [01] [00:00:21] Finished   sysutils/partiduo-agent-devel | partiduo-agent-devel-0.1.12_4: Success
-  @@BEGIN .beryl-build-15.log.tail
-  [00:14:24] [01] [00:00:21] Finished   sysutils/partiduo-agent-devel | partiduo-agent-devel-0.1.12_4: Success
+    @@BEGIN .beryl-build-15.log.events
+    [00:00:02] Logs: #{LOGS_RUN}
+    [00:07:46] [01] [00:00:00] Building   lang/crystal | crystal-1.21.0
+    [00:14:03] [01] [00:06:17] Finished   lang/crystal | crystal-1.21.0: Success
+    [00:14:03] [01] [00:00:00] Building   sysutils/partiduo-agent-devel | partiduo-agent-devel-0.1.12_4
+    [00:14:03] [02] [00:00:00] Building   finance/partiduo-admin-devel | partiduo-admin-devel-0.1.12_2
+    [00:14:24] [01] [00:00:21] Finished   sysutils/partiduo-agent-devel | partiduo-agent-devel-0.1.12_4: Success
+    @@BEGIN .beryl-build-15.log.tail
+    [00:14:24] [01] [00:00:21] Finished   sysutils/partiduo-agent-devel | partiduo-agent-devel-0.1.12_4: Success
 
-  @@BEGIN poudriere-status
-  #{status}
-  @@END
-  OUT
+    @@BEGIN poudriere-status
+    #{status}
+    @@END
+    OUT
 end
 
 # Build en ÉCHEC : un paquet `Failed`, un dépendant sauté, un ignoré, bilan
 # poudriere en fin de journal ; `.overlays` plus ancien que le journal.
 private def failed_output : String
   <<-OUT
-  @@NOW #{epoch(2026, 10, 15, 4, 0, 0)}
-  @@FILE .beryl-build-15.log #{epoch(2026, 10, 15, 3, 41, 12)} 30411
-  @@FILE .beryl-build-15.overlays #{epoch(2026, 10, 13, 14, 41, 0)} 95
-  @@BEGIN .beryl-build-15.overlays
-  maison 2c8175fc1bca02ea902de27d492c0e017d546b9a
-  @@BEGIN .beryl-build-15.log.events
-  [00:00:01] Logs: #{LOGS_FAIL}
-  [00:00:40] Building 5 packages using up to 2 builders
-  [00:00:39] Ignoring   misc/vieux | vieux-1.0: is marked as broken: ne compile plus
-  [00:01:00] [01] [00:00:00] Building   lang/crystal | crystal-1.21.0
-  [00:01:00] [02] [00:00:00] Building   www/site-maison | site-maison-2.3
-  [00:04:02] [02] [00:03:02] Finished   www/site-maison | site-maison-2.3: Failed: \e[0;35mbuild\e[0m
-  [00:04:02] [02] [00:00:00] Skipping   www/site-maison-doc | site-maison-doc-2.3: Dependent port www/site-maison | site-maison-2.3 failed
-  [00:21:00] [01] [00:20:00] Finished   lang/crystal | crystal-1.21.0: Success
-  [00:41:10] [fbsd151amd64-default] [2026-10-15_03h00m05s] [committing] Time: 00:41:09
-  [00:41:10] Queued: 5 Inspected: 0 Ignored: 1 Built: 1 Failed: 1 Skipped: 1 Fetched: 0 Remaining: 1
-  [00:41:11] Error: Build failed in phase: build
-  @@BEGIN .beryl-build-15.log.tail
-  [00:41:10] Failed ports: www/site-maison:build
-  [00:41:10] Skipped ports: www/site-maison-doc
-  [00:41:11] Error: Build failed in phase: build
-  @@BEGIN poudriere-status
-  @@END
-  OUT
+    @@NOW #{epoch(2026, 10, 15, 4, 0, 0)}
+    @@FILE .beryl-build-15.log #{epoch(2026, 10, 15, 3, 41, 12)} 30411
+    @@FILE .beryl-build-15.overlays #{epoch(2026, 10, 13, 14, 41, 0)} 95
+    @@BEGIN .beryl-build-15.overlays
+    maison 2c8175fc1bca02ea902de27d492c0e017d546b9a
+    @@BEGIN .beryl-build-15.log.events
+    [00:00:01] Logs: #{LOGS_FAIL}
+    [00:00:40] Building 5 packages using up to 2 builders
+    [00:00:39] Ignoring   misc/vieux | vieux-1.0: is marked as broken: ne compile plus
+    [00:01:00] [01] [00:00:00] Building   lang/crystal | crystal-1.21.0
+    [00:01:00] [02] [00:00:00] Building   www/site-maison | site-maison-2.3
+    [00:04:02] [02] [00:03:02] Finished   www/site-maison | site-maison-2.3: Failed: \e[0;35mbuild\e[0m
+    [00:04:02] [02] [00:00:00] Skipping   www/site-maison-doc | site-maison-doc-2.3: Dependent port www/site-maison | site-maison-2.3 failed
+    [00:21:00] [01] [00:20:00] Finished   lang/crystal | crystal-1.21.0: Success
+    [00:41:10] [fbsd151amd64-default] [2026-10-15_03h00m05s] [committing] Time: 00:41:09
+    [00:41:10] Queued: 5 Inspected: 0 Ignored: 1 Built: 1 Failed: 1 Skipped: 1 Fetched: 0 Remaining: 1
+    [00:41:11] Error: Build failed in phase: build
+    @@BEGIN .beryl-build-15.log.tail
+    [00:41:10] Failed ports: www/site-maison:build
+    [00:41:10] Skipped ports: www/site-maison-doc
+    [00:41:11] Error: Build failed in phase: build
+    @@BEGIN poudriere-status
+    @@END
+    OUT
 end
 
 # Build TERMINÉ avec succès (lock absent, ligne finale du script).
@@ -76,27 +76,27 @@ private def success_output : String
   status = ["-", "default", "fbsd151amd64", "2026-10-14_22h45m38s", "done",
             "68", "0", "3", "65", "0", "0", "0", "0", "00:20:12", LOGS_RUN].join('\t')
   <<-OUT
-  @@NOW #{epoch(2026, 10, 15, 8, 0, 0)}
-  @@FILE .beryl-build-15.log #{epoch(2026, 10, 14, 23, 6, 0)} 23001
-  @@FILE .beryl-build-15.overlays #{epoch(2026, 10, 14, 23, 6, 0)} 95
-  @@BEGIN .beryl-build-15.overlays
-  maison 3d9e0a1b2c3d4e5f60718293a4b5c6d7e8f90123
-  partenaire cce6262c6eb45a86418614696c5450e365a9cd2a
-  @@BEGIN .beryl-build-15.log.events
-  [00:00:02] Logs: #{LOGS_RUN}
-  [00:07:46] [01] [00:00:00] Building   lang/crystal | crystal-1.21.0
-  [00:14:03] [01] [00:06:17] Finished   lang/crystal | crystal-1.21.0: Success
-  [00:14:03] [02] [00:00:00] Building   finance/partiduo-admin-devel | partiduo-admin-devel-0.1.12_2
-  [00:19:40] [02] [00:05:37] Finished   finance/partiduo-admin-devel | partiduo-admin-devel-0.1.12_2: Success
-  [00:19:50] [01] [00:00:00] Building   www/zz-petit | zz-petit-1.0
-  [00:19:58] [01] [00:00:08] Finished   www/zz-petit | zz-petit-1.0: Success
-  poudriere-build 15.1 OK (2026-10-14T23:06:00Z)
-  @@BEGIN .beryl-build-15.log.tail
-  poudriere-build 15.1 OK (2026-10-14T23:06:00Z)
-  @@BEGIN poudriere-status
-  #{status}
-  @@END
-  OUT
+    @@NOW #{epoch(2026, 10, 15, 8, 0, 0)}
+    @@FILE .beryl-build-15.log #{epoch(2026, 10, 14, 23, 6, 0)} 23001
+    @@FILE .beryl-build-15.overlays #{epoch(2026, 10, 14, 23, 6, 0)} 95
+    @@BEGIN .beryl-build-15.overlays
+    maison 3d9e0a1b2c3d4e5f60718293a4b5c6d7e8f90123
+    partenaire cce6262c6eb45a86418614696c5450e365a9cd2a
+    @@BEGIN .beryl-build-15.log.events
+    [00:00:02] Logs: #{LOGS_RUN}
+    [00:07:46] [01] [00:00:00] Building   lang/crystal | crystal-1.21.0
+    [00:14:03] [01] [00:06:17] Finished   lang/crystal | crystal-1.21.0: Success
+    [00:14:03] [02] [00:00:00] Building   finance/partiduo-admin-devel | partiduo-admin-devel-0.1.12_2
+    [00:19:40] [02] [00:05:37] Finished   finance/partiduo-admin-devel | partiduo-admin-devel-0.1.12_2: Success
+    [00:19:50] [01] [00:00:00] Building   www/zz-petit | zz-petit-1.0
+    [00:19:58] [01] [00:00:08] Finished   www/zz-petit | zz-petit-1.0: Success
+    poudriere-build 15.1 OK (2026-10-14T23:06:00Z)
+    @@BEGIN .beryl-build-15.log.tail
+    poudriere-build 15.1 OK (2026-10-14T23:06:00Z)
+    @@BEGIN poudriere-status
+    #{status}
+    @@END
+    OUT
 end
 
 describe Beryl::BuildReport do

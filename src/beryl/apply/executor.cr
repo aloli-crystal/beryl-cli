@@ -201,7 +201,7 @@ module Beryl::Apply
     # Primitives qui POSSÈDENT le fichier qu'elles écrivent (contenu complet).
     # `line-in-file` n'en fait pas partie : plusieurs recettes peuvent
     # légitimement ajouter chacune leur ligne au même fichier.
-    OWNING_PRIMITIVES = %w(file-write secret-file)
+    OWNING_PRIMITIVES = %w[file-write secret-file]
 
     # Garde « une recette par fichier » : avant toute exécution, interpole le
     # `path` de chaque écriture complète et refuse que deux recettes (ou deux

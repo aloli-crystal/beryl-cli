@@ -55,12 +55,12 @@ describe Beryl::Config::EnvFile do
     it "injecte toutes les vars de tous les fournisseurs d'une société" do
       path = File.join(FIXTURES_ROOT, "apply-all-test.yml")
       File.write(path, <<-YAML
-      initech:
-        ovh:
-          BERYL_TEST_OVH: a
-        scaleway:
-          BERYL_TEST_SCW: b
-      YAML
+        initech:
+          ovh:
+            BERYL_TEST_OVH: a
+          scaleway:
+            BERYL_TEST_SCW: b
+        YAML
       )
       begin
         env = Beryl::Config::EnvFile.load(path)

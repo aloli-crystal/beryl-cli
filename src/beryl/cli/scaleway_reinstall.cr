@@ -248,7 +248,7 @@ module Beryl::CLI::ScalewayReinstall
   rescue ex : MissingProviderConfig
     STDERR.puts "beryl : #{ex.message}"
     EXIT_MISSING_CONFIG
-  rescue ex : Aborted
+  rescue Aborted
     STDERR.puts "beryl : abandon"
     EXIT_ABORTED
   rescue ex : ScalewayApi::Error
@@ -350,9 +350,10 @@ module Beryl::CLI::ScalewayReinstall
       # Suggestion : debian si présent, sinon ubuntu, sinon le
       # premier name trié. Le prefix proposé correspond toujours à
       # un OS réellement listé ci-dessus.
-      suggested_prefix = %w[debian ubuntu].find { |p|
+      suggested_prefix = %w[debian ubuntu].find do |p|
         oses.any? { |o| o.name.downcase.starts_with?(p) }
-      } || grouped.keys.sort.first.downcase.split(" ").first
+      end
+      suggested_prefix ||= grouped.keys.sort.first.downcase.split(" ").first
       target = suggest_path || "<host>"
       STDERR.puts "  Relancez par exemple avec :"
       STDERR.puts "    beryl scaleway-reinstall #{target} --os-prefix=#{suggested_prefix}"

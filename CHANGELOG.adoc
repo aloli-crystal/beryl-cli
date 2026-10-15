@@ -9,6 +9,16 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Crystal 1.22.0 et ameba 1.7
+
+CI (format et specs Linux) sur l'image `crystallang/crystal:1.22.0` ; ameba
+passé à `~> 1.7` (la 1.6.4 ne compile plus après Crystal 1.21). Les nouvelles
+règles d'ameba 1.7 sont appliquées : `return nil` → `return`, indentation des
+heredocs, `begin` superflus, variables de `rescue` inutilisées, `else nil`,
+affectation dans un argument d'appel. `Style/HeredocEscape` et
+`Style/MultilineStringLiteral` sont désactivées : les appliquer changerait
+l'interpolation des scripts shell embarqués. Aucun changement de comportement.
+
 === Sondes de lecture : une sonde cassée n'est plus un « pas encore fait »
 
 Les 36 sondes oui/non des primitives (`test -e`, `pkg info -e`, `zfs list`,

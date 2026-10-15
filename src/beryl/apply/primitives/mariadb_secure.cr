@@ -32,12 +32,12 @@ module Beryl::Apply
     def self.build_sql(password : String) : String
       esc = password.gsub("'", "''")
       <<-SQL
-      ALTER USER 'root'@'localhost' IDENTIFIED VIA unix_socket OR mysql_native_password USING PASSWORD('#{esc}');
-      DROP USER IF EXISTS ''@'localhost';
-      DROP USER IF EXISTS ''@'%';
-      DROP DATABASE IF EXISTS test;
-      FLUSH PRIVILEGES;
-      SQL
+        ALTER USER 'root'@'localhost' IDENTIFIED VIA unix_socket OR mysql_native_password USING PASSWORD('#{esc}');
+        DROP USER IF EXISTS ''@'localhost';
+        DROP USER IF EXISTS ''@'%';
+        DROP DATABASE IF EXISTS test;
+        FLUSH PRIVILEGES;
+        SQL
     end
 
     def apply(shell : Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Context) : StepResult

@@ -297,19 +297,19 @@ module Beryl::CLI
 
   private def self.usage_banner : String
     <<-BANNER
-    beryl #{Beryl::VERSION} — gestion de configuration FreeBSD (agentless SSH)
+      beryl #{Beryl::VERSION} — gestion de configuration FreeBSD (agentless SSH)
 
-    USAGE : beryl [options globales] <sous-commande> [arguments]
+      USAGE : beryl [options globales] <sous-commande> [arguments]
 
-    Sous-commandes (ordre alphabétique ; alias court entre crochets) :
-    #{subcommand_listing}
+      Sous-commandes (ordre alphabétique ; alias court entre crochets) :
+      #{subcommand_listing}
 
-    Host : FQDN (ex: rails01.example.net), nom court, ou identifiant hébergeur
-           (service_name OVH, UUID Scaleway). Ajoutez `--domain=<nom>` si le
-           domaine ne peut pas être déduit du nom.
+      Host : FQDN (ex: rails01.example.net), nom court, ou identifiant hébergeur
+             (service_name OVH, UUID Scaleway). Ajoutez `--domain=<nom>` si le
+             domaine ne peut pas être déduit du nom.
 
-    Options globales :
-    BANNER
+      Options globales :
+      BANNER
   end
 
   private def self.show_usage(parser : OptionParser) : Nil

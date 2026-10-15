@@ -41,9 +41,9 @@ describe Beryl::Apply::PfRule do
     result.outcome.should eq(Beryl::Apply::Outcome::Applied)
     content = shell.writes.first.content
     # le nat doit précéder la 1ʳᵉ règle filtre `block`
-    (content.index(natrule).not_nil! < content.index("block in all").not_nil!).should be_true
+    (content.index!(natrule) < content.index!("block in all")).should be_true
     # et suivre scrub (translation après normalisation)
-    (content.index("scrub in all").not_nil! < content.index(natrule).not_nil!).should be_true
+    (content.index!("scrub in all") < content.index!(natrule)).should be_true
     content.should contain("# >>> beryl nat >>>")
     shell.ran?(/pfctl -nf/).should be_true
   end

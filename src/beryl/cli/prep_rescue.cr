@@ -21,35 +21,35 @@ module Beryl::CLI::PrepRescue
   # n'est défini, la seule auth possible est par clé — exactement ce qu'on
   # veut. Le script se contente donc d'installer sshd et d'injecter la clé.
   SETUP_SCRIPT_TEMPLATE = <<-'SH'
-  #!/bin/sh
-  # Script de provisioning Debian/Ubuntu généré par `beryl prep-rescue`.
-  # Installe openssh-server et injecte la clé publique dans /root/.ssh/.
-  set -eu
+    #!/bin/sh
+    # Script de provisioning Debian/Ubuntu généré par `beryl prep-rescue`.
+    # Installe openssh-server et injecte la clé publique dans /root/.ssh/.
+    set -eu
 
-  HOST_URL="__HOST_URL__"
+    HOST_URL="__HOST_URL__"
 
-  echo "==> [beryl prep-rescue] apt update + openssh-server + curl"
-  export DEBIAN_FRONTEND=noninteractive
-  apt-get update -qq
-  apt-get install -y -qq openssh-server curl
+    echo "==> [beryl prep-rescue] apt update + openssh-server + curl"
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq
+    apt-get install -y -qq openssh-server curl
 
-  echo "==> [beryl prep-rescue] clé SSH root"
-  mkdir -p /root/.ssh && chmod 700 /root/.ssh
-  curl -fL "$HOST_URL/k" >> /root/.ssh/authorized_keys
-  chmod 600 /root/.ssh/authorized_keys
-  sort -u /root/.ssh/authorized_keys -o /root/.ssh/authorized_keys
+    echo "==> [beryl prep-rescue] clé SSH root"
+    mkdir -p /root/.ssh && chmod 700 /root/.ssh
+    curl -fL "$HOST_URL/k" >> /root/.ssh/authorized_keys
+    chmod 600 /root/.ssh/authorized_keys
+    sort -u /root/.ssh/authorized_keys -o /root/.ssh/authorized_keys
 
-  # Ne garde que la clé d'hôte ED25519. Évite de polluer known_hosts côté
-  # opérateur avec trois entrées par VM (RSA, ECDSA, ED25519) à purger à
-  # chaque recréation. Aligné sur Mozilla Modern OpenSSH.
-  echo "==> [beryl prep-rescue] retire les clés d'hôte RSA/ECDSA"
-  rm -f /etc/ssh/ssh_host_rsa_key /etc/ssh/ssh_host_rsa_key.pub
-  rm -f /etc/ssh/ssh_host_ecdsa_key /etc/ssh/ssh_host_ecdsa_key.pub
+    # Ne garde que la clé d'hôte ED25519. Évite de polluer known_hosts côté
+    # opérateur avec trois entrées par VM (RSA, ECDSA, ED25519) à purger à
+    # chaque recréation. Aligné sur Mozilla Modern OpenSSH.
+    echo "==> [beryl prep-rescue] retire les clés d'hôte RSA/ECDSA"
+    rm -f /etc/ssh/ssh_host_rsa_key /etc/ssh/ssh_host_rsa_key.pub
+    rm -f /etc/ssh/ssh_host_ecdsa_key /etc/ssh/ssh_host_ecdsa_key.pub
 
-  systemctl enable --now ssh
+    systemctl enable --now ssh
 
-  echo "==> [beryl prep-rescue] terminé. beryl bootstrap peut maintenant se connecter."
-  SH
+    echo "==> [beryl prep-rescue] terminé. beryl bootstrap peut maintenant se connecter."
+    SH
 
   def self.run(args : Array(String)) : Int32
     port = DEFAULT_PORT
@@ -132,7 +132,7 @@ module Beryl::CLI::PrepRescue
       end
     end
 
-    Signal::INT.trap do
+    Process.on_terminate do
       STDERR.puts
       STDERR.puts "[beryl prep-rescue] arrêt"
       server.close

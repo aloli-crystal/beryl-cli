@@ -332,7 +332,7 @@ module Beryl::CLI::Env
 
   # « section.VAR » → {section, VAR} ; noms simples seulement. Pur.
   def self.split_var(path : String) : {String, String}?
-    m = path.match(/\A([A-Za-z0-9_-]+)\.([A-Za-z0-9_]+)\z/) || return nil
+    m = path.match(/\A([A-Za-z0-9_-]+)\.([A-Za-z0-9_]+)\z/) || return
     {m[1], m[2]}
   end
 
@@ -341,7 +341,7 @@ module Beryl::CLI::Env
   # nil si la variable existe déjà dans la section. Pur.
   def self.insert_var(plaintext : String, section : String, var : String, value : String) : String?
     existing = Beryl::Config::EnvFile.parse_vault_toml(plaintext)[section]?
-    return nil if existing && existing.has_key?(var)
+    return if existing && existing.has_key?(var)
     line = toml_assign(var, value)
     lines = plaintext.lines(chomp: false)
     if idx = lines.index { |l| l.strip == "[#{section}]" }

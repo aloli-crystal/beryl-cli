@@ -31,7 +31,7 @@ module Beryl::CLI::ConfigGit
     loop do
       return current if File.exists?(File.join(current, ".git"))
       parent = File.dirname(current)
-      return nil if parent == current # racine du filesystem atteinte
+      return if parent == current # racine du filesystem atteinte
       current = parent
     end
   end

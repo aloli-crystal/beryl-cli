@@ -51,7 +51,7 @@ module Beryl::CLI::ProviderShortcut
   ) : Resolved?
     case provider
     when "dedibox"
-      return nil unless host_name =~ INT_RX
+      return unless host_name =~ INT_RX
       factory = dedibox_factory || raise ArgumentError.new("dedibox_factory requis")
       info = factory.call.servers.info(host_name.to_i)
       ip = info.public_ip || raise NotFound.new(
@@ -59,7 +59,7 @@ module Beryl::CLI::ProviderShortcut
       )
       {ip: ip, server_id: host_name, zone: nil}
     when "scaleway"
-      return nil unless host_name =~ UUID_RX
+      return unless host_name =~ UUID_RX
       factory = scaleway_factory || raise ArgumentError.new("scaleway_factory requis")
       server = factory.call.baremetal.servers.find_any_zone(host_name) ||
                raise NotFound.new(
@@ -70,10 +70,8 @@ module Beryl::CLI::ProviderShortcut
         "Scaleway UUID #{host_name} : trouvé dans la zone #{server.zone}, mais aucune IP attachée"
       )
       {ip: ip, server_id: host_name, zone: server.zone}
-    else
-      # Pas de shortcut pour OVH (le FQDN EST déjà le service_name
-      # et résout en DNS) ni pour les providers inconnus.
-      nil
     end
+    # Sinon nil : pas de shortcut pour OVH (le FQDN EST déjà le service_name
+    # et résout en DNS) ni pour les providers inconnus.
   end
 end

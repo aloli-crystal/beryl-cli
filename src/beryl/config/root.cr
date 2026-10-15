@@ -486,7 +486,7 @@ module Beryl::Config
     # server_id, zone, etc.).
     def provider_field(provider_name : String, field : String) : String?
       block = @merged[YAML::Any.new(provider_name)]?.try(&.as_h?)
-      return nil unless block
+      return unless block
       block[YAML::Any.new(field)]?.try(&.as_s?)
     end
 
@@ -519,7 +519,7 @@ module Beryl::Config
     # comme un float → `as_s?` renverrait nil (bug : prix absent du .adoc).
     def ovh_price : String?
       v = @merged[YAML::Any.new("ovh")]?.try(&.as_h?).try(&.[YAML::Any.new("price_eur")]?)
-      return nil unless v
+      return unless v
       v.as_s? || v.as_f?.try { |f| "%.2f" % f } || v.as_i?.try(&.to_s)
     end
 
@@ -542,7 +542,7 @@ module Beryl::Config
     # `hardware:`). nil si jamais scanné. Source de `beryl info` (hors-ligne).
     def hardware : Beryl::HardwareSpec?
       h = @merged[YAML::Any.new("hardware")]?.try(&.as_h?)
-      return nil unless h
+      return unless h
       get = ->(k : String) { h[YAML::Any.new(k)]? }
       disks = get.call("disks").try(&.as_a?).try(&.compact_map(&.as_s?)) || [] of String
       Beryl::HardwareSpec.new(
@@ -568,7 +568,7 @@ module Beryl::Config
       return explicit if explicit
       # Tolère aussi un champ entier natif (YAML `server_id: 186260`).
       block = @merged[YAML::Any.new("dedibox")]?.try(&.as_h?)
-      return nil unless block
+      return unless block
       int_val = block[YAML::Any.new("server_id")]?.try(&.as_i?)
       int_val.try(&.to_s)
     end
@@ -780,7 +780,7 @@ module Beryl::Config
     # Legacy : IP déclarée par la recette `vrack-interface` dans `apply_recipes`.
     private def legacy_vrack_interface_ip : String?
       arr = @merged[YAML::Any.new("apply_recipes")]?.try(&.as_a?)
-      return nil unless arr
+      return unless arr
       arr.each do |entry|
         args = entry.as_h?.try(&.[YAML::Any.new("vrack-interface")]?).try(&.as_h?)
         next unless args
@@ -1072,8 +1072,8 @@ module Beryl::Config
     # Piège typique : `ovh.ssh_key_name` rangé sous `freebsd:` au lieu de la
     # RACINE → `ovh_ssh_key_name` (qui lit le bloc `ovh:` racine) renvoie nil.
     def ssh_key_diagnostic : String?
-      return nil unless provider == "ovh"
-      return nil unless identity_file.nil?
+      return unless provider == "ovh"
+      return unless identity_file.nil?
       if name = ovh_ssh_key_name
         "clé OVH « #{name} » (ovh.ssh_key_name) introuvable dans ~/.ssh " \
         "(attendu ~/.ssh/#{name.gsub('-', '.')}.key)"

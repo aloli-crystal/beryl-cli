@@ -82,11 +82,9 @@ module Beryl::CLI::RotateKey
     root.accounts.each_value do |account|
       if domain = account.domain?(scope)
         hosts = domain.all_hosts.keys.compact_map do |hn|
-          begin
-            root.resolve(hn, account_hint: account.name, domain_hint: domain.name)
-          rescue
-            nil
-          end
+          root.resolve(hn, account_hint: account.name, domain_hint: domain.name)
+        rescue
+          nil
         end
         return {domain.source_path, hosts}
       end

@@ -112,11 +112,9 @@ module Beryl::CLI::Apply
 
   private def self.resolve_domain_hosts(root : Beryl::Config::Root, account : Beryl::Config::Account, domain : Beryl::Config::Domain) : Array(Beryl::Config::ResolvedHost)
     domain.all_hosts.keys.compact_map do |hn|
-      begin
-        root.resolve(hn, account_hint: account.name, domain_hint: domain.name)
-      rescue
-        nil
-      end
+      root.resolve(hn, account_hint: account.name, domain_hint: domain.name)
+    rescue
+      nil
     end
   end
 
@@ -264,9 +262,9 @@ module Beryl::CLI::Apply
   # `wheel`. nil si aucun → apply retombe sur host.user (root).
   private def self.sudo_user(host : Beryl::Config::ResolvedHost) : String?
     freebsd = host.merged[YAML::Any.new("freebsd")]?.try(&.as_h?)
-    return nil unless freebsd
+    return unless freebsd
     users = freebsd[YAML::Any.new("users")]?.try(&.as_a?)
-    return nil unless users
+    return unless users
 
     Beryl::Config::Users.list(users).each do |e|
       can =
@@ -288,9 +286,9 @@ module Beryl::CLI::Apply
   # `freebsd.users` : un step `user-sync` par user déclaré. nil si aucun.
   private def self.build_users_recipe(host : Beryl::Config::ResolvedHost) : Beryl::Apply::Recipe?
     freebsd = host.merged[YAML::Any.new("freebsd")]?.try(&.as_h?)
-    return nil unless freebsd
+    return unless freebsd
     users = freebsd[YAML::Any.new("users")]?.try(&.as_a?)
-    return nil unless users
+    return unless users
 
     steps = [] of Beryl::Apply::Step
     Beryl::Config::Users.list(users).each do |e|
@@ -309,7 +307,7 @@ module Beryl::CLI::Apply
           params: {"user" => name_any, "shell" => YAML::Any.new(path)})
       end
     end
-    return nil if steps.empty?
+    return if steps.empty?
 
     Beryl::Apply::Recipe.new(
       name: "users",

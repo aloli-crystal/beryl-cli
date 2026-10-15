@@ -45,9 +45,9 @@ module Beryl::CLI::BakeSeed
 
     pubkey = File.read(pubkey_path).strip
     meta_data = <<-YAML
-    instance-id: iid-#{hostname}
-    local-hostname: #{hostname}
-    YAML
+      instance-id: iid-#{hostname}
+      local-hostname: #{hostname}
+      YAML
 
     user_data = build_user_data(ssh_user, pubkey, hostname)
 
@@ -78,29 +78,29 @@ module Beryl::CLI::BakeSeed
     if user == "root"
       # Pour root, inutile de créer l'utilisateur, il faut juste poser la clé.
       <<-CLOUD
-      #cloud-config
-      hostname: #{hostname}
-      ssh_pwauth: false
-      disable_root: false
-      ssh_authorized_keys:
-        - #{pubkey}
-      runcmd:
-        - systemctl enable --now ssh
-      CLOUD
+        #cloud-config
+        hostname: #{hostname}
+        ssh_pwauth: false
+        disable_root: false
+        ssh_authorized_keys:
+          - #{pubkey}
+        runcmd:
+          - systemctl enable --now ssh
+        CLOUD
     else
       <<-CLOUD
-      #cloud-config
-      hostname: #{hostname}
-      ssh_pwauth: false
-      users:
-        - name: #{user}
-          shell: /bin/bash
-          sudo: "ALL=(ALL) NOPASSWD:ALL"
-          ssh_authorized_keys:
-            - #{pubkey}
-      runcmd:
-        - systemctl enable --now ssh
-      CLOUD
+        #cloud-config
+        hostname: #{hostname}
+        ssh_pwauth: false
+        users:
+          - name: #{user}
+            shell: /bin/bash
+            sudo: "ALL=(ALL) NOPASSWD:ALL"
+            ssh_authorized_keys:
+              - #{pubkey}
+        runcmd:
+          - systemctl enable --now ssh
+        CLOUD
     end
   end
 end

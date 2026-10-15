@@ -513,7 +513,7 @@ module Beryl::CLI::Rescue
       sudo mkdir -p /etc/ssh/sshd_config.d
       echo 'PermitRootLogin yes' | sudo tee /etc/ssh/sshd_config.d/beryl.conf >/dev/null
       (sudo systemctl reload ssh 2>/dev/null || sudo systemctl reload sshd 2>/dev/null || sudo service ssh reload) >/dev/null 2>&1
-    BASH
+      BASH
     log "4.4 Scaleway : promote rescue → root (copie authorized_keys + PermitRootLogin yes)"
     rescue_conn.exec("bash -s", stdin: script)
     log "4.4 Scaleway : root@#{host.rescue_ssh_host} prêt (le flow beryl continue en root)"
@@ -686,7 +686,7 @@ module Beryl::CLI::Rescue
       mkdir -p /etc/ssh/sshd_config.d
       echo 'PermitRootLogin yes' > /etc/ssh/sshd_config.d/beryl.conf
       (systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || service ssh reload) >/dev/null 2>&1
-    BASH
+      BASH
     log "4.4 Dedibox : promote #{sd_user} → root (copie clé IAM + PermitRootLogin yes via sudo -S)"
     sd_conn.exec(
       "sudo -S -p '' bash -s",

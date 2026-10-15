@@ -44,8 +44,8 @@ describe Beryl::Apply::PkgVersioned do
     shell.stub(/pkg rquery/, stdout: "17.6 postgresql17-server\n")
     shell.stub(/pkg info -e/, exit_code: 1)
     prim("pkg-versioned").apply(shell, apply_params({base: "postgresql", only: "server"}.to_yaml), dry_run: true, context: ctx)
-    upd = shell.commands.index { |c| c.includes?("pkg update -q") }.not_nil!
-    rq = shell.commands.index { |c| c.includes?("pkg rquery") }.not_nil!
+    upd = shell.commands.index! { |c| c.includes?("pkg update -q") }
+    rq = shell.commands.index! { |c| c.includes?("pkg rquery") }
     upd.should be < rq
   end
 

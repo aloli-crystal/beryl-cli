@@ -1,18 +1,19 @@
 require "../../../spec_helper"
 require "../../../support/fake_shell"
 
-private def p(h)
+private def params_of(h)
   res = Hash(String, YAML::Any).new
   h.each { |k, v| res[k] = v.is_a?(YAML::Any) ? v : YAML::Any.new(v) }
   res
 end
 
 private def peers_yaml(list) : YAML::Any
-  YAML::Any.new(list.map { |m|
+  mapped = list.map do |m|
     inner = {} of YAML::Any => YAML::Any
     m.each { |k, v| inner[YAML::Any.new(k)] = YAML::Any.new(v) }
     YAML::Any.new(inner)
-  })
+  end
+  YAML::Any.new(mapped)
 end
 
 private def ctx
@@ -44,7 +45,7 @@ describe Beryl::Apply::WireguardInterface do
     ENV.delete("WG_ABSENT")
     expect_raises(Beryl::Apply::Primitive::PrimitiveError, /clé privée|coffre/) do
       Beryl::Apply::WireguardInterface.new.apply(
-        FakeShell.new, p({"address" => "10.100.0.1/24", "private_key_env" => "WG_ABSENT"}), false, ctx)
+        FakeShell.new, params_of({"address" => "10.100.0.1/24", "private_key_env" => "WG_ABSENT"}), false, ctx)
     end
   end
 
@@ -56,8 +57,8 @@ describe Beryl::Apply::WireguardInterface do
     sh.stub(/sysrc -n wireguard_interfaces/, stdout: "")
     sh.stub(/sysrc -n wireguard_enable/, stdout: "NO\n")
     r = Beryl::Apply::WireguardInterface.new.apply(
-      sh, p({"address" => "10.100.0.1/24", "private_key_env" => "WG_TEST_PK",
-             "peers" => peers_yaml([{"public_key" => "PUB=", "allowed_ips" => "10.100.0.2/32"}])}),
+      sh, params_of({"address" => "10.100.0.1/24", "private_key_env" => "WG_TEST_PK",
+                     "peers" => peers_yaml([{"public_key" => "PUB=", "allowed_ips" => "10.100.0.2/32"}])}),
       false, ctx)
     r.outcome.should eq(Beryl::Apply::Outcome::Applied)
     sh.writes.any? { |w| w.path == "/usr/local/etc/wireguard/wg0.conf" && w.content.includes?("SECRETKEY==") }.should be_true
@@ -76,7 +77,7 @@ describe Beryl::Apply::WireguardInterface do
     sh.stub(/sysrc -n wireguard_interfaces/, stdout: "wg0\n")
     sh.stub(/sysrc -n wireguard_enable/, stdout: "YES\n")
     r = Beryl::Apply::WireguardInterface.new.apply(
-      sh, p({"address" => "10.100.0.1/24", "private_key_env" => "WG_TEST_PK2"}), false, ctx)
+      sh, params_of({"address" => "10.100.0.1/24", "private_key_env" => "WG_TEST_PK2"}), false, ctx)
     r.outcome.should eq(Beryl::Apply::Outcome::Skipped)
     ENV.delete("WG_TEST_PK2")
   end
@@ -85,8 +86,8 @@ describe Beryl::Apply::WireguardInterface do
     ENV["WG_TEST_PK3"] = "K=="
     expect_raises(Beryl::Apply::Primitive::PrimitiveError, /public_key|allowed_ips/) do
       Beryl::Apply::WireguardInterface.new.apply(
-        FakeShell.new, p({"address" => "10.100.0.1/24", "private_key_env" => "WG_TEST_PK3",
-                          "peers" => peers_yaml([{"name" => "x"}])}), false, ctx)
+        FakeShell.new, params_of({"address" => "10.100.0.1/24", "private_key_env" => "WG_TEST_PK3",
+                                  "peers" => peers_yaml([{"name" => "x"}])}), false, ctx)
     end
     ENV.delete("WG_TEST_PK3")
   end

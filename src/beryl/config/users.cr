@@ -44,7 +44,7 @@ module Beryl::Config
     # Parse un élément de la liste `users`. nil si forme non reconnue.
     def entry(elem : YAML::Any) : Entry?
       h = elem.as_h?
-      return nil unless h
+      return unless h
       # Legacy : un champ `name:` (valeur chaîne).
       if name = h[YAML::Any.new("name")]?.try(&.as_s?)
         fields = h.dup

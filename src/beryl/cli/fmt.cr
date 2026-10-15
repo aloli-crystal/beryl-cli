@@ -70,7 +70,7 @@ module Beryl::CLI
     # dossier `<domaine>/`). nil pour les fichiers structurels (pas d'en-tête FQDN).
     def self.host_fqdn(path : String) : String?
       base = File.basename(path)
-      return nil unless base.ends_with?(".host.yml")
+      return unless base.ends_with?(".host.yml")
       "#{base.rchop(".host.yml")}.#{File.basename(File.dirname(path))}"
     end
 

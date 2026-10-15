@@ -34,7 +34,7 @@ module Beryl::CLI
       unless user
         log(cmd, "#{host.short_name} : SSH KO — #{Beryl::CLI::SshProbe.compact_error(probe.stderr, probe.exit_code)} " \
                  "(users tentés : #{host.connect_users.join(", ")})")
-        return nil
+        return
       end
       Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(host.connection(user)))
     rescue ex
@@ -168,7 +168,7 @@ module Beryl::CLI
     # Nombre de paquets du système de base en attente (lecture seule), nil si
     # le serveur n'est pas en pkgbase ou si la sonde échoue.
     def self.base_pending(shell : Beryl::Apply::Shell) : Int32?
-      return nil unless shell.exec("pkg query %n FreeBSD-runtime", raise_on_error: false).stdout.strip == "FreeBSD-runtime"
+      return unless shell.exec("pkg query %n FreeBSD-runtime", raise_on_error: false).stdout.strip == "FreeBSD-runtime"
       # Catalogue du dépôt de base rafraîchi d'abord : sinon le décompte vient d'un
       # catalogue périmé (cas du résumé de flotte d'`os-upgrade`).
       res = shell.exec("IGNORE_OSVERSION=yes pkg update -q -r #{BASE_REPO} >/dev/null 2>&1; IGNORE_OSVERSION=yes pkg upgrade -n -r #{BASE_REPO}", raise_on_error: false)
@@ -388,7 +388,7 @@ module Beryl::CLI
       end
       if apply
         base_note = base && base > 0 ? " ; système : #{base} paquet(s) en attente (os-upgrade)" : ""
-        if result[:failed].any?
+        if result[:failed].present?
           FJ.report(FJ::FAILED, "#{changed.size} paquet(s) mis à jour, mais service(s) non relancé(s) : #{result[:failed].join(", ")}#{base_note}")
           return :failed
         elsif changed.empty?

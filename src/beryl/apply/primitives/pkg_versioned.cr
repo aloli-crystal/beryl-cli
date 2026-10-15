@@ -80,7 +80,7 @@ module Beryl::Apply
         "pkg rquery -U '%v %n' | awk '$2 ~ /^#{base}[0-9]+-server$/' | sort -V | tail -1",
         raise_on_error: false,
       ).stdout.strip
-      return nil if line.empty?
+      return if line.empty?
       pkg_name = line.split(' ').last? || ""
       if m = pkg_name.match(/^#{Regex.escape(base)}(\d+)-server$/)
         m[1]

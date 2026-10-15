@@ -64,7 +64,7 @@ module Beryl::CLI::AccountUtils
 
     # Auto-détection si une seule société existe.
     root = Beryl::Config::Root.load(config_root)
-    return nil if root.accounts.empty?
+    return if root.accounts.empty?
     return root.account_names.first if root.accounts.size == 1
 
     # Plusieurs sociétés et aucun hint : on rend nil, le caller

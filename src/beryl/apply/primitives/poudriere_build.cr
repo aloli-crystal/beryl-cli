@@ -138,9 +138,9 @@ module Beryl::Apply
     # major "15" → "15.1"). nil si le nom ne correspond pas. Pur.
     def self.set_version(setname : String, major : String, arch : String, ports : String) : String?
       suffix = "#{arch}-#{ports}"
-      return nil unless setname.starts_with?("fbsd") && setname.ends_with?(suffix)
+      return unless setname.starts_with?("fbsd") && setname.ends_with?(suffix)
       digits = setname[4...(setname.size - suffix.size)]
-      return nil unless digits.starts_with?(major)
+      return unless digits.starts_with?(major)
       minor = digits[major.size..]
       minor.empty? ? nil : "#{major}.#{minor}"
     end
@@ -202,28 +202,28 @@ module Beryl::Apply
           "true"
         end
       <<-SH
-      #!/bin/sh
-      set -eu
-      if ! poudriere jail -l -q 2>/dev/null | awk '{print $1}' | grep -qx #{Process.quote(jail)}; then
-        poudriere jail -c -j #{Process.quote(jail)} -v #{Process.quote("#{version}-RELEASE")} -a #{Process.quote(arch)}
-      fi
-      # Arbre de ports PROPRE avant le git pull : un `reapply` précédent laisse
-      # des modifs non commitées → `poudriere ports -u` (git pull --rebase)
-      # échoue (« You have unstaged changes »). On remet l'arbre à l'état git
-      # (les patches seront ré-appliqués juste après par le reapply).
-      PTDIR=$(poudriere ports -lq 2>/dev/null | awk -v p=#{Process.quote(ports)} '$1==p{print $NF}')
-      [ -d "$PTDIR/.git" ] || PTDIR=/usr/local/poudriere/ports/#{Process.quote(ports)}
-      if [ -d "$PTDIR/.git" ]; then
-        git -C "$PTDIR" reset -q --hard 2>/dev/null || true
-        git -C "$PTDIR" clean -qfd 2>/dev/null || true
-      fi
-      #{branch_block}poudriere ports -u -p #{Process.quote(ports)}
-      #{reapply_line}
-      poudriere bulk -j #{Process.quote(jail)} -p #{Process.quote(ports)}#{ov_args}#{list_args}
-      ln -sfh #{Process.quote(set)} #{Process.quote(ali)}
-      #{state_line}
-      echo "poudriere-build #{version} OK ($(date -u +%FT%TZ))"
-      SH
+        #!/bin/sh
+        set -eu
+        if ! poudriere jail -l -q 2>/dev/null | awk '{print $1}' | grep -qx #{Process.quote(jail)}; then
+          poudriere jail -c -j #{Process.quote(jail)} -v #{Process.quote("#{version}-RELEASE")} -a #{Process.quote(arch)}
+        fi
+        # Arbre de ports PROPRE avant le git pull : un `reapply` précédent laisse
+        # des modifs non commitées → `poudriere ports -u` (git pull --rebase)
+        # échoue (« You have unstaged changes »). On remet l'arbre à l'état git
+        # (les patches seront ré-appliqués juste après par le reapply).
+        PTDIR=$(poudriere ports -lq 2>/dev/null | awk -v p=#{Process.quote(ports)} '$1==p{print $NF}')
+        [ -d "$PTDIR/.git" ] || PTDIR=/usr/local/poudriere/ports/#{Process.quote(ports)}
+        if [ -d "$PTDIR/.git" ]; then
+          git -C "$PTDIR" reset -q --hard 2>/dev/null || true
+          git -C "$PTDIR" clean -qfd 2>/dev/null || true
+        fi
+        #{branch_block}poudriere ports -u -p #{Process.quote(ports)}
+        #{reapply_line}
+        poudriere bulk -j #{Process.quote(jail)} -p #{Process.quote(ports)}#{ov_args}#{list_args}
+        ln -sfh #{Process.quote(set)} #{Process.quote(ali)}
+        #{state_line}
+        echo "poudriere-build #{version} OK ($(date -u +%FT%TZ))"
+        SH
     end
 
     def apply(shell : Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Context) : StepResult
@@ -388,26 +388,26 @@ module Beryl::Apply
       pick =
         if ports_branch == "quarterly"
           <<-'SH'
-          Y=$(date -u +%Y); M=$(date -u +%m); M=${M#0}; Q=$(( (M - 1) / 3 + 1 ))
-          BR="${Y}Q${Q}"
-          if ! git -C "$PTDIR" ls-remote --exit-code --heads origin "$BR" >/dev/null 2>&1; then
-            if [ "$Q" -eq 1 ]; then BR="$((Y - 1))Q4"; else BR="${Y}Q$((Q - 1))"; fi
-          fi
-          SH
+            Y=$(date -u +%Y); M=$(date -u +%m); M=${M#0}; Q=$(( (M - 1) / 3 + 1 ))
+            BR="${Y}Q${Q}"
+            if ! git -C "$PTDIR" ls-remote --exit-code --heads origin "$BR" >/dev/null 2>&1; then
+              if [ "$Q" -eq 1 ]; then BR="$((Y - 1))Q4"; else BR="${Y}Q$((Q - 1))"; fi
+            fi
+            SH
         else
           "BR=#{Process.quote(ports_branch)}"
         end
       String.build do |io|
         io << pick << '\n'
         io << <<-'SH'
-        if [ -d "$PTDIR/.git" ] && [ "$(git -C "$PTDIR" rev-parse --abbrev-ref HEAD)" != "$BR" ]; then
-          git -C "$PTDIR" remote set-branches --add origin "$BR"
-          git -C "$PTDIR" fetch -q --depth 1 origin "+refs/heads/$BR:refs/remotes/origin/$BR"
-          git -C "$PTDIR" checkout -q -B "$BR" "origin/$BR"
-          git -C "$PTDIR" branch -q --set-upstream-to="origin/$BR" "$BR"
-          echo "beryl: arbre de ports $PTDIR basculé sur $BR"
-        fi
-        SH
+          if [ -d "$PTDIR/.git" ] && [ "$(git -C "$PTDIR" rev-parse --abbrev-ref HEAD)" != "$BR" ]; then
+            git -C "$PTDIR" remote set-branches --add origin "$BR"
+            git -C "$PTDIR" fetch -q --depth 1 origin "+refs/heads/$BR:refs/remotes/origin/$BR"
+            git -C "$PTDIR" checkout -q -B "$BR" "origin/$BR"
+            git -C "$PTDIR" branch -q --set-upstream-to="origin/$BR" "$BR"
+            echo "beryl: arbre de ports $PTDIR basculé sur $BR"
+          fi
+          SH
         io << '\n'
       end
     end

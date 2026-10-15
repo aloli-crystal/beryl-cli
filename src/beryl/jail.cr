@@ -32,25 +32,25 @@ module Beryl
     # `ip` = alias loopback. sshd/services internes via `/bin/sh /etc/rc`.
     def self.jail_conf(name : String, ip : String, path : String) : String
       <<-CONF
-      # Géré par beryl (primitive jail-create). Édition manuelle écrasée.
-      #{name} {
-        host.hostname = "#{name}";
-        path = "#{path}";
-        ip4.addr = "lo1|#{ip}";
-        mount.fstab = "#{path}.fstab";
-        mount.devfs;
-        devfs_ruleset = 4;          # devfs minimal (pas d'accès disque brut)
-        exec.clean;
-        exec.start = "/bin/sh /etc/rc";
-        exec.stop = "/bin/sh /etc/rc.shutdown";
-        exec.consolelog = "/var/log/jail_#{name}_console.log";
-        persist;
-        allow.set_hostname = 0;     # la jail ne change pas son hostname
-        allow.raw_sockets = 0;      # pas de raw sockets (anti-spoof/scan)
-        allow.mount = 0;
-      }
+        # Géré par beryl (primitive jail-create). Édition manuelle écrasée.
+        #{name} {
+          host.hostname = "#{name}";
+          path = "#{path}";
+          ip4.addr = "lo1|#{ip}";
+          mount.fstab = "#{path}.fstab";
+          mount.devfs;
+          devfs_ruleset = 4;          # devfs minimal (pas d'accès disque brut)
+          exec.clean;
+          exec.start = "/bin/sh /etc/rc";
+          exec.stop = "/bin/sh /etc/rc.shutdown";
+          exec.consolelog = "/var/log/jail_#{name}_console.log";
+          persist;
+          allow.set_hostname = 0;     # la jail ne change pas son hostname
+          allow.raw_sockets = 0;      # pas de raw sockets (anti-spoof/scan)
+          allow.mount = 0;
+        }
 
-      CONF
+        CONF
     end
 
     # Contenu du fstab nullfs (`<path>.fstab`) : monte chaque RO_DIR du base en
@@ -74,38 +74,38 @@ module Beryl
     # après redémarrage. PUR (renvoie le script) → testable.
     def self.base_install_script(base_path : String) : String
       <<-SH
-      set -e
-      ABI=$(pkg config ABI)
-      VMAJ=$(freebsd-version | sed 's/[.-].*//')
-      mkdir -p #{base_path}/usr/share/keys
-      cp -R /usr/share/keys/pkgbase-${VMAJ} #{base_path}/usr/share/keys/ 2>/dev/null || true
-      env ABI="${ABI}" IGNORE_OSVERSION=yes pkg --rootdir #{base_path} update -f -r FreeBSD-base
-      if pkg --rootdir #{base_path} rquery -U -r FreeBSD-base '%n' 2>/dev/null | grep -qx 'FreeBSD-set-base'; then
-        env ABI="${ABI}" IGNORE_OSVERSION=yes pkg --rootdir #{base_path} install -U -y -r FreeBSD-base FreeBSD-set-base
-      else
-        BASE=$(pkg --rootdir #{base_path} rquery -U -r FreeBSD-base '%n' 2>/dev/null | grep -vE '(-dbg|-lib32|-tests)$' | tr '\\n' ' ')
-        env ABI="${ABI}" IGNORE_OSVERSION=yes pkg --rootdir #{base_path} install -U -y -r FreeBSD-base ${BASE}
-      fi
-      SH
+        set -e
+        ABI=$(pkg config ABI)
+        VMAJ=$(freebsd-version | sed 's/[.-].*//')
+        mkdir -p #{base_path}/usr/share/keys
+        cp -R /usr/share/keys/pkgbase-${VMAJ} #{base_path}/usr/share/keys/ 2>/dev/null || true
+        env ABI="${ABI}" IGNORE_OSVERSION=yes pkg --rootdir #{base_path} update -f -r FreeBSD-base
+        if pkg --rootdir #{base_path} rquery -U -r FreeBSD-base '%n' 2>/dev/null | grep -qx 'FreeBSD-set-base'; then
+          env ABI="${ABI}" IGNORE_OSVERSION=yes pkg --rootdir #{base_path} install -U -y -r FreeBSD-base FreeBSD-set-base
+        else
+          BASE=$(pkg --rootdir #{base_path} rquery -U -r FreeBSD-base '%n' 2>/dev/null | grep -vE '(-dbg|-lib32|-tests)$' | tr '\\n' ' ')
+          env ABI="${ABI}" IGNORE_OSVERSION=yes pkg --rootdir #{base_path} install -U -y -r FreeBSD-base ${BASE}
+        fi
+        SH
     end
 
     # Bloc nginx (host) qui reverse-proxy `server_name` vers la jail (loopback).
     # TLS géré séparément (recettes nginx/acme). PUR → testable.
     def self.nginx_proxy(server_name : String, ip : String, port : Int32) : String
       <<-NGINX
-      # Géré par beryl (primitive jail-proxy). Édition manuelle écrasée.
-      server {
-          listen 80;
-          server_name #{server_name};
-          location / {
-              proxy_pass http://#{ip}:#{port};
-              proxy_set_header Host $host;
-              proxy_set_header X-Real-IP $remote_addr;
-              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-              proxy_set_header X-Forwarded-Proto $scheme;
-          }
-      }
-      NGINX
+        # Géré par beryl (primitive jail-proxy). Édition manuelle écrasée.
+        server {
+            listen 80;
+            server_name #{server_name};
+            location / {
+                proxy_pass http://#{ip}:#{port};
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+            }
+        }
+        NGINX
     end
 
     # Script shell (sh) qui crée le SKELETON rw d'une thin jail : répertoires rw
@@ -118,20 +118,20 @@ module Beryl
       ro_mkdir = ro_dirs.map { |d| "#{jail_path}/#{d}" }.join(" ")
       rw_mkdir = rw_dirs.map { |d| "#{jail_path}/#{d}" }.join(" ")
       <<-SH
-      set -e
-      mkdir -p #{rw_mkdir} #{ro_mkdir}
-      chmod 1777 #{jail_path}/tmp
-      # /etc et /var propres à la jail, peuplés depuis le base RO.
-      cp -a #{base_path}/etc/. #{jail_path}/etc/
-      if [ -f #{base_path}/etc/mtree/BSD.var.dist ]; then
-        mtree -deU -f #{base_path}/etc/mtree/BSD.var.dist -p #{jail_path}/var >/dev/null
-      fi
-      cp -a #{base_path}/root/. #{jail_path}/root/ 2>/dev/null || true
-      # Interface loopback dédiée aux jails (persistée).
-      ifconfig lo1 >/dev/null 2>&1 || ifconfig lo1 create
-      sysrc -q cloned_interfaces+=lo1 >/dev/null
-      sysrc -q jail_enable=YES >/dev/null
-      SH
+        set -e
+        mkdir -p #{rw_mkdir} #{ro_mkdir}
+        chmod 1777 #{jail_path}/tmp
+        # /etc et /var propres à la jail, peuplés depuis le base RO.
+        cp -a #{base_path}/etc/. #{jail_path}/etc/
+        if [ -f #{base_path}/etc/mtree/BSD.var.dist ]; then
+          mtree -deU -f #{base_path}/etc/mtree/BSD.var.dist -p #{jail_path}/var >/dev/null
+        fi
+        cp -a #{base_path}/root/. #{jail_path}/root/ 2>/dev/null || true
+        # Interface loopback dédiée aux jails (persistée).
+        ifconfig lo1 >/dev/null 2>&1 || ifconfig lo1 create
+        sysrc -q cloned_interfaces+=lo1 >/dev/null
+        sysrc -q jail_enable=YES >/dev/null
+        SH
     end
   end
 end

@@ -489,7 +489,7 @@ module Beryl::CLI::Scan
       STDERR.puts "    - Scaleway : https://console.scaleway.com → IAM → SSH keys (org-wide)"
     end
     EXIT_SSH_FAILED
-  rescue ex : Aborted
+  rescue Aborted
     STDERR.puts "beryl : abandon"
     EXIT_ABORTED
   rescue ex : MissingDediboxServerId
@@ -585,7 +585,7 @@ module Beryl::CLI::Scan
   # fait stagner le firmware au boot), sinon nil. Pur → testable.
   def self.disk_inventory_warning(inv : Beryl::DiskInventory, detected : Array(Disk)) : String?
     det_total = detected.size
-    return nil unless det_total < inv.total
+    return unless det_total < inv.total
     det_flash = detected.count(&.is_ssd)
     det_spin = det_total - det_flash
 
@@ -619,14 +619,14 @@ module Beryl::CLI::Scan
   # credentials absents, ou API indisponible — JAMAIS bloquant (un souci
   # d'API ou de droits ne doit pas casser le scan).
   private def self.disk_inventory_warning_for(host : Beryl::Config::ResolvedHost, provider_name : String?, detected : Array(Disk)) : String?
-    return nil unless provider_name == "ovh"
+    return unless provider_name == "ovh"
     service = host.ovh_service_name
-    return nil unless service
+    return unless service
     host.apply_all_credentials_to_env!
     ovh = Beryl::Providers::Ovh.new
-    return nil unless ovh.available?
+    return unless ovh.available?
     inv = ovh.hardware_disk_inventory(service)
-    return nil unless inv
+    return unless inv
     disk_inventory_warning(inv, detected)
   rescue
     nil
@@ -710,7 +710,7 @@ module Beryl::CLI::Scan
     STDERR.puts "✅ Contrôleur reconfiguré : #{what}."
     if ask("Rebooter le rescue et reprendre le scan automatiquement ? [O/n] : ", default: "O").downcase.starts_with?("n")
       STDERR.puts "   → rebootez le rescue (manager OVH → rescue → redémarrer), puis relancez `beryl scan #{host.fqdn} --apply`."
-      return nil
+      return
     end
     reboot_rescue_and_rescan(conn)
   end
@@ -808,7 +808,7 @@ module Beryl::CLI::Scan
     ) do |ans|
       stripped = ans.strip
       # Chaîne vide = signal d'arrêt, pas une erreur.
-      next nil if stripped.empty?
+      next if stripped.empty?
       validate_pool_name!(stripped)
       if stripped == "root"
         raise ArgumentError.new(
@@ -986,7 +986,7 @@ module Beryl::CLI::Scan
   # zroot : un pool de données en stripe (cache…) peut être voulu.
   # Renvoie le message d'avertissement, ou nil si rien à signaler.
   def self.stripe_warning(pool_name : String, count : Int32, level : Int32) : String?
-    return nil unless pool_name == "zroot" && count > 1 && level == 0
+    return unless pool_name == "zroot" && count > 1 && level == 0
     redundant = Beryl::Config::Zpool.possible_levels(count) - [0]
     "  ⚠ zroot en RAID 0 (stripe) sur #{count} disques : AUCUNE redondance, " \
     "un seul disque perdu = système perdu.\n" \
@@ -1240,14 +1240,14 @@ module Beryl::CLI::Scan
   # (match de l'IP principale). nil si non joignable, credentials absents,
   # IP non résolue, ou aucun match. JAMAIS bloquant.
   private def self.resolve_ovh_service_name(host : Beryl::Config::ResolvedHost) : String?
-    return nil if host.vps?
+    return if host.vps?
     # IP PUBLIQUE (rescue_ssh_host), jamais le vRack : l'API OVH matche un
     # serveur sur son IP publique, pas sur une IP vRack privée.
     ip = resolve_host_ipv4(host.rescue_ssh_host)
-    return nil unless ip
+    return unless ip
     host.apply_all_credentials_to_env!
     ovh = Beryl::Providers::Ovh.new
-    return nil unless ovh.available?
+    return unless ovh.available?
     STDERR.puts "  → résolution du service_name OVH via l'API (IP #{ip})…"
     sn = ovh.find_dedicated_server_by_ip(ip)
     if sn
@@ -1444,7 +1444,7 @@ module Beryl::CLI::Scan
 
   def self.resolve_write_target(explicit : String?, auto : Bool, config_root : String, account_name : String, domain_name : String, short : String) : String?
     return explicit if explicit
-    return nil unless auto
+    return unless auto
     File.join(config_root, account_name, domain_name, "#{short}.host.yml")
   end
 
@@ -1466,8 +1466,6 @@ module Beryl::CLI::Scan
     # défaut, `--apply` pour écrire le host.yml + actions --dns).
     replace = if raw_host && normalized_host
                 {raw_host, normalized_host}
-              else
-                nil
               end
     Beryl.rerun_hint("scan", args, extras, replace_host: replace)
   end

@@ -118,12 +118,10 @@ module Beryl::CLI::TangEnroll
 
     # Validation YAML de chaque pool (URLs présentes, threshold cohérent…).
     tang_pools.each do |p|
-      begin
-        p.validate!
-      rescue ex : Beryl::Config::InvalidEncryptionConfig | Beryl::Config::Zpool::UnknownRaidLevel | Beryl::Config::Zpool::InvalidDiskCount
-        STDERR.puts "beryl : config invalide pour #{p.name} — #{ex.message}"
-        return EXIT_USAGE
-      end
+      p.validate!
+    rescue ex : Beryl::Config::InvalidEncryptionConfig | Beryl::Config::Zpool::UnknownRaidLevel | Beryl::Config::Zpool::InvalidDiskCount
+      STDERR.puts "beryl : config invalide pour #{p.name} — #{ex.message}"
+      return EXIT_USAGE
     end
 
     # Lecture de la clé locale. tang-enroll consomme TOUJOURS la clé
@@ -188,19 +186,17 @@ module Beryl::CLI::TangEnroll
     failures = 0
     enrolled_names = [] of String
     tang_pools.each do |pool|
-      begin
-        enroll_one(conn, pool, key_hex)
-        enrolled_names << pool.name
-      rescue ex : KeyNotLoaded
-        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl tang-enroll] " \
-                    "TE ÉCHEC pool #{pool.name} : #{ex.message}"
-        STDERR.puts "        Lancez `beryl unlock #{host.account_name}/#{host.fqdn}` puis ré-essayez."
-        failures += 1
-      rescue ex
-        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl tang-enroll] " \
-                    "TE ÉCHEC pool #{pool.name} : #{ex.class}: #{ex.message}"
-        failures += 1
-      end
+      enroll_one(conn, pool, key_hex)
+      enrolled_names << pool.name
+    rescue ex : KeyNotLoaded
+      STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl tang-enroll] " \
+                  "TE ÉCHEC pool #{pool.name} : #{ex.message}"
+      STDERR.puts "        Lancez `beryl unlock #{host.account_name}/#{host.fqdn}` puis ré-essayez."
+      failures += 1
+    rescue ex
+      STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl tang-enroll] " \
+                  "TE ÉCHEC pool #{pool.name} : #{ex.class}: #{ex.message}"
+      failures += 1
     end
 
     if failures > 0

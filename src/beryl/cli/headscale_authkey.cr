@@ -179,12 +179,12 @@ module Beryl::CLI::HeadscaleAuthkey
   def self.extract_key(stdout : String) : String?
     open_idx = stdout.index('{')
     close_idx = stdout.rindex('}')
-    return nil unless open_idx && close_idx && close_idx > open_idx
+    return unless open_idx && close_idx && close_idx > open_idx
     json = stdout[open_idx..close_idx]
     parsed = JSON.parse(json)
     k = parsed["key"]?
     key = k.try(&.as_s?)
-    return nil if key.nil? || key.empty?
+    return if key.nil? || key.empty?
     key
   rescue JSON::ParseException
     nil

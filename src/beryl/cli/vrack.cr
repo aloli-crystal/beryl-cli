@@ -365,12 +365,12 @@ module Beryl::CLI
       uname = conn.exec("uname -s", raise_on_error: false).stdout.strip
       unless uname == "FreeBSD"
         log "✗ #{host.fqdn} injoignable ou pas FreeBSD (uname = #{uname.inspect})."
-        return nil
+        return
       end
       return Beryl::Apply::SshShell.new(conn) if cu == "root"
       unless conn.exec("sudo -n true", raise_on_error: false).success?
         log "✗ #{cu}@#{host.fqdn} ne peut pas sudo sans mot de passe."
-        return nil
+        return
       end
       Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(conn))
     end
@@ -476,15 +476,15 @@ module Beryl::CLI
     # ne coupe PAS la session (anti-lockout, spec §4). nil si injoignable / sudo KO.
     private def self.bastion_shell(host : Beryl::Config::ResolvedHost, pj : String, ip : String? = nil) : Beryl::Apply::Shell?
       target = ip || host.vrack_ips.first?
-      return nil unless target
+      return unless target
       cu = connect_user(host)
       conn = SSH::Connection.new(
         host: target, user: cu, port: host.port,
         identity_file: host.identity_file, options: {"ProxyJump" => pj, "ConnectTimeout" => "10"},
       )
-      return nil unless conn.exec("uname -s", raise_on_error: false).stdout.strip == "FreeBSD"
+      return unless conn.exec("uname -s", raise_on_error: false).stdout.strip == "FreeBSD"
       return Beryl::Apply::SshShell.new(conn) if cu == "root"
-      return nil unless conn.exec("sudo -n true", raise_on_error: false).success?
+      return unless conn.exec("sudo -n true", raise_on_error: false).success?
       Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(conn))
     end
 

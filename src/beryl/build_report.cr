@@ -163,26 +163,26 @@ module Beryl::BuildReport
   def remote_script(pkgdir : String, major : String? = nil) : String
     base = ".beryl-build-#{major || "*"}"
     <<-SH
-    cd #{Process.quote(pkgdir)} 2>/dev/null || { echo '@@NOPKGDIR'; exit 0; }
-    echo "@@NOW $(date +%s)"
-    for f in #{base}.lock #{base}.log #{base}.overlays; do
-      [ -e "$f" ] && echo "@@FILE $f $(stat -f '%m %z' "$f")"
-    done
-    for f in #{base}.overlays; do
-      [ -f "$f" ] && { echo "@@BEGIN $f"; cat "$f"; echo; }
-    done
-    for f in #{base}.log; do
-      [ -f "$f" ] || continue
-      echo "@@BEGIN $f.events"
-      grep -aE #{Process.quote(LOG_PATTERN)} "$f"
-      echo "@@BEGIN $f.tail"
-      tail -n #{TAIL_LINES} "$f"
-      echo
-    done
-    echo '@@BEGIN poudriere-status'
-    poudriere status -H -f -l 2>/dev/null
-    echo '@@END'
-    SH
+      cd #{Process.quote(pkgdir)} 2>/dev/null || { echo '@@NOPKGDIR'; exit 0; }
+      echo "@@NOW $(date +%s)"
+      for f in #{base}.lock #{base}.log #{base}.overlays; do
+        [ -e "$f" ] && echo "@@FILE $f $(stat -f '%m %z' "$f")"
+      done
+      for f in #{base}.overlays; do
+        [ -f "$f" ] && { echo "@@BEGIN $f"; cat "$f"; echo; }
+      done
+      for f in #{base}.log; do
+        [ -f "$f" ] || continue
+        echo "@@BEGIN $f.events"
+        grep -aE #{Process.quote(LOG_PATTERN)} "$f"
+        echo "@@BEGIN $f.tail"
+        tail -n #{TAIL_LINES} "$f"
+        echo
+      done
+      echo '@@BEGIN poudriere-status'
+      poudriere status -H -f -l 2>/dev/null
+      echo '@@END'
+      SH
   end
 
   # Sortie du script → fichiers + sections.
@@ -237,7 +237,7 @@ module Beryl::BuildReport
 
   # "00:06:17" → 377 ; "1D:02:00:00" → 93600. nil si illisible.
   def seconds(text : String?) : Int32?
-    return nil unless text
+    return unless text
     days = 0
     rest = text
     if m = text.match(/\A(\d+)D:(.*)\z/)
@@ -245,7 +245,7 @@ module Beryl::BuildReport
       rest = m[2]
     end
     parts = rest.split(':')
-    return nil unless parts.size == 3 && parts.all?(&.to_i?)
+    return unless parts.size == 3 && parts.all?(&.to_i?)
     days * 86400 + parts[0].to_i * 3600 + parts[1].to_i * 60 + parts[2].to_i
   end
 
@@ -354,7 +354,7 @@ module Beryl::BuildReport
         return row
       end
     end
-    return nil unless running
+    return unless running
     mine.reject { |r| r.status.starts_with?("done") }.max_by?(&.build)
   end
 
@@ -453,7 +453,7 @@ module Beryl::BuildReport
   # ---------- rendu ----------
 
   # 377 → "6 min 17 s" ; 21 → "21 s" ; 3900 → "1 h 05 min".
-  def human(secs : Int32 | Int64 | Nil) : String
+  def human(secs : Int32 | Int64?) : String
     return "?" unless secs
     s = secs.to_i64
     s = 0_i64 if s < 0

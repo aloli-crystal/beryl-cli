@@ -19,12 +19,10 @@ describe "Beryl.transport_mode" do
   end
 
   it "bascule à :overlay" do
-    begin
-      Beryl.transport_mode = :overlay
-      Beryl.use_overlay_transport?.should be_true
-    ensure
-      Beryl.transport_mode = :public
-    end
+    Beryl.transport_mode = :overlay
+    Beryl.use_overlay_transport?.should be_true
+  ensure
+    Beryl.transport_mode = :public
   end
 
   it "accepte le retour à :public après :overlay" do

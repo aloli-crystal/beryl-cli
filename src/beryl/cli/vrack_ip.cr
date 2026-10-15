@@ -242,7 +242,7 @@ module Beryl::CLI
     # Charge le registre `vrack.yml` de la société (host→ip), ou nil si absent.
     private def self.load_registry(account : Beryl::Config::Account) : Hash(String, String)?
       path = File.join(account.path, REGISTRY_FILE)
-      return nil unless File.exists?(path)
+      return unless File.exists?(path)
       parse_registry(File.read(path))
     end
 
@@ -300,7 +300,7 @@ module Beryl::CLI
     # Lit un champ scalaire (`vrack:`/`subnet:`) du vrack.yml de la société, ou nil.
     private def self.registry_field(account : Beryl::Config::Account, field : String) : String?
       path = File.join(account.path, REGISTRY_FILE)
-      return nil unless File.exists?(path)
+      return unless File.exists?(path)
       doc = YAML.parse(File.read(path))
       doc[field]?.try(&.as_s?)
     rescue

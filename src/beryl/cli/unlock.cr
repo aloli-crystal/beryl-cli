@@ -167,13 +167,11 @@ module Beryl::CLI::Unlock
     total = encrypted_pools.size + (enc_root ? 1 : 0)
     failures = 0
     encrypted_pools.each do |pool|
-      begin
-        unlock_one(conn, pool, key_hex)
-      rescue ex
-        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl unlock] " \
-                    "H4 ÉCHEC pool #{pool.name} : #{ex.class}: #{ex.message}"
-        failures += 1
-      end
+      unlock_one(conn, pool, key_hex)
+    rescue ex
+      STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl unlock] " \
+                  "H4 ÉCHEC pool #{pool.name} : #{ex.class}: #{ex.message}"
+      failures += 1
     end
     if er = enc_root
       begin

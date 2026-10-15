@@ -123,7 +123,7 @@ LOGIN_SHELLS.each do |login|
         r = prim("command").apply(shell, apply_params(yaml), dry_run: false, context: ctx)
         r.outcome.should eq(Beryl::Apply::Outcome::Applied)
         File.read(marker).should eq("fait : ok\n")
-        sh.lines.each(&.includes?('\n').should(be_false))
+        sh.lines.each(&.includes?('\n').should(be_false)) # ameba:disable Performance/ExcessiveAllocations
         # Rejeu : la garde est satisfaite → skip.
         prim("command").apply(shell, apply_params(yaml), dry_run: false, context: ctx)
           .outcome.should eq(Beryl::Apply::Outcome::Skipped)

@@ -92,9 +92,9 @@ module Beryl::Apply
     private def key_id(line : String) : String?
       tokens = line.strip.split(/\s+/)
       idx = tokens.index { |t| t.matches?(KEY_TYPE) }
-      return nil unless idx
+      return unless idx
       blob = tokens[idx + 1]?
-      return nil unless blob
+      return unless blob
       "#{tokens[idx]} #{blob}"
     end
 

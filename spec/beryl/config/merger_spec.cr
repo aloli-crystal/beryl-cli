@@ -27,20 +27,20 @@ describe Beryl::Config::Merger do
   describe ".merge" do
     it "applique l'ordre _default > domaine > host pour les scalaires" do
       defaults = hash_from_yaml(<<-YAML)
-      freebsd:
-        timezone: Europe/Paris
-        raid: stripe
-      YAML
+        freebsd:
+          timezone: Europe/Paris
+          raid: stripe
+        YAML
       d = domain(<<-YAML)
-      ssh_keys: ['ssh-ed25519 AAAA k']
-      freebsd:
-        swap_gb: 4
-      YAML
+        ssh_keys: ['ssh-ed25519 AAAA k']
+        freebsd:
+          swap_gb: 4
+        YAML
       h = host_node(<<-YAML)
-      freebsd:
-        hostname: loulou
-        raid: mirror
-      YAML
+        freebsd:
+          hostname: loulou
+          raid: mirror
+        YAML
 
       merged = Beryl::Config::Merger.merge(defaults, EMPTY_META, d, nil, h)
       fb = merged[YAML::Any.new("freebsd")].as_h
@@ -52,18 +52,18 @@ describe Beryl::Config::Merger do
 
     it "append les packages depuis _default + groupe + host (dédup)" do
       defaults = hash_from_yaml(<<-YAML)
-      freebsd:
-        packages: [sudo, zsh, curl, git]
-      YAML
+        freebsd:
+          packages: [sudo, zsh, curl, git]
+        YAML
       d = domain("ssh_keys: ['ssh-ed25519 AAAA k']\n")
       g = group(<<-YAML)
-      freebsd:
-        packages: [nginx, postgresql16-server]
-      YAML
+        freebsd:
+          packages: [nginx, postgresql16-server]
+        YAML
       h = host_node(<<-YAML)
-      freebsd:
-        packages: [redis, sudo]
-      YAML
+        freebsd:
+          packages: [redis, sudo]
+        YAML
 
       merged = Beryl::Config::Merger.merge(defaults, EMPTY_META, d, g, h)
       packages = merged[YAML::Any.new("freebsd")].as_h[YAML::Any.new("packages")].as_a.map(&.as_s)
@@ -73,14 +73,14 @@ describe Beryl::Config::Merger do
 
     it "remplace disks au niveau host (pas d'append)" do
       defaults = hash_from_yaml(<<-YAML)
-      freebsd:
-        disks: [/dev/sda]
-      YAML
+        freebsd:
+          disks: [/dev/sda]
+        YAML
       d = domain("ssh_keys: ['ssh-ed25519 AAAA k']\n")
       h = host_node(<<-YAML)
-      freebsd:
-        disks: [/dev/sdc, /dev/sdd]
-      YAML
+        freebsd:
+          disks: [/dev/sdc, /dev/sdd]
+        YAML
 
       merged = Beryl::Config::Merger.merge(defaults, EMPTY_META, d, nil, h)
       disks = merged[YAML::Any.new("freebsd")].as_h[YAML::Any.new("disks")].as_a.map(&.as_s)
@@ -91,14 +91,14 @@ describe Beryl::Config::Merger do
       defaults = hash_from_yaml("os: freebsd\n")
       account_meta = hash_from_yaml("apply_recipes: [ssh-hardening]\n")
       d = domain(<<-YAML)
-      ssh_keys: ['ssh-ed25519 AAAA k']
-      apply_recipes: [ruby]
-      YAML
+        ssh_keys: ['ssh-ed25519 AAAA k']
+        apply_recipes: [ruby]
+        YAML
       h = host_node(<<-YAML)
-      freebsd:
-        hostname: x
-      apply_recipes: [headscale-node]
-      YAML
+        freebsd:
+          hostname: x
+        apply_recipes: [headscale-node]
+        YAML
 
       merged = Beryl::Config::Merger.merge(defaults, account_meta, d, nil, h)
       recipes = merged[YAML::Any.new("apply_recipes")].as_a.map(&.as_s)
@@ -109,21 +109,21 @@ describe Beryl::Config::Merger do
   describe "clé domaine injectée dans les users" do
     it "injecte la clé domaine dans chaque user du _default" do
       defaults = hash_from_yaml(<<-YAML)
-      freebsd:
-        users:
-          - name: admin
-            primary_group: www
-            secondary_groups: [wheel]
-            shell: /usr/local/bin/zsh
-          - name: deploy
-            primary_group: www
-            secondary_groups: []
-            shell: /bin/csh
-      YAML
+        freebsd:
+          users:
+            - name: admin
+              primary_group: www
+              secondary_groups: [wheel]
+              shell: /usr/local/bin/zsh
+            - name: deploy
+              primary_group: www
+              secondary_groups: []
+              shell: /bin/csh
+        YAML
       d = domain(<<-YAML)
-      ssh_keys:
-        - ssh-ed25519 AAAA philippe@initech-fr.example
-      YAML
+        ssh_keys:
+          - ssh-ed25519 AAAA philippe@initech-fr.example
+        YAML
       h = host_node("freebsd:\n  hostname: x\n")
 
       merged = Beryl::Config::Merger.merge(defaults, EMPTY_META, d, nil, h)
@@ -138,12 +138,12 @@ describe Beryl::Config::Merger do
 
     it "injecte la clé déclarée au niveau SOCIÉTÉ (cherchée dans le merge, pas que le domaine)" do
       defaults = hash_from_yaml(<<-YAML)
-      freebsd:
-        users:
-          - admin:
-              groups: [www, wheel]
-              shell: /bin/csh
-      YAML
+        freebsd:
+          users:
+            - admin:
+                groups: [www, wheel]
+                shell: /bin/csh
+        YAML
       # Clé SSH au niveau SOCIÉTÉ (`_account.yml`/`_defaults.yml`), domaine SANS ssh_keys.
       account_meta = hash_from_yaml("ssh_keys:\n  - ssh-ed25519 AAAA societe\n")
       d = domain("provider: ovh\n")
@@ -157,12 +157,12 @@ describe Beryl::Config::Merger do
 
     it "précédence host > domaine > société : le plus spécifique REMPLACE (premier trouvé)" do
       defaults = hash_from_yaml(<<-YAML)
-      freebsd:
-        users:
-          - admin:
-              groups: [www, wheel]
-              shell: /bin/csh
-      YAML
+        freebsd:
+          users:
+            - admin:
+                groups: [www, wheel]
+                shell: /bin/csh
+        YAML
       account_meta = hash_from_yaml("ssh_keys:\n  - ssh-ed25519 AAAA societe\n")
       d = domain("ssh_keys:\n  - ssh-ed25519 AAAA domaine\n")
       h = host_node("ssh_keys:\n  - ssh-ed25519 AAAA host\nfreebsd:\n  hostname: x\n")
@@ -177,24 +177,24 @@ describe Beryl::Config::Merger do
 
     it "ajoute les clés host en plus de la clé domaine (obligatoire en tête)" do
       defaults = hash_from_yaml(<<-YAML)
-      freebsd:
-        users:
-          - name: deploy
-            primary_group: www
-            shell: /bin/csh
-      YAML
+        freebsd:
+          users:
+            - name: deploy
+              primary_group: www
+              shell: /bin/csh
+        YAML
       d = domain(<<-YAML)
-      ssh_keys:
-        - ssh-ed25519 AAAA philippe@initech-fr.example
-      YAML
+        ssh_keys:
+          - ssh-ed25519 AAAA philippe@initech-fr.example
+        YAML
       h = host_node(<<-YAML)
-      freebsd:
-        users:
-          - name: deploy
-            ssh_keys:
-              - ssh-ed25519 AAAA dev2@initech-fr.example
-              - ssh-ed25519 AAAA dev3@initech-fr.example
-      YAML
+        freebsd:
+          users:
+            - name: deploy
+              ssh_keys:
+                - ssh-ed25519 AAAA dev2@initech-fr.example
+                - ssh-ed25519 AAAA dev3@initech-fr.example
+        YAML
 
       merged = Beryl::Config::Merger.merge(defaults, EMPTY_META, d, nil, h)
       users = merged[YAML::Any.new("freebsd")].as_h[YAML::Any.new("users")].as_a
@@ -209,23 +209,23 @@ describe Beryl::Config::Merger do
 
     it "la clé domaine n'est pas dupliquée si le host la liste déjà" do
       defaults = hash_from_yaml(<<-YAML)
-      freebsd:
-        users:
-          - name: admin
-            primary_group: www
-      YAML
+        freebsd:
+          users:
+            - name: admin
+              primary_group: www
+        YAML
       d = domain(<<-YAML)
-      ssh_keys:
-        - ssh-ed25519 AAAA philippe@initech-fr.example
-      YAML
+        ssh_keys:
+          - ssh-ed25519 AAAA philippe@initech-fr.example
+        YAML
       h = host_node(<<-YAML)
-      freebsd:
-        users:
-          - name: admin
-            ssh_keys:
-              - ssh-ed25519 AAAA philippe@initech-fr.example
-              - ssh-ed25519 AAAA autre@initech-fr.example
-      YAML
+        freebsd:
+          users:
+            - name: admin
+              ssh_keys:
+                - ssh-ed25519 AAAA philippe@initech-fr.example
+                - ssh-ed25519 AAAA autre@initech-fr.example
+        YAML
 
       merged = Beryl::Config::Merger.merge(defaults, EMPTY_META, d, nil, h)
       users = merged[YAML::Any.new("freebsd")].as_h[YAML::Any.new("users")].as_a
@@ -239,30 +239,30 @@ describe Beryl::Config::Merger do
     it "supprime une clé retirée du host (sémantique déclarative)" do
       # Itération 1 : le host a dev2 et dev3.
       defaults = hash_from_yaml(<<-YAML)
-      freebsd:
-        users:
-          - name: deploy
-            primary_group: www
-      YAML
+        freebsd:
+          users:
+            - name: deploy
+              primary_group: www
+        YAML
       d = domain("ssh_keys:\n  - ssh-ed25519 AAAA philippe\n")
 
       h_v1 = host_node(<<-YAML)
-      freebsd:
-        users:
-          - name: deploy
-            ssh_keys:
-              - ssh-ed25519 AAAA dev2
-              - ssh-ed25519 AAAA dev3
-      YAML
+        freebsd:
+          users:
+            - name: deploy
+              ssh_keys:
+                - ssh-ed25519 AAAA dev2
+                - ssh-ed25519 AAAA dev3
+        YAML
 
       # Itération 2 : on retire dev3.
       h_v2 = host_node(<<-YAML)
-      freebsd:
-        users:
-          - name: deploy
-            ssh_keys:
-              - ssh-ed25519 AAAA dev2
-      YAML
+        freebsd:
+          users:
+            - name: deploy
+              ssh_keys:
+                - ssh-ed25519 AAAA dev2
+        YAML
 
       v1 = Beryl::Config::Merger.merge(defaults, EMPTY_META, d, nil, h_v1)
       v2 = Beryl::Config::Merger.merge(defaults, EMPTY_META, d, nil, h_v2)

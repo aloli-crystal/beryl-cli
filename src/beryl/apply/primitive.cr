@@ -47,7 +47,7 @@ module Beryl::Apply
       v = ENV[host_secret_name(name, host)]?
       return v if v && !v.empty?
     end
-    return nil if per_host
+    return if per_host
     v = ENV[name]?
     v && !v.empty? ? v : nil
   end
@@ -123,15 +123,13 @@ module Beryl::Apply
     # accepter `value: 22` ou `value: yes` sans guillemets côté YAML.
     protected def string(params : Hash(String, YAML::Any), key : String) : String?
       val = params[key]?
-      return nil unless val
+      return unless val
       if s = val.as_s?
         s
       elsif (i = val.as_i64?)
         i.to_s
       elsif !val.as_bool?.nil?
         val.as_bool.to_s
-      else
-        nil
       end
     end
 

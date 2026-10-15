@@ -236,12 +236,10 @@ module Beryl::CLI::FleetJob
   # annoncerait le nom d'un autre, et son groupe ne serait jamais libéré.
   private def launch(dir : String, job : Job, fqdn : String, child_cmd : Array(String), done : Channel(String)) : Nil
     spawn do
-      begin
-        st = run_host(dir, job, fqdn, child_cmd)
-        say job, "#{fqdn} : #{st.state}#{st.detail.empty? ? "" : " — #{st.detail}"}"
-      ensure
-        done.send(fqdn)
-      end
+      st = run_host(dir, job, fqdn, child_cmd)
+      say job, "#{fqdn} : #{st.state}#{st.detail.empty? ? "" : " — #{st.detail}"}"
+    ensure
+      done.send(fqdn)
     end
   end
 
@@ -397,7 +395,7 @@ module Beryl::CLI::FleetJob
   # Dossier de la tâche `id`, ou de la plus récente.
   def find(kind : String, id : String?) : String?
     root = jobs_root(kind)
-    return nil unless Dir.exists?(root)
+    return unless Dir.exists?(root)
     if i = id
       d = File.join(root, i)
       return Dir.exists?(d) ? d : nil

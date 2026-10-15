@@ -107,11 +107,9 @@ module Beryl::CLI
     # Tableau récap de tous les hosts + total parc.
     private def self.show_all(root : Beryl::Config::Root, usage : Bool) : Nil
       hosts = root.all_hosts_by_fqdn.keys.sort.compact_map do |fqdn|
-        begin
-          root.resolve(fqdn)
-        rescue
-          nil
-        end
+        root.resolve(fqdn)
+      rescue
+        nil
       end
 
       header = ["HOST", "RÔLE", "GAMME", "CPU", "RAM", "DISQUES"]
@@ -482,9 +480,9 @@ module Beryl::CLI
     # RELEASE par branche, renvoie un flag d'upgrade (« ↑ 15.1-RELEASE dispo »
     # et/ou « branche 16.x dispo ») ou nil si à jour / version illisible. Pur.
     def self.freebsd_upgrade_hint(live_os : String, by_branch : Hash(Int32, String)) : String?
-      return nil unless live_os.includes?("FreeBSD") # ne compare que des hosts FreeBSD
+      return unless live_os.includes?("FreeBSD") # ne compare que des hosts FreeBSD
       m = live_os.match(/(\d+)\.(\d+)/)
-      return nil unless m
+      return unless m
       major = m[1].to_i
       inst = "#{m[1]}.#{m[2]}"
       hints = [] of String
@@ -616,11 +614,9 @@ module Beryl::CLI
     # Public : réutilisé par `beryl update`/`upgrade` pour cibler une portée.
     def self.scoped_hosts(root : Beryl::Config::Root, scope : String?) : Array(Beryl::Config::ResolvedHost)
       hosts = root.all_hosts_by_fqdn.keys.sort.compact_map do |fqdn|
-        begin
-          root.resolve(fqdn)
-        rescue
-          nil
-        end
+        root.resolve(fqdn)
+      rescue
+        nil
       end
       return hosts unless (s = scope)
       # Forme CHEMIN `société[/domaine]/host` (ex. `acme/pkg`) : on filtre
@@ -1089,7 +1085,8 @@ module Beryl::CLI
         kv.call("Service OVH", host.ovh_service_name || "—")
         kv.call("Nom commercial", host.ovh_commercial_name || "—")
         kv.call("Baie (rack)", host.ovh_rack || "—")
-        kv.call("Prix/mois", (p = host.ovh_price) ? "#{p} €" : "—")
+        price = host.ovh_price
+        kv.call("Prix/mois", price ? "#{price} €" : "—")
         kv.call("IPv4 publique", host.ovh_ipv4 || "—")
         kv.call("IPv6 publique", host.ovh_ipv6 || "—")
         kv.call("IP vRack", host.vrack_ip || "—")

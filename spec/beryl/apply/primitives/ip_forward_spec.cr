@@ -1,7 +1,7 @@
 require "../../../spec_helper"
 require "../../../support/fake_shell"
 
-private def p(h)
+private def params_of(h)
   res = Hash(String, YAML::Any).new
   h.each { |k, v| res[k] = v.is_a?(YAML::Any) ? v : YAML::Any.new(v) }
   res
@@ -27,7 +27,7 @@ describe Beryl::Apply::IpForward do
     sh = FakeShell.new
     sh.stub(/sysrc -n/, stdout: "NO\n") # rien d'activé
     sh.stub(/sysctl -n/, stdout: "0\n")
-    r = Beryl::Apply::IpForward.new.apply(sh, p({} of String => YAML::Any), false, ctx)
+    r = Beryl::Apply::IpForward.new.apply(sh, params_of({} of String => YAML::Any), false, ctx)
     r.outcome.should eq(Beryl::Apply::Outcome::Applied)
     sh.ran?(/sysrc gateway_enable=YES/).should be_true
     sh.ran?(/sysrc ipv6_gateway_enable=YES/).should be_true
@@ -39,7 +39,7 @@ describe Beryl::Apply::IpForward do
     sh = FakeShell.new
     sh.stub(/sysrc -n/, stdout: "YES\n")
     sh.stub(/sysctl -n/, stdout: "1\n")
-    r = Beryl::Apply::IpForward.new.apply(sh, p({} of String => YAML::Any), false, ctx)
+    r = Beryl::Apply::IpForward.new.apply(sh, params_of({} of String => YAML::Any), false, ctx)
     r.outcome.should eq(Beryl::Apply::Outcome::Skipped)
   end
 
@@ -47,7 +47,7 @@ describe Beryl::Apply::IpForward do
     sh = FakeShell.new
     sh.stub(/sysrc -n/, stdout: "NO\n")
     sh.stub(/sysctl -n/, stdout: "0\n")
-    r = Beryl::Apply::IpForward.new.apply(sh, p({"ipv6" => false}), false, ctx)
+    r = Beryl::Apply::IpForward.new.apply(sh, params_of({"ipv6" => false}), false, ctx)
     r.outcome.should eq(Beryl::Apply::Outcome::Applied)
     sh.ran?(/sysrc gateway_enable=YES/).should be_true
     sh.ran?(/ipv6_gateway_enable/).should be_false

@@ -11,7 +11,7 @@ jobs:
     name: Format Crystal
     runs-on: ubuntu-latest
     container:
-      image: crystallang/crystal:1.19.1
+      image: crystallang/crystal:1.22.0
     steps:
       - uses: actions/checkout@v4
       - name: Vérifie le formatage
@@ -21,7 +21,7 @@ jobs:
     name: Specs (Linux)
     runs-on: ubuntu-latest
     container:
-      image: crystallang/crystal:1.19.1
+      image: crystallang/crystal:1.22.0
     steps:
       - uses: actions/checkout@v4
       - name: Installe les shards

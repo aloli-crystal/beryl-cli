@@ -63,7 +63,7 @@ module Beryl::Apply
           git commit --quiet -m "audit #{hostname} #{message[0..40]}" || exit 0
           git push --quiet origin HEAD 2>&1 | grep -vE '^(remote:|To |[ \t]*$)' || true
         ) 9>#{Process.quote(LOCK_FILE)}
-      SHELL
+        SHELL
 
       result = shell.exec(cmd, raise_on_error: false)
       unless result.success?

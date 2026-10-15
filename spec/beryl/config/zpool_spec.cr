@@ -242,15 +242,15 @@ describe Beryl::Config::EncryptionConfig do
 
     it "retourne tang multi-URL avec threshold explicite (SSS)" do
       yaml_str = <<-YAML
-      mode: tang
-      tang:
-        urls:
-          - http://t1:8888
-          - http://t2:8888
-          - http://t3:8888
-        threshold: 2
-      compression: zstd-3
-      YAML
+        mode: tang
+        tang:
+          urls:
+            - http://t1:8888
+            - http://t2:8888
+            - http://t3:8888
+          threshold: 2
+        compression: zstd-3
+        YAML
       yaml_any = YAML.parse(yaml_str)
       cfg = Beryl::Config::EncryptionConfig.from_yaml(yaml_any, "zpool").not_nil!
       cfg.tang?.should be_true

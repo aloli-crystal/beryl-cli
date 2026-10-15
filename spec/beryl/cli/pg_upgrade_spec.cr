@@ -37,7 +37,7 @@ private def happy_shell(shell = ScriptedShell.new) : ScriptedShell
   shell.stub(/^pkg query '%n'$/, OLD_FAMILY)
   shell.stub(/sysrc -n postgresql_(profiles|user|data)/, "", exit_code: 1)
   shell.stub(/pkg rquery -U '%v %n'/, "19.1 postgresql19-server")
-  %w(postgresql19-server postgresql19-client postgresql19-contrib rubygem-pg).each do |n|
+  %w[postgresql19-server postgresql19-client postgresql19-contrib rubygem-pg].each do |n|
     shell.stub(/^pkg rquery -U '%n' #{n}$/, n)
   end
   shell.stub(/^pkg query '%rn' postgresql18-client$/, "postgresql18-contrib\npostgresql18-server\nrubygem-pg\n")

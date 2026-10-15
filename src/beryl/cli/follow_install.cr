@@ -102,7 +102,7 @@ module Beryl::CLI::FollowInstall
 
     # Filtre le bruit de debug de bsdinstall (dialog, variables,
     # devices, geom, strings, frameworks f_*, init, ARGV, UNAME_S).
-    noise = %q{DEBUG: (dialog\.|common\.|struct\.|variable\.|device\.|geom\.|strings\.|password/|f_dialog|f_debug|f_include|f_variable|f_getvar)|DEBUG_SELF_INITIALIZE|UNAME_S=|ARGV=}
+    noise = %q(DEBUG: (dialog\.|common\.|struct\.|variable\.|device\.|geom\.|strings\.|password/|f_dialog|f_debug|f_include|f_variable|f_getvar)|DEBUG_SELF_INITIALIZE|UNAME_S=|ARGV=)
 
     vm_inner = "while [ ! -f #{log_file} ]; do sleep 2; done; " \
                "tail -f #{log_file} | grep --line-buffered -vE #{Process.quote(noise)}"

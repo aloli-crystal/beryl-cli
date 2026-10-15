@@ -4,17 +4,17 @@ require "../../../src/beryl/cli/build_status"
 
 private def failed_remote : String
   <<-OUT
-  @@NOW 2000
-  @@FILE .beryl-build-15.log 1900 100
-  @@FILE .beryl-build-15.overlays 1000 20
-  @@BEGIN .beryl-build-15.overlays
-  maison 2c8175fc1bca02ea902de27d492c0e017d546b9a
-  @@BEGIN .beryl-build-15.log.events
-  [00:00:01] Logs: /logs/bulk/fbsd151amd64-default/B1
-  [00:01:00] [01] [00:00:50] Finished   www/site | site-1: Failed: configure
-  @@BEGIN poudriere-status
-  @@END
-  OUT
+    @@NOW 2000
+    @@FILE .beryl-build-15.log 1900 100
+    @@FILE .beryl-build-15.overlays 1000 20
+    @@BEGIN .beryl-build-15.overlays
+    maison 2c8175fc1bca02ea902de27d492c0e017d546b9a
+    @@BEGIN .beryl-build-15.log.events
+    [00:00:01] Logs: /logs/bulk/fbsd151amd64-default/B1
+    [00:01:00] [01] [00:00:50] Finished   www/site | site-1: Failed: configure
+    @@BEGIN poudriere-status
+    @@END
+    OUT
 end
 
 describe Beryl::CLI::BuildStatus do

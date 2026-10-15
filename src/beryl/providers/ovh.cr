@@ -95,7 +95,7 @@ module Beryl::Providers
     def hardware_disk_inventory(service_name : String) : Beryl::DiskInventory?
       resp = client.call("GET", "/dedicated/server/#{service_name}/specifications/hardware")
       groups = resp.try(&.["diskGroups"]?).try(&.as_a?)
-      return nil unless groups
+      return unless groups
       flash = 0
       spinning = 0
       total = 0
@@ -110,7 +110,7 @@ module Beryl::Providers
           spinning += n
         end
       end
-      return nil if total == 0
+      return if total == 0
       Beryl::DiskInventory.new(flash: flash, spinning: spinning, total: total)
     rescue
       nil
@@ -143,7 +143,7 @@ module Beryl::Providers
     # l'API ne répond pas. Lecture seule, droit `GET /dedicated/server/*`.
     def server_hardware(service_name : String) : Beryl::HardwareSpec?
       resp = client.call("GET", "/dedicated/server/#{service_name}/specifications/hardware")
-      return nil unless resp
+      return unless resp
       nproc = resp["numberOfProcessors"]?.try(&.as_i?) || 1
       cpu = resp["processorName"]?.try(&.as_s?) || "(CPU inconnu)"
       cores = (resp["coresPerProcessor"]?.try(&.as_i?) || 0) * nproc
@@ -196,7 +196,7 @@ module Beryl::Providers
     # service_name. Couvert par `GET /dedicated/server` + `/dedicated/server/*`.
     def find_dedicated_server_by_ip(ip : String) : String?
       resp = client.call("GET", "/dedicated/server")
-      return nil unless resp
+      return unless resp
       resp.as_a.each do |s|
         sn = s.as_s?
         next unless sn
@@ -222,13 +222,13 @@ module Beryl::Providers
     def monthly_price(service_name : String) : String?
       infos = client.call("GET", "/dedicated/server/#{service_name}/serviceInfos")
       sid = infos.try(&.["serviceId"]?).try(&.as_i?)
-      return nil unless sid
+      return unless sid
       svc = client.call("GET", "/services/#{sid}")
-      return nil unless svc
+      return unless svc
       billing = svc["billing"]?
       v = billing.try(&.["pricing"]?).try(&.["price"]?).try(&.["value"]?)
       val = v.try(&.as_f?) || v.try(&.as_i?).try(&.to_f)
-      return nil unless val
+      return unless val
       period = billing.try(&.["pricing"]?).try(&.["duration"]?).try(&.as_s?) ||
                billing.try(&.["renew"]?).try(&.["current"]?).try(&.["period"]?).try(&.as_s?)
       months = period.try { |p| self.class.period_months(p) } || 1
@@ -241,7 +241,7 @@ module Beryl::Providers
     # `P1Y` → 12, `P6M` → 6, `P1Y6M` → 18). nil si illisible ou nulle.
     def self.period_months(iso : String) : Int32?
       m = iso.strip.upcase.match(/\AP(?:(\d+)Y)?(?:(\d+)M)?\z/)
-      return nil unless m
+      return unless m
       months = (m[1]?.try(&.to_i) || 0) * 12 + (m[2]?.try(&.to_i) || 0)
       months > 0 ? months : nil
     end
@@ -260,7 +260,7 @@ module Beryl::Providers
     def ipv6_address(service_name : String) : String?
       block = client.dedicated_servers.ips(service_name)
         .find(&.includes?(':')).try(&.split('/').first)
-      return nil unless block
+      return unless block
       block.ends_with?("::") ? "#{block}1" : block
     rescue
       nil
@@ -277,7 +277,7 @@ module Beryl::Providers
       srv = client.call("GET", "/dedicated/server/#{service_name}")
       name = srv.try(&.["iam"]?).try(&.["displayName"]?).try(&.as_s?)
       name ||= services_display_name(service_name)
-      return nil if name.nil? || name.empty? || name == service_name
+      return if name.nil? || name.empty? || name == service_name
       name
     rescue
       nil
@@ -286,7 +286,7 @@ module Beryl::Providers
     private def services_display_name(service_name : String) : String?
       infos = client.call("GET", "/dedicated/server/#{service_name}/serviceInfos")
       sid = infos.try(&.["serviceId"]?).try(&.as_i?)
-      return nil unless sid
+      return unless sid
       svc = client.call("GET", "/services/#{sid}")
       svc.try(&.["resource"]?).try(&.["displayName"]?).try(&.as_s?) ||
         svc.try(&.["displayName"]?).try(&.as_s?)
@@ -331,7 +331,7 @@ module Beryl::Providers
     # UUID d'interface) — les serveurs récents (double NIC) sont en 2.0.
     def vrack_interface(service_name : String) : Tuple(String, String?)?
       uuids = client.call("GET", "/dedicated/server/#{service_name}/virtualNetworkInterface")
-      return nil unless uuids
+      return unless uuids
       uuids.as_a.each do |u|
         uuid = u.as_s?
         next unless uuid

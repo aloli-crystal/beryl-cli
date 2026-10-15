@@ -153,7 +153,7 @@ module Beryl::CLI::AddProvider
       no_commit,
     )
     EXIT_OK
-  rescue ex : Beryl::CLI::AccountUtils::Aborted
+  rescue Beryl::CLI::AccountUtils::Aborted
     STDERR.puts "beryl : abandon"
     EXIT_ABORTED
   end

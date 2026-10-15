@@ -89,29 +89,27 @@ describe Beryl::Apply::Executor do
   end
 
   it "from_env : défaut depuis le coffre (ENV), surchargeable positionnellement" do
-    begin
-      ENV["TEST_RELAY_TO"] = "it@popi.fr"
-      shell = FakeShell.new
-      recipe = Beryl::Apply::Recipe.new(
-        name: "fe-test",
-        description: "",
-        requires: [] of String,
-        parameters: {"dest" => YAML.parse("from_env: TEST_RELAY_TO\ndefault: \"\"")},
-        arguments: {} of String => YAML::Any,
-        steps: [Beryl::Apply::Step.new("test-record", {"value" => YAML::Any.new("{{ dest }}")})],
-        source_path: "/tmp/fe-test.recipe.yml",
-        positional: "dest",
-      )
-      # Recette nue → valeur du coffre.
-      Beryl::Apply::Executor.new(shell, dry_run: false).run([recipe], {"fe-test" => [{} of String => String]})
-      TestRecorder.last_params["value"].as_s.should eq("it@popi.fr")
-      # Valeur positionnelle → surcharge le coffre.
-      Beryl::Apply::Executor.new(shell, dry_run: false).run(
-        [recipe], {"fe-test" => [{Beryl::Apply::Recipe::POSITIONAL_ARG => "autre@x.fr"}]})
-      TestRecorder.last_params["value"].as_s.should eq("autre@x.fr")
-    ensure
-      ENV.delete("TEST_RELAY_TO")
-    end
+    ENV["TEST_RELAY_TO"] = "it@popi.fr"
+    shell = FakeShell.new
+    recipe = Beryl::Apply::Recipe.new(
+      name: "fe-test",
+      description: "",
+      requires: [] of String,
+      parameters: {"dest" => YAML.parse("from_env: TEST_RELAY_TO\ndefault: \"\"")},
+      arguments: {} of String => YAML::Any,
+      steps: [Beryl::Apply::Step.new("test-record", {"value" => YAML::Any.new("{{ dest }}")})],
+      source_path: "/tmp/fe-test.recipe.yml",
+      positional: "dest",
+    )
+    # Recette nue → valeur du coffre.
+    Beryl::Apply::Executor.new(shell, dry_run: false).run([recipe], {"fe-test" => [{} of String => String]})
+    TestRecorder.last_params["value"].as_s.should eq("it@popi.fr")
+    # Valeur positionnelle → surcharge le coffre.
+    Beryl::Apply::Executor.new(shell, dry_run: false).run(
+      [recipe], {"fe-test" => [{Beryl::Apply::Recipe::POSITIONAL_ARG => "autre@x.fr"}]})
+    TestRecorder.last_params["value"].as_s.should eq("autre@x.fr")
+  ensure
+    ENV.delete("TEST_RELAY_TO")
   end
 
   it "résout une variable built-in dans un `default:` (ex. ip défaut = {{ vrack_ip }})" do

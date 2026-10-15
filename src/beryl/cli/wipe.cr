@@ -380,14 +380,14 @@ module Beryl::CLI::Wipe
         end
       check = verify ? "\n" + verify_block(disk, quoted) : ""
       <<-BASH
-      echo "=== $(date -u +%FT%TZ) wipe #{disk} ==="
-      zpool labelclear -f #{quoted} 2>/dev/null || true
-      for n in 1 2 3 4 5 6 7 8 9; do
-        zpool labelclear -f #{quoted}${n} 2>/dev/null || true
-      done#{erase}
-      sgdisk --zap-all #{quoted} 2>&1 | tail -3
-      dd if=/dev/zero of=#{quoted} bs=1M count=10 conv=notrunc 2>&1 | tail -1#{check}
-      BASH
+        echo "=== $(date -u +%FT%TZ) wipe #{disk} ==="
+        zpool labelclear -f #{quoted} 2>/dev/null || true
+        for n in 1 2 3 4 5 6 7 8 9; do
+          zpool labelclear -f #{quoted}${n} 2>/dev/null || true
+        done#{erase}
+        sgdisk --zap-all #{quoted} 2>&1 | tail -3
+        dd if=/dev/zero of=#{quoted} bs=1M count=10 conv=notrunc 2>&1 | tail -1#{check}
+        BASH
     end
 
     disk_section =
@@ -400,50 +400,50 @@ module Beryl::CLI::Wipe
           "(\necho \"[$(date -u +%FT%TZ)] #{disk} -> #{log}\"\nexec > #{log} 2>&1\n#{body}\n) &\n__pids=\"$__pids $!\""
         end.join("\n")
         <<-BASH
-        # Effacement EN PARALLÈLE : un sous-shell par disque.
-        __rc=0
-        __pids=""
-        #{wrapped}
-        for __p in $__pids; do
-          wait "$__p" || __rc=1
-        done
-        exit $__rc
-        BASH
+          # Effacement EN PARALLÈLE : un sous-shell par disque.
+          __rc=0
+          __pids=""
+          #{wrapped}
+          for __p in $__pids; do
+            wait "$__p" || __rc=1
+          done
+          exit $__rc
+          BASH
       else
         bodies.join("\n")
       end
 
     preamble = verify ? "\n" + verify_fn : ""
     <<-BASH
-    set -u
-    #{preamble}
-    # Détruit d'abord tous les pools ZFS importables (un pool peut
-    # recouvrir plusieurs disques, on ne peut pas le faire par disque).
-    for p in $(zpool import 2>/dev/null | awk '/^ *pool:/{print $2}'); do
-      echo "destroy zpool $p"
-      zpool destroy "$p" 2>/dev/null || zpool export -f "$p" 2>/dev/null || true
-    done
-    #{disk_section}
-    BASH
+      set -u
+      #{preamble}
+      # Détruit d'abord tous les pools ZFS importables (un pool peut
+      # recouvrir plusieurs disques, on ne peut pas le faire par disque).
+      for p in $(zpool import 2>/dev/null | awk '/^ *pool:/{print $2}'); do
+        echo "destroy zpool $p"
+        zpool destroy "$p" 2>/dev/null || zpool export -f "$p" 2>/dev/null || true
+      done
+      #{disk_section}
+      BASH
   end
 
   # Réécriture logique intégrale du disque : `shred -n passes`, avec
   # repli `dd if=/dev/urandom` en boucle si shred est absent du rescue.
   private def self.overwrite_block(disk : String, quoted : String, passes : Int32) : String
     <<-SH
-    __method=shred
-    echo "effacement sécurisé : #{passes} passe(s) sur #{disk} (peut être très long)"
-    if command -v shred >/dev/null 2>&1; then
-      shred -v -f -n #{passes} #{quoted}
-    else
-      i=1
-      while [ "$i" -le #{passes} ]; do
-        echo "passe $i/#{passes} (dd urandom) sur #{disk}"
-        dd if=/dev/urandom of=#{quoted} bs=4M conv=notrunc status=progress 2>&1 | tail -1 || true
-        i=$((i + 1))
-      done
-    fi
-    SH
+      __method=shred
+      echo "effacement sécurisé : #{passes} passe(s) sur #{disk} (peut être très long)"
+      if command -v shred >/dev/null 2>&1; then
+        shred -v -f -n #{passes} #{quoted}
+      else
+        i=1
+        while [ "$i" -le #{passes} ]; do
+          echo "passe $i/#{passes} (dd urandom) sur #{disk}"
+          dd if=/dev/urandom of=#{quoted} bs=4M conv=notrunc status=progress 2>&1 | tail -1 || true
+          i=$((i + 1))
+        done
+      fi
+      SH
   end
 
   # Effacement *matériel*, choisi à l'exécution selon le support réel :
@@ -459,38 +459,38 @@ module Beryl::CLI::Wipe
     ssd =
       if secure
         <<-SSD
-        echo "  support SSD (non rotatif) → blkdiscard --secure (BLKSECDISCARD)"
-        __method=discard
-        if blkdiscard --secure -f #{quoted} 2>/dev/null; then :
-        elif blkdiscard -f #{quoted}; then echo "  secure-discard non supporté → TRIM normal"
-        else echo "  blkdiscard KO → repli shred"; __method=shred; shred -v -f -n #{fallback_passes} #{quoted}
-        fi
-        SSD
+          echo "  support SSD (non rotatif) → blkdiscard --secure (BLKSECDISCARD)"
+          __method=discard
+          if blkdiscard --secure -f #{quoted} 2>/dev/null; then :
+          elif blkdiscard -f #{quoted}; then echo "  secure-discard non supporté → TRIM normal"
+          else echo "  blkdiscard KO → repli shred"; __method=shred; shred -v -f -n #{fallback_passes} #{quoted}
+          fi
+          SSD
       else
         <<-SSD
-        echo "  support SSD (non rotatif) → blkdiscard (TRIM)"
-        __method=discard
-        blkdiscard -f #{quoted} \\
-          || { echo "  blkdiscard KO → repli shred"; __method=shred; shred -v -f -n #{fallback_passes} #{quoted}; }
-        SSD
+          echo "  support SSD (non rotatif) → blkdiscard (TRIM)"
+          __method=discard
+          blkdiscard -f #{quoted} \\
+            || { echo "  blkdiscard KO → repli shred"; __method=shred; shred -v -f -n #{fallback_passes} #{quoted}; }
+          SSD
       end
     <<-SH
-    echo "secure-erase matériel de #{disk}"
-    __b=$(basename #{quoted})
-    if echo #{quoted} | grep -q '^/dev/nvme'; then
-      echo "  support NVMe → nvme format --ses=1"
-      __method=nvme
-      nvme format #{quoted} --ses=1 --force \\
-        || nvme format #{quoted} -s 1 \\
-        || { echo "  nvme format KO → repli shred"; __method=shred; shred -v -f -n #{fallback_passes} #{quoted}; }
-    elif [ -e "/sys/block/$__b/queue/rotational" ] && [ "$(cat /sys/block/$__b/queue/rotational)" = "0" ]; then
-    #{ssd}
-    else
-      echo "  support HDD rotatif : pas de secure-erase matériel → shred #{fallback_passes} passe(s)"
-      __method=shred
-      shred -v -f -n #{fallback_passes} #{quoted}
-    fi
-    SH
+      echo "secure-erase matériel de #{disk}"
+      __b=$(basename #{quoted})
+      if echo #{quoted} | grep -q '^/dev/nvme'; then
+        echo "  support NVMe → nvme format --ses=1"
+        __method=nvme
+        nvme format #{quoted} --ses=1 --force \\
+          || nvme format #{quoted} -s 1 \\
+          || { echo "  nvme format KO → repli shred"; __method=shred; shred -v -f -n #{fallback_passes} #{quoted}; }
+      elif [ -e "/sys/block/$__b/queue/rotational" ] && [ "$(cat /sys/block/$__b/queue/rotational)" = "0" ]; then
+      #{ssd}
+      else
+        echo "  support HDD rotatif : pas de secure-erase matériel → shred #{fallback_passes} passe(s)"
+        __method=shred
+        shred -v -f -n #{fallback_passes} #{quoted}
+      fi
+      SH
   end
 
   # Fonction shell de vérification (définie une fois en préambule quand
@@ -500,24 +500,24 @@ module Beryl::CLI::Wipe
   # divergence et renvoie non-zéro.
   def self.verify_fn : String
     <<-SH
-    __verify_zeros() {
-      __d="$1"
-      __sz=$(blockdev --getsize64 "$__d" 2>/dev/null || echo 0)
-      if [ "$__sz" -le 0 ]; then echo "verify $__d : taille inconnue, skip"; return 0; fi
-      __mib=$((__sz / 1048576))
-      __bad=0
-      for __f in 0 10 25 50 75 90 99; do
-        __off=$((__mib * __f / 100))
-        __nz=$(dd if="$__d" bs=1M skip="$__off" count=1 2>/dev/null | tr -d '\\000' | wc -c)
-        if [ "$__nz" -ne 0 ]; then
-          echo "VERIFY FAIL $__d @ ${__off}Mo : ${__nz} octet(s) non-nul(s)"
-          __bad=1
-        fi
-      done
-      [ "$__bad" -eq 0 ] && echo "verify $__d : OK (zéros aux 7 sondages)"
-      return "$__bad"
-    }
-    SH
+      __verify_zeros() {
+        __d="$1"
+        __sz=$(blockdev --getsize64 "$__d" 2>/dev/null || echo 0)
+        if [ "$__sz" -le 0 ]; then echo "verify $__d : taille inconnue, skip"; return 0; fi
+        __mib=$((__sz / 1048576))
+        __bad=0
+        for __f in 0 10 25 50 75 90 99; do
+          __off=$((__mib * __f / 100))
+          __nz=$(dd if="$__d" bs=1M skip="$__off" count=1 2>/dev/null | tr -d '\\000' | wc -c)
+          if [ "$__nz" -ne 0 ]; then
+            echo "VERIFY FAIL $__d @ ${__off}Mo : ${__nz} octet(s) non-nul(s)"
+            __bad=1
+          fi
+        done
+        [ "$__bad" -eq 0 ] && echo "verify $__d : OK (zéros aux 7 sondages)"
+        return "$__bad"
+      }
+      SH
   end
 
   # Bloc de vérification par disque (dernier du corps → son code de sortie
@@ -526,11 +526,11 @@ module Beryl::CLI::Wipe
   # (nvme/discard) ; `shred` = réécriture aléatoire, `meta` = métadonnées.
   private def self.verify_block(disk : String, quoted : String) : String
     <<-SH
-    case "${__method:-meta}" in
-      nvme|discard) __verify_zeros #{quoted} ;;
-      shred) echo "verify #{disk} : shred (réécriture) — contrôle zéro non applicable" ;;
-      *) echo "verify #{disk} : métadonnées — contrôle zéro non applicable" ;;
-    esac
-    SH
+      case "${__method:-meta}" in
+        nvme|discard) __verify_zeros #{quoted} ;;
+        shred) echo "verify #{disk} : shred (réécriture) — contrôle zéro non applicable" ;;
+        *) echo "verify #{disk} : métadonnées — contrôle zéro non applicable" ;;
+      esac
+      SH
   end
 end

@@ -51,3 +51,12 @@ Documentation/DocumentationAdmonition:
 
 Naming/PredicateName:
   Enabled: false
+
+# Ameba 1.7 : choix de style sur les marqueurs de heredoc, sans gain
+# fonctionnel — les changer modifierait l'interpolation (`#{}`, `\`) des scripts
+# shell embarqués. Désactivés plutôt que convertis.
+Style/HeredocEscape:
+  Enabled: false
+
+Style/MultilineStringLiteral:
+  Enabled: false

@@ -411,7 +411,7 @@ module Beryl::CLI::OsUpgrade
   # Deux lignes (`-k` puis `-r`) → {installed, running} si elles diffèrent. Pure.
   def self.kernel_mismatch(output : String) : NamedTuple(installed: String, running: String)?
     lines = output.lines.map(&.strip).reject(&.empty?)
-    return nil unless lines.size == 2 && lines[0] != lines[1]
+    return unless lines.size == 2 && lines[0] != lines[1]
     {installed: lines[0], running: lines[1]}
   end
 
@@ -525,7 +525,7 @@ module Beryl::CLI::OsUpgrade
   # Parse « 15.0-RELEASE-p10 » → {major, minor, patch?}. nil si illisible.
   def self.parse_version(s : String) : {Int32, Int32, Int32?}?
     m = s.match(/(\d+)\.(\d+)(?:-RELEASE)?(?:-p(\d+))?/)
-    return nil unless m
+    return unless m
     {m[1].to_i, m[2].to_i, m[3]?.try(&.to_i)}
   end
 

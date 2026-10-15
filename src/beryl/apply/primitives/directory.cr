@@ -52,13 +52,13 @@ module Beryl::Apply
     end
 
     private def current_owner(shell : Shell, path : String, exists : Bool) : String?
-      return nil unless exists
+      return unless exists
       r = Primitive.read_probe(shell, "stat -f '%Su:%Sg' #{Process.quote(path)}")
       r.success? ? r.stdout.strip : nil
     end
 
     private def current_mode(shell : Shell, path : String, exists : Bool) : String?
-      return nil unless exists
+      return unless exists
       r = Primitive.read_probe(shell, "stat -f '%Lp' #{Process.quote(path)}")
       r.success? ? r.stdout.strip : nil
     end
