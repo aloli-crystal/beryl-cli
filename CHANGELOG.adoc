@@ -9,6 +9,13 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Messages et exemples : `nginx-lite` au lieu de `nginx-base`
+
+La recette `nginx-base` est retirée de beryl-recipes (0.0.36) au profit de
+recettes au nom du paquet (`nginx-lite`, `nginx-lite-passenger`) : message
+de la garde « une seule recette par fichier », commentaires et exemple de
+test mis à jour.
+
 === `beryl env set` / `beryl env get` : une variable du coffre par un tube
 
 `secrets set` ne lit qu'une ligne et ne sait pas écrire dans une section :

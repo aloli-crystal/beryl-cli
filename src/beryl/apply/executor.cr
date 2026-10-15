@@ -168,7 +168,7 @@ module Beryl::Apply
     end
 
     # Arguments imposés par les `requires:` en forme map (ex. monappli-base →
-    # `nginx-base: { package: nginx }`) : servent de BASE à chaque jeu
+    # `nginx-lite: { http_extra: "include monappli/*.conf;" }`) : servent de BASE à chaque jeu
     # d'arguments de la dépendance ; ceux de l'hôte restent prioritaires.
     # Deux recettes qui imposent des valeurs différentes au même argument →
     # `ConflictingRequiredArgs` (aucune ne peut gagner silencieusement).
@@ -224,7 +224,7 @@ module Beryl::Apply
               raise DuplicatePath.new(
                 "#{path} serait écrit par `#{other}` ET par `#{label}` : la seconde écraserait " \
                 "la première à chaque apply. Une seule recette par fichier (nginx : un fichier " \
-                "par site dans conf.d/, cf. nginx-base)."
+                "par site dans conf.d/, cf. nginx-lite)."
               )
             end
             owners[path] = label

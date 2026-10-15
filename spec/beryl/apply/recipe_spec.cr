@@ -55,10 +55,10 @@ describe "Beryl::Apply::Recipe — requires en forme map" do
     dir = File.tempname("beryl-recipes")
     Dir.mkdir_p(dir)
     path = File.join(dir, "app.recipe.yml")
-    File.write(path, "requires:\n  - acme\n  - nginx-base: { package: nginx, port: 80 }\n")
+    File.write(path, "requires:\n  - acme\n  - nginx-lite: { http_extra: x, port: 80 }\n")
     r = Beryl::Apply::Recipe.load(path)
-    r.requires.should eq(["acme", "nginx-base"])
-    r.requires_args.should eq({"nginx-base" => {"package" => "nginx", "port" => "80"}})
+    r.requires.should eq(["acme", "nginx-lite"])
+    r.requires_args.should eq({"nginx-lite" => {"http_extra" => "x", "port" => "80"}})
   ensure
     FileUtils.rm_rf(dir) if dir
   end
