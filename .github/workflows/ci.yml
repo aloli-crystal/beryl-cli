@@ -29,7 +29,10 @@ jobs:
       - name: Compile
         run: shards build
       - name: Ameba (linter)
-        run: bin/ameba
+        # ameba >= 1.7 ne compile plus son exécutable à l'installation (plus
+        # de postinstall, ni de bin/ameba.cr généré) : on le compile depuis son
+        # point d'entrée. `bin/` n'est pas versionné.
+        run: crystal build lib/ameba/src/cli.cr -o bin/ameba && bin/ameba
       - name: Prépare les fixtures .env.yml (copie des .sample)
         # Les fixtures secrets-like sont versionnées en .env.yml.sample
         # (valeurs bidon xxx/yyy/zzz) ; beryl les cherche sous leur

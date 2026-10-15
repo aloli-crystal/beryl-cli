@@ -9,6 +9,14 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== CI : ameba compilé avant d'être lancé
+
+ameba 1.7 ne compile plus son exécutable à l'installation (plus de
+postinstall ni de `bin/ameba.cr` généré) : en CI, `bin/ameba` n'existait pas
+(« bin/ameba: not found », code 127) et la tâche Specs (Linux) s'arrêtait
+avant les tests. L'étape compile ameba depuis son point d'entrée
+(`lib/ameba/src/cli.cr`) puis le lance.
+
 === Crystal 1.22.0 et ameba 1.7
 
 CI (format et specs Linux) sur l'image `crystallang/crystal:1.22.0` ; ameba
