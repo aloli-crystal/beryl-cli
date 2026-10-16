@@ -9,6 +9,14 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Test : socle nginx partagé par une recette privée, une appli et un site
+
+Vérifie le modèle des paquets nginx MAISON (beryl-recipes 0.0.37) : une
+recette privée au nom du paquet impose `nginx-lite: { package: … }`, une
+appli impose `http_extra`, un site requiert `nginx-lite` sans argument →
+`nginx-lite` passe UNE seule fois, avec le paquet maison et `http_extra`
+réunis. `TestRecorder` compte ses appels.
+
 === `build-status` : relevé des fichiers portable (GNU et BSD)
 
 Le script lisait la date et la taille des fichiers par `stat -f '%m %z'`,

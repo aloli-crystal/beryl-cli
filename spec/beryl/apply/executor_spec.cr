@@ -12,6 +12,7 @@ end
 # annonce `applied`. Enregistrée une fois dans le registre global.
 class TestRecorder < Beryl::Apply::Primitive
   class_property last_params = {} of String => YAML::Any
+  class_property calls = 0
 
   def name : String
     "test-record"
@@ -19,6 +20,7 @@ class TestRecorder < Beryl::Apply::Primitive
 
   def apply(shell : Beryl::Apply::Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Beryl::Apply::Context) : Beryl::Apply::StepResult
     TestRecorder.last_params = params
+    TestRecorder.calls += 1
     Beryl::Apply::StepResult.applied("recorded")
   end
 end
@@ -272,6 +274,25 @@ describe "Beryl::Apply::Executor — requires en forme map" do
     args = {"dep-web" => [{"package" => "autre"}]}
     Beryl::Apply::Executor.new(FakeShell.new, dry_run: true).run([dep, user], args)
     TestRecorder.last_params["pkg"].as_s.should eq("autre")
+  end
+
+  it "socle nginx : recette privée (paquet) + appli (http_extra) + site (rien) → UN seul passage, arguments réunis" do
+    socle = recipe_from(<<-YAML)
+      recipe: nginx-lite
+      parameters:
+        package: { type: string, default: nginx-lite }
+        http_extra: { type: string, default: "" }
+      steps:
+        - test-record: { pkg: "{{ package }}", extra: "{{ http_extra }}" }
+      YAML
+    maison = recipe_from("recipe: nginx-lite-maison\nrequires:\n  - nginx-lite: { package: nginx-lite-maison }\n")
+    appli = recipe_from("recipe: appli-base\nrequires:\n  - nginx-lite: { http_extra: \"include appli/*.conf;\" }\n")
+    site = recipe_from("recipe: static-site\nrequires:\n  - nginx-lite\n")
+    TestRecorder.calls = 0
+    Beryl::Apply::Executor.new(FakeShell.new, dry_run: true).run([socle, maison, appli, site])
+    TestRecorder.calls.should eq(1)
+    TestRecorder.last_params["pkg"].as_s.should eq("nginx-lite-maison")
+    TestRecorder.last_params["extra"].as_s.should eq("include appli/*.conf;")
   end
 
   it "refuse deux valeurs imposées différentes" do
