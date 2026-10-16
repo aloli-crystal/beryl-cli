@@ -1,4 +1,5 @@
 require "option_parser"
+require "./option_errors"
 require "../apply"
 require "./info" # scoped_hosts + recipe_packages
 require "./account_utils"
@@ -95,7 +96,7 @@ module Beryl::CLI
         p.on("-h", "--help", "Aide") { puts p; exit 0 }
         p.unknown_args { |rest, _| positional = rest }
       end
-      parser.parse(args)
+      Beryl::CLI.handle_option_errors(parser).parse(args)
 
       root = Beryl::Config::Root.load(config_root)
       scope = positional.first?
@@ -262,7 +263,7 @@ module Beryl::CLI
         p.on("-h", "--help", "Aide") { puts p; exit 0 }
         p.unknown_args { |rest, _| positional = rest }
       end
-      parser.parse(args)
+      Beryl::CLI.handle_option_errors(parser).parse(args)
 
       return Beryl::CLI::FleetJob.status("upgrade", positional.first?) if status
       if jd = job_dir

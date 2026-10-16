@@ -1,4 +1,5 @@
 require "option_parser"
+require "./cli/option_errors"
 require "../beryl"
 require "./cli/prep_rescue"
 require "./cli/bake_seed"
@@ -111,7 +112,7 @@ module Beryl::CLI
         exit(0)
       end
     end
-    global_parser.parse(global_args)
+    Beryl::CLI.handle_option_errors(global_parser).parse(global_args)
 
     subcommand = rest.first?
     sub_args = rest[1..]? || [] of String

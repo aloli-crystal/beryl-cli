@@ -1,4 +1,5 @@
 require "option_parser"
+require "./option_errors"
 require "../apply"
 require "../freebsd_release"
 require "./account_utils"
@@ -64,7 +65,7 @@ module Beryl::CLI::OsUpgrade
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
       p.unknown_args { |rest, _| positional = rest }
     end
-    parser.parse(args)
+    Beryl::CLI.handle_option_errors(parser).parse(args)
 
     return Beryl::CLI::FleetJob.status("os-upgrade", positional.first?) if status
     if jd = job_dir

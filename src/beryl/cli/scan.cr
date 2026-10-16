@@ -1,4 +1,5 @@
 require "option_parser"
+require "./option_errors"
 require "socket"
 require "api-ovh/ovh_api"
 require "api-scaleway/scaleway_api"
@@ -169,7 +170,7 @@ module Beryl::CLI::Scan
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
       p.unknown_args { |rest, _| positional = rest }
     end
-    parser.parse(args)
+    Beryl::CLI.handle_option_errors(parser).parse(args)
 
     # `--discover <société>` : découverte de parc OVH → squelettes host.yml.
     # Court-circuite le flux normal (qui exige un <host> + rescue).

@@ -1,4 +1,5 @@
 require "option_parser"
+require "./option_errors"
 require "yaml-tidy"
 
 module Beryl::CLI
@@ -24,7 +25,7 @@ module Beryl::CLI
         p.on("-h", "--help", "Aide") { puts p; exit 0 }
         p.unknown_args { |rest, _| positional = rest }
       end
-      parser.parse(args)
+      Beryl::CLI.handle_option_errors(parser).parse(args)
 
       files = config_files(config_root)
       if scope = positional.first?

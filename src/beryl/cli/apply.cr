@@ -1,4 +1,5 @@
 require "option_parser"
+require "./option_errors"
 require "../config"
 require "../apply"
 require "ssh"
@@ -44,7 +45,7 @@ module Beryl::CLI::Apply
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
       p.unknown_args { |rest, _| positional = rest }
     end
-    parser.parse(args)
+    Beryl::CLI.handle_option_errors(parser).parse(args)
 
     raw = positional.first?
     unless raw

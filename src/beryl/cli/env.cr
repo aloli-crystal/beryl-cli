@@ -1,3 +1,4 @@
+require "./option_errors"
 require "option_parser"
 require "secrets"
 require "toml"
@@ -70,6 +71,7 @@ module Beryl::CLI::Env
     purge = false
     no_commit = false
     OptionParser.parse(argv.dup) do |parser|
+      Beryl::CLI.handle_option_errors(parser)
       parser.banner = "USAGE : beryl env migrate [--force] [--purge-yaml] [<société>...]"
       parser.on("-f", "--force", "Écrase un coffre destination déjà présent (DANGEREUX)") { force = true }
       parser.on("-p", "--purge-yaml", "Supprime la section migrée de .env.yml après écriture du coffre") { purge = true }
@@ -166,6 +168,7 @@ module Beryl::CLI::Env
     create = false
     no_commit = false
     OptionParser.parse(argv.dup) do |parser|
+      Beryl::CLI.handle_option_errors(parser)
       parser.banner = "USAGE : beryl env edit [--create] <société>"
       parser.on("-c", "--create", "Crée un coffre vide si absent") { create = true }
       parser.on("--no-commit", "N'auto-commite pas le coffre chiffré dans le dépôt git de config") { no_commit = true }
@@ -368,6 +371,7 @@ module Beryl::CLI::Env
   private def self.cmd_show(config_root : String, argv : Array(String)) : Int32
     account = ""
     OptionParser.parse(argv.dup) do |parser|
+      Beryl::CLI.handle_option_errors(parser)
       parser.banner = "USAGE : beryl env show <société>"
       parser.on("-h", "--help", "Affiche cette aide") { puts parser; exit 0 }
     end

@@ -1,4 +1,5 @@
 require "option_parser"
+require "./option_errors"
 require "silex"
 
 module Beryl::CLI::BakeSeed
@@ -36,7 +37,7 @@ module Beryl::CLI::BakeSeed
         exit 0
       end
     end
-    parser.parse(args)
+    Beryl::CLI.handle_option_errors(parser).parse(args)
 
     unless File.exists?(pubkey_path)
       STDERR.puts "beryl bake-seed : clé publique SSH introuvable : #{pubkey_path}"

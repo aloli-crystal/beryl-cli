@@ -1,4 +1,5 @@
 require "option_parser"
+require "./option_errors"
 require "../config"
 
 module Beryl::CLI
@@ -24,7 +25,7 @@ module Beryl::CLI
         p.on("--to HOST", "Déployer la zone sur ce résolveur (répétable)") { |v| to_hosts << v }
         p.on("-h", "--help", "Aide") { puts p; exit 0 }
       end
-      parser.parse(args)
+      Beryl::CLI.handle_option_errors(parser).parse(args)
 
       root = Beryl::Config::Root.load(config_root)
       records = collect_records(root)

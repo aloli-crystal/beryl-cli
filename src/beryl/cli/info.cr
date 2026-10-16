@@ -1,4 +1,5 @@
 require "option_parser"
+require "./option_errors"
 require "../apply"
 require "../freebsd_release" # RELEASE FreeBSD disponibles en amont (--freebsd)
 require "./apply"            # Beryl::CLI::Apply.recipes_search_path (paquets gérés par recettes)
@@ -63,7 +64,7 @@ module Beryl::CLI
         p.on("-h", "--help", "Aide") { puts p; exit 0 }
         p.unknown_args { |rest, _| positional = rest }
       end
-      parser.parse(args)
+      Beryl::CLI.handle_option_errors(parser).parse(args)
 
       return render_freebsd_releases if freebsd_releases # réseau seul, pas de config requise
 

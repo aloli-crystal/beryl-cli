@@ -1,3 +1,4 @@
+require "./option_errors"
 require "http/client"
 require "http/server"
 require "option_parser"
@@ -71,7 +72,7 @@ module Beryl::CLI::PrepRescue
         exit 0
       end
     end
-    parser.parse(args)
+    Beryl::CLI.handle_option_errors(parser).parse(args)
 
     unless File.exists?(pubkey_path)
       STDERR.puts "beryl prep-rescue : fichier de clé SSH introuvable : #{pubkey_path}"

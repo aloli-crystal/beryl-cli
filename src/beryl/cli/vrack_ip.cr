@@ -1,4 +1,5 @@
 require "option_parser"
+require "./option_errors"
 require "yaml"
 require "../config"
 
@@ -45,7 +46,7 @@ module Beryl::CLI
         p.on("-a NAME", "--account=NAME", "Limiter à une société") { |v| account_hint = v }
         p.on("-h", "--help", "Aide") { puts p; exit 0 }
       end
-      parser.parse(args)
+      Beryl::CLI.handle_option_errors(parser).parse(args)
 
       root = Beryl::Config::Root.load(config_root)
       by_account = collect_by_account(root)

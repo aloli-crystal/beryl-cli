@@ -1,4 +1,5 @@
 require "option_parser"
+require "./option_errors"
 require "socket"
 require "../config"
 require "../providers"
@@ -39,7 +40,7 @@ module Beryl::CLI
         p.on("-h", "--help", "Aide") { puts p; exit 0 }
         p.unknown_args { |rest, _| positional = rest }
       end
-      parser.parse(args)
+      Beryl::CLI.handle_option_errors(parser).parse(args)
 
       unless positional.size == 4
         STDERR.puts "beryl dns-record : 4 arguments attendus (zone, sous-domaine, type, cible). Voir `beryl dns-record --help`."

@@ -9,6 +9,15 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Options inconnues : message clair pour toutes les commandes
+
+Une option inconnue ou sans sa valeur affichait « erreur inattendue —
+OptionParser::InvalidOption: … » (ou une trace Crystal pour les options
+globales). Toutes les commandes répondent désormais « beryl <commande> :
+option inconnue : --x (voir beryl <commande> --help) » (ou « valeur manquante
+pour -k »), code de sortie 2. Un seul point d'entrée,
+`Beryl::CLI.handle_option_errors`, branché sur chaque analyseur d'options.
+
 === `beryl bootstrap` : `--skip-recipes` remplace `--no-apply`
 
 `--no-apply` (ne pas enchaîner `beryl apply` après l'installation) se
