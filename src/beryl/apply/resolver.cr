@@ -23,6 +23,7 @@ module Beryl::Apply
   #      partout → `RecipeNotFound`.
   #   2. Tri topologique (Kahn) : les dépendances sortent avant leurs
   #      dépendants. Ordre alphabétique à indegree égal (déterministe).
+  #      `order: [a, b]` d'une recette ajoute l'arête a → b (b après a).
   #   3. Cycle → `Cycle` (liste des recettes impliquées).
   class Resolver
     # Levée quand une recette référencée (demandée ou via `requires:`)
@@ -92,11 +93,15 @@ module Beryl::Apply
       indegree = {} of String => Int32
       loaded.each_key { |n| indegree[n] = 0 }
       dependents = {} of String => Array(String)
+      edges = Set(Tuple(String, String)).new
       loaded.each do |name, recipe|
-        recipe.requires.each do |dep|
-          indegree[name] += 1
-          (dependents[dep] ||= [] of String) << name
-        end
+        recipe.requires.each { |dep| edges << {dep, name} }
+        # `order:` : chaque dépendance passe après la précédente de la liste.
+        recipe.order.each_cons_pair { |before, after| edges << {before, after} }
+      end
+      edges.each do |dep, name|
+        indegree[name] += 1
+        (dependents[dep] ||= [] of String) << name
       end
 
       ready = indegree.select { |_, d| d == 0 }.keys.sort

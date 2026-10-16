@@ -33,6 +33,11 @@ module Beryl::Apply
     # nom de la dépendance → arguments. Les arguments de l'hôte (`apply_recipes`)
     # restent prioritaires (cf. `Executor.merge_required_args`).
     getter requires_args : Hash(String, Hash(String, String))
+    # Ordre imposé entre certaines dépendances (`order: [a, b]` → `b` après `a`),
+    # en plus du tri topologique : `requires:` reste trié par ordre alphabétique
+    # et `order:` dit ce qui doit passer avant quoi (ex. le dépôt pkg avant la
+    # recette qui installe son paquet). Chaque nom figure dans `requires:`.
+    getter order : Array(String)
     # `requires_vrack: true` → recette ÉCARTÉE par `beryl apply` si le host n'a
     # pas d'IP vRack (ex. `pkg-repo-acme` joint le builder sur le vRack).
     getter requires_vrack : Bool
@@ -55,6 +60,7 @@ module Beryl::Apply
       @positional : String? = nil,
       @requires_vrack : Bool = false,
       @requires_args : Hash(String, Hash(String, String)) = {} of String => Hash(String, String),
+      @order : Array(String) = [] of String,
     )
     end
 
@@ -95,6 +101,7 @@ module Beryl::Apply
       description = root[YAML::Any.new("description")]?.try(&.as_s?) || ""
       requires, requires_args = parse_requires(root, path)
       requires_vrack = root[YAML::Any.new("requires_vrack")]?.try(&.as_bool?) == true
+      order = parse_order(root, requires, path)
       parameters = sub_hash(root, "parameters")
       arguments = sub_hash(root, "arguments")
       steps = parse_steps(root, path)
@@ -117,7 +124,27 @@ module Beryl::Apply
         positional: positional,
         requires_vrack: requires_vrack,
         requires_args: requires_args,
+        order: order,
       )
+    end
+
+    # `order:` : liste de noms, tous présents dans `requires:`, sans doublon.
+    private def self.parse_order(root : Hash(YAML::Any, YAML::Any), requires : Array(String), path : String) : Array(String)
+      raw = root[YAML::Any.new("order")]?
+      return [] of String unless raw
+      list = raw.as_a? || raise InvalidRecipe.new("recette `#{path}` : `order:` est une liste de dépendances.")
+      names = list.map do |entry|
+        entry.as_s? || raise InvalidRecipe.new("recette `#{path}` : `order:` — nom de dépendance invalide.")
+      end
+      names.each do |n|
+        unless requires.includes?(n)
+          raise InvalidRecipe.new("recette `#{path}` : `order: #{n}` absent de `requires:`.")
+        end
+      end
+      if names.uniq.size != names.size
+        raise InvalidRecipe.new("recette `#{path}` : `order:` — dépendance en double.")
+      end
+      names
     end
 
     # `requires:` : liste de noms, ou de maps à UNE clé `nom: { arg: valeur }`

@@ -9,6 +9,17 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Recettes : `order:` impose l'ordre entre des dépendances
+
+Le tri des recettes ne suit que `requires:`, ordre alphabétique à égalité :
+une recette privée qui requiert son dépôt pkg ET la recette qui installe son
+paquet ne pouvait pas faire passer le dépôt d'abord (`nginx-lite` avant
+`pkg-repo-aloli` sur qwerty : paquet maison introuvable). `order: [a, b]`
+ajoute « b après a » au tri, pour tout l'apply (même si une autre recette
+requiert b) ; `requires:` reste trié par ordre alphabétique. Chaque nom de
+`order:` doit figurer dans `requires:` (sinon recette invalide) ; un ordre
+contraire à un `requires:` est signalé comme un cycle.
+
 === Test : socle nginx partagé par une recette privée, une appli et un site
 
 Vérifie le modèle des paquets nginx MAISON (beryl-recipes 0.0.37) : une

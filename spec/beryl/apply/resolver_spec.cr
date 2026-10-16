@@ -72,3 +72,87 @@ describe Beryl::Apply::Resolver do
     end
   end
 end
+
+# Dossier temporaire de recettes (nom → contenu YAML), pour les specs `order:`.
+private def with_recipes(files : Hash(String, String), &)
+  dir = File.join(Dir.tempdir, "beryl-order-#{Random::Secure.hex(6)}")
+  Dir.mkdir_p(dir)
+  files.each { |name, yaml| File.write(File.join(dir, "#{name}.recipe.yml"), yaml) }
+  begin
+    yield dir
+  ensure
+    FileUtils.rm_rf(dir)
+  end
+end
+
+describe "Beryl::Apply::Resolver — order:" do
+  it "sans order:, deux dépendances indépendantes sortent par ordre alphabétique" do
+    with_recipes({
+      "nginx"  => "steps: []\n",
+      "repo"   => "steps: []\n",
+      "maison" => "requires: [nginx, repo]\nsteps: []\n",
+    }) do |dir|
+      Beryl::Apply::Resolver.new(dir).resolve(["maison"]).map(&.name).should eq(["nginx", "repo", "maison"])
+    end
+  end
+
+  it "order: fait passer le dépôt avant la recette qui installe son paquet" do
+    with_recipes({
+      "nginx"  => "steps: []\n",
+      "repo"   => "steps: []\n",
+      "maison" => "requires: [nginx, repo]\norder: [repo, nginx]\nsteps: []\n",
+    }) do |dir|
+      Beryl::Apply::Resolver.new(dir).resolve(["maison"]).map(&.name).should eq(["repo", "nginx", "maison"])
+    end
+  end
+
+  it "order: s'applique aussi quand une autre recette requiert la même dépendance" do
+    with_recipes({
+      "nginx"  => "steps: []\n",
+      "repo"   => "steps: []\n",
+      "maison" => "requires: [nginx, repo]\norder: [repo, nginx]\nsteps: []\n",
+      "site"   => "requires: [nginx]\nsteps: []\n",
+    }) do |dir|
+      names = Beryl::Apply::Resolver.new(dir).resolve(["site", "maison"]).map(&.name)
+      names.index!("repo").should be < names.index!("nginx")
+    end
+  end
+
+  it "order: contraire à un requires → Cycle" do
+    with_recipes({
+      "nginx"  => "requires: [repo]\nsteps: []\n",
+      "repo"   => "steps: []\n",
+      "maison" => "requires: [nginx, repo]\norder: [nginx, repo]\nsteps: []\n",
+    }) do |dir|
+      expect_raises(Beryl::Apply::Resolver::Cycle) do
+        Beryl::Apply::Resolver.new(dir).resolve(["maison"])
+      end
+    end
+  end
+
+  it "order: accepte les dépendances en forme map de requires:" do
+    with_recipes({
+      "nginx"  => "parameters:\n  package:\n    type: string\n    default: x\nsteps: []\n",
+      "repo"   => "steps: []\n",
+      "maison" => "requires:\n  - nginx: { package: y }\n  - repo\norder: [repo, nginx]\nsteps: []\n",
+    }) do |dir|
+      Beryl::Apply::Resolver.new(dir).resolve(["maison"]).map(&.name).should eq(["repo", "nginx", "maison"])
+    end
+  end
+
+  it "refuse un nom de order: absent de requires:" do
+    with_recipes({"maison" => "requires: [repo]\norder: [repo, nginx]\nsteps: []\n"}) do |dir|
+      expect_raises(Beryl::Apply::Recipe::InvalidRecipe, /`order: nginx` absent de `requires:`/) do
+        Beryl::Apply::Recipe.load(File.join(dir, "maison.recipe.yml"))
+      end
+    end
+  end
+
+  it "refuse un doublon dans order:" do
+    with_recipes({"maison" => "requires: [repo]\norder: [repo, repo]\nsteps: []\n"}) do |dir|
+      expect_raises(Beryl::Apply::Recipe::InvalidRecipe, /en double/) do
+        Beryl::Apply::Recipe.load(File.join(dir, "maison.recipe.yml"))
+      end
+    end
+  end
+end
