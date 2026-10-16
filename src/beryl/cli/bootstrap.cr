@@ -42,7 +42,7 @@ module Beryl::CLI::Bootstrap
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
       p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (ex: dedibox, ovh, scaleway)") { |v| provider_override = v }
       p.on("--apply", "Applique réellement les changements (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false }
-      p.on("--no-apply", "Ne pas enchaîner `beryl apply` après l'installation") { chain_apply = false }
+      p.on("--skip-recipes", "Ne pas enchaîner `beryl apply` (les recettes) après l'installation") { chain_apply = false }
       p.on("-f", "--force", "Bypass le précheck (disques déclarés != physiques)") { force = true }
       p.on("-i URL", "--iso-url=URL", "URL mfsBSD (override)") { |v| iso_url_override = v }
       p.on("-v VER", "--freebsd-version=VER", "Version FreeBSD à installer (défaut : dernière mfsBSD SE détectée sur GitHub)") { |v| freebsd_version_flag = v }
@@ -324,7 +324,7 @@ module Beryl::CLI::Bootstrap
       STDERR.puts "  sudoers     :"
       sudoers.each { |s| STDERR.puts "    - #{s}" }
       if chain_apply
-        STDERR.puts "  ensuite     : beryl apply #{Beryl::CLI::AccountUtils.host_ref(host)} --apply (enchaîné ; --no-apply pour l'éviter)"
+        STDERR.puts "  ensuite     : beryl apply #{Beryl::CLI::AccountUtils.host_ref(host)} --apply (enchaîné ; --skip-recipes pour l'éviter)"
       end
       STDERR.puts "─" * 60
       STDERR.puts "DRY-RUN : aucune action exécutée."

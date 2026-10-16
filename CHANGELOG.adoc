@@ -9,6 +9,13 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl bootstrap` : `--skip-recipes` remplace `--no-apply`
+
+`--no-apply` (ne pas enchaîner `beryl apply` après l'installation) se
+confondait avec `--apply` (exécuter le bootstrap) : `beryl bootstrap … --apply
+--no-apply` se lisait comme une contradiction. Nouveau nom `--skip-recipes`
+(l'ancien est retiré).
+
 === Recettes : `order:` impose l'ordre entre des dépendances
 
 Le tri des recettes ne suit que `requires:`, ordre alphabétique à égalité :
