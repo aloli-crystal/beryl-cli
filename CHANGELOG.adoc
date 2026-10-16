@@ -9,6 +9,15 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `build-status` : relevé des fichiers portable (GNU et BSD)
+
+Le script lisait la date et la taille des fichiers par `stat -f '%m %z'`,
+syntaxe BSD : sous GNU (Linux), `-f` interroge le système de fichiers, la
+ligne devenait illisible et aucune version majeure n'était trouvée (test en
+échec sur la CI Ubuntu). Il essaie désormais `stat -c '%Y %s'` (GNU) puis
+`stat -f '%m %z'` (BSD, FreeBSD). Reproduit puis vérifié avec un `stat` GNU
+simulé.
+
 === CI : ameba compilé avant d'être lancé
 
 ameba 1.7 ne compile plus son exécutable à l'installation (plus de

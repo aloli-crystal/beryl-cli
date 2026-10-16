@@ -166,7 +166,7 @@ module Beryl::BuildReport
       cd #{Process.quote(pkgdir)} 2>/dev/null || { echo '@@NOPKGDIR'; exit 0; }
       echo "@@NOW $(date +%s)"
       for f in #{base}.lock #{base}.log #{base}.overlays; do
-        [ -e "$f" ] && echo "@@FILE $f $(stat -f '%m %z' "$f")"
+        [ -e "$f" ] && echo "@@FILE $f $(stat -c '%Y %s' "$f" 2>/dev/null || stat -f '%m %z' "$f")"
       done
       for f in #{base}.overlays; do
         [ -f "$f" ] && { echo "@@BEGIN $f"; cat "$f"; echo; }
