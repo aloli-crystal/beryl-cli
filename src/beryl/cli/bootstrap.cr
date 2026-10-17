@@ -8,6 +8,7 @@ require "./precheck"
 require "./machine_kind"
 require "./apply"
 require "./config_git"
+require "./host_keys"
 
 # Sous-commande `beryl bootstrap <host>` : installe FreeBSD 15 sur un
 # hôte actuellement en rescue Linux (voie mfsBSD-in-QEMU, ADR-012/013).
@@ -427,7 +428,8 @@ module Beryl::CLI::Bootstrap
     bootstrap.run
 
     STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 7] terminé pour #{host.fqdn}"
-    forget_host_keys(host)
+    # Le FreeBSD installé a de nouvelles clés d'hôte (le rescue aussi).
+    Beryl::CLI::HostKeys.forget(host, "bootstrap")
     mark_installed(host)
     return EXIT_OK unless chain_apply
 
@@ -468,27 +470,6 @@ module Beryl::CLI::Bootstrap
   rescue ex
     STDERR.puts "beryl : erreur inattendue — #{ex.class}: #{ex.message}"
     EXIT_UNEXPECTED
-  end
-
-  # Le FreeBSD installé a de nouvelles clés d'hôte (le rescue aussi) : on
-  # retire les anciennes du known_hosts de l'opérateur, sinon son prochain
-  # `ssh` bute sur « REMOTE HOST IDENTIFICATION HAS CHANGED ». Tous les noms
-  # et adresses du serveur sont visés (FQDN, nom hébergeur, IP publiques,
-  # vRack, overlay). Un échec n'invalide pas le bootstrap.
-  private def self.forget_host_keys(host : Beryl::Config::ResolvedHost) : Nil
-    found = Beryl::KnownHosts.forget(known_host_names(host), host.port)
-    return if found.empty?
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] known_hosts : anciennes clés d'hôte retirées (#{found.join(", ")}) ; copie dans #{Beryl::KnownHosts.default_path}.old"
-  rescue ex
-    STDERR.puts "beryl : ⚠ #{host.fqdn} installé, mais les anciennes clés d'hôte n'ont pas pu être retirées de known_hosts (#{ex.message}) — lancez `ssh-keygen -R #{host.fqdn}`."
-  end
-
-  # Noms et adresses sous lesquels l'opérateur a pu joindre le serveur.
-  def self.known_host_names(host : Beryl::Config::ResolvedHost) : Array(String)
-    names = [host.fqdn, host.ssh_host, host.rescue_ssh_host]
-    names.concat([host.ovh_service_name, host.ovh_ipv4, host.ovh_ipv6, host.overlay_ip].compact)
-    names.concat(host.vrack_ips)
-    names.uniq
   end
 
   # FreeBSD installé → retire `installed: false` du host.yml (les commandes de

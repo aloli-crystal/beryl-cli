@@ -6,6 +6,7 @@ require "ssh"
 require "./account_utils"
 require "./credentials"
 require "./rescue"
+require "./host_keys"
 require "./machine_kind"
 
 # Sous-commande `beryl boot-hd <host>` : bascule OVH sur le boot
@@ -101,6 +102,9 @@ module Beryl::CLI::BootHd
     client = ovh_client_factory.call
     log "H2.1 OVH : boot_from_disk pour #{service_name}"
     task = client.dedicated_servers.boot_from_disk(service_name)
+    # Le système installé reprend ses propres clés d'hôte (celles du rescue
+    # partent).
+    Beryl::CLI::HostKeys.forget(host, "boot-hd")
 
     if wait
       # Poll la task jusqu'à son état terminal avant de tester SSH.

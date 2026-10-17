@@ -21,11 +21,11 @@ describe Beryl::CLI::Bootstrap do
   end
 end
 
-describe "Beryl::CLI::Bootstrap.known_host_names" do
+describe "Beryl::CLI::HostKeys.names" do
   it "vise le FQDN, le nom hébergeur, l'IP publique et les IP vRack" do
     fixture = File.expand_path(File.join(__DIR__, "..", "..", "fixtures", "config", "ssh-host-override"))
     host = Beryl::Config::Root.load(fixture).resolve("rescuehidden")
-    Beryl::CLI::Bootstrap.known_host_names(host).should eq([
+    Beryl::CLI::HostKeys.names(host).should eq([
       "rescuehidden.initech.example", "192.168.42.50", "ns9999.ip-1-2-3.eu", "1.2.3.4", "192.168.42.150",
     ])
   end

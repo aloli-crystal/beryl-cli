@@ -9,6 +9,16 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl rescue` et `beryl boot-hd` : clés d'hôte oubliées
+
+Comme `beryl bootstrap`, `beryl rescue` (le rescue a ses propres clés) et
+`beryl boot-hd` (le système installé reprend les siennes) retirent de
+`~/.ssh/known_hosts` les clés de tous les noms et adresses du serveur (FQDN,
+nom hébergeur, IPv4, IPv6, vRack, overlay), copie dans `known_hosts.old` :
+le `ssh` suivant de l'opérateur ne bute plus sur « REMOTE HOST IDENTIFICATION
+HAS CHANGED ». Un seul code, `Beryl::CLI::HostKeys` (sorti de `bootstrap`).
+Rien n'est retiré en essai à blanc.
+
 === `beryl bootstrap` : entrée de démarrage UEFI FreeBSD, retour au rescue détecté
 
 * Étape 7.5b : avant le redémarrage, beryl pose depuis le rescue une entrée

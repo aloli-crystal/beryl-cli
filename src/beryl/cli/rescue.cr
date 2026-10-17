@@ -10,6 +10,7 @@ require "./account_utils"
 require "./credentials"
 require "./provider_shortcut"
 require "./machine_kind"
+require "./host_keys"
 
 # Sous-commande `beryl rescue <host> [options]` : bascule un hôte en
 # rescue via l'API de l'hébergeur (OVH ou Scaleway) puis attend le
@@ -211,6 +212,8 @@ module Beryl::CLI::Rescue
       STDERR.puts "beryl : provider « #{provider} » inconnu (attendu : #{known.join(", ")})"
       return EXIT_BAD_PROVIDER
     end
+    # Le rescue a ses propres clés d'hôte (celles du système installé partent).
+    Beryl::CLI::HostKeys.forget(host, "rescue")
 
     if wait
       target = Beryl.format_ssh_target(host)
