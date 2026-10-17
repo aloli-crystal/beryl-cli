@@ -9,6 +9,24 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl bootstrap` : entrée de démarrage UEFI FreeBSD, retour au rescue détecté
+
+* Étape 7.5b : avant le redémarrage, beryl pose depuis le rescue une entrée
+  UEFI « FreeBSD <disque> » (`efibootmgr`, partition EFI trouvée par son type
+  GPT, lue sur le disque par `partx` : la table du noyau du rescue date
+  d'avant l'installation) sur chaque disque boot, juste APRÈS les démarrages réseau (l'hébergeur
+  pilote rescue et disque par le PXE) ; les entrées d'un bootstrap précédent
+  sont remplacées, le reste de l'ordre gardé. Sans elle, le disque ne démarre
+  que si le firmware a lui-même créé une entrée « UEFI OS » — ce qu'une carte
+  peut ne faire qu'au démarrage suivant (tika, ASRock, 15 oct. 2026 : premier
+  démarrage resté sans FreeBSD). Un échec est signalé sans arrêter le
+  bootstrap ; démarrage BIOS : rien à faire. L'essai à blanc affiche l'ordre
+  actuel et l'ordre prévu.
+* Étape 7.6 : `admin` refusé plus de 2 min après le redémarrage → beryl
+  demande `uname` à root avec la clé du rescue. Linux deux fois de suite :
+  arrêt « revenu au rescue, la bascule sur le disque n'a pas pris » (au lieu
+  de 30 min d'attente) ; FreeBSD : avertissement « clé d'admin refusée ».
+
 === Options inconnues : message clair pour toutes les commandes
 
 Une option inconnue ou sans sa valeur affichait « erreur inattendue —

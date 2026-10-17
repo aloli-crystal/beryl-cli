@@ -324,6 +324,11 @@ module Beryl::CLI::Bootstrap
       STDERR.puts "  packages    : #{packages.join(", ")}"
       STDERR.puts "  sudoers     :"
       sudoers.each { |s| STDERR.puts "    - #{s}" }
+      # Entrée UEFI posée avant le redémarrage (7.5b) : ordre lu dans le
+      # rescue, sans rien écrire.
+      efi = rescue_conn.exec(Beryl::Bootstrap::QemuInRescue.efi_boot_entry_command(disks, dry: true), raise_on_error: false)
+      STDERR.puts "  entrée UEFI : « FreeBSD <disque> » après les démarrages réseau"
+      (efi.stdout + efi.stderr).each_line { |line| STDERR.puts "  #{line}" }
       if chain_apply
         STDERR.puts "  ensuite     : beryl apply #{Beryl::CLI::AccountUtils.host_ref(host)} --apply (enchaîné ; --skip-recipes pour l'éviter)"
       end
@@ -448,6 +453,9 @@ module Beryl::CLI::Bootstrap
   rescue ex : SSH::CommandFailed
     STDERR.puts "beryl : #{ex.message}"
     EXIT_SSH_FAILED
+  rescue ex : Beryl::Bootstrap::QemuInRescue::BackInRescue
+    STDERR.puts "beryl : #{ex.message}"
+    EXIT_NOGO
   rescue ex : Beryl::Bootstrap::QemuInRescue::TargetDiskNotEmpty
     STDERR.puts "beryl : #{ex.message}"
     EXIT_NOGO
