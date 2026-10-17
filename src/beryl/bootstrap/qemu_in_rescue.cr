@@ -172,9 +172,6 @@ module Beryl::Bootstrap
     # Script d'install pkgbase autonome (validé in vivo, boot FreeBSD 15).
     # Utilisé quand `install_type: packages` au lieu de bsdinstall+tarballs.
     TEMPLATE_INSTALL_PKGBASE = {{ read_file("#{__DIR__}/templates/install-pkgbase.sh") }}
-    # Entrée de démarrage UEFI « FreeBSD <disque> », posée depuis le rescue
-    # avant le redémarrage (cf. commentaire en tête du script).
-    TEMPLATE_EFI_BOOT_ENTRY = {{ read_file("#{__DIR__}/templates/efi-boot-entry.sh") }}
     # Le rescue répond encore « Permission denied » au 1er essai (il n'est pas
     # encore tombé) : au-delà de ce délai, un refus fait vérifier si le serveur
     # n'est pas tout simplement REVENU au rescue.
@@ -350,7 +347,7 @@ module Beryl::Bootstrap
     def run : SSH::Connection
       log_step("7.1 vérifie que le rescue tourne bien sous Linux") { verify_linux_rescue }
       log_step("7.1b NOGO si BSD déjà en place sur #{all_qemu_disks.join(", ")}") { check_target_disks_no_bsd }
-      log_step("7.2 installe qemu-system-x86, ovmf, sshpass, curl et efibootmgr côté rescue") { install_packages }
+      log_step("7.2 installe qemu-system-x86, ovmf, sshpass et curl côté rescue") { install_packages }
       log_step("7.3 télécharge l'image mfsBSD SE #{@mfsbsd_version} si nécessaire") { download_mfsbsd_if_needed }
       log_step("7.4 dépose #{@install_type == "packages" ? "install-pkgbase.sh" : "installerconfig"} + driver shell sur le rescue") do
         prepare_ovmf_vars
@@ -371,7 +368,6 @@ module Beryl::Bootstrap
       log_step("7.5 QEMU + mfsBSD : install #{install_label} + post-install no-chroot (typiquement 1-3 min)") do
         @rescue_conn.exec("bash #{Process.quote(RESCUE_RUN_VM_PATH)}")
       end
-      set_efi_boot_entries
       # Étape 6/6 : on sort du `log_step` animé car `wait_for_installed_ssh`
       # loggue ligne par ligne chaque tentative SSH (exit code / stderr /
       # exception). Même pattern que `default_wait_for_ssh` dans rescue.cr
@@ -695,7 +691,7 @@ module Beryl::Bootstrap
       @rescue_conn.exec(
         "mkdir -p #{Process.quote(WORK_DIR)} && " \
         "DEBIAN_FRONTEND=noninteractive apt-get update -qq && " \
-        "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq qemu-system-x86 ovmf sshpass curl efibootmgr"
+        "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq qemu-system-x86 ovmf sshpass curl"
       )
     end
 
@@ -760,24 +756,6 @@ module Beryl::Bootstrap
     private def grace_sleep : Nil
       log "7.6 reboot envoyé — attente #{REBOOT_GRACE_PERIOD.total_seconds.to_i}s que le serveur redémarre avant le polling SSH…"
       sleep REBOOT_GRACE_PERIOD
-    end
-
-    # Commande (rescue Linux) du script d'entrée UEFI, envoyé en base64.
-    # `dry` : n'écrit rien, affiche l'ordre actuel et l'ordre prévu.
-    def self.efi_boot_entry_command(disks : Array(String), dry : Bool) : String
-      b64 = Base64.strict_encode(TEMPLATE_EFI_BOOT_ENTRY)
-      "printf '%s' #{Process.quote(b64)} | base64 -d | " \
-      "DISKS=#{Process.quote(disks.join(" "))} DRY=#{dry ? 1 : 0} sh"
-    end
-
-    # 7.5b : entrée de démarrage UEFI FreeBSD sur chaque disque boot. Un échec
-    # n'arrête pas le bootstrap (l'entrée « UEFI OS » du firmware peut suffire) :
-    # il est signalé, avec la sortie du script.
-    private def set_efi_boot_entries : Nil
-      log "7.5b entrée de démarrage UEFI FreeBSD (efibootmgr) sur #{@disks.join(", ")}"
-      result = @rescue_conn.exec(self.class.efi_boot_entry_command(@disks, dry: false), raise_on_error: false)
-      (result.stdout + result.stderr).each_line { |line| log "7.5b #{line}" }
-      log "7.5b ⚠ entrée non posée (code #{result.exit_code}) — le démarrage dépend alors du firmware" unless result.success?
     end
 
     private def reboot_bare_metal : Nil
