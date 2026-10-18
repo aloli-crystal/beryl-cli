@@ -9,6 +9,23 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Listes triées, plus aucun sens caché dans leur ordre
+
+* `beryl fmt` et toute écriture de config (yaml-tidy 0.1.5) trient aussi les
+  ÉLÉMENTS des listes en bloc (`- …`) : un scalaire par son texte, un mapping
+  par son `name:`, sinon par sa première clé. Les listes EN LIGNE (`[a, b]`)
+  gardent leur ordre — c'est là qu'un ordre porte un sens : paire de
+  rotation `[active, suivante]`, `vrack.ip: [principale, …]`. Après rangement,
+  les données sont vérifiées identiques (sinon refus, jamais de fichier
+  altéré).
+* Plus rien ne dépend de l'ordre d'une liste en bloc :
+  ** utilisateur de connexion (`connect_user`, `beryl apply`, attente du
+     bootstrap) : `user:` explicite, sinon les users sudo par ordre
+     ALPHABÉTIQUE (avant : le premier de `freebsd.users` pour `apply`, le
+     premier tout court pour `bootstrap`) ; bootstrap sans user sudo : refus ;
+  ** disques des pools : l'ordre alphabétique (`nvme0n1`, `nvme1n1`) fixe
+     `efi0`, `boot0`… comme avant dans les configs existantes.
+
 === Fichiers de config écrits déjà rangés
 
 Toute commande qui écrit un fichier de config — `bootstrap` (`installed`),

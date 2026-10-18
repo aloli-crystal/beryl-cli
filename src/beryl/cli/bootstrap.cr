@@ -288,7 +288,14 @@ module Beryl::CLI::Bootstrap
       STDERR.puts "        (déclarez au moins un user dans _default.yml ou le domaine)"
       return EXIT_USAGE
     end
-    installed_user = users.first.name
+    # Compte par lequel attendre le FreeBSD installé : le même que `beryl apply`
+    # (`connect_user`), jamais « le premier de la liste ».
+    installed_user = host.connect_user
+    if installed_user == "root"
+      STDERR.puts "beryl : aucun user sudo (groupe wheel ou `sudo: true`) dans freebsd.users pour #{host.fqdn} — " \
+                  "root SSH est coupé sur le système installé, beryl ne pourrait pas s'y connecter"
+      return EXIT_USAGE
+    end
 
     all_disks = disks + data_pools.flat_map(&.disks)
     STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 7] cible : #{Beryl.format_ssh_target(host)} disques : #{all_disks.join(", ")}"

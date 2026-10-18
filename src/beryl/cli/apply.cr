@@ -208,9 +208,10 @@ module Beryl::CLI::Apply
       return EXIT_OK
     end
 
-    # Connexion comme le PREMIER user sudo-capable de freebsd.users (le
-    # SSH root est coupé sur les hôtes durcis) ; à défaut host.user.
-    ssh_user = sudo_user(host) || host.user
+    # Connexion par l'utilisateur sudo (`connect_user` : `user:` explicite,
+    # sinon le user sudo-capable, par ordre alphabétique) — le SSH root est
+    # coupé sur les hôtes durcis.
+    ssh_user = host.connect_user
     log "cible : #{Beryl.format_ssh_target(host)} (user SSH : #{ssh_user})"
     log "recettes (ordre résolu) : #{recipes.map(&.name).join(" → ")}"
 
@@ -333,31 +334,6 @@ module Beryl::CLI::Apply
   # merge (`local_path`, défaut `<config>/recipes`). Le dépôt central
   # est cloné/maintenu hors de beryl (Phase 1) ; les recettes vivent
   # dans son sous-dossier `recipes/`.
-  # Premier user sudo-capable de `freebsd.users` : `sudo: true` explicite
-  # prime, sinon (champ absent) on déduit de l'appartenance au groupe
-  # `wheel`. nil si aucun → apply retombe sur host.user (root).
-  private def self.sudo_user(host : Beryl::Config::ResolvedHost) : String?
-    freebsd = host.merged[YAML::Any.new("freebsd")]?.try(&.as_h?)
-    return unless freebsd
-    users = freebsd[YAML::Any.new("users")]?.try(&.as_a?)
-    return unless users
-
-    Beryl::Config::Users.list(users).each do |e|
-      can =
-        if flag = e.fields[YAML::Any.new("sudo")]?
-          flag.as_bool? == true
-        else
-          # `secondary_groups` (canonique) OU alias `groups` — même tolérance
-          # que user-sync, sinon le user de connexion diffère.
-          {"secondary_groups", "groups"}.any? do |key|
-            e.fields[YAML::Any.new(key)]?.try(&.as_a?).try(&.any? { |g| g.as_s? == "wheel" }) || false
-          end
-        end
-      return e.name if can
-    end
-    nil
-  end
-
   # Recette synthétique de réconciliation des comptes, construite depuis
   # `freebsd.users` : un step `user-sync` par user déclaré. nil si aucun.
   private def self.build_users_recipe(host : Beryl::Config::ResolvedHost) : Beryl::Apply::Recipe?

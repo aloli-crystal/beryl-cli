@@ -633,8 +633,9 @@ module Beryl::Config
       units
     end
 
-    # Utilisateur de connexion SSH effectif : le PREMIER user sudo-capable de
-    # `freebsd.users` (groupe `wheel` ou `sudo: true`), à défaut `user`. Sur les
+    # Utilisateur de connexion SSH effectif : `user:` explicite, sinon le 1er
+    # (ordre ALPHABÉTIQUE) user sudo-capable de `freebsd.users` (groupe `wheel`
+    # ou `sudo: true`), à défaut root. Sur les
     # hôtes durcis le root SSH est fermé → beryl entre par ce compte. Aligné sur
     # `beryl apply`/`vrack` (qui dérivaient cette logique chacun de leur côté).
     def connect_user : String
@@ -647,7 +648,9 @@ module Beryl::Config
     #
     #   1. override EXPLICITE `freebsd.user` (ou `user` racine) → LUI SEUL ;
     #   2. sinon tous les users sudo-capables (`wheel`/`sudo:true`) de
-    #      `freebsd.users`, dans l'ordre ;
+    #      `freebsd.users`, par ordre ALPHABÉTIQUE — l'ordre de la liste ne
+    #      porte aucun sens (les listes sont triées par `beryl fmt`) ; pour
+    #      imposer un compte, `user:` ;
     #   3. + `root` en dernier recours.
     def connect_users : Array(String)
       if u = freebsd_string("user") || @merged[YAML::Any.new("user")]?.try(&.as_s?)
@@ -663,6 +666,7 @@ module Beryl::Config
           cands << e.name if wheel || sudo
         end
       end
+      cands.sort!
       cands << "root"
       cands.uniq
     end
@@ -894,8 +898,11 @@ module Beryl::Config
       if explicit = @merged[YAML::Any.new("ssh_host")]?.try(&.as_s?)
         return explicit
       end
-      # Host caché (proxy_jump présent) → on le joint par sa 1ʳᵉ IP vRack (le 22
-      # public est fermé). Le ProxyJump passe par le bastion.
+      # Host caché (proxy_jump présent) → on le joint par son IP vRack
+      # PRINCIPALE (le 22 public est fermé). Le ProxyJump passe par le bastion.
+      # Plusieurs IP : la principale est la 1ʳᵉ de `vrack.ip: [principale, …]`,
+      # liste EN LIGNE — `beryl fmt` n'en change pas l'ordre (il trie les
+      # listes en bloc `- …`) ; `ssh_host:` l'emporte s'il est donné.
       if hidden? && (vip = vrack_ips.first?)
         return vip
       end

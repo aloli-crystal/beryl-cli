@@ -441,3 +441,21 @@ describe Beryl::Config::ResolvedHost do
     end
   end
 end
+
+describe "Beryl::Config::ResolvedHost#connect_users (sans dépendre de l'ordre de la liste)" do
+  it "essaie les users sudo par ordre alphabétique, root en dernier ; `user:` l'emporte" do
+    dir = File.join(Dir.tempdir, "beryl-connect-#{Random::Secure.hex(6)}")
+    path = File.join(dir, "acme", "example.net", "web.host.yml")
+    Dir.mkdir_p(File.dirname(path))
+    users = "freebsd:\n  users:\n    - name: zed\n      secondary_groups: [wheel]\n    - name: adm\n      secondary_groups: [wheel]\n    - name: deploy\n"
+    File.write(path, "provider: local\n#{users}")
+    host = Beryl::Config::Root.load(dir).resolve("web")
+    host.connect_users.should eq(["adm", "zed", "root"])
+    host.connect_user.should eq("adm")
+
+    File.write(path, "provider: local\nuser: zed\n#{users}")
+    Beryl::Config::Root.load(dir).resolve("web").connect_users.should eq(["zed"])
+  ensure
+    FileUtils.rm_rf(dir) if dir
+  end
+end

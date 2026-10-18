@@ -5,7 +5,8 @@ require "yaml-tidy"
 module Beryl::CLI
   # `beryl fmt [host|société|domaine] [--check]` : normalise les fichiers de
   # config beryl — `*.host.yml`, `_default.yml`, `*.domain.yml`, `*.group.yml`,
-  # `_account.yml` : clés triées alpha (récursif), commentaires préservés ; un
+  # `_account.yml` : clés triées alpha (récursif) ET éléments des listes en bloc
+  # (`- …`, yaml-tidy >= 0.1.5), commentaires préservés ; un
   # `*.host.yml` reçoit en plus son FQDN en 1ʳᵉ ligne.
   #
   # NE TOUCHE PAS aux secrets (`.env*`, `*.sample`). N'a PAS besoin du coffre :
