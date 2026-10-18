@@ -169,6 +169,12 @@ describe Beryl::CLI::Info do
       parsed["ovh"]["rack"].as_s.should eq("16RA09")
     end
 
+    it "écrit les clés par ordre alphabétique (comme beryl fmt)" do
+      block = Beryl::CLI::Info.ovh_block("ns1.eu", "GAME-1", "S355A02", "1.2.3.4", "2001:db8::1", "99.99", "fe80::1")
+      keys = block[1..].map { |l| l.strip.split(':').first }
+      keys.should eq(%w[commercial_name ipv4 ipv6 ipv6_gateway price_eur rack service_name])
+    end
+
     it "ajoute la passerelle IPv6 d'OVH, quotée" do
       block = Beryl::CLI::Info.ovh_block("ns1.eu", nil, nil, "1.2.3.4", "2001:db8:0:1::1", nil, "2001:db8:0:ff:ff:ff:ff:ff")
       YAML.parse(block.join("\n") + "\n")["ovh"]["ipv6_gateway"].as_s.should eq("2001:db8:0:ff:ff:ff:ff:ff")

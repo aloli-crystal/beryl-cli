@@ -9,6 +9,16 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `info --refresh` : IPv6 en forme compressée, clés triées
+
+* L'API OVH rend les adresses en forme longue (`fe80:0000:…:0001`) : la
+  passerelle est écrite en forme canonique (`fe80::1`), et `netif6` compare
+  sous cette forme — sinon chaque apply croyait la route changée et
+  réécrivait rc.conf.
+* Les blocs `ovh:` et `hardware:` (`info --refresh`, `scan`) sont écrits
+  clés par ordre alphabétique, comme `beryl fmt` : plus de va-et-vient entre
+  un refresh et un fmt.
+
 === Passerelle IPv6 lue dans l'API OVH
 
 `fe80::1` ne suffit pas partout chez OVH : qwerty, loulou, quantas et tika

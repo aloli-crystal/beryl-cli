@@ -214,10 +214,10 @@ describe Beryl::Providers::Ovh do
   end
 
   describe "#ipv6_gateway" do
-    it "lit routing.ipv6.gateway de specifications/network" do
+    it "lit routing.ipv6.gateway de specifications/network, en forme compressée" do
       transport = FakeOvhTransport.new
       transport.stub("GET", /dedicated\/server\/ns123\.eu\/specifications\/network$/, status: 200,
-        body: %({"routing":{"ipv4":{"gateway":"1.2.3.254"},"ipv6":{"gateway":"2001:41d0:306:3dff:ff:ff:ff:ff","ip":"2001:41d0:306:3dc7::/64"}}}))
+        body: %({"routing":{"ipv4":{"gateway":"1.2.3.254"},"ipv6":{"gateway":"2001:41d0:0306:3dff:00ff:00ff:00ff:00ff","ip":"2001:41d0:306:3dc7::/64"}}}))
       provider = Beryl::Providers::Ovh.new(build_fake_ovh_client(transport))
       provider.ipv6_gateway("ns123.eu").should eq("2001:41d0:306:3dff:ff:ff:ff:ff")
     end

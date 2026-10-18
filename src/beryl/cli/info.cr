@@ -690,9 +690,10 @@ module Beryl::CLI
     def self.ovh_block(service_name : String, commercial : String?, rack : String?,
                        ipv4 : String?, ipv6 : String?, price : String?,
                        ipv6_gateway : String? = nil) : Array(String)
-      b = ["ovh:", "  service_name: #{service_name}"]
+      # Clés par ordre alphabétique, comme `beryl fmt` : un refresh ne réordonne
+      # pas le bloc (pas de va-et-vient refresh ↔ fmt).
+      b = ["ovh:"]
       b << "  commercial_name: #{commercial}" if commercial
-      b << "  rack: #{rack}" if rack
       b << "  ipv4: #{ipv4}" if ipv4
       # IPv6 TOUJOURS quotée : pleine de `:` (et parfois finissant par `::`) →
       # YAML la mal-parserait sans guillemets.
@@ -700,18 +701,22 @@ module Beryl::CLI
       # Passerelle IPv6 d'OVH (netif-ipv6 : `{{ public_ip6_gateway }}`), quotée aussi.
       b << %(  ipv6_gateway: "#{ipv6_gateway}") if ipv6_gateway
       b << "  price_eur: #{price}" if price
+      b << "  rack: #{rack}" if rack
+      b << "  service_name: #{service_name}"
       b
     end
 
     # Lignes du bloc `hardware:` (specs déclarées par le provider).
     private def self.hardware_block(hw : Beryl::HardwareSpec) : Array(String)
-      b = ["hardware:", "  cpu: #{hw.cpu}", "  cores: #{hw.cores}",
-           "  threads: #{hw.threads}", "  ram_gb: #{hw.ram_gb}"]
-      b << "  raid: #{hw.raid}" if hw.raid
+      # Clés par ordre alphabétique, comme `beryl fmt`.
+      b = ["hardware:", "  cores: #{hw.cores}", "  cpu: #{hw.cpu}"]
       unless hw.disks.empty?
         b << "  disks:"
         hw.disks.each { |d| b << "    - #{d}" }
       end
+      b << "  raid: #{hw.raid}" if hw.raid
+      b << "  ram_gb: #{hw.ram_gb}"
+      b << "  threads: #{hw.threads}"
       b
     end
 

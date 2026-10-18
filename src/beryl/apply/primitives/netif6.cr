@@ -1,3 +1,4 @@
+require "socket"
 require "../primitive"
 
 module Beryl::Apply
@@ -44,6 +45,16 @@ module Beryl::Apply
       "inet6 #{address} prefixlen #{prefixlen}"
     end
 
+    # Forme canonique (RFC 5952, compressée) d'une IPv6, `%scope` gardé : l'API
+    # OVH écrit `fe80:0000:…:0001`, netstat et rc.conf `fe80::1`. Adresse
+    # illisible : rendue telle quelle. Pur, exposé pour test.
+    def self.canonical(address : String) : String
+      ip, sep, scope = address.partition('%')
+      "#{Socket::IPAddress.new(ip, 0).address}#{sep}#{scope}"
+    rescue Socket::Error
+      address
+    end
+
     # Passerelle scopée : une gw link-local (`fe80::…`) exige `%<iface>` pour
     # être routable ; une gw globale reste telle quelle. Pur, exposé pour test.
     def self.gateway_scoped(gateway : String, iface : String) : String
@@ -84,7 +95,7 @@ module Beryl::Apply
         return StepResult.failed("interface #{iface} absente — interfaces disponibles : #{available}")
       end
 
-      gw = self.class.gateway_scoped(gateway, iface)
+      gw = self.class.gateway_scoped(self.class.canonical(gateway), iface)
       rc_var = "ifconfig_#{iface}_ipv6"
       rc_val = self.class.rc_value(address, prefixlen)
 

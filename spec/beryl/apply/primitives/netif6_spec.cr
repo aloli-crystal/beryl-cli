@@ -116,3 +116,15 @@ describe "Beryl::Apply::Netif6 — passerelle globale (anciennes gammes OVH)" do
     r.outcome.should eq(Beryl::Apply::Outcome::Skipped)
   end
 end
+
+describe "Beryl::Apply::Netif6.canonical" do
+  it "compresse la forme longue de l'API OVH" do
+    Beryl::Apply::Netif6.canonical("fe80:0000:0000:0000:0000:0000:0000:0001").should eq("fe80::1")
+    Beryl::Apply::Netif6.canonical("2001:41d0:0306:3dff:00ff:00ff:00ff:00ff").should eq("2001:41d0:306:3dff:ff:ff:ff:ff")
+  end
+
+  it "garde le scope et rend une valeur illisible telle quelle" do
+    Beryl::Apply::Netif6.canonical("fe80:0000:0000:0000:0000:0000:0000:0001%ix0").should eq("fe80::1%ix0")
+    Beryl::Apply::Netif6.canonical("pas-une-ip").should eq("pas-une-ip")
+  end
+end

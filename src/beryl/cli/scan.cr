@@ -1135,17 +1135,18 @@ module Beryl::CLI::Scan
       # info` hors-ligne. Fallback sur l'existant si l'API n'a rien renvoyé.
       if hw = (ovh_hardware_override || host.hardware)
         io << "\nhardware:             # specs provider (beryl info) — ne pas éditer à la main\n"
-        io << "  cpu: " << hw.cpu << '\n'
+        # Clés par ordre alphabétique, comme `beryl fmt` et `info --refresh`.
         io << "  cores: " << hw.cores << '\n'
-        io << "  threads: " << hw.threads << '\n'
-        io << "  ram_gb: " << hw.ram_gb << '\n'
-        if r = hw.raid
-          io << "  raid: " << r << '\n'
-        end
+        io << "  cpu: " << hw.cpu << '\n'
         unless hw.disks.empty?
           io << "  disks:\n"
           hw.disks.each { |d| io << "    - " << d << '\n' }
         end
+        if r = hw.raid
+          io << "  raid: " << r << '\n'
+        end
+        io << "  ram_gb: " << hw.ram_gb << '\n'
+        io << "  threads: " << hw.threads << '\n'
       end
     end
   end

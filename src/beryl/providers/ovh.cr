@@ -263,7 +263,8 @@ module Beryl::Providers
     # sur d'autres (qwerty, loulou, quantas, tika). nil si l'API ne répond pas.
     def ipv6_gateway(service_name : String) : String?
       resp = client.call("GET", "/dedicated/server/#{service_name}/specifications/network")
-      resp.try(&.["routing"]?).try(&.["ipv6"]?).try(&.["gateway"]?).try(&.as_s?).presence
+      gw = resp.try(&.["routing"]?).try(&.["ipv6"]?).try(&.["gateway"]?).try(&.as_s?).presence
+      gw && Beryl::Apply::Netif6.canonical(gw) # OVH l'écrit en forme longue (fe80:0000:…:0001)
     rescue
       nil
     end
