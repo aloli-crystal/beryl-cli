@@ -538,6 +538,12 @@ module Beryl::Config
       provider_field("ovh", "ipv6")
     end
 
+    # Passerelle IPv6 déclarée par OVH (`ovh.ipv6_gateway`, écrite par
+    # `beryl info --refresh` et `scan --discover`).
+    def ovh_ipv6_gateway : String?
+      provider_field("ovh", "ipv6_gateway")
+    end
+
     # Caractéristiques matérielles écrites par `beryl scan` (bloc top-level
     # `hardware:`). nil si jamais scanné. Source de `beryl info` (hors-ligne).
     def hardware : Beryl::HardwareSpec?

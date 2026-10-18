@@ -666,11 +666,13 @@ module Beryl::CLI
           detail = ovh.server_detail(sn)
           hw = ovh.server_hardware(sn)
           price = ovh.monthly_price(sn)
-          ipv6 = Beryl::CLI::Scan.resolve_host_ipv6(h.fqdn)
+          # IPv6 : l'AAAA du FQDN, sinon le bloc déclaré par OVH (<bloc>::1).
+          ipv6 = Beryl::CLI::Scan.resolve_host_ipv6(h.fqdn) || ovh.ipv6_address(sn)
+          ipv6_gateway = ovh.ipv6_gateway(sn)
           path = h.node.source_path
           content = File.read(path)
           content = upsert_block(content, "ovh",
-            ovh_block(sn, detail[:commercial], detail[:rack], detail[:ipv4], ipv6, price))
+            ovh_block(sn, detail[:commercial], detail[:rack], detail[:ipv4], ipv6, price, ipv6_gateway))
           content = upsert_block(content, "hardware", hardware_block(hw)) if hw
           File.write(path, content)
           ok += 1
@@ -686,7 +688,8 @@ module Beryl::CLI
 
     # Lignes du bloc `ovh:` (service_name + gamme + rack + IPs + prix/mois).
     def self.ovh_block(service_name : String, commercial : String?, rack : String?,
-                       ipv4 : String?, ipv6 : String?, price : String?) : Array(String)
+                       ipv4 : String?, ipv6 : String?, price : String?,
+                       ipv6_gateway : String? = nil) : Array(String)
       b = ["ovh:", "  service_name: #{service_name}"]
       b << "  commercial_name: #{commercial}" if commercial
       b << "  rack: #{rack}" if rack
@@ -694,6 +697,8 @@ module Beryl::CLI
       # IPv6 TOUJOURS quotée : pleine de `:` (et parfois finissant par `::`) →
       # YAML la mal-parserait sans guillemets.
       b << %(  ipv6: "#{ipv6}") if ipv6
+      # Passerelle IPv6 d'OVH (netif-ipv6 : `{{ public_ip6_gateway }}`), quotée aussi.
+      b << %(  ipv6_gateway: "#{ipv6_gateway}") if ipv6_gateway
       b << "  price_eur: #{price}" if price
       b
     end

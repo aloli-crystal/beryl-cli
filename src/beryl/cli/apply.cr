@@ -264,6 +264,11 @@ module Beryl::CLI::Apply
     if pip6 = host.ovh_ipv6
       vars["public_ip6"] = pip6
     end
+    # Passerelle IPv6 d'OVH (`ovh.ipv6_gateway`) → `{{ public_ip6_gateway }}`
+    # (défaut de netif-ipv6). Absente : UnknownVariable explicite.
+    if gw6 = host.ovh_ipv6_gateway
+      vars["public_ip6_gateway"] = gw6
+    end
     vars["root_ssh_login"] = root_ssh_login(host)
     context = Beryl::Apply::Context.new(
       protected_keys: connecting_pubkeys(host),
@@ -305,9 +310,10 @@ module Beryl::CLI::Apply
 
   # Variables fournies par l'hôte → ce qu'il faut renseigner pour les avoir.
   VARIABLE_SOURCES = {
-    "public_ip"  => "`ovh.ipv4` (ou `beryl info --refresh`)",
-    "public_ip6" => "`ovh.ipv6`",
-    "vrack_ip"   => "`vrack-interface: { ip: … }` dans `apply_recipes`",
+    "public_ip"          => "`ovh.ipv4` (ou `beryl info --refresh`)",
+    "public_ip6"         => "`ovh.ipv6`",
+    "public_ip6_gateway" => "`ovh.ipv6_gateway` (`beryl info --refresh` la lit dans l'API OVH)",
+    "vrack_ip"           => "`vrack-interface: { ip: … }` dans `apply_recipes`",
   }
 
   # « recette `netif-ipv6` : variable `public_ip6` non définie — renseignez

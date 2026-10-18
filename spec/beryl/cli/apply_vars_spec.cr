@@ -13,6 +13,11 @@ describe "Beryl::CLI::Apply.missing_variable_message" do
     msg.should end_with(".host.yml")
   end
 
+  it "renvoie à beryl info --refresh pour la passerelle IPv6" do
+    ex = Beryl::Apply::MissingVariable.new("netif-ipv6", "public_ip6_gateway", ["fqdn"])
+    Beryl::CLI::Apply.missing_variable_message(ex, host).should contain("renseignez `ovh.ipv6_gateway` (`beryl info --refresh` la lit dans l'API OVH)")
+  end
+
   it "liste les variables connues pour une variable inconnue" do
     ex = Beryl::Apply::MissingVariable.new("site", "port", ["fqdn", "hostname"])
     Beryl::CLI::Apply.missing_variable_message(ex, host).should eq(

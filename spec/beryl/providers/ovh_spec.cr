@@ -213,6 +213,25 @@ describe Beryl::Providers::Ovh do
     end
   end
 
+  describe "#ipv6_gateway" do
+    it "lit routing.ipv6.gateway de specifications/network" do
+      transport = FakeOvhTransport.new
+      transport.stub("GET", /dedicated\/server\/ns123\.eu\/specifications\/network$/, status: 200,
+        body: %({"routing":{"ipv4":{"gateway":"1.2.3.254"},"ipv6":{"gateway":"2001:41d0:306:3dff:ff:ff:ff:ff","ip":"2001:41d0:306:3dc7::/64"}}}))
+      provider = Beryl::Providers::Ovh.new(build_fake_ovh_client(transport))
+      provider.ipv6_gateway("ns123.eu").should eq("2001:41d0:306:3dff:ff:ff:ff:ff")
+    end
+
+    it "renvoie nil sans routage IPv6 ou si l'API lève" do
+      transport = FakeOvhTransport.new
+      transport.stub("GET", /specifications\/network$/, status: 200, body: %({"routing":{"ipv6":null}}))
+      Beryl::Providers::Ovh.new(build_fake_ovh_client(transport)).ipv6_gateway("ns123.eu").should be_nil
+      failing = FakeOvhTransport.new
+      failing.stub("GET", /specifications\/network$/, status: 500, body: %({"message":"boom"}))
+      Beryl::Providers::Ovh.new(build_fake_ovh_client(failing)).ipv6_gateway("ns123.eu").should be_nil
+    end
+  end
+
   describe "#commercial_range" do
     it "lit le champ commercialRange du serveur" do
       transport = FakeOvhTransport.new

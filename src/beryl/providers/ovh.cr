@@ -257,6 +257,17 @@ module Beryl::Providers
     # suffixe `/64` retiré). On force le suffixe hôte `::1` : le bloc nu
     # `…dd00::` est l'anycast Subnet-Router (reste en DAD `tentative`,
     # inutilisable) — cf. primitive `netif6`. nil si aucune IPv6. Best-effort.
+    # Passerelle IPv6 que le serveur DOIT utiliser, d'après OVH
+    # (`specifications/network` → `routing.ipv6.gateway`) : `fe80::1` sur
+    # certaines gammes, une adresse globale hors du /64 (`<bloc /56>ff:ff:ff:ff:ff`)
+    # sur d'autres (qwerty, loulou, quantas, tika). nil si l'API ne répond pas.
+    def ipv6_gateway(service_name : String) : String?
+      resp = client.call("GET", "/dedicated/server/#{service_name}/specifications/network")
+      resp.try(&.["routing"]?).try(&.["ipv6"]?).try(&.["gateway"]?).try(&.as_s?).presence
+    rescue
+      nil
+    end
+
     def ipv6_address(service_name : String) : String?
       block = client.dedicated_servers.ips(service_name)
         .find(&.includes?(':')).try(&.split('/').first)

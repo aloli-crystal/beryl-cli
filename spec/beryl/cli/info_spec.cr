@@ -168,6 +168,11 @@ describe Beryl::CLI::Info do
       parsed["ovh"]["ipv4"].as_s.should eq("1.2.3.4")
       parsed["ovh"]["rack"].as_s.should eq("16RA09")
     end
+
+    it "ajoute la passerelle IPv6 d'OVH, quotée" do
+      block = Beryl::CLI::Info.ovh_block("ns1.eu", nil, nil, "1.2.3.4", "2001:db8:0:1::1", nil, "2001:db8:0:ff:ff:ff:ff:ff")
+      YAML.parse(block.join("\n") + "\n")["ovh"]["ipv6_gateway"].as_s.should eq("2001:db8:0:ff:ff:ff:ff:ff")
+    end
   end
 
   describe ".usage_attempts" do

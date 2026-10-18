@@ -9,6 +9,21 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Passerelle IPv6 lue dans l'API OVH
+
+`fe80::1` ne suffit pas partout chez OVH : qwerty, loulou, quantas et tika
+utilisent une passerelle GLOBALE hors du /64 (`<bloc /56>ff:ff:ff:ff:ff`),
+renseignée jusqu'ici à la main (`netif-ipv6: { gateway: … }`), alors que le
+builder (Advance) marche en `fe80::1`. OVH la déclare pour chaque serveur
+(`GET /dedicated/server/{sn}/specifications/network` →
+`routing.ipv6.gateway`) :
+
+* `beryl info --refresh` et `scan --discover` l'écrivent dans le host.yml,
+  `ovh.ipv6_gateway` (et, à défaut d'AAAA, `ovh.ipv6` depuis le bloc d'OVH) ;
+* variable `{{ public_ip6_gateway }}`, défaut de `netif-ipv6` (beryl-recipes
+  0.0.40) ; absente : message « renseignez `ovh.ipv6_gateway` (`beryl info
+  --refresh` …) ». `gateway:` dans le host.yml garde la priorité.
+
 === `beryl apply` : serveurs `installed: false` sautés
 
 Comme `update`, `upgrade` et `os-upgrade` : sur une portée (société,

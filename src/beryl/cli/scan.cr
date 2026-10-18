@@ -1350,6 +1350,7 @@ module Beryl::CLI::Scan
     new_servers.each do |sn|
       detail = ovh.server_detail(sn)
       ipv6 = ovh.ipv6_address(sn)
+      ipv6_gateway = ovh.ipv6_gateway(sn)
       price = ovh.monthly_price(sn)
       short = discover_short_name(ovh.server_display_name(sn), sn, domain)
       path = File.join(config_root, account, domain, "#{short}.host.yml")
@@ -1363,7 +1364,7 @@ module Beryl::CLI::Scan
         next
       end
       Dir.mkdir_p(File.dirname(path))
-      File.write(path, discover_skeleton(short, domain, sn, detail, ipv6, price))
+      File.write(path, discover_skeleton(short, domain, sn, detail, ipv6, price, ipv6_gateway))
       written += 1
       puts "  ✓ #{sn} → #{short}.host.yml (#{detail[:commercial] || "gamme ?"}#{price ? ", #{price} €/mois" : ""})"
     end
@@ -1428,7 +1429,8 @@ module Beryl::CLI::Scan
   # ajoutés plus tard par `beryl scan <host> --apply`.
   private def self.discover_skeleton(short : String, domain : String, service_name : String,
                                      detail : NamedTuple(commercial: String?, rack: String?, ipv4: String?),
-                                     ipv6 : String?, price : String?) : String
+                                     ipv6 : String?, price : String?,
+                                     ipv6_gateway : String? = nil) : String
     stamp = Time.local.to_s("%d/%m/%Y %Hh%Mm%S")
     lines = [
       "# #{short}.#{domain}",
@@ -1439,7 +1441,7 @@ module Beryl::CLI::Scan
       "installed: false # sauté par update/upgrade/os-upgrade ; retiré par `beryl bootstrap`",
       "provider: ovh",
     ]
-    lines.concat(Beryl::CLI::Info.ovh_block(service_name, detail[:commercial], detail[:rack], detail[:ipv4], ipv6, price))
+    lines.concat(Beryl::CLI::Info.ovh_block(service_name, detail[:commercial], detail[:rack], detail[:ipv4], ipv6, price, ipv6_gateway))
     lines.join('\n') + "\n"
   end
 
