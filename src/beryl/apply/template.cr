@@ -10,6 +10,14 @@ module Beryl::Apply
     PLACEHOLDER = /\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/
 
     class UnknownVariable < Exception
+      # Nom de la variable absente, et celles connues à ce moment.
+      getter name : String
+      getter known : Array(String)
+
+      def initialize(@name : String, @known : Array(String))
+        super("variable `#{@name}` non définie (variables connues : " \
+              "#{@known.empty? ? "aucune" : @known.join(", ")})")
+      end
     end
 
     # Remplace chaque `{{ var }}` de `text` par `vars[var]`. Lève
@@ -17,10 +25,7 @@ module Beryl::Apply
     def self.render(text : String, vars : Hash(String, String)) : String
       text.gsub(PLACEHOLDER) do |_match|
         name = $1
-        vars[name]? || raise UnknownVariable.new(
-          "variable `#{name}` non définie (variables connues : " \
-          "#{vars.keys.empty? ? "aucune" : vars.keys.join(", ")})"
-        )
+        vars[name]? || raise UnknownVariable.new(name, vars.keys)
       end
     end
 

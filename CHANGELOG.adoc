@@ -9,6 +9,16 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl apply` : variable absente — message qui dit quoi renseigner
+
+Une recette qui référençait une variable non fournie s'arrêtait sur « erreur
+inattendue — Beryl::Apply::Template::UnknownVariable … », sans nommer la
+recette (tika, `netif-ipv6` sans `ovh.ipv6`). Désormais : « recette
+`netif-ipv6` : variable `public_ip6` non définie — renseignez `ovh.ipv6` dans
+<host.yml> » (idem `public_ip` → `ovh.ipv4`, `vrack_ip` →
+`vrack-interface: { ip }`) ; une autre variable : la recette, et les
+variables connues. Nouvelle exception `Beryl::Apply::MissingVariable`.
+
 === `beryl rescue` et `beryl boot-hd` : clés d'hôte oubliées
 
 Comme `beryl bootstrap`, `beryl rescue` (le rescue a ses propres clés) et

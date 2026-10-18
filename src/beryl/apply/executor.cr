@@ -14,6 +14,19 @@ module Beryl::Apply
   class ConflictingRequiredArgs < Exception
   end
 
+  # Levée quand une recette référence une variable `{{ … }}` que l'hôte ne
+  # fournit pas : nomme la recette, pour que la CLI dise quoi renseigner.
+  class MissingVariable < Exception
+    getter recipe : String
+    getter variable : String
+    getter known : Array(String)
+
+    def initialize(@recipe : String, @variable : String, @known : Array(String))
+      super("recette `#{@recipe}` : variable `#{@variable}` non définie " \
+            "(variables connues : #{@known.empty? ? "aucune" : @known.join(", ")})")
+    end
+  end
+
   # Levée quand un step référence une primitive inconnue du registre.
   class UnknownPrimitive < Exception
   end
@@ -78,7 +91,11 @@ module Beryl::Apply
         # fois par user). Sans args explicites : une seule fois, jeu vide.
         combos = recipe_args[recipe.name]? || [{} of String => String]
         combos.each do |combo|
-          vars = build_vars(recipe, combo)
+          vars = begin
+            build_vars(recipe, combo)
+          rescue ex : Template::UnknownVariable
+            raise MissingVariable.new(recipe.name, ex.name, ex.known)
+          end
           # Une étape a-t-elle déjà modifié quelque chose dans CETTE recette ?
           # Sert l'option `if_changed: true` (cf. `skip_unchanged?`).
           changed = false
@@ -87,7 +104,11 @@ module Beryl::Apply
               "primitive `#{step.name}` inconnue (recette `#{recipe.name}`). " \
               "Primitives connues : #{Primitive.registry.keys.sort.join(", ")}."
             )
-            params = interpolate(step.params, vars)
+            params = begin
+              interpolate(step.params, vars)
+            rescue ex : Template::UnknownVariable
+              raise MissingVariable.new(recipe.name, ex.name, ex.known)
+            end
             if self.class.skip_unchanged?(params, changed)
               record(report, recipe.name, step.name,
                 StepResult.skipped("rien n'a changé dans la recette — #{step.name} inutile (if_changed)"))

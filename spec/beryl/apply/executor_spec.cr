@@ -364,3 +364,22 @@ describe "Beryl::Apply::Executor — deferred" do
     TestRecorder.last_params.has_key?("deferred").should be_false
   end
 end
+
+describe "Beryl::Apply::Executor — variable absente" do
+  it "nomme la recette et la variable (MissingVariable)" do
+    recipe = Beryl::Apply::Recipe.new(
+      name: "netif-ipv6",
+      description: "",
+      requires: [] of String,
+      parameters: {} of String => YAML::Any,
+      arguments: {} of String => YAML::Any,
+      steps: [Beryl::Apply::Step.new("test-record", {"value" => YAML::Any.new("{{ public_ip6 }}")})],
+      source_path: "/tmp/netif-ipv6.recipe.yml",
+    )
+    ex = expect_raises(Beryl::Apply::MissingVariable, /recette `netif-ipv6` : variable `public_ip6` non définie/) do
+      Beryl::Apply::Executor.new(FakeShell.new, dry_run: true).run([recipe])
+    end
+    ex.recipe.should eq("netif-ipv6")
+    ex.variable.should eq("public_ip6")
+  end
+end

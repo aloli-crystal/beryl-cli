@@ -246,12 +246,35 @@ module Beryl::CLI::Apply
   rescue ex : Beryl::Apply::Resolver::RecipeNotFound | Beryl::Apply::Resolver::Cycle | Beryl::Apply::Recipe::InvalidRecipe | Beryl::Apply::UnknownPrimitive | Beryl::Apply::DuplicatePath | Beryl::Apply::ConflictingRequiredArgs
     STDERR.puts "beryl : #{host.fqdn} : #{ex.message}"
     EXIT_RECIPE
+  rescue ex : Beryl::Apply::MissingVariable
+    STDERR.puts "beryl : #{host.fqdn} : #{missing_variable_message(ex, host)}"
+    EXIT_RECIPE
   rescue ex : SSH::CommandFailed
     STDERR.puts "beryl : #{host.fqdn} : #{ex.message}"
     EXIT_SSH_FAILED
   rescue ex
     STDERR.puts "beryl : #{host.fqdn} : erreur inattendue — #{ex.class}: #{ex.message}"
     EXIT_UNEXPECTED
+  end
+
+  # Variables fournies par l'hôte → ce qu'il faut renseigner pour les avoir.
+  VARIABLE_SOURCES = {
+    "public_ip"  => "`ovh.ipv4` (ou `beryl info --refresh`)",
+    "public_ip6" => "`ovh.ipv6`",
+    "vrack_ip"   => "`vrack-interface: { ip: … }` dans `apply_recipes`",
+  }
+
+  # « recette `netif-ipv6` : variable `public_ip6` non définie — renseignez
+  # `ovh.ipv6` dans <host.yml> » ; variable de recette inconnue : le message
+  # nomme la recette et les variables connues.
+  def self.missing_variable_message(ex : Beryl::Apply::MissingVariable, host : Beryl::Config::ResolvedHost) : String
+    head = "recette `#{ex.recipe}` : variable `#{ex.variable}` non définie"
+    if source = VARIABLE_SOURCES[ex.variable]?
+      "#{head} — renseignez #{source} dans #{host.node.source_path}"
+    else
+      "#{head} — ni paramètre de la recette, ni variable de l'hôte " \
+      "(connues : #{ex.known.join(", ")})"
+    end
   end
 
   # Dossier `recipes/` du dépôt central. Lit le bloc `recipes:` du
