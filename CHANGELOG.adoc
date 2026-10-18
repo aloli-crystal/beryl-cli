@@ -9,6 +9,15 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Fichiers de config écrits déjà rangés
+
+Toute commande qui écrit un fichier de config — `bootstrap` (`installed`),
+`info --refresh`, `scan` (`--write`, `--discover`), `vrack`, `vrack-ip`,
+`rotate-key`, `init`, `add-domain` — passe par `Beryl::CLI::Fmt.write` : le
+fichier est rangé comme par `beryl fmt` (clés triées alpha à tous les niveaux,
+FQDN en tête d'un host.yml, ligne vide entre sections). Plus besoin d'un
+`beryl fmt` après coup.
+
 === `info --refresh` : IPv6 en forme compressée, clés triées
 
 * L'API OVH rend les adresses en forme longue (`fe80:0000:…:0001`) : la

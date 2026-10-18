@@ -1,5 +1,6 @@
 require "option_parser"
 require "./option_errors"
+require "./fmt"
 require "../config"
 require "../bootstrap"
 require "./account_utils"
@@ -475,7 +476,7 @@ module Beryl::CLI::Bootstrap
     before = File.read(path)
     after = drop_installed_false(before)
     return if after == before
-    File.write(path, after)
+    Beryl::CLI::Fmt.write(path, after)
     STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] #{File.basename(path)} : `installed: false` retiré"
     Beryl::CLI::ConfigGit.commit([path], "bootstrap : #{host.fqdn} installé", false)
   rescue ex

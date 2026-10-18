@@ -44,3 +44,15 @@ describe Beryl::CLI::Fmt do
     end
   end
 end
+
+describe "Beryl::CLI::Fmt.write" do
+  it "écrit un host.yml déjà rangé : clés triées à tous les niveaux, FQDN en tête" do
+    dir = File.join(Dir.tempdir, "beryl-fmt-write-#{Random::Secure.hex(6)}")
+    path = File.join(dir, "acme", "example.net", "web1.host.yml")
+    Dir.mkdir_p(File.dirname(path))
+    Beryl::CLI::Fmt.write(path, "ovh:\n  service_name: ns1.eu\n  ipv4: 1.2.3.4\nhardware:\n  cpu: X\n  cores: 4\n")
+    File.read(path).should eq("# web1.example.net\n\nhardware:\n  cores: 4\n  cpu: X\n\novh:\n  ipv4: 1.2.3.4\n  service_name: ns1.eu\n")
+  ensure
+    FileUtils.rm_rf(dir) if dir
+  end
+end

@@ -1,5 +1,6 @@
 require "option_parser"
 require "./option_errors"
+require "./fmt"
 require "../apply"
 require "../freebsd_release" # RELEASE FreeBSD disponibles en amont (--freebsd)
 require "./apply"            # Beryl::CLI::Apply.recipes_search_path (paquets gérés par recettes)
@@ -674,7 +675,7 @@ module Beryl::CLI
           content = upsert_block(content, "ovh",
             ovh_block(sn, detail[:commercial], detail[:rack], detail[:ipv4], ipv6, price, ipv6_gateway))
           content = upsert_block(content, "hardware", hardware_block(hw)) if hw
-          File.write(path, content)
+          Beryl::CLI::Fmt.write(path, content)
           ok += 1
           puts "  ✓ #{h.short_name} : #{detail[:commercial] || "gamme ?"}" \
                "#{detail[:rack] ? " [#{detail[:rack]}]" : ""}#{price ? " — #{price} €/mois" : ""} — " \

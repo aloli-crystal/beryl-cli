@@ -1,5 +1,6 @@
 require "option_parser"
 require "./option_errors"
+require "./fmt"
 require "socket"
 require "api-ovh/ovh_api"
 require "api-scaleway/scaleway_api"
@@ -452,7 +453,7 @@ module Beryl::CLI::Scan
         end
       end
       Dir.mkdir_p(File.dirname(target))
-      File.write(target, yaml)
+      Beryl::CLI::Fmt.write(target, yaml)
       log "5.4 YAML écrit dans #{target}"
       zroot_raid = pools.find(&.boot).try(&.raid) || 0
       Beryl::CLI::ConfigGit.commit(
@@ -1365,7 +1366,7 @@ module Beryl::CLI::Scan
         next
       end
       Dir.mkdir_p(File.dirname(path))
-      File.write(path, discover_skeleton(short, domain, sn, detail, ipv6, price, ipv6_gateway))
+      Beryl::CLI::Fmt.write(path, discover_skeleton(short, domain, sn, detail, ipv6, price, ipv6_gateway))
       written += 1
       puts "  ✓ #{sn} → #{short}.host.yml (#{detail[:commercial] || "gamme ?"}#{price ? ", #{price} €/mois" : ""})"
     end

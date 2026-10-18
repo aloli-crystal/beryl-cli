@@ -1,5 +1,6 @@
 require "option_parser"
 require "./option_errors"
+require "./fmt"
 require "file_utils"
 require "../config"
 require "../providers"
@@ -104,7 +105,7 @@ module Beryl::CLI::Init
     # Étape 2 : socle _default.yml si absent
     defaults_path = File.join(config_root, "_default.yml")
     unless File.exists?(defaults_path)
-      File.write(defaults_path, default_yaml_content)
+      Beryl::CLI::Fmt.write(defaults_path, default_yaml_content)
       STDERR.puts
       STDERR.puts "[beryl init] 1 _default.yml créé (socle FreeBSD)."
     end
@@ -229,7 +230,7 @@ module Beryl::CLI::Init
       io << "# libre (contact, facturation, notes).\n\n"
       io << "name: " << display_name << '\n'
     end
-    File.write(path, content)
+    Beryl::CLI::Fmt.write(path, content)
     STDERR.puts "[beryl init] 1 _account.yml créé dans #{File.basename(File.dirname(path))}/."
   end
 

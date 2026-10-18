@@ -1,5 +1,6 @@
 require "option_parser"
 require "./option_errors"
+require "./fmt"
 require "yaml"
 require "../config"
 
@@ -284,7 +285,7 @@ module Beryl::CLI
           end
           updated, did = replace_vrack_ip(content, ip)
           if did
-            File.write(src, updated)
+            Beryl::CLI::Fmt.write(src, updated)
             changed += 1
             log "  ✓ #{host} → #{ip} (#{File.basename(src)})"
           else

@@ -59,6 +59,13 @@ module Beryl::CLI
     end
 
     # Fichiers de config beryl sous config_root — PAS les secrets (`.env*`).
+    # Écrit un fichier de config beryl DÉJÀ rangé comme `beryl fmt` (clés
+    # triées alpha à tous les niveaux, FQDN en tête d'un host.yml) : toute
+    # commande qui écrit un host.yml, un _default.yml… passe par ici.
+    def self.write(path : String, content : String) : Nil
+      File.write(path, YamlTidy.tidy(content, header: host_fqdn(path)))
+    end
+
     def self.config_files(config_root : String) : Array(String)
       Dir.glob(File.join(config_root, "**", "*.yml")).select do |p|
         base = File.basename(p)

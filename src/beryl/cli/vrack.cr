@@ -1,5 +1,6 @@
 require "option_parser"
 require "./option_errors"
+require "./fmt"
 require "../providers/ovh"
 require "../apply"
 require "./machine_kind"
@@ -268,7 +269,7 @@ module Beryl::CLI
     # Pose/maj `vrack.<key>: value` dans le host.yml (préserve le reste).
     private def self.write_vrack(host : Beryl::Config::ResolvedHost, key : String, value : String) : Nil
       path = host.node.source_path
-      File.write(path, upsert_vrack_field(File.read(path), key, value))
+      Beryl::CLI::Fmt.write(path, upsert_vrack_field(File.read(path), key, value))
       log "#{host.fqdn} : vrack.#{key}: #{value} (#{File.basename(path)})"
     end
 
@@ -278,7 +279,7 @@ module Beryl::CLI
       before = File.read(path)
       after = remove_vrack_field(before, key)
       return if before == after
-      File.write(path, after)
+      Beryl::CLI::Fmt.write(path, after)
       log "#{host.fqdn} : vrack.#{key} retiré (#{File.basename(path)})"
     end
 

@@ -1,3 +1,4 @@
+require "./fmt"
 require "yaml"
 require "../config"
 require "../apply"
@@ -206,7 +207,7 @@ module Beryl::CLI::RotateKey
     return if path.empty? || !File.exists?(path)
     content = File.read(path)
     re = /\[\s*#{Regex.escape(pair.active)}\s*,\s*#{Regex.escape(pair.suivante)}\s*\]/
-    File.write(path, content.sub(re, pair.suivante))
+    Beryl::CLI::Fmt.write(path, content.sub(re, pair.suivante))
   end
 
   private def self.log(msg : String) : Nil

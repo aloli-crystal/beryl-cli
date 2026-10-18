@@ -1,5 +1,6 @@
 require "option_parser"
 require "./option_errors"
+require "./fmt"
 require "../config"
 require "../providers"
 require "./account_utils"
@@ -150,7 +151,7 @@ module Beryl::CLI::AddDomain
       admin_key: admin_key_content,
     )
 
-    File.write(domain_yml, content)
+    Beryl::CLI::Fmt.write(domain_yml, content)
     STDERR.puts "[beryl add-domain] 3 #{domain_yml} créé."
     Beryl::CLI::ConfigGit.commit(
       [domain_yml],
