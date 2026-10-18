@@ -30,6 +30,8 @@ module Beryl::CLI::Apply
   EXIT_SSH_FAILED =  4
   EXIT_NO_FREEBSD = 10
   EXIT_RECIPE     = 11
+  # Serveur nommé explicitement mais `installed: false` : à bootstrapper d'abord.
+  EXIT_NOT_INSTALLED = 12
 
   def self.run(config_root : String, args : Array(String)) : Int32
     dry_run = true
@@ -71,6 +73,22 @@ module Beryl::CLI::Apply
     end
     log "portée #{raw} → #{hosts.size} hosts : #{hosts.map(&.short_name).join(", ")}" if hosts.size > 1
 
+    # `installed: false` (pas encore bootstrappé) : sauté sur une portée
+    # (société, domaine), comme update/upgrade/os-upgrade ; refusé s'il est
+    # nommé explicitement — au lieu d'un échec de connexion SSH.
+    pending, hosts = split_installed(hosts)
+    if !pending.empty? && host_scope?(root, host_name, account_hint, domain_hint)
+      ref = Beryl::CLI::AccountUtils.host_ref(pending.first)
+      STDERR.puts "beryl : #{pending.first.fqdn} n'est pas encore installé (installed: false) — " \
+                  "lancez d'abord `beryl bootstrap #{ref} --apply`."
+      return EXIT_NOT_INSTALLED
+    end
+    pending.each { |h| log "#{h.fqdn} : pas encore installé (installed: false) → sauté." }
+    if hosts.empty?
+      STDERR.puts "beryl : aucun serveur installé dans la portée #{raw}."
+      return EXIT_USAGE
+    end
+
     # Une erreur sur un host ne doit pas avorter le reste de la flotte :
     # apply_one capture ses propres erreurs et renvoie un code EXIT.
     worst = EXIT_OK
@@ -85,6 +103,19 @@ module Beryl::CLI::Apply
   rescue ex
     STDERR.puts "beryl : erreur inattendue — #{ex.class}: #{ex.message}"
     EXIT_UNEXPECTED
+  end
+
+  # {non installés, installés} (`installed: false` dans le host.yml).
+  def self.split_installed(hosts : Array(Beryl::Config::ResolvedHost)) : Tuple(Array(Beryl::Config::ResolvedHost), Array(Beryl::Config::ResolvedHost))
+    hosts.partition { |h| !h.installed? }
+  end
+
+  # La portée désigne-t-elle UN serveur (et non un domaine ou une société) ?
+  private def self.host_scope?(root : Beryl::Config::Root, scope : String, account_hint : String?, domain_hint : String?) : Bool
+    root.resolve(scope, account_hint: account_hint, domain_hint: domain_hint)
+    true
+  rescue Beryl::Config::Root::HostNotFound | Beryl::Config::Root::UnknownDomain
+    false
   end
 
   # Portée d'apply → liste de hosts. Host d'abord (le plus précis), sinon

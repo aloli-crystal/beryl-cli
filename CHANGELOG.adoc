@@ -9,6 +9,14 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl apply` : serveurs `installed: false` sautés
+
+Comme `update`, `upgrade` et `os-upgrade` : sur une portée (société,
+domaine), un serveur pas encore bootstrappé est sauté (« pas encore installé
+(installed: false) → sauté ») au lieu d'un échec de connexion SSH (shingouz,
+18 oct. 2026) ; nommé explicitement, il est refusé (code 12) avec le renvoi à
+`beryl bootstrap`.
+
 === SSH root : une seule règle, valeur réelle vérifiée
 
 Deux fichiers de beryl se contredisaient : le bootstrap pose

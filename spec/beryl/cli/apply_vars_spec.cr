@@ -41,3 +41,19 @@ describe "Beryl::CLI::Apply.root_ssh_login" do
     Beryl::CLI::Apply.root_ssh_login(host).should eq("no")
   end
 end
+
+private INSTALLED_FLAG = File.expand_path(File.join(__DIR__, "..", "..", "fixtures", "config", "installed-flag"))
+
+describe "beryl apply et installed: false" do
+  it "refuse un serveur nommé qui n'est pas encore installé, sans SSH" do
+    Beryl::CLI::Apply.run(INSTALLED_FLAG, ["pending"]).should eq(Beryl::CLI::Apply::EXIT_NOT_INSTALLED)
+  end
+
+  it "sépare les serveurs non installés d'une portée (sautés)" do
+    root = Beryl::Config::Root.load(INSTALLED_FLAG)
+    hosts = %w[explicit pending ready].map { |n| root.resolve(n) }
+    pending, installed = Beryl::CLI::Apply.split_installed(hosts)
+    pending.map(&.short_name).should eq(["pending"])
+    installed.map(&.short_name).should eq(["explicit", "ready"])
+  end
+end
