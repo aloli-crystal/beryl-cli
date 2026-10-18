@@ -233,6 +233,7 @@ module Beryl::CLI::Apply
     if pip6 = host.ovh_ipv6
       vars["public_ip6"] = pip6
     end
+    vars["root_ssh_login"] = root_ssh_login(host)
     context = Beryl::Apply::Context.new(
       protected_keys: connecting_pubkeys(host),
       vars: vars,
@@ -255,6 +256,20 @@ module Beryl::CLI::Apply
   rescue ex
     STDERR.puts "beryl : #{host.fqdn} : erreur inattendue — #{ex.class}: #{ex.message}"
     EXIT_UNEXPECTED
+  end
+
+  # `{{ root_ssh_login }}` (PermitRootLogin, recette sshd-auth-keys-only) : la
+  # MÊME règle que le bootstrap — root COUPÉ (`no`), sauf `/home` chiffré
+  # (profil C+), où root par clé (`prohibit-password`) est la porte de secours
+  # tant que les datasets ne sont pas déverrouillés.
+  def self.root_ssh_login(host : Beryl::Config::ResolvedHost) : String
+    root_ssh_login(host.boot_zpool)
+  rescue
+    "no" # pas de pool boot déclaré : rien de chiffré
+  end
+
+  def self.root_ssh_login(boot_pool : Beryl::Config::Pool) : String
+    boot_pool.system_datasets.any?(&.encrypted) ? "prohibit-password" : "no"
   end
 
   # Variables fournies par l'hôte → ce qu'il faut renseigner pour les avoir.

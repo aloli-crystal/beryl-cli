@@ -9,6 +9,23 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== SSH root : une seule règle, valeur réelle vérifiée
+
+Deux fichiers de beryl se contredisaient : le bootstrap pose
+`sshd_config.d/10-beryl-bootstrap.conf` (`PermitRootLogin no`, root coupé),
+la recette `sshd-auth-keys-only` posait `prohibit-password` dans `beryl.conf`
+— lu APRÈS (ordre alphabétique), donc sans effet sur les serveurs récents
+(tika : `no`), effectif sur les anciens (qwerty, loulou), et la recette se
+croyait conforme.
+
+* Variable `{{ root_ssh_login }}` : `no`, ou `prohibit-password` si le pool
+  boot a `/home` chiffré (profil `standard`) — la règle du bootstrap. La
+  recette (beryl-recipes 0.0.39) en fait sa valeur par défaut.
+* `sshd-config-set` : un drop-in lu avant `beryl.conf` qui fixe la même
+  directive est corrigé s'il est à beryl (directive retirée), sinon échec qui
+  le nomme ; sans masque, la valeur effective (`sshd -T`) doit correspondre,
+  sinon échec (autre source : sshd_config, bloc Match).
+
 === `beryl apply` : variable absente — message qui dit quoi renseigner
 
 Une recette qui référençait une variable non fournie s'arrêtait sur « erreur

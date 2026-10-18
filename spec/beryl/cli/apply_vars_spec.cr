@@ -20,3 +20,24 @@ describe "Beryl::CLI::Apply.missing_variable_message" do
     )
   end
 end
+
+describe "Beryl::CLI::Apply.root_ssh_login" do
+  it "coupe root sans /home chiffré" do
+    pool = Beryl::Config::Pool.new(name: "zroot", boot: true, raid: 0, disks: ["/dev/nvme0n1"])
+    Beryl::CLI::Apply.root_ssh_login(pool).should eq("no")
+  end
+
+  it "garde root par clé (porte de secours) avec /home chiffré (profil standard)" do
+    pool = Beryl::Config::Pool.new(
+      name: "zroot", boot: true, raid: 0, disks: ["/dev/nvme0n1"],
+      encryption: Beryl::Config::EncryptionConfig.new(mode: Beryl::Config::EncryptionConfig::Mode::SshUnlock),
+      profile: "standard",
+    )
+    Beryl::CLI::Apply.root_ssh_login(pool).should eq("prohibit-password")
+  end
+
+  it "coupe root pour un hôte sans pool boot déclaré" do
+    host = Beryl::Config::Root.load(FIXTURE).resolve("rescuehidden")
+    Beryl::CLI::Apply.root_ssh_login(host).should eq("no")
+  end
+end

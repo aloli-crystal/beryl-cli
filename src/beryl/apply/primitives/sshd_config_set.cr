@@ -12,6 +12,14 @@ module Beryl::Apply
   # skip. Sinon le fichier est réécrit, validé (`sshd -t`) et sshd est
   # rechargé (`service sshd reload`).
   #
+  # Valeur RÉELLE : un drop-in lu AVANT `beryl.conf` (ordre alphabétique,
+  # ex. `10-beryl-bootstrap.conf` du bootstrap) qui fixe la même directive
+  # l'emporte. S'il est à beryl (nom contenant « beryl »), la directive y est
+  # retirée ; sinon, échec qui nomme le fichier. Sans masque, la valeur
+  # effective (`sshd -T`) doit commencer par la valeur voulue (tolère
+  # `ListenAddress 1.2.3.4` → `1.2.3.4:22`) — sinon échec : autre source
+  # (sshd_config, bloc Match).
+  #
   #     - sshd-config-set:
   #         key: PermitRootLogin
   #         value: "no"
@@ -65,7 +73,18 @@ module Beryl::Apply
       directives = parse(shell.exec("cat #{Process.quote(PATH)} 2>/dev/null", raise_on_error: false).stdout)
       changed = directives[key]? != value
 
-      if !changed && !include_added
+      shadows = shadowing_files(shell, key)
+      foreign = shadows.reject { |file| File.basename(file).includes?("beryl") }
+      unless foreign.empty?
+        return StepResult.failed("#{key} est fixée par #{foreign.join(", ")}, lu(s) avant #{File.basename(PATH)} : " \
+                                 "retirez-la de ce(s) fichier(s) ou alignez la valeur sur #{value}")
+      end
+
+      if !changed && !include_added && shadows.empty?
+        if (effective = effective_values(shell, key)) && effective.none?(&.starts_with?(value.downcase))
+          return StepResult.failed("#{key} : valeur effective (sshd -T) #{effective.join(", ")} ≠ #{value} — " \
+                                   "imposée hors de sshd_config.d (sshd_config, bloc Match ?)")
+        end
         return StepResult.skipped("#{key} déjà = #{value}")
       end
 
@@ -75,14 +94,47 @@ module Beryl::Apply
       parts = [] of String
       parts << "Include sshd_config.d/*.conf activé" if include_added
       parts << (changed ? "#{key} : #{previous.nil? ? "(absent)" : previous} → #{value}" : "#{key} déjà = #{value}")
+      shadows.each { |file| parts << "#{key} retirée de #{file} (masquait #{File.basename(PATH)})" }
       msg = parts.join(" ; ")
       return StepResult.applied("#{msg} (dry-run)") if dry_run
 
+      shadows.each { |file| shell.exec(remove_directive_command(file, key)) }
       shell.exec("mkdir -p #{Process.quote(File.dirname(PATH))}")
       shell.write_file(PATH, render(directives), mode: "0644")
       shell.exec("sshd -t") # valide la conf — échec = stop net
       shell.exec("service sshd reload")
       StepResult.applied(msg)
+    end
+
+    # Motif (grep -iE) d'une ligne qui fixe `key` (`Clé valeur` ou `Clé=valeur`).
+    private def directive_pattern(key : String) : String
+      "^[[:space:]]*#{Regex.escape(key)}([[:space:]]|=)"
+    end
+
+    # Drop-ins lus AVANT beryl.conf (ordre du glob, celui de sshd) qui fixent
+    # `key` : ils l'emportent (sshd retient la première valeur).
+    private def shadowing_files(shell : Shell, key : String) : Array(String)
+      script = "for f in #{File.dirname(PATH)}/*.conf; do [ \"$f\" = #{Process.quote(PATH)} ] && break; " \
+               "[ -f \"$f\" ] && grep -qiE #{Process.quote(directive_pattern(key))} \"$f\" && echo \"$f\"; done; true"
+      shell.exec(script, raise_on_error: false).stdout.lines.map(&.strip).reject(&.empty?)
+    end
+
+    # Retire de `file` les lignes qui fixent `key` (le reste du fichier gardé).
+    private def remove_directive_command(file : String, key : String) : String
+      q = Process.quote(file)
+      %(tmp=$(mktemp) && { grep -viE #{Process.quote(directive_pattern(key))} #{q} || true; } > "$tmp" && cat "$tmp" > #{q} && rm -f "$tmp")
+    end
+
+    # Valeurs effectives de `key` d'après `sshd -T` (nil si sshd -T échoue ou
+    # ne la cite pas : rien à conclure).
+    private def effective_values(shell : Shell, key : String) : Array(String)?
+      res = shell.exec("sshd -T 2>/dev/null", raise_on_error: false)
+      return unless res.success?
+      values = res.stdout.lines.compact_map do |line|
+        name, _, rest = line.strip.partition(' ')
+        rest.downcase if name.downcase == key.downcase
+      end
+      values.empty? ? nil : values
     end
 
     # S'assure que `/etc/ssh/sshd_config` inclut le dossier des drop-ins,
