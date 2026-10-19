@@ -4,6 +4,7 @@ require "../config"
 require "../apply"
 require "ssh"
 require "./account_utils"
+require "./dns_record"
 
 # Sous-commande `beryl apply <host>` : applique sur le serveur FreeBSD
 # (déjà bootstrappé) les *recettes* déclarées dans le dossier
@@ -289,6 +290,7 @@ module Beryl::CLI::Apply
     context = Beryl::Apply::Context.new(
       protected_keys: connecting_pubkeys(host),
       vars: vars,
+      dns: dns_hook(config_root, host),
     )
     recipe_args = {} of String => Array(Hash(String, String))
     requests.each { |req| (recipe_args[req.name] ||= [] of Hash(String, String)) << req.arguments }
@@ -529,5 +531,44 @@ module Beryl::CLI::Apply
 
   private def self.log(message : String) : Nil
     STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl apply] #{message}"
+  end
+end
+
+module Beryl::CLI::Apply
+  # Pose DNS de la primitive `dns-record` : zone de la société de l'hôte
+  # (la plus longue qui contient le nom), son `dns_provider`, les
+  # identifiants du coffre déjà appliqués pour l'hôte. Mêmes validations que
+  # `beryl dns-record`.
+  def self.dns_hook(config_root : String, host : Beryl::Config::ResolvedHost) : Beryl::Apply::DnsHook
+    ->(fqdn : String, type : String, target : String, dry_run : Bool) do
+      root = Beryl::Config::Root.load(config_root)
+      account = root.account?(host.account_name) ||
+                raise Beryl::Apply::Primitive::PrimitiveError.new("société inconnue : #{host.account_name}")
+      zone = account.domains.values.select { |d| fqdn == d.name || fqdn.ends_with?(".#{d.name}") }.max_by?(&.name.size)
+      raise Beryl::Apply::Primitive::PrimitiveError.new("#{fqdn} : aucune zone de #{account.name} ne le contient") if zone.nil?
+      provider_name = zone.raw[YAML::Any.new("dns_provider")]?.try(&.as_s?)
+      if provider_name.nil? || provider_name.empty?
+        raise Beryl::Apply::Primitive::PrimitiveError.new("aucun `dns_provider` déclaré pour #{zone.name}")
+      end
+      sub = fqdn == zone.name ? "" : fqdn.rchop(".#{zone.name}")
+      value = begin
+        Beryl::CLI::DnsRecord.normalize_target(type, target)
+      rescue ex : ArgumentError
+        raise Beryl::Apply::Primitive::PrimitiveError.new(ex.message.to_s)
+      end
+      line = "#{type} #{fqdn} → #{value} (#{provider_name})"
+      if dry_run
+        "#{line} (dry-run)"
+      else
+        provider = Beryl::Providers.find(provider_name)
+        unless provider && provider.capable_of?(:dns)
+          raise Beryl::Apply::Primitive::PrimitiveError.new("`#{provider_name}` n'est pas un fournisseur DNS")
+        end
+        dns = provider.as(Beryl::DnsProvider)
+        dns.ensure_record(zone.name, type, sub, value)
+        dns.refresh_zone(zone.name)
+        line
+      end
+    end
   end
 end

@@ -9,6 +9,16 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Primitive `dns-record` : le nom d'un service posé par sa recette
+
+Une recette pose un enregistrement DNS (A, AAAA, CNAME) chez le fournisseur
+de la zone (`dns_provider` du domaine), avec les identifiants du coffre de
+la société — comme `beryl dns-record`, mais avec la recette qui sert le
+nom : `name: svc.example.net`, `type: A`, `target: "{{ public_ip }}"`.
+Cible vide : étape sautée (hôte sans IPv6). L'appel part du poste, pas de
+l'hôte ; la zone retenue est la plus longue de la société qui contient le
+nom.
+
 === `beryl apply <portée> <recette>` : seulement là où elle est déclarée
 
 * Sur un domaine ou une société, une recette nommée en argument ne
