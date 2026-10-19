@@ -9,6 +9,12 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `secret-file` : `if_set`
+
+`if_set: "{{ param }}"` vide → étape sautée sans exiger la variable du
+coffre : le secret d'une fonction qu'un serveur n'active pas encore
+n'arrête plus l'apply.
+
 === Primitive `dns-record` : le nom d'un service posé par sa recette
 
 Une recette pose un enregistrement DNS (A, AAAA, CNAME) chez le fournisseur

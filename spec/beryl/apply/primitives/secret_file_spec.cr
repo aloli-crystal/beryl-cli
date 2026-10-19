@@ -175,6 +175,17 @@ describe "Beryl::Apply::SecretFile — variables par serveur" do
     result.message.should contain("T_KEY_ABSENTE")
   end
 
+  it "saute le fichier si `if_set` est vide, sans exiger la variable" do
+    shell = FakeShell.new
+    result = prim("secret-file").apply(
+      shell,
+      apply_params({path: "/usr/local/etc/app/connect.secret", if_set: "",
+                    env: {"@@S@@" => "T_ABSENTE_IF_SET"}, content: "@@S@@"}.to_yaml),
+      dry_run: false, context: ctx)
+    result.outcome.should eq(Beryl::Apply::Outcome::Skipped)
+    shell.ran?(/./).should be_false
+  end
+
   it "nom du serveur normalisé (majuscules, tirets → _)" do
     Beryl::Apply.host_secret_name("X", "pkg-01").should eq("X__PKG_01")
   end

@@ -27,6 +27,9 @@ module Beryl::Apply
   #         content: |
   #           @@USER@@|{{ smarthost }}:@@SECRET@@
   #
+  # `if_set: "{{ param }}"` : paramètre vide → étape sautée, sans exiger la
+  # variable (secret d'une fonction qu'un serveur n'active pas encore).
+  #
   # Variables PAR SERVEUR : pour chaque nom, beryl cherche d'abord
   # `<NOM>__<HÔTE>` (ex. `APP_AGENT_TOKEN__WEB1`), puis `<NOM>`. Avec
   # `per_host: true`, seule la variante du serveur est acceptée : un jeton ou
@@ -44,6 +47,11 @@ module Beryl::Apply
     end
 
     def apply(shell : Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Context) : StepResult
+      # `if_set` vide : fichier non demandé (secret d'une fonction pas encore
+      # activée), étape sautée sans exiger la variable du coffre.
+      if params.has_key?("if_set") && (params["if_set"].as_s? || "").strip.empty?
+        return StepResult.skipped("paramètre vide (if_set) — fichier non demandé")
+      end
       content = required_string(params, "content")
       env_map = parse_env_map(params)
       per_host = params["per_host"]?.try(&.as_bool?) == true
