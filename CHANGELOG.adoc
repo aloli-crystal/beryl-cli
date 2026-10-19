@@ -9,6 +9,12 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== yaml-tidy 0.1.6 : clés entre guillemets
+
+Une clé entre guillemets (`- "netif-ipv6": …`) se trie comme sans guillemets,
+et un `:` entre guillemets (`- "a: b"`) ne fait plus prendre l'élément pour
+une clé. Configs actuelles inchangées (déjà dans le bon ordre).
+
 === Listes triées, plus aucun sens caché dans leur ordre
 
 * `beryl fmt` et toute écriture de config (yaml-tidy 0.1.5) trient aussi les

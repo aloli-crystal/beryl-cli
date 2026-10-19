@@ -46,5 +46,5 @@ shards:
 
   yaml-tidy:
     git: https://github.com/aloli-crystal/yaml-tidy.git
-    version: 0.1.5+git.commit.2c2f2f41cd9eaf0a15c8535a164daa68c1174724
+    version: 0.1.6+git.commit.64ade51784e6e862694e6d8c4c806a8ed848e952
 
