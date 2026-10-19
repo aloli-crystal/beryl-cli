@@ -29,8 +29,8 @@ module Beryl::Apply
   #
   # * `dns` : pose d'un enregistrement DNS chez le fournisseur de la zone
   #   (primitive `dns-record`), fourni par `beryl apply` : (nom complet,
-  #   type, cible, dry_run) → message. Absent hors `beryl apply`.
-  alias DnsHook = Proc(String, String, String, Bool, String)
+  #   type, cible, dry_run) → {changé ?, message}. Absent hors `beryl apply`.
+  alias DnsHook = Proc(String, String, String, Bool, {Bool, String})
 
   record Context,
     protected_keys : Array(String) = [] of String,

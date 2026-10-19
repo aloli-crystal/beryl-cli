@@ -557,8 +557,10 @@ module Beryl::CLI::Apply
         raise Beryl::Apply::Primitive::PrimitiveError.new(ex.message.to_s)
       end
       line = "#{type} #{fqdn} → #{value} (#{provider_name})"
-      if dry_run
-        "#{line} (dry-run)"
+      if dns_current?(fqdn, type, value)
+        {false, "#{line} : déjà en place"}
+      elsif dry_run
+        {true, "#{line} (dry-run)"}
       else
         provider = Beryl::Providers.find(provider_name)
         unless provider && provider.capable_of?(:dns)
@@ -567,8 +569,28 @@ module Beryl::CLI::Apply
         dns = provider.as(Beryl::DnsProvider)
         dns.ensure_record(zone.name, type, sub, value)
         dns.refresh_zone(zone.name)
-        line
+        {true, line}
       end
     end
+  end
+end
+
+module Beryl::CLI::Apply
+  # Le nom répond-il déjà par cette adresse (A, AAAA) ? Lecture par le
+  # résolveur du poste : un enregistrement juste n'est ni reposé ni compté
+  # comme un changement (sinon les `if_changed` de la recette se
+  # déclencheraient à chaque apply). CNAME : toujours posé (pas de lecture).
+  def self.dns_current?(fqdn : String, type : String, value : String) : Bool
+    family = case type
+             when "A"    then Socket::Family::INET
+             when "AAAA" then Socket::Family::INET6
+             else             return false
+             end
+    expected = Socket::IPAddress.new(value, 0).address
+    Socket::Addrinfo.resolve(fqdn, 0, family: family, type: Socket::Type::STREAM).any? do |info|
+      info.ip_address.address == expected
+    end
+  rescue Socket::Error | ArgumentError
+    false
   end
 end

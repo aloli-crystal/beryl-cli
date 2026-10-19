@@ -27,7 +27,8 @@ module Beryl::Apply
       return StepResult.skipped("#{type} #{fqdn} : cible vide — rien à poser") if target.empty?
       raise PrimitiveError.new("type #{type} non géré (#{TYPES.join(", ")})") unless TYPES.includes?(type)
       hook = context.dns || raise PrimitiveError.new("dns-record : pose DNS indisponible hors `beryl apply`")
-      StepResult.applied(hook.call(fqdn, type, target, dry_run))
+      changed, message = hook.call(fqdn, type, target, dry_run)
+      changed ? StepResult.applied(message) : StepResult.skipped(message)
     end
   end
 

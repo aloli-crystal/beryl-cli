@@ -17,6 +17,8 @@ n'arrête plus l'apply.
 
 === Primitive `dns-record` : le nom d'un service posé par sa recette
 
+Un enregistrement que le résolveur donne déjà juste est sauté (« déjà en
+place ») : ni appel d'API, ni `if_changed` déclenché à chaque apply.
 Une recette pose un enregistrement DNS (A, AAAA, CNAME) chez le fournisseur
 de la zone (`dns_provider` du domaine), avec les identifiants du coffre de
 la société — comme `beryl dns-record`, mais avec la recette qui sert le
