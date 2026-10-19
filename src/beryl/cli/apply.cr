@@ -76,8 +76,9 @@ module Beryl::CLI::Apply
     # `installed: false` (pas encore bootstrappé) : sauté sur une portée
     # (société, domaine), comme update/upgrade/os-upgrade ; refusé s'il est
     # nommé explicitement — au lieu d'un échec de connexion SSH.
+    single_host = host_scope?(root, host_name, account_hint, domain_hint)
     pending, hosts = split_installed(hosts)
-    if !pending.empty? && host_scope?(root, host_name, account_hint, domain_hint)
+    if !pending.empty? && single_host
       ref = Beryl::CLI::AccountUtils.host_ref(pending.first)
       STDERR.puts "beryl : #{pending.first.fqdn} n'est pas encore installé (installed: false) — " \
                   "lancez d'abord `beryl bootstrap #{ref} --apply`."
@@ -92,8 +93,10 @@ module Beryl::CLI::Apply
     # Une erreur sur un host ne doit pas avorter le reste de la flotte :
     # apply_one capture ses propres erreurs et renvoie un code EXIT.
     worst = EXIT_OK
+    # Recette ponctuelle sur un domaine ou une société : seuls les serveurs
+    # qui la déclarent l'appliquent (cf. adhoc_requests).
     hosts.each do |host|
-      rc = apply_one(config_root, host, adhoc_recipe, dry_run)
+      rc = apply_one(config_root, host, adhoc_recipe, dry_run, restrict_adhoc: !single_host)
       worst = rc unless rc == EXIT_OK
     end
     worst
@@ -152,7 +155,7 @@ module Beryl::CLI::Apply
 
   # Applique les recettes à UN host. Retourne un code EXIT. Capture ses
   # erreurs (recette, SSH…) pour ne pas avorter une boucle de flotte.
-  private def self.apply_one(config_root : String, host : Beryl::Config::ResolvedHost, adhoc_recipe : String?, dry_run : Bool) : Int32
+  private def self.apply_one(config_root : String, host : Beryl::Config::ResolvedHost, adhoc_recipe : String?, dry_run : Bool, restrict_adhoc : Bool = false) : Int32
     host.apply_all_credentials_to_env!
 
     # Apply est FreeBSD-only dans ce build (ADR-014 prévoit Os::Debian…).
@@ -175,17 +178,29 @@ module Beryl::CLI::Apply
 
     search_path = recipes_search_path(config_root, host)
 
-    # Recettes d'ENTRÉE : recette nommée en argument (one-off), sinon la
-    # liste `apply_recipes:` cascadée du merge (état désiré, versionné).
-    requests =
-      if r = adhoc_recipe
-        [RecipeRequest.new(r, {} of String => String)]
-      else
-        # apply_recipes: explicites + recettes-shell dérivées des users
-        # (ex. `shell: oh-my-zsh` → recette oh-my-zsh avec user: <nom>).
-        apply_recipes_list(host) + user_shell_recipe_requests(host)
-      end
+    # Recettes d'ENTRÉE : la liste `apply_recipes:` cascadée du merge (état
+    # désiré, versionné) + recettes-shell dérivées des users (ex. `shell:
+    # oh-my-zsh` → recette oh-my-zsh avec user: <nom>) ; ou, en mode
+    # ponctuel, la seule recette nommée en argument.
+    declared = apply_recipes_list(host) + user_shell_recipe_requests(host)
     resolver = Beryl::Apply::Resolver.new(search_path)
+    requests = declared
+    if r = adhoc_recipe
+      # Recettes tirées par les déclarées (`requires:`) : utile seulement
+      # sur une portée multiple, pour une recette non déclarée en direct.
+      closure =
+        if restrict_adhoc && declared.none? { |req| req.name == r }
+          resolver.resolve(declared.map(&.name).uniq).map(&.name)
+        else
+          [] of String
+        end
+      adhoc = adhoc_requests(r, declared, closure, restrict_adhoc)
+      unless adhoc
+        log "#{host.fqdn} : recette `#{r}` non déclarée (apply_recipes:) → sauté."
+        return EXIT_OK
+      end
+      requests = adhoc
+    end
     recipes = resolver.resolve(requests.map(&.name).uniq)
 
     # Garde vRack : une recette `requires_vrack: true` (ex. pkg-repo-acme, qui
@@ -418,6 +433,22 @@ module Beryl::CLI::Apply
   # Une recette demandée + ses arguments éventuels (qui surchargent les
   # `parameters` de la recette pour CET hôte).
   record RecipeRequest, name : String, arguments : Hash(String, String)
+
+  # Recettes d'entrée du mode ponctuel (`beryl apply <portée> <recette>`) :
+  #   * recette DÉCLARÉE dans `apply_recipes:` → ses jeux d'arguments du
+  #     host.yml sont repris (sinon une recette paramétrée par le host,
+  #     ex. `zfs-scrub: { scrub_schedule: … }`, repartirait de ses défauts) ;
+  #   * tirée par une recette déclarée (`requires:`) → sans argument ;
+  #   * non déclarée : appliquée telle quelle sur UN serveur nommé (action
+  #     ponctuelle, ex. rotation de clé), mais `nil` (serveur sauté) quand
+  #     `restrict` — portée domaine ou société : `beryl apply <société>
+  #     nginx-lite` ne doit pas installer nginx là où rien ne le demande.
+  def self.adhoc_requests(name : String, declared : Array(RecipeRequest), closure : Array(String), restrict : Bool) : Array(RecipeRequest)?
+    own = declared.select { |req| req.name == name }
+    return own unless own.empty?
+    return [RecipeRequest.new(name, {} of String => String)] if closure.includes?(name) || !restrict
+    nil
+  end
 
   # Recettes d'entrée déclarées en config (`apply_recipes:`), cascadées
   # par le merge (société → domaine → host, append + dédup). Chaque entrée

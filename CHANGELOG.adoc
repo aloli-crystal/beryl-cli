@@ -9,6 +9,17 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl apply <portée> <recette>` : seulement là où elle est déclarée
+
+* Sur un domaine ou une société, une recette nommée en argument ne
+  s'applique plus qu'aux serveurs qui la déclarent (`apply_recipes:`, ou
+  tirée par `requires:`) ; les autres sont sautés (« non déclarée →
+  sauté »). `beryl apply <société> nginx-lite` n'installe plus nginx
+  partout. Sur un serveur nommé, une recette non déclarée reste
+  applicable (action ponctuelle, ex. rotation de clé).
+* Les arguments déclarés dans le host.yml (`zfs-scrub: { scrub_schedule:
+  … }`) sont repris en mode ponctuel, au lieu des défauts de la recette.
+
 === yaml-tidy 0.1.6 : clés entre guillemets
 
 Une clé entre guillemets (`- "netif-ipv6": …`) se trie comme sans guillemets,
