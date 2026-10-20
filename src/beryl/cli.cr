@@ -34,6 +34,7 @@ require "./cli/pkg_ops"
 require "./cli/os_upgrade"
 require "./cli/build_status"
 require "./cli/pg_upgrade"
+require "./cli/session_log"
 
 # Point d'entrée CLI de beryl.
 #
@@ -66,6 +67,8 @@ module Beryl::CLI
 
   def self.run(argv : Array(String) = ARGV) : Int32
     config_root = default_config_root
+    # `--no-log` vaut partout sur la ligne : retiré avant tout analyseur.
+    argv, no_log = Beryl::CLI::SessionLog.strip_flag(argv)
 
     # Sépare les options globales (avant la sous-commande) du reste.
     split_at = 0
@@ -95,6 +98,8 @@ module Beryl::CLI
           exit 64
         end
       end
+      # Pour l'aide seulement : `--no-log` est déjà retiré d'argv (cf. plus haut).
+      p.on("--no-log", "Pas de journal de session (défaut : ~/.local/state/beryl/logs/, sauf aide, coffre et saisie de clés)") { }
       p.on("-h", "--help", "Affiche cette aide") do
         puts p
         exit(0)
@@ -121,6 +126,12 @@ module Beryl::CLI
     # beryl (feedback_cli_short_flags) : chaque sous-commande a un
     # alias court.
     resolved = resolve_alias(subcommand)
+
+    # Journal de session (défaut) : beryl se relance sous journal, cf.
+    # `Beryl::CLI::SessionLog`.
+    if (cmd = resolved) && Beryl::CLI::SessionLog.wanted?(cmd, sub_args, no_log, ENV.has_key?(Beryl::CLI::SessionLog::ENV_ACTIVE))
+      return Beryl::CLI::SessionLog.run(argv, Beryl::CLI::SessionLog.path(cmd, sub_args, Time.local))
+    end
 
     case resolved
     when nil                  then show_usage(global_parser); 1

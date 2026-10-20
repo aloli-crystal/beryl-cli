@@ -9,6 +9,18 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Journal de session par défaut, `--no-log` pour s'en passer
+
+Toute commande qui agit sur le parc écrit ce qui s'affiche (questions et
+réponses comprises, sortie des commandes distantes) dans
+`~/.local/state/beryl/logs/<date>_<commande>_<portée>.log` (0600, dossier
+0700, effacé après 90 jours) ; le chemin est rappelé en fin de commande.
+`--no-log`, n'importe où sur la ligne, le désactive. Jamais journalisées :
+l'aide, `show`, `list-hosts`, `fmt`, et les commandes où l'on saisit des
+secrets (`env`, `init`, `add-provider`, `add-domain`). Dans un terminal,
+beryl se relance sous `script(1)` (vrai terminal gardé, journal écrit au
+fil de l'eau) ; sortie redirigée : recopie à l'écran et dans le fichier.
+
 === `secret-file` : `if_set`
 
 `if_set: "{{ param }}"` vide → étape sautée sans exiger la variable du
