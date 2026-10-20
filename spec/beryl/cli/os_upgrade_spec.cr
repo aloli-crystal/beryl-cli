@@ -69,4 +69,36 @@ describe Beryl::CLI::OsUpgrade do
       Beryl::CLI::OsUpgrade.base_branch("14.4").should eq("base_release_4")
     end
   end
+  describe ".fleet_table" do
+    it "une ligne par hôte, le non installé réduit à sa note" do
+      states = [
+        Beryl::CLI::OsUpgrade::HostState.new("shingouz.example.net", true, nil, nil, "pas encore installé"),
+        Beryl::CLI::OsUpgrade::HostState.new("loulou.example.net", true, "15.1-RELEASE-p5", "15.1", "à jour"),
+      ]
+      Beryl::CLI::OsUpgrade.fleet_table(states).should eq(
+        "  shingouz.example.net : pas encore installé\n" \
+        "  loulou.example.net    15.1-RELEASE-p5 → 15.1      à jour")
+    end
+  end
+
+  describe ".fleet_hint" do
+    it "rien quand tout est à jour (ou pas encore installé)" do
+      states = [
+        Beryl::CLI::OsUpgrade::HostState.new("a", true, "15.1-RELEASE-p5", "15.1", "à jour"),
+        Beryl::CLI::OsUpgrade::HostState.new("b", true, nil, nil, "pas encore installé"),
+      ]
+      Beryl::CLI::OsUpgrade.fleet_hint(states).should be_nil
+    end
+
+    it "décompte des seules actions à faire + commandes" do
+      states = [
+        Beryl::CLI::OsUpgrade::HostState.new("a", true, "15.0-RELEASE-p3", "15.1", "montée dispo"),
+        Beryl::CLI::OsUpgrade::HostState.new("b", false, nil, nil, "SSH KO : timeout"),
+        Beryl::CLI::OsUpgrade::HostState.new("c", true, "15.1-RELEASE-p5", "15.1", "à jour"),
+      ]
+      hint = Beryl::CLI::OsUpgrade.fleet_hint(states).not_nil!
+      hint.should start_with("→ 1 à monter · 1 injoignable(s) : ")
+      hint.should contain("beryl os-upgrade <host> --apply")
+    end
+  end
 end

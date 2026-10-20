@@ -85,19 +85,21 @@ module Beryl::CLI::OsUpgrade
 
     root = Beryl::Config::Root.load(config_root)
     hosts = Beryl::CLI::Info.scoped_hosts(root, scope).select { |h| h.os == "freebsd" && !h.virtual }
-    hosts.reject(&.installed?).each do |h|
+    skipped = hosts.reject(&.installed?)
+    hosts = hosts.select(&.installed?)
+    # Portée multi-hôtes en DRY-RUN → tableau compact (état du parc), et non
+    # le plan détaillé de chacun (illisible à 20 hôtes). Le détail reste
+    # disponible hôte par hôte, ou en --apply. Les hôtes pas encore installés
+    # y figurent comme une ligne.
+    if hosts.size > 1 && !apply
+      return fleet_summary(hosts, skipped, to)
+    end
+    skipped.each do |h|
       log "#{h.fqdn} : pas encore installé (installed: false) → ignoré."
     end
-    hosts = hosts.select(&.installed?)
     if hosts.empty?
       STDERR.puts "beryl : aucun hôte FreeBSD dans le périmètre #{scope.inspect}."
       return EXIT_USAGE
-    end
-    # Portée multi-hôtes en DRY-RUN → tableau compact (état du parc), et non
-    # le plan détaillé de chacun (illisible à 20 hôtes). Le détail reste
-    # disponible hôte par hôte, ou en --apply.
-    if hosts.size > 1 && !apply
-      return fleet_summary(hosts, to)
     end
     if hosts.size == 1
       return upgrade_one(config_root, hosts.first, to, apply, reboot)
@@ -223,25 +225,44 @@ module Beryl::CLI::OsUpgrade
 
   record HostState, fqdn : String, ok : Bool, current : String?, target : String?, note : String
 
+  NOTE_SKIPPED = "pas encore installé"
+
   # Résumé compact d'une portée multi-hôtes (dry-run) : une ligne par hôte
-  # (version → cible, ou motif d'échec) + un décompte. Lisible à 20 hôtes.
-  private def self.fleet_summary(hosts, to) : Int32
-    states = hosts.map { |h| probe_one(h, to) }
-    w = states.map(&.fqdn.size).max? || 20
-    puts ""
-    states.each do |st|
-      ver = st.current ? (st.target ? "#{st.current} → #{st.target}" : st.current.not_nil!) : "—"
-      puts "  #{st.fqdn.ljust(w)}  #{ver.ljust(26)}  #{st.note}"
+  # (version → cible, ou motif d'échec), rien d'autre quand tout est à jour.
+  private def self.fleet_summary(hosts, skipped, to) : Int32
+    states = skipped.map { |h| HostState.new(h.fqdn, true, nil, nil, NOTE_SKIPPED) } +
+             hosts.map { |h| probe_one(h, to) }
+    puts fleet_table(states)
+    if hint = fleet_hint(states)
+      puts hint
     end
-    up = states.count { |s| s.note.starts_with?(NOTE_UP) }
-    patch = states.count { |s| s.note.includes?(NOTE_PATCH) }
-    boot = states.count { |s| s.note.includes?(NOTE_REBOOT) }
-    ready = states.count { |s| s.note.starts_with?(NOTE_OK) }
-    ko = states.count { |s| !s.ok }
-    puts ""
-    puts "Résumé : #{up} à monter · #{patch} avec correctifs en attente · #{boot} à redémarrer · #{ready} à jour · #{ko} injoignables (sur #{states.size})."
-    puts "→ détail : `beryl os-upgrade <host>` ; appliquer : `beryl os-upgrade <host> --apply [--reboot]`."
     EXIT_OK
+  end
+
+  # Tableau aligné, une ligne par hôte. Un hôte sans version (pas installé)
+  # n'a que sa note : « fqdn : pas encore installé ». Pur.
+  def self.fleet_table(states : Array(HostState)) : String
+    w = states.map(&.fqdn.size).max? || 20
+    states.map do |st|
+      next "  #{st.fqdn} : #{st.note}" if st.note == NOTE_SKIPPED
+      ver = st.current ? (st.target ? "#{st.current} → #{st.target}" : st.current.not_nil!) : "—"
+      "  #{st.fqdn.ljust(w)}  #{ver.ljust(26)}  #{st.note}"
+    end.join("\n")
+  end
+
+  # Ligne d'action, SEULEMENT s'il y a quelque chose à faire (montée,
+  # correctifs, redémarrage, injoignable) : décompte non nul + commandes.
+  # nil quand tout est à jour. Pur.
+  def self.fleet_hint(states : Array(HostState)) : String?
+    counts = {
+      "à monter"                   => states.count(&.note.starts_with?(NOTE_UP)),
+      "avec correctifs en attente" => states.count(&.note.includes?(NOTE_PATCH)),
+      "à redémarrer"               => states.count(&.note.includes?(NOTE_REBOOT)),
+      "injoignable(s)"             => states.count { |s| !s.ok },
+    }.reject { |_, n| n == 0 }
+    return if counts.empty?
+    "→ #{counts.map { |k, n| "#{n} #{k}" }.join(" · ")} : détail `beryl os-upgrade <host>`, " \
+    "appliquer `beryl os-upgrade <host> --apply [--reboot]`."
   end
 
   # État d'un hôte pour le résumé de flotte, en LECTURE SEULE : version (sans

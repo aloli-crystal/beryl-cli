@@ -145,3 +145,96 @@ describe "Beryl::CLI::Upgrade, services touchés" do
     ).should eq(%w[postgresql])
   end
 end
+
+describe "Beryl::CLI::Upgrade (audit et tableau de flotte)" do
+  it "audit : base rafraîchie (-F) sauf sur un host protégé" do
+    Beryl::CLI::Upgrade.audit_cmd(true).should eq("pkg audit -F -q")
+    Beryl::CLI::Upgrade.audit_cmd(false).should eq("pkg audit -q")
+  end
+
+  it "vulnerable_packages : « nom-version » seulement, diagnostics ignorés" do
+    output = "vulnxml file up-to-date\ncurl-8.5.0\nexpat-2.6.0_1\ncurl-8.5.0\n\n"
+    Beryl::CLI::Upgrade.vulnerable_packages(output).should eq(%w[curl-8.5.0 expat-2.6.0_1])
+    Beryl::CLI::Upgrade.vulnerable_packages("").should be_empty
+  end
+
+  it "audit_alert : nil sans vulnérabilité, sinon serveur + paquets" do
+    Beryl::CLI::Upgrade.audit_alert({"a.example.net" => [] of String}).should be_nil
+    alert = Beryl::CLI::Upgrade.audit_alert({"a.example.net" => %w[curl-8.5.0 expat-2.6.0], "b.example.net" => [] of String}).not_nil!
+    alert.should contain("ALERTE SÉCURITÉ")
+    alert.should contain("  a.example.net : curl-8.5.0, expat-2.6.0")
+    alert.should_not contain("b.example.net")
+  end
+
+  it "pending_lines : lignes de mise à jour au format de pkg, toutes sections" do
+    output = <<-OUT
+      Checking integrity... done (0 conflicting)
+      The following 3 package(s) will be affected (of 0 checked):
+
+      New packages to be INSTALLED:
+      \tlibffi: 3.4.6 [FreeBSD-ports]
+
+      Installed packages to be UPGRADED:
+      \tpartiduo-connect-devel: 0.1.46 -> 0.1.47 [aloli]
+      \tpython312: 3.12.14_1 -> 3.12.15 [FreeBSD-ports]
+
+      Number of packages to be upgraded: 2
+      OUT
+    Beryl::CLI::Upgrade.pending_lines(output).should eq([
+      "libffi: 3.4.6 [FreeBSD-ports]",
+      "partiduo-connect-devel: 0.1.46 -> 0.1.47 [aloli]",
+      "python312: 3.12.14_1 -> 3.12.15 [FreeBSD-ports]",
+    ])
+    Beryl::CLI::Upgrade.pending_lines("Your packages are up to date.\n").should be_empty
+  end
+
+  it "fleet_output : FQDN puis lignes pkg indentées, (vulnerable!) en fin de ligne" do
+    states = [
+      Beryl::CLI::Upgrade::HostState.new("shingouz.example.net", true, "pas encore installé"),
+      Beryl::CLI::Upgrade::HostState.new("loulou.example.net", true, "à jour",
+        ["partiduo-connect-devel: 0.1.46 -> 0.1.47 [aloli]", "python312: 3.12.14_1 -> 3.12.15 [FreeBSD-ports]"],
+        %w[python312-3.12.14_1]),
+      Beryl::CLI::Upgrade::HostState.new("tika.example.net", true, "à jour"),
+      Beryl::CLI::Upgrade::HostState.new("qwerty.example.net", false, "SSH KO : timeout", vulns: nil),
+    ]
+    Beryl::CLI::Upgrade.fleet_output(states).should eq(<<-OUT.chomp)
+      shingouz.example.net : pas encore installé
+
+      loulou.example.net
+      \tpartiduo-connect-devel: 0.1.46 -> 0.1.47 [aloli]
+      \tpython312: 3.12.14_1 -> 3.12.15 [FreeBSD-ports] (vulnerable!)
+
+      tika.example.net : à jour
+
+      qwerty.example.net : SSH KO : timeout
+      OUT
+  end
+
+  it "fleet_block : vulnérable sans mise à jour disponible, audit impossible signalés" do
+    st = Beryl::CLI::Upgrade::HostState.new("a.example.net", true, "à jour", vulns: %w[curl-8.5.0])
+    Beryl::CLI::Upgrade.fleet_block(st).should eq("a.example.net\n\tcurl-8.5.0 (vulnerable!) — pas de mise à jour disponible")
+    st = Beryl::CLI::Upgrade::HostState.new("b.example.net", true, "à jour", vulns: nil)
+    Beryl::CLI::Upgrade.fleet_block(st).should eq("b.example.net\n\tpkg audit impossible")
+  end
+end
+
+describe "Beryl::CLI::Upgrade.fleet_hint" do
+  it "nil quand tout est à jour (ou pas encore installé)" do
+    states = [
+      Beryl::CLI::Upgrade::HostState.new("a", true, "à jour"),
+      Beryl::CLI::Upgrade::HostState.new("b", true, "pas encore installé"),
+    ]
+    Beryl::CLI::Upgrade.fleet_hint(states).should be_nil
+  end
+
+  it "décompte des seules actions à faire + commandes" do
+    states = [
+      Beryl::CLI::Upgrade::HostState.new("a", true, "à jour", ["python312: 3.12.14_1 -> 3.12.15 [FreeBSD-ports]"], %w[python312-3.12.14_1]),
+      Beryl::CLI::Upgrade::HostState.new("b", false, "SSH KO : timeout", vulns: nil),
+      Beryl::CLI::Upgrade::HostState.new("c", true, "à jour"),
+    ]
+    hint = Beryl::CLI::Upgrade.fleet_hint(states).not_nil!
+    hint.should start_with("→ 1 avec mises à jour · 1 avec paquets vulnérables · 1 injoignable(s) : ")
+    hint.should contain("beryl upgrade <portée> --apply")
+  end
+end
