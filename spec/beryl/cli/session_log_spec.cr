@@ -48,24 +48,50 @@ describe Beryl::CLI::SessionLog do
   describe ".path" do
     now = Time.local(2026, 10, 20, 21, 45, 0)
 
-    it "date, commande et portée" do
+    it "date, heure, commande en essai à blanc et portée" do
       Beryl::CLI::SessionLog.path("apply", ["loulou.aloli.net", "pkg-repo-aloli"], now, "/logs")
-        .should eq("/logs/2026-10-20_214500_apply_loulou.aloli.net.log")
+        .should eq("/logs/2026-10-20--21-45-00--apply-dry-run--loulou.aloli.net.log")
     end
 
-    it "saute les options pour trouver la portée" do
+    it "commande qui agit : sans dry-run ; la portée saute les options" do
       Beryl::CLI::SessionLog.path("upgrade", ["--apply", "aloli.net"], now, "/logs")
-        .should eq("/logs/2026-10-20_214500_upgrade_aloli.net.log")
+        .should eq("/logs/2026-10-20--21-45-00--upgrade--aloli.net.log")
     end
 
-    it "sans portée : date et commande" do
+    it "sans portée : date, heure et commande" do
       Beryl::CLI::SessionLog.path("upgrade", ["--status"], now, "/logs")
-        .should eq("/logs/2026-10-20_214500_upgrade.log")
+        .should eq("/logs/2026-10-20--21-45-00--upgrade-status.log")
     end
 
     it "neutralise les caractères dangereux dans le nom" do
-      Beryl::CLI::SessionLog.path("apply", ["../../etc/x y"], now, "/logs")
-        .should eq("/logs/2026-10-20_214500_apply_.._.._etc_x_y.log")
+      Beryl::CLI::SessionLog.path("apply", ["../../etc/x y", "--apply"], now, "/logs")
+        .should eq("/logs/2026-10-20--21-45-00--apply--.._.._etc_x_y.log")
+    end
+  end
+
+  describe ".label" do
+    it "essai à blanc par défaut des commandes à --apply" do
+      %w[apply upgrade os-upgrade wipe bootstrap rescue scan].each do |cmd|
+        Beryl::CLI::SessionLog.label(cmd, ["x"]).should eq("#{cmd}-dry-run")
+      end
+    end
+
+    it "--apply : le nom seul" do
+      Beryl::CLI::SessionLog.label("os-upgrade", ["aloli.net", "--apply"]).should eq("os-upgrade")
+    end
+
+    it "scan -W / --write-to implique --apply" do
+      Beryl::CLI::SessionLog.label("scan", ["loulou", "-W", "/x.yml"]).should eq("scan")
+      Beryl::CLI::SessionLog.label("scan", ["loulou", "--write-to=/x.yml"]).should eq("scan")
+    end
+
+    it "--status : lecture de l'état d'une tâche" do
+      Beryl::CLI::SessionLog.label("upgrade", ["--status"]).should eq("upgrade-status")
+    end
+
+    it "commande sans --apply : son nom" do
+      Beryl::CLI::SessionLog.label("update", ["aloli.net"]).should eq("update")
+      Beryl::CLI::SessionLog.label("info", ["loulou"]).should eq("info")
     end
   end
 

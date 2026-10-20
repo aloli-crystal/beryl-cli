@@ -50,14 +50,30 @@ module Beryl::CLI::SessionLog
     File.join(Beryl::Xdg.state_dir, "logs")
   end
 
-  # `<dossier>/2026-10-20_214500_apply_loulou.aloli.net.log` : date, commande,
-  # puis la portée (premier argument qui n'est pas une option), réduite aux
-  # caractères sûrs dans un nom de fichier. Pur.
+  # Sous-commandes en essai à blanc par défaut (`--apply` pour agir).
+  DRY_RUN_BY_DEFAULT = {"apply", "boot-hd", "bootstrap", "dns", "dns-alias", "dns-record", "headscale-authkey",
+                        "lock", "os-upgrade", "pg-upgrade", "reboot", "rescue", "scaleway-reinstall", "scan",
+                        "tang-enroll", "unlock", "upgrade", "wipe"}
+
+  # Libellé de la commande dans le nom du journal : `upgrade-dry-run` pour un
+  # essai à blanc, `upgrade` quand elle agit (`--apply` ; `-W`/`--write-to`
+  # pour scan, qui l'implique), `upgrade-status` pour `--status` (lecture
+  # de l'état d'une tâche). Les commandes sans `--apply` gardent leur nom. Pur.
+  def label(subcommand : String, sub_args : Array(String)) : String
+    return "#{subcommand}-status" if sub_args.includes?("--status")
+    return subcommand unless DRY_RUN_BY_DEFAULT.includes?(subcommand)
+    acts = sub_args.any? { |a| a == "--apply" || a == "-W" || a.starts_with?("--write-to") }
+    acts ? subcommand : "#{subcommand}-dry-run"
+  end
+
+  # `<dossier>/2026-10-20--23-40-28--upgrade-dry-run--aloli.net.log` : date,
+  # heure, libellé de la commande, puis la portée (premier argument qui n'est
+  # pas une option), réduite aux caractères sûrs dans un nom de fichier. Pur.
   def path(subcommand : String, sub_args : Array(String), now : Time, base : String = dir) : String
-    name = "#{now.to_s("%Y-%m-%d_%H%M%S")}_#{subcommand}"
+    name = "#{now.to_s("%Y-%m-%d--%H-%M-%S")}--#{label(subcommand, sub_args)}"
     if scope = sub_args.find { |a| !a.starts_with?("-") }
       safe = scope.gsub(/[^A-Za-z0-9._-]/, "_")[0, 80]
-      name = "#{name}_#{safe}" unless safe.empty?
+      name = "#{name}--#{safe}" unless safe.empty?
     end
     File.join(base, "#{name}.log")
   end

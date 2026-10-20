@@ -13,8 +13,11 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 Toute commande qui agit sur le parc écrit ce qui s'affiche (questions et
 réponses comprises, sortie des commandes distantes) dans
-`~/.local/state/beryl/logs/<date>_<commande>_<portée>.log` (0600, dossier
-0700, effacé après 90 jours) ; le chemin est rappelé en fin de commande.
+`~/.local/state/beryl/logs/` (0600, dossier 0700, effacé après 90 jours) ;
+le chemin est rappelé en fin de commande. Nom : date, heure, commande,
+portée — `2026-10-20--23-40-28--upgrade-dry-run--aloli.net.log` pour un
+essai à blanc, `…--upgrade--aloli.net.log` avec `--apply`,
+`…--upgrade-status.log` pour `--status`.
 `--no-log`, n'importe où sur la ligne, le désactive. Jamais journalisées :
 l'aide, `show`, `list-hosts`, `fmt`, et les commandes où l'on saisit des
 secrets (`env`, `init`, `add-provider`, `add-domain`). Dans un terminal,
