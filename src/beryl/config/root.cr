@@ -862,6 +862,26 @@ module Beryl::Config
       @merged[YAML::Any.new("os")]?.try(&.as_s?) || "freebsd"
     end
 
+    # `proxy_command:` : commande de rebond passée telle quelle à ssh
+    # (`-o ProxyCommand=…`, `%h %p` compris), PRIORITAIRE sur `proxy_jump`.
+    # Pour un hôte que le rebond doit joindre depuis une adresse source
+    # précise, ex. l'adresse d'un tunnel IPsec portée par une loopback :
+    # `ssh pkg.example.net nc -s 10.255.255.1 %h %p` (un `ProxyJump` sortirait
+    # de l'IP publique du rebond, hors politique IPsec). La commande lancée
+    # lit la config ssh de l'opérateur (`~/.ssh/config`) : elle n'est pas
+    # hermétique comme la conversion de `proxy_jump`.
+    def proxy_command : String?
+      @merged[YAML::Any.new("proxy_command")]?.try(&.as_s?)
+    end
+
+    # `skip_recipes:` : recettes héritées (défauts société ou domaine) que
+    # `beryl apply` ne joue PAS sur cet hôte, ex. `[ssh-hardening]` sur une VM
+    # dont les comptes d'un tiers doivent garder leur accès. Les dépendances
+    # de la recette écartée ne sont pas tirées non plus.
+    def skip_recipes : Array(String)
+      @merged[YAML::Any.new("skip_recipes")]?.try(&.as_a?).try(&.compact_map(&.as_s?)) || [] of String
+    end
+
     # IP overlay (mesh Headscale) déclarée dans le YAML host
     # (`overlay_ip: 100.64.x.y`). Lue par `ssh_host` quand le mode
     # transport global est `:overlay` — cf. Phase 4 de la roadmap
@@ -1119,7 +1139,9 @@ module Beryl::Config
       # SSH), surtout en boucle de flotte. BatchMode : jamais de prompt de
       # mot de passe (beryl est non-interactif, auth par clé).
       opts = {"ConnectTimeout" => "10", "BatchMode" => "yes"}
-      if pj = proxy_jump(eff_user)
+      if pc = proxy_command
+        opts["ProxyCommand"] = pc
+      elsif pj = proxy_jump(eff_user)
         opts["ProxyJump"] = pj
       end
       SSH::Connection.new(

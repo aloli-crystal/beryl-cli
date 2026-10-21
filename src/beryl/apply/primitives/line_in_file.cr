@@ -21,6 +21,11 @@ module Beryl::Apply
       "line-in-file"
     end
 
+    # Portable : FreeBSD et Linux.
+    def systems : Array(String)
+      [FREEBSD, LINUX]
+    end
+
     def apply(shell : Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Context) : StepResult
       path = required_string(params, "path")
       line = required_string(params, "line")
@@ -37,7 +42,7 @@ module Beryl::Apply
 
       # write_file recrée le fichier (root, mode par défaut) : on relit puis
       # on remet le mode et le propriétaire d'origine.
-      stat = shell.exec("stat -f '%Lp %Su:%Sg' #{q}").stdout.strip.split
+      stat = shell.exec(Posix.mode_owner(path, context.os)).stdout.strip.split
       shell.write_file(path, desired)
       if stat.size == 2
         shell.exec("chmod #{Process.quote(stat[0])} #{q}")

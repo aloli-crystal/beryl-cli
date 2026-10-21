@@ -22,6 +22,11 @@ module Beryl::Apply
       "cron-entry"
     end
 
+    # Portable : FreeBSD et Linux.
+    def systems : Array(String)
+      [FREEBSD, LINUX]
+    end
+
     def apply(shell : Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Context) : StepResult
       user = string(params, "user") || "root"
       entry = required_string(params, "entry").strip

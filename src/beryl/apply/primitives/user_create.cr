@@ -19,10 +19,15 @@ module Beryl::Apply
       "user-create"
     end
 
+    # Portable : FreeBSD et Linux.
+    def systems : Array(String)
+      [FREEBSD, LINUX]
+    end
+
     def apply(shell : Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Context) : StepResult
       user = required_string(params, "name")
 
-      if exists?(shell, user)
+      if exists?(shell, user, context.os)
         return StepResult.skipped("user #{user} existe déjà")
       end
 
@@ -33,7 +38,9 @@ module Beryl::Apply
 
       return StepResult.applied("créerait le user #{user} (dry-run)") if dry_run
 
-      args = ["useradd", "-n", user, "-m"]
+      # FreeBSD : `pw useradd -n <user> -m …` ; Linux : `useradd -m … <user>`
+      # (shadow-utils, mêmes options -s/-d/-G/-c).
+      args = context.os == LINUX ? ["useradd", "-m"] : ["pw", "useradd", "-n", user, "-m"]
       if s = login_shell
         args << "-s" << s
       end
@@ -46,16 +53,21 @@ module Beryl::Apply
       if c = comment
         args << "-c" << c
       end
+      args << user if context.os == LINUX
 
-      shell.exec("pw #{args.map { |a| Process.quote(a) }.join(" ")}")
+      shell.exec(args.map { |a| Process.quote(a) }.join(" "))
       StepResult.applied("user #{user} créé")
     end
 
-    # `pw usershow <user>` retourne 0 si l'utilisateur existe. (Et non
-    # `pw show <user>`, qui est une syntaxe invalide — `pw` attend
-    # `usershow`/`groupshow`/… ; validé sur le banc QEMU FreeBSD.)
-    private def exists?(shell : Shell, user : String) : Bool
-      Primitive.probe?(shell, "pw usershow #{Process.quote(user)} >/dev/null 2>&1")
+    # FreeBSD : `pw usershow <user>` retourne 0 si l'utilisateur existe (et
+    # non `pw show <user>`, syntaxe invalide — validé sur le banc QEMU
+    # FreeBSD). Linux : `getent passwd <user>`.
+    private def exists?(shell : Shell, user : String, os : String) : Bool
+      if os == LINUX
+        Primitive.probe?(shell, "getent passwd #{Process.quote(user)} >/dev/null 2>&1")
+      else
+        Primitive.probe?(shell, "pw usershow #{Process.quote(user)} >/dev/null 2>&1")
+      end
     end
   end
 

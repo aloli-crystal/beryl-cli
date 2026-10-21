@@ -32,6 +32,11 @@ module Beryl::Apply
       "user-update-keys"
     end
 
+    # Portable : FreeBSD et Linux.
+    def systems : Array(String)
+      [FREEBSD, LINUX]
+    end
+
     def apply(shell : Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Context) : StepResult
       user = required_string(params, "user")
       desired = string_array(params, "keys")

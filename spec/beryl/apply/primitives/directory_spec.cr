@@ -36,8 +36,8 @@ describe Beryl::Apply::Directory do
   it "skip si déjà conforme" do
     sh = FakeShell.new
     sh.stub(/test -d/, exit_code: 0)
-    sh.stub(/stat -f '%Su:%Sg'/, stdout: "deploy:www\n")
-    sh.stub(/stat -f '%Lp'/, stdout: "775\n")
+    sh.stub(/stat -f '?%Su:%Sg/, stdout: "deploy:www\n")
+    sh.stub(/stat -f '?%Lp/, stdout: "775\n")
     r = Beryl::Apply::Directory.new.apply(
       sh, y({"path" => "/home/platforms", "owner" => "deploy:www", "mode" => "0775"}), false, ctx)
     r.outcome.should eq(Beryl::Apply::Outcome::Skipped)

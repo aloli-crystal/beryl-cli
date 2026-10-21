@@ -35,6 +35,18 @@ module Beryl::Apply
   #         value_from_command: "tailscale ip -4"
   class SshdConfigSet < Primitive
     PATH = "/etc/ssh/sshd_config.d/beryl.conf"
+    # Linux : « 00- » pour passer AVANT les drop-ins du système (SUSE :
+    # 40-suse-crypto-policies.conf, 50-cloud-init.conf), lus dans l'ordre
+    # alphabétique — sshd retient la première valeur.
+    LINUX_PATH = "/etc/ssh/sshd_config.d/00-beryl.conf"
+
+    def systems : Array(String)
+      [FREEBSD, LINUX]
+    end
+
+    def self.path(os : String) : String
+      os == LINUX ? LINUX_PATH : PATH
+    end
 
     HEADER = "# Géré par beryl (sshd-config-set). Ne pas éditer à la main.\n"
 
@@ -68,15 +80,18 @@ module Beryl::Apply
 
       # Garantit l'Include AVANT toute autre logique : sans lui, un
       # `beryl.conf` déjà "à jour" resterait pourtant inerte.
+      path = self.class.path(context.os)
       include_added = ensure_include(shell, dry_run)
 
-      directives = parse(shell.exec("cat #{Process.quote(PATH)} 2>/dev/null", raise_on_error: false).stdout)
+      current = shell.exec("cat #{Process.quote(path)} 2>/dev/null", raise_on_error: false)
+      original = current.success? ? current.stdout : nil
+      directives = parse(current.stdout)
       changed = directives[key]? != value
 
-      shadows = shadowing_files(shell, key)
+      shadows = shadowing_files(shell, key, path)
       foreign = shadows.reject { |file| File.basename(file).includes?("beryl") }
       unless foreign.empty?
-        return StepResult.failed("#{key} est fixée par #{foreign.join(", ")}, lu(s) avant #{File.basename(PATH)} : " \
+        return StepResult.failed("#{key} est fixée par #{foreign.join(", ")}, lu(s) avant #{File.basename(path)} : " \
                                  "retirez-la de ce(s) fichier(s) ou alignez la valeur sur #{value}")
       end
 
@@ -94,15 +109,27 @@ module Beryl::Apply
       parts = [] of String
       parts << "Include sshd_config.d/*.conf activé" if include_added
       parts << (changed ? "#{key} : #{previous.nil? ? "(absent)" : previous} → #{value}" : "#{key} déjà = #{value}")
-      shadows.each { |file| parts << "#{key} retirée de #{file} (masquait #{File.basename(PATH)})" }
+      shadows.each { |file| parts << "#{key} retirée de #{file} (masquait #{File.basename(path)})" }
       msg = parts.join(" ; ")
       return StepResult.applied("#{msg} (dry-run)") if dry_run
 
       shadows.each { |file| shell.exec(remove_directive_command(file, key)) }
-      shell.exec("mkdir -p #{Process.quote(File.dirname(PATH))}")
-      shell.write_file(PATH, render(directives), mode: "0644")
-      shell.exec("sshd -t") # valide la conf — échec = stop net
-      shell.exec("service sshd reload")
+      shell.exec("mkdir -p #{Process.quote(File.dirname(path))}")
+      shell.write_file(path, render(directives), mode: "0644")
+      # Valide la conf AVANT de recharger. Refusée : on remet l'ancien
+      # fichier (ou on retire le nouveau) — sinon le prochain démarrage de
+      # sshd échouerait et fermerait la porte du serveur.
+      check = shell.exec("sshd -t", raise_on_error: false)
+      unless check.success?
+        if prev = original
+          shell.write_file(path, prev, mode: "0644")
+        else
+          shell.exec("rm -f #{Process.quote(path)}")
+        end
+        detail = check.stderr.strip.lines.last(3).join(" | ")
+        return StepResult.failed("#{key} = #{value} refusée par sshd -t (#{detail}) — #{File.basename(path)} remis en l'état")
+      end
+      shell.exec(context.os == LINUX ? "systemctl reload sshd" : "service sshd reload")
       StepResult.applied(msg)
     end
 
@@ -113,8 +140,8 @@ module Beryl::Apply
 
     # Drop-ins lus AVANT beryl.conf (ordre du glob, celui de sshd) qui fixent
     # `key` : ils l'emportent (sshd retient la première valeur).
-    private def shadowing_files(shell : Shell, key : String) : Array(String)
-      script = "for f in #{File.dirname(PATH)}/*.conf; do [ \"$f\" = #{Process.quote(PATH)} ] && break; " \
+    private def shadowing_files(shell : Shell, key : String, path : String) : Array(String)
+      script = "for f in #{File.dirname(path)}/*.conf; do [ \"$f\" = #{Process.quote(path)} ] && break; " \
                "[ -f \"$f\" ] && grep -qiE #{Process.quote(directive_pattern(key))} \"$f\" && echo \"$f\"; done; true"
       shell.exec(script, raise_on_error: false).stdout.lines.map(&.strip).reject(&.empty?)
     end

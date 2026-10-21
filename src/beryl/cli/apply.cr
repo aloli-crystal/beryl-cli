@@ -159,9 +159,11 @@ module Beryl::CLI::Apply
   private def self.apply_one(config_root : String, host : Beryl::Config::ResolvedHost, adhoc_recipe : String?, dry_run : Bool, restrict_adhoc : Bool = false) : Int32
     host.apply_all_credentials_to_env!
 
-    # Apply est FreeBSD-only dans ce build (ADR-014 prévoit Os::Debian…).
-    unless host.os == "freebsd"
-      STDERR.puts "beryl : #{host.fqdn} ignoré (apply = os: freebsd uniquement, os : #{host.os})."
+    # Apply gère FreeBSD, et Linux sous systemd pour les recettes qui le
+    # déclarent (`systems:`). Le système déclaré (`os:` du host.yml) est
+    # comparé plus bas à celui que le serveur annonce (`uname -s`).
+    unless {Beryl::Apply::FREEBSD, Beryl::Apply::LINUX}.includes?(host.os)
+      STDERR.puts "beryl : #{host.fqdn} ignoré (apply = os: freebsd ou linux, os : #{host.os})."
       return EXIT_USAGE
     end
     # Un host virtuel (pas de `.host.yml`) n'a pas de connexion.
@@ -184,6 +186,15 @@ module Beryl::CLI::Apply
     # oh-my-zsh` → recette oh-my-zsh avec user: <nom>) ; ou, en mode
     # ponctuel, la seule recette nommée en argument.
     declared = apply_recipes_list(host) + user_shell_recipe_requests(host)
+    # `skip_recipes:` du host.yml : recettes héritées (défauts société ou
+    # domaine) à NE PAS jouer sur cet hôte. Retirées AVANT la résolution, pour
+    # que leurs dépendances (`requires:`) ne passent pas non plus.
+    unless (skip = host.skip_recipes).empty?
+      if (removed = declared.select { |req| skip.includes?(req.name) }).size > 0
+        log "écartées (skip_recipes de #{host.fqdn}) : #{removed.map(&.name).uniq.join(", ")}"
+        declared = declared.reject { |req| skip.includes?(req.name) }
+      end
+    end
     resolver = Beryl::Apply::Resolver.new(search_path)
     requests = declared
     if r = adhoc_recipe
@@ -233,13 +244,37 @@ module Beryl::CLI::Apply
 
     conn = host.connection(ssh_user)
     uname = conn.exec("uname -s", raise_on_error: false).stdout.strip
-    unless uname == "FreeBSD"
-      STDERR.puts "beryl : #{host.fqdn} : connexion #{ssh_user}@ impossible ou pas FreeBSD (uname -s = #{uname.inspect})"
+    # FreeBSD, ou Linux sous systemd (VM confiée par un client) : seules les
+    # recettes et primitives qui déclarent `linux` y sont jouées.
+    os =
+      case uname
+      when "FreeBSD" then Beryl::Apply::FREEBSD
+      when "Linux"
+        if conn.exec("test -d /run/systemd/system", raise_on_error: false).success?
+          Beryl::Apply::LINUX
+        end
+      end
+    unless os
+      STDERR.puts "beryl : #{host.fqdn} : connexion #{ssh_user}@ impossible, ou système non pris en charge " \
+                  "(uname -s = #{uname.inspect} ; FreeBSD ou Linux sous systemd attendu)"
       if pj = host.proxy_jump(ssh_user)
         STDERR.puts "  (accès via le bastion #{pj} → IP vRack #{host.ssh_host} : est-elle montée et joignable ? " \
                     "appliquez d'abord `vrack-interface` seul, validez, PUIS `sshd-vrack-only`.)"
       end
       return EXIT_NO_FREEBSD
+    end
+    unless os == host.os
+      STDERR.puts "beryl : #{host.fqdn} : le host.yml déclare os: #{host.os}, le serveur répond #{uname} — " \
+                  "corrigez `os:` avant d'appliquer quoi que ce soit."
+      return EXIT_NO_FREEBSD
+    end
+    if (other = recipes.reject(&.systems.includes?(os))).size > 0
+      log "écartées (pas prévues pour #{os}) : #{other.map(&.name).join(", ")}"
+      recipes = recipes - other
+      if recipes.empty?
+        log "aucune recette pour #{os} sur #{host.fqdn}."
+        return EXIT_OK
+      end
     end
 
     # Escalade : si on n'est pas root, on vérifie que sudo NOPASSWD marche
@@ -287,10 +322,15 @@ module Beryl::CLI::Apply
       vars["public_ip6_gateway"] = gw6
     end
     vars["root_ssh_login"] = root_ssh_login(host)
+    vars["os"] = os
+    # Compte par lequel beryl se connecte : une recette qui restreint l'accès
+    # SSH (`sshd-allow-users`) s'en sert pour ne jamais fermer sa propre porte.
+    vars["connect_user"] = ssh_user
     context = Beryl::Apply::Context.new(
       protected_keys: connecting_pubkeys(host),
       vars: vars,
       dns: dns_hook(config_root, host),
+      os: os,
     )
     recipe_args = {} of String => Array(Hash(String, String))
     requests.each { |req| (recipe_args[req.name] ||= [] of Hash(String, String)) << req.arguments }

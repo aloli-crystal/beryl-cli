@@ -14,6 +14,11 @@ module Beryl::Apply
       "file-absent"
     end
 
+    # Portable : FreeBSD et Linux.
+    def systems : Array(String)
+      [FREEBSD, LINUX]
+    end
+
     def apply(shell : Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Context) : StepResult
       path = required_string(params, "path").strip
       raise PrimitiveError.new("`file-absent` : chemin vide") if path.empty? || path == "/"

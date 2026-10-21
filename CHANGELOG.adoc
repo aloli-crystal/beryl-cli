@@ -9,6 +9,36 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl apply` sous Linux (systemd, SUSE)
+
+Une VM Linux confiée par un client se gère comme un serveur FreeBSD, pour
+les recettes qui le permettent :
+
+* `os: linux` dans le host.yml, comparé au système réel (`uname -s`,
+  systemd exigé) avant toute action ;
+* une recette déclare ses systèmes (`systems: [freebsd, linux]`, FreeBSD
+  seul par défaut) : les autres sont écartées avec un message, sans échec ;
+  une primitive FreeBSD seule échoue proprement sous Linux ;
+* primitives portées : `user-create` (useradd), `pkg-install` (zypper),
+  `service-*` (systemctl), `sshd-config-set` (`00-beryl.conf`, lu avant les
+  drop-ins du système) ; `file-write`, `secret-file`, `directory` et
+  `line-in-file` choisissent `stat`/`sha256` BSD ou GNU ;
+* `{{ os }}` et `{{ connect_user }}` (compte par lequel beryl se connecte)
+  dans les recettes.
+
+=== host.yml : `skip_recipes:` et `proxy_command:`
+
+`skip_recipes: [ssh-hardening]` écarte, pour cet hôte, une recette héritée
+des défauts, dépendances comprises. `proxy_command:` passe une commande de
+rebond telle quelle à ssh (prioritaire sur `proxy_jump`), ex. pour partir
+de l'adresse d'un tunnel IPsec : `ssh relais.example.net nc -s 10.0.0.1 %h %p`.
+
+=== `sshd-config-set` : valeur refusée par `sshd -t` → fichier remis en l'état
+
+Le drop-in de beryl était écrit avant la validation : une valeur refusée le
+laissait en place, et le prochain démarrage de sshd échouait. Il est
+désormais restauré (ou retiré), sans rechargement de sshd.
+
 === Journal de session par défaut, `--no-log` pour s'en passer
 
 Toute commande qui agit sur le parc écrit ce qui s'affiche (questions et

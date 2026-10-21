@@ -21,3 +21,8 @@ end
 def ctx(protected_keys : Array(String) = [] of String) : Beryl::Apply::Context
   Beryl::Apply::Context.new(protected_keys: protected_keys)
 end
+
+# Contexte d'un hôte Linux (systemd).
+def linux_ctx : Beryl::Apply::Context
+  Beryl::Apply::Context.new(os: Beryl::Apply::LINUX)
+end

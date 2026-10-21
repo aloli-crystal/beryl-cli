@@ -32,6 +32,11 @@ module Beryl::Apply
       "command"
     end
 
+    # Portable : FreeBSD et Linux.
+    def systems : Array(String)
+      [FREEBSD, LINUX]
+    end
+
     def apply(shell : Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Context) : StepResult
       if params.has_key?("if_set") && (params["if_set"].as_s? || "").strip.empty?
         return StepResult.skipped("paramètre vide (if_set) — commande non demandée")

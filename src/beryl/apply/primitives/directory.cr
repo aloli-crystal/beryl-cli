@@ -14,6 +14,11 @@ module Beryl::Apply
       "directory"
     end
 
+    # Portable : FreeBSD et Linux.
+    def systems : Array(String)
+      [FREEBSD, LINUX]
+    end
+
     # Normalise un mode octal pour comparaison avec `stat -f %Lp`
     # (« 0775 » → « 775 »). Pur, exposé pour test.
     def self.norm_mode(mode : String) : String
@@ -31,8 +36,8 @@ module Beryl::Apply
         raise PrimitiveError.new("#{path} existe mais n'est pas un dossier — refus de clobberer.")
       end
 
-      need_owner = owner && current_owner(shell, path, is_dir) != owner
-      need_mode = mode && current_mode(shell, path, is_dir) != self.class.norm_mode(mode)
+      need_owner = owner && current_owner(shell, path, is_dir, context.os) != owner
+      need_mode = mode && current_mode(shell, path, is_dir, context.os) != self.class.norm_mode(mode)
 
       if is_dir && !need_owner && !need_mode
         return StepResult.skipped("#{path} déjà conforme")
@@ -51,15 +56,15 @@ module Beryl::Apply
       StepResult.applied(msg)
     end
 
-    private def current_owner(shell : Shell, path : String, exists : Bool) : String?
+    private def current_owner(shell : Shell, path : String, exists : Bool, os : String) : String?
       return unless exists
-      r = Primitive.read_probe(shell, "stat -f '%Su:%Sg' #{Process.quote(path)}")
+      r = Primitive.read_probe(shell, Posix.owner(path, os))
       r.success? ? r.stdout.strip : nil
     end
 
-    private def current_mode(shell : Shell, path : String, exists : Bool) : String?
+    private def current_mode(shell : Shell, path : String, exists : Bool, os : String) : String?
       return unless exists
-      r = Primitive.read_probe(shell, "stat -f '%Lp' #{Process.quote(path)}")
+      r = Primitive.read_probe(shell, Posix.mode(path, os))
       r.success? ? r.stdout.strip : nil
     end
   end

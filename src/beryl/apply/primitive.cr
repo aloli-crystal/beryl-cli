@@ -1,5 +1,6 @@
 require "yaml"
 require "./shell"
+require "./systems"
 
 module Beryl::Apply
   # Issue de l'exécution d'un step (une invocation de primitive).
@@ -30,12 +31,45 @@ module Beryl::Apply
   # * `dns` : pose d'un enregistrement DNS chez le fournisseur de la zone
   #   (primitive `dns-record`), fourni par `beryl apply` : (nom complet,
   #   type, cible, dry_run) → {changé ?, message}. Absent hors `beryl apply`.
+  #
+  # * `os` : système de l'hôte, détecté par `beryl apply` (`uname -s`) :
+  #   `FREEBSD` (cas général) ou `LINUX` (systemd), cf. `Primitive#systems`.
   alias DnsHook = Proc(String, String, String, Bool, {Bool, String})
+
+  # Commandes de lecture de fichiers, BSD ou GNU selon le système cible :
+  # `stat` et l'empreinte SHA-256 n'ont pas la même syntaxe.
+  module Posix
+    # Permissions en octal (`644`).
+    def self.mode(path : String, os : String) : String
+      os == LINUX ? "stat -c %a #{Process.quote(path)}" : "stat -f %Lp #{Process.quote(path)}"
+    end
+
+    # Propriétaire, `user:groupe` ou `user` seul.
+    def self.owner(path : String, os : String, with_group : Bool = true) : String
+      fmt = os == LINUX ? (with_group ? "%U:%G" : "%U") : (with_group ? "%Su:%Sg" : "%Su")
+      os == LINUX ? "stat -c #{fmt} #{Process.quote(path)}" : "stat -f #{fmt} #{Process.quote(path)}"
+    end
+
+    # Permissions et propriétaire sur une ligne : `644 user:groupe`.
+    def self.mode_owner(path : String, os : String) : String
+      os == LINUX ? "stat -c '%a %U:%G' #{Process.quote(path)}" : "stat -f '%Lp %Su:%Sg' #{Process.quote(path)}"
+    end
+
+    # Empreinte SHA-256 en hexadécimal, vide si le fichier est absent.
+    def self.sha256(path : String, os : String) : String
+      if os == LINUX
+        "sha256sum #{Process.quote(path)} 2>/dev/null | cut -d' ' -f1"
+      else
+        "sha256 -q #{Process.quote(path)} 2>/dev/null"
+      end
+    end
+  end
 
   record Context,
     protected_keys : Array(String) = [] of String,
     vars : Hash(String, String) = {} of String => String,
-    dns : DnsHook? = nil
+    dns : DnsHook? = nil,
+    os : String = FREEBSD
 
   # Variable du coffre PROPRE À UN SERVEUR : `<NOM>__<HÔTE>` (nom court en
   # majuscules, tout caractère hors [A-Z0-9] → `_`). Ex. sur loulou :
@@ -88,6 +122,13 @@ module Beryl::Apply
     # déjà interpolé par l'`Executor`. `context` porte les infos
     # dérivées du host (cf. `Context`).
     abstract def apply(shell : Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Context) : StepResult
+
+    # Systèmes sur lesquels la primitive sait agir. FreeBSD seul par défaut :
+    # une primitive portable (ou portée) le déclare en redéfinissant cette
+    # méthode. L'`Executor` refuse une primitive hors de sa liste.
+    def systems : Array(String)
+      [FREEBSD]
+    end
 
     # Registre global nom → instance de primitive. Peuplé par chaque
     # fichier de primitive via `Primitive.register`.

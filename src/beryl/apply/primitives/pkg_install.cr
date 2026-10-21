@@ -18,11 +18,16 @@ module Beryl::Apply
       "pkg-install"
     end
 
+    # Portable : FreeBSD et Linux.
+    def systems : Array(String)
+      [FREEBSD, LINUX]
+    end
+
     def apply(shell : Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Context) : StepResult
       packages = string_array(params, "packages")
       return StepResult.skipped("aucun package déclaré") if packages.empty?
 
-      installed = installed_packages(shell)
+      installed = installed_packages(shell, context.os)
       missing = packages.reject { |p| installed.includes?(p) }
 
       if missing.empty?
@@ -32,19 +37,31 @@ module Beryl::Apply
       msg = "+#{missing.size} package(s) : #{missing.join(", ")}"
       return StepResult.applied("#{msg} (dry-run)") if dry_run
 
-      shell.exec("pkg install -y #{missing.map { |p| Process.quote(p) }.join(" ")}")
+      list = missing.map { |p| Process.quote(p) }.join(" ")
+      if context.os == LINUX
+        # Linux : SUSE seulement (zypper) — la seule distribution gérée.
+        unless Primitive.probe?(shell, "command -v zypper >/dev/null 2>&1")
+          raise PrimitiveError.new("pkg-install : zypper introuvable (seule SUSE est prise en charge sous Linux)")
+        end
+        shell.exec("zypper --non-interactive install --no-recommends #{list}")
+      else
+        shell.exec("pkg install -y #{list}")
+      end
       StepResult.applied(msg)
     end
 
     # Ensemble des noms de packages installés (sans la version). On lit
     # tout en une seule commande pour limiter les allers-retours SSH —
     # `pkg info -q` liste `<nom>-<version>`, on retire le suffixe de
-    # version pour comparer par nom.
-    private def installed_packages(shell : Shell) : Set(String)
-      out = shell.exec(
-        "pkg info -q 2>/dev/null | sed 's/-[0-9].*$//' | sort -u",
-        raise_on_error: false,
-      ).stdout
+    # version pour comparer par nom. Linux : `rpm -qa` donne les noms seuls.
+    private def installed_packages(shell : Shell, os : String) : Set(String)
+      command =
+        if os == LINUX
+          "rpm -qa --qf '%{NAME}\\n' 2>/dev/null | sort -u"
+        else
+          "pkg info -q 2>/dev/null | sed 's/-[0-9].*$//' | sort -u"
+        end
+      out = shell.exec(command, raise_on_error: false).stdout
       out.lines.map(&.strip).reject(&.empty?).to_set
     end
   end

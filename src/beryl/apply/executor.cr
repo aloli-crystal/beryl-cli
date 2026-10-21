@@ -161,6 +161,10 @@ module Beryl::Apply
     end
 
     private def apply_step(primitive : Primitive, params : Hash(String, YAML::Any)) : StepResult
+      unless primitive.systems.includes?(@context.os)
+        return StepResult.failed("primitive `#{primitive.name}` non prise en charge sur #{@context.os} " \
+                                 "(#{primitive.systems.join(", ")} seulement)")
+      end
       primitive.apply(@shell, params, @dry_run, @context)
     rescue ex : SSH::CommandFailed
       StepResult.failed(ex.message || "commande distante échouée")

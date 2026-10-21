@@ -17,6 +17,11 @@ module Beryl::Apply
       "assert-env-var"
     end
 
+    # Portable : FreeBSD et Linux.
+    def systems : Array(String)
+      [FREEBSD, LINUX]
+    end
+
     def apply(shell : Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Context) : StepResult
       var_name = required_string(params, "name")
       custom_message = string(params, "message")

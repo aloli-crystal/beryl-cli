@@ -1,4 +1,5 @@
 require "yaml"
+require "./systems"
 
 module Beryl::Apply
   # Un step d'une recette : l'invocation d'une primitive (ou, à terme,
@@ -41,6 +42,11 @@ module Beryl::Apply
     # `requires_vrack: true` → recette ÉCARTÉE par `beryl apply` si le host n'a
     # pas d'IP vRack (ex. `pkg-repo-acme` joint le builder sur le vRack).
     getter requires_vrack : Bool
+    # `systems: [linux]` (ou `[freebsd, linux]`) : systèmes pris en charge.
+    # FreeBSD seul par défaut ; `beryl apply` ÉCARTE une recette hors de la
+    # liste du système de l'hôte (ex. les recettes des défauts de la société
+    # sur une VM Linux confiée par un client).
+    getter systems : Array(String)
     getter parameters : Hash(String, YAML::Any)
     getter arguments : Hash(String, YAML::Any)
     getter steps : Array(Step)
@@ -61,6 +67,7 @@ module Beryl::Apply
       @requires_vrack : Bool = false,
       @requires_args : Hash(String, Hash(String, String)) = {} of String => Hash(String, String),
       @order : Array(String) = [] of String,
+      @systems : Array(String) = [FREEBSD],
     )
     end
 
@@ -101,6 +108,7 @@ module Beryl::Apply
       description = root[YAML::Any.new("description")]?.try(&.as_s?) || ""
       requires, requires_args = parse_requires(root, path)
       requires_vrack = root[YAML::Any.new("requires_vrack")]?.try(&.as_bool?) == true
+      systems = parse_systems(root, path)
       order = parse_order(root, requires, path)
       parameters = sub_hash(root, "parameters")
       arguments = sub_hash(root, "arguments")
@@ -125,7 +133,21 @@ module Beryl::Apply
         requires_vrack: requires_vrack,
         requires_args: requires_args,
         order: order,
+        systems: systems,
       )
+    end
+
+    # `systems:` : `linux`, `[freebsd, linux]`… ; absent → FreeBSD seul.
+    private def self.parse_systems(root : Hash(YAML::Any, YAML::Any), path : String) : Array(String)
+      raw = root[YAML::Any.new("systems")]?
+      return [FREEBSD] unless raw
+      list = raw.as_a?.try(&.map(&.as_s?)) || [raw.as_s?]
+      values = list.compact
+      known = [FREEBSD, LINUX]
+      if values.empty? || values.size != list.size || !(values - known).empty?
+        raise InvalidRecipe.new("recette `#{path}` : `systems:` attend #{known.join(" et/ou ")} (reçu #{raw.inspect}).")
+      end
+      values.uniq
     end
 
     # `order:` : liste de noms, tous présents dans `requires:`, sans doublon.

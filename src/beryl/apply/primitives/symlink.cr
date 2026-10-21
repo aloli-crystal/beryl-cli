@@ -14,6 +14,11 @@ module Beryl::Apply
       "symlink"
     end
 
+    # Portable : FreeBSD et Linux.
+    def systems : Array(String)
+      [FREEBSD, LINUX]
+    end
+
     def apply(shell : Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Context) : StepResult
       path = required_string(params, "path")
       target = required_string(params, "target")
