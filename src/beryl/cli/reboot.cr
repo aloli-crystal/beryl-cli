@@ -102,7 +102,7 @@ module Beryl::CLI::Reboot
       when :hard
         log "H3 DRY-RUN : API #{host.provider || "?"} → power cycle (équivalent bouton physique)"
       end
-      log "H3 DRY-RUN : attente d'un NOUVEL identifiant de démarrage (timeout #{timeout.total_minutes.to_i}m)" if wait
+      log "H3 DRY-RUN : attente du redémarrage (preuve : l'identifiant de démarrage change), #{timeout.total_minutes.to_i} min au plus" if wait
       if has_encrypted && !skip_unlock
         log "H3 DRY-RUN : puis beryl unlock #{host.account_name}/#{host.fqdn}"
       end
@@ -127,7 +127,7 @@ module Beryl::CLI::Reboot
 
     return EXIT_OK unless wait
 
-    log "H3.1 attente du redémarrage de #{target} (nouvel identifiant de démarrage, timeout #{timeout.total_minutes.to_i} min)"
+    log "H3.1 attente du redémarrage de #{target} (preuve : l'identifiant de démarrage change), #{timeout.total_minutes.to_i} min au plus — une ligne toutes les #{SSH_POLL_INTERVAL.total_seconds.to_i} s"
     unless wait_for_reboot(conn, before, timeout)
       STDERR.puts "beryl : #{target} n'a pas redémarré, ou ne répond plus, après #{timeout.total_minutes.to_i} min"
       return EXIT_SSH_FAILED
@@ -231,12 +231,28 @@ module Beryl::CLI::Reboot
     false
   end
 
-  # Attend que la machine réponde avec un NOUVEL identifiant de démarrage.
+  # Ce que montre une tentative, pour l'affichage pendant l'attente.
+  def self.poll_status(before : String?, after : String?) : String
+    if after.nil? || after.empty?
+      "pas de réponse (redémarrage en cours)"
+    elsif rebooted?(before, after)
+      "redémarrée"
+    else
+      "répond encore sur l'ancien démarrage"
+    end
+  end
+
+  # Attend que la machine réponde avec un NOUVEL identifiant de démarrage,
+  # une ligne par tentative (temps écoulé + constat).
   private def self.wait_for_reboot(conn : SSH::Connection, before : String?, timeout : Time::Span) : Bool
-    deadline = Time.instant + timeout
+    start = Time.instant
+    deadline = start + timeout
     sleep REBOOT_GRACE_PERIOD
     loop do
-      return true if rebooted?(before, boot_marker(conn))
+      after = boot_marker(conn)
+      elapsed = (Time.instant - start).total_seconds.to_i
+      log "H3.1 #{elapsed // 60} min #{(elapsed % 60).to_s.rjust(2, '0')} s : #{poll_status(before, after)}"
+      return true if rebooted?(before, after)
       return false if Time.instant >= deadline
       sleep SSH_POLL_INTERVAL
     end

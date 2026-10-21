@@ -17,7 +17,9 @@ passe désormais par `sudo -n` hors root (échec net si sudo refuse), lance
 `systemctl reboot` sous Linux, et suit la connexion de beryl (`proxy_command`
 / `proxy_jump` compris). L'attente ne teste plus le port 22 en direct : elle
 relève l'identifiant de démarrage (`boot_id` sous Linux, `kern.boottime` sur
-FreeBSD) avant, et attend qu'il CHANGE — preuve d'un vrai redémarrage.
+FreeBSD) avant, et attend qu'il CHANGE — preuve d'un vrai redémarrage. Une
+ligne par tentative (temps écoulé, pas de réponse / ancien démarrage /
+redémarrée).
 
 === `beryl apply` sous Linux (systemd, SUSE)
 

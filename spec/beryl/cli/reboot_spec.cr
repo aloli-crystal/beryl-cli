@@ -19,6 +19,14 @@ describe Beryl::CLI::Reboot do
     end
   end
 
+  describe ".poll_status" do
+    it "dit ce que montre chaque tentative" do
+      Beryl::CLI::Reboot.poll_status("a1", nil).should eq "pas de réponse (redémarrage en cours)"
+      Beryl::CLI::Reboot.poll_status("a1", "a1").should eq "répond encore sur l'ancien démarrage"
+      Beryl::CLI::Reboot.poll_status("a1", "b2").should eq "redémarrée"
+    end
+  end
+
   describe ".rebooted?" do
     it "exige un identifiant de démarrage différent" do
       Beryl::CLI::Reboot.rebooted?("a1", "a1").should be_false
