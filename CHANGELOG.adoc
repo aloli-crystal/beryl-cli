@@ -9,6 +9,16 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl reboot` : sudo, rebond, preuve de redémarrage, Linux
+
+`--soft` lançait `shutdown -r now` sans sudo par le compte de connexion
+(`admin` sur les hôtes durcis) : refusé, erreur ignorée, faux succès. Il
+passe désormais par `sudo -n` hors root (échec net si sudo refuse), lance
+`systemctl reboot` sous Linux, et suit la connexion de beryl (`proxy_command`
+/ `proxy_jump` compris). L'attente ne teste plus le port 22 en direct : elle
+relève l'identifiant de démarrage (`boot_id` sous Linux, `kern.boottime` sur
+FreeBSD) avant, et attend qu'il CHANGE — preuve d'un vrai redémarrage.
+
 === `beryl apply` sous Linux (systemd, SUSE)
 
 Une VM Linux confiée par un client se gère comme un serveur FreeBSD, pour

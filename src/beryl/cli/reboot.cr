@@ -16,15 +16,18 @@ require "./machine_kind"
 #
 # Deux modes :
 #
-#   --soft (défaut) : `shutdown -r now` via SSH. Sécurise (le serveur
-#     synchronise ses disques, ferme proprement les services). Échoue
-#     si SSH ne répond pas.
+#   --soft (défaut) : par la connexion de beryl (compte `connect_user`,
+#     rebond compris), `shutdown -r now` (FreeBSD) ou `systemctl reboot`
+#     (Linux), par `sudo -n` hors root. Sécurise (le serveur synchronise
+#     ses disques, ferme proprement les services). Échoue si SSH ou sudo
+#     refuse.
 #   --hard          : power cycle via API hébergeur (équivalent bouton
 #     power physique). Marche TOUJOURS, ne dépend pas de l'état du
 #     système. Indispensable quand sshd ne répond plus (kernel panic,
 #     freeze) et qu'on n'a pas d'IPMI/KVM.
 #
-# Après reboot, attend le retour SSH puis (si pools chiffrés déclarés)
+# Après reboot, attend que la machine réponde avec un NOUVEL identifiant de
+# démarrage (`boot_id` / `kern.boottime`, preuve d'un vrai redémarrage), puis (si pools chiffrés déclarés)
 # enchaîne automatiquement avec un `beryl unlock` pour rouvrir les
 # datasets et redémarrer les services.
 module Beryl::CLI::Reboot
@@ -56,7 +59,7 @@ module Beryl::CLI::Reboot
 
     parser = OptionParser.new do |p|
       p.banner = "USAGE : beryl reboot <host> [--soft|--hard] [options]"
-      p.on("--soft", "Reboot via SSH (shutdown -r now). Défaut.") { mode = :soft }
+      p.on("--soft", "Reboot via SSH (shutdown -r now / systemctl reboot, sudo hors root). Défaut.") { mode = :soft }
       p.on("--hard", "Reboot via API hébergeur (power cycle). Marche même si sshd ne répond plus.") { mode = :hard }
       p.on("-a NAME", "--account=NAME", "Forcer la société (si ambiguë)") { |v| account_hint = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
@@ -94,20 +97,27 @@ module Beryl::CLI::Reboot
     if dry_run
       case mode
       when :soft
-        log "H3 DRY-RUN : ssh root@#{host.ssh_host}:#{host.port} 'shutdown -r now'"
+        log "H3 DRY-RUN : ssh #{host.connect_user}@#{host.ssh_host} → #{host.connect_user == "root" ? "" : "sudo "}" \
+            "shutdown -r now (FreeBSD) / systemctl reboot (Linux)"
       when :hard
         log "H3 DRY-RUN : API #{host.provider || "?"} → power cycle (équivalent bouton physique)"
       end
-      log "H3 DRY-RUN : attente retour SSH (timeout #{timeout.total_minutes.to_i}m)" if wait
+      log "H3 DRY-RUN : attente d'un NOUVEL identifiant de démarrage (timeout #{timeout.total_minutes.to_i}m)" if wait
       if has_encrypted && !skip_unlock
         log "H3 DRY-RUN : puis beryl unlock #{host.account_name}/#{host.fqdn}"
       end
       return EXIT_OK
     end
 
+    # Connexion de beryl (compte `connect_user`, rebond `proxy_command` /
+    # `proxy_jump` compris) : sert à relever l'identifiant de démarrage avant
+    # et après, donc à PROUVER le redémarrage.
+    conn = host.connection
+    before = boot_marker(conn)
+
     case mode
     when :soft
-      return EXIT_REBOOT_FAILED unless trigger_soft_reboot(host)
+      return EXIT_REBOOT_FAILED unless trigger_soft_reboot(host, conn)
     when :hard
       effective_provider = provider_override || host.provider
       return EXIT_BAD_PROVIDER unless effective_provider
@@ -117,19 +127,12 @@ module Beryl::CLI::Reboot
 
     return EXIT_OK unless wait
 
-    # Attente que sshd retombe (preuve que le reboot a effectivement
-    # été pris en compte côté hardware), puis qu'il remonte.
-    log "H3.1 attente de la chute de sshd (preuve que le reboot a démarré)"
-    wait_for_ssh_drop(host)
-
-    log "H3.2 attente retour SSH sur #{target} (timeout #{timeout.total_minutes.to_i} min)"
-    ssh_ok = Beryl::CLI::Rescue.default_wait_for_ssh(
-      host.ssh_host, host.port, host.user, timeout, SSH_POLL_INTERVAL,
-    )
-    unless ssh_ok
-      STDERR.puts "beryl : timeout SSH après reboot sur #{target}"
+    log "H3.1 attente du redémarrage de #{target} (nouvel identifiant de démarrage, timeout #{timeout.total_minutes.to_i} min)"
+    unless wait_for_reboot(conn, before, timeout)
+      STDERR.puts "beryl : #{target} n'a pas redémarré, ou ne répond plus, après #{timeout.total_minutes.to_i} min"
       return EXIT_SSH_FAILED
     end
+    log "H3.2 #{target} a redémarré et répond"
 
     if has_encrypted && !skip_unlock
       log "H3.3 enchaînement avec beryl unlock pour les #{encrypted_pools.size} pool(s) chiffré(s)"
@@ -170,22 +173,72 @@ module Beryl::CLI::Reboot
     EXIT_UNEXPECTED
   end
 
-  # Reboot soft : SSH `shutdown -r now`. Renvoie false si SSH refuse.
-  # Utilise `nohup` + `&` + redirect pour qu'un éventuel hang sur
-  # le close de la session ne bloque pas le caller.
-  private def self.trigger_soft_reboot(host : Beryl::Config::ResolvedHost) : Bool
-    log "H3.0 SSH #{host.user}@#{host.ssh_host}:#{host.port} → shutdown -r now"
-    conn = host.connection
-    begin
-      # `shutdown -r now` ferme la session SSH avant de retourner
-      # un exit code propre — on ignore l'erreur de connexion.
-      conn.exec("nohup shutdown -r now >/dev/null 2>&1 &", raise_on_error: false)
-      sleep REBOOT_GRACE_PERIOD
-      true
-    rescue ex
-      STDERR.puts "beryl : SSH a échoué pour le reboot soft — #{ex.class}: #{ex.message}"
+  # Identifiant du démarrage en cours : `boot_id` (Linux), sinon
+  # `kern.boottime` (FreeBSD). Il change à chaque démarrage : c'est la
+  # preuve qu'un redémarrage a VRAIMENT eu lieu (un sshd qui répond ne
+  # prouve rien). Enveloppé dans `sh -c` : le shell de connexion peut être
+  # csh, qui lit mal les redirections.
+  BOOT_MARKER = "sh -c 'cat /proc/sys/kernel/random/boot_id 2>/dev/null || sysctl -n kern.boottime'"
+
+  # Commande qui lance le redémarrage en arrière-plan (la session SSH rend
+  # la main avant que le système ne s'arrête) : `systemctl reboot` sous
+  # Linux, `shutdown -r now` sur FreeBSD, par `sudo -n` hors root.
+  def self.reboot_command(uname : String, root : Bool) : String
+    stop = uname == "Linux" ? "systemctl reboot" : "shutdown -r now"
+    sudo = root ? "" : "sudo -n "
+    %(sh -c '#{sudo}nohup sh -c "sleep 2; #{stop}" >/dev/null 2>&1 &')
+  end
+
+  # Redémarré : la machine répond, avec un identifiant de démarrage
+  # différent de celui relevé avant (ou, s'il était inconnu, n'importe lequel).
+  def self.rebooted?(before : String?, after : String?) : Bool
+    return false if after.nil? || after.empty?
+    before.nil? || before.empty? || before != after
+  end
+
+  # Identifiant de démarrage lu par la connexion de beryl (rebond compris :
+  # `proxy_command` / `proxy_jump`), nil si la machine ne répond pas.
+  private def self.boot_marker(conn : SSH::Connection) : String?
+    res = conn.exec(BOOT_MARKER, raise_on_error: false)
+    res.success? ? res.stdout.strip : nil
+  rescue
+    nil
+  end
+
+  # Reboot soft : par la connexion de beryl (compte `connect_user`, rebond
+  # compris), `sudo -n` hors root. Renvoie false si SSH ou sudo refuse —
+  # jamais de faux succès.
+  private def self.trigger_soft_reboot(host : Beryl::Config::ResolvedHost, conn : SSH::Connection) : Bool
+    user = host.connect_user
+    uname = conn.exec("uname -s", raise_on_error: false)
+    unless uname.success?
+      STDERR.puts "beryl : SSH #{user}@#{host.ssh_host} ne répond pas — #{uname.stderr.strip}"
       STDERR.puts "        Si le serveur est freezé, utilisez `--hard` pour forcer un power cycle via l'API hébergeur."
-      false
+      return false
+    end
+    root = user == "root"
+    if !root && !conn.exec("sudo -n true", raise_on_error: false).success?
+      STDERR.puts "beryl : #{user} ne peut pas sudo sans mot de passe sur #{host.fqdn} — redémarrage impossible"
+      return false
+    end
+    command = reboot_command(uname.stdout.strip, root)
+    log "H3.0 SSH #{user}@#{host.ssh_host} → #{command}"
+    conn.exec(command, raise_on_error: false)
+    true
+  rescue ex
+    STDERR.puts "beryl : SSH a échoué pour le reboot soft — #{ex.class}: #{ex.message}"
+    STDERR.puts "        Si le serveur est freezé, utilisez `--hard` pour forcer un power cycle via l'API hébergeur."
+    false
+  end
+
+  # Attend que la machine réponde avec un NOUVEL identifiant de démarrage.
+  private def self.wait_for_reboot(conn : SSH::Connection, before : String?, timeout : Time::Span) : Bool
+    deadline = Time.instant + timeout
+    sleep REBOOT_GRACE_PERIOD
+    loop do
+      return true if rebooted?(before, boot_marker(conn))
+      return false if Time.instant >= deadline
+      sleep SSH_POLL_INTERVAL
     end
   end
 
@@ -232,24 +285,6 @@ module Beryl::CLI::Reboot
       STDERR.puts "beryl : reboot --hard non implémenté pour provider #{provider} (connus : ovh, dedibox, scaleway)"
       false
     end
-  end
-
-  # Attend que le port SSH cesse de répondre (preuve que le reboot a
-  # effectivement démarré côté hardware). Timeout court : si sshd
-  # tient bon plus de 90s, c'est suspicieux mais on continue — le
-  # `wait_for_ssh` qui suit confirmera ou infirmera.
-  private def self.wait_for_ssh_drop(host : Beryl::Config::ResolvedHost) : Nil
-    deadline = Time.instant + 90.seconds
-    loop do
-      break if Time.instant >= deadline
-      begin
-        TCPSocket.new(host.ssh_host, host.port, connect_timeout: 3.seconds).close
-        sleep 3.seconds
-      rescue
-        return
-      end
-    end
-    log "H3.1 sshd répond toujours après 90s — on continue (le reboot peut être lent ou se faire avec sshd qui tient longtemps)"
   end
 
   private def self.log(message : String) : Nil
