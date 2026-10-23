@@ -11,6 +11,7 @@ require "./credentials"
 require "./provider_shortcut"
 require "./machine_kind"
 require "./host_keys"
+require "./ovh_task_wait"
 
 # Sous-commande `beryl rescue <host> [options]` : bascule un hôte en
 # rescue via l'API de l'hébergeur (OVH ou Scaleway) puis attend le
@@ -28,13 +29,8 @@ module Beryl::CLI::Rescue
   EXIT_TASK_FAILED    = 9
 
   DEFAULT_SSH_WAIT_TIMEOUT = 10.minutes
-  TASK_POLL_INTERVAL       = 10.seconds
   SSH_POLL_INTERVAL        = 15.seconds
-  # Temps max d'attente pour que la task `hardReboot` OVH atteigne son
-  # état terminal (done | ovhError | cancelled). Un reboot OVH standard
-  # aboutit en 2-3 min côté task (le serveur met ensuite 2-4 min à
-  # répondre SSH).
-  TASK_WAIT_TIMEOUT = 5.minutes
+  # Attente de la tâche `hardReboot` OVH : `Beryl::CLI::OvhTaskWait` (15 min).
 
   alias OvhClientFactory = -> OvhApi::Client
   alias ScalewayClientFactory = -> ScalewayApi::Client
@@ -172,7 +168,18 @@ module Beryl::CLI::Rescue
         log "Pour exécuter : #{Beryl.rerun_hint("rescue", args, replace_host: {raw, Beryl::CLI::AccountUtils.host_ref(host)})}"
         return EXIT_OK
       end
-      task = trigger_ovh(host, ovh_client_factory)
+      task = begin
+        trigger_ovh(host, ovh_client_factory)
+      rescue ex : OvhApi::Error
+        # Commande relancée pendant qu'un redémarrage est encore en cours chez
+        # OVH (le netboot rescue est déjà posé : `prepare_rescue` le règle
+        # avant de demander le reboot) : on attend CE redémarrage.
+        raise ex unless Beryl::CLI::OvhTaskWait.already_requested?(ex)
+        pending = Beryl::CLI::OvhTaskWait.pending_reboot(ovh_client_factory.call, service_name) || raise ex
+        log "4.1 OVH : redémarrage déjà demandé — reprise de la tâche ##{pending.id} (#{pending.status})"
+        pending
+      end
+
       # Poll la task jusqu'à son état terminal avant de tester SSH.
       # Sinon on capture potentiellement l'ancien contexte (FreeBSD de
       # prod ou ancien rescue) au lieu du nouveau rescue.
@@ -288,48 +295,18 @@ module Beryl::CLI::Rescue
     client.dedicated_servers.prepare_rescue(service_name: service_name, ssh_key_name: ssh_key_name)
   end
 
-  # Poll la task hardReboot OVH jusqu'à son état terminal. Sans ce poll,
-  # beryl testait SSH juste après `prepare_rescue` — il capturait donc
-  # potentiellement l'ancien contexte (FreeBSD de prod ou ancien rescue)
-  # parce que le reboot n'avait pas encore eu lieu.
-  #
-  # États OVH connus : `init` → `todo` → `doing` → `done`. Erreurs :
-  # `ovhError`, `customerError`, `cancelled`. Timeout côté OVH rare
-  # (5 min de marge large), mais on garde une limite pour ne pas rester
-  # bloqué indéfiniment si l'API boucle.
-  # Poll la task hardReboot OVH jusqu'à son état terminal. Une ligne
-  # `log_step` par état (init, todo, doing, done) avec compteur vivant
-  # `[NNNs]` : on break quand l'état change, log_step fige la ligne
-  # avec le temps final passé DANS cet état. L'opérateur voit
-  # immédiatement combien chaque transition a pris.
+  # Attend la tâche hardReboot OVH jusqu'à son état terminal. Sans cette
+  # attente, beryl testait SSH juste après `prepare_rescue` et capturait
+  # l'ancien contexte (FreeBSD de prod ou ancien rescue), le reboot n'ayant
+  # pas encore eu lieu.
   private def self.wait_ovh_task_done(
     host : Beryl::Config::ResolvedHost,
     task : OvhApi::Endpoints::Task,
     factory : OvhClientFactory,
   ) : Nil
-    service_name = host.ovh_service_name.not_nil!
-    client = factory.call
-    deadline = Time.instant + TASK_WAIT_TIMEOUT
-    current = task
-    while Time.instant < deadline
-      return if current.success?
-      if current.failed? || current.status == "cancelled"
-        raise TaskFailed.new(
-          "tâche OVH ##{current.id} (#{current.function}) terminée en #{current.status} — #{current.comment}"
-        )
-      end
-      current_status = current.status
-      Beryl.log_step("beryl rescue", "OVH : tâche ##{task.id} en #{current_status}") do
-        while Time.instant < deadline
-          sleep TASK_POLL_INTERVAL
-          current = client.dedicated_servers.task(service_name, task.id)
-          break if current.status != current_status
-        end
-      end
+    if error = Beryl::CLI::OvhTaskWait.wait("beryl rescue", factory.call, host.ovh_service_name.not_nil!, task)
+      raise TaskFailed.new(error)
     end
-    raise TaskFailed.new(
-      "tâche OVH ##{task.id} (#{task.function}) non aboutie après #{TASK_WAIT_TIMEOUT.total_minutes.to_i} min (dernier état : #{current.status})"
-    )
   end
 
   private def self.auto_select_ovh_ssh_key(client : OvhApi::Client, host : Beryl::Config::ResolvedHost) : String

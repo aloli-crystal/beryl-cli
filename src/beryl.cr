@@ -142,7 +142,7 @@ module Beryl
   end
 
   # Affiche une ligne de log avec un compteur `[NNNs]` en fin de ligne,
-  # rafraîchi chaque seconde par un fiber pour montrer que le process
+  # rafraîchi chaque seconde (10 s sous journal de session) par un fiber pour montrer que le process
   # est vivant pendant une opération longue. La ligne est tenue en
   # place (retour chariot `\r`) jusqu'à ce que le bloc retourne, puis
   # saute à la ligne suivante avec le temps final figé.
@@ -166,6 +166,10 @@ module Beryl
     STDERR.print "#{line}#{pad}  [   0s]"
     STDERR.flush
     start = Time.instant
+    # Session journalisée (`BERYL_SESSION_LOG`, cf. Beryl::CLI::SessionLog) :
+    # chaque rafraîchissement est une ligne de plus dans le journal ;
+    # toutes les 10 s au lieu de chaque seconde.
+    tick = ENV.has_key?("BERYL_SESSION_LOG") ? 10.seconds : 1.second
     done = Channel(Nil).new
     ack = Channel(Nil).new
     # Ticker : update le compteur chaque seconde jusqu'à recevoir
@@ -179,7 +183,7 @@ module Beryl
         when done.receive?
           ack.send(nil)
           break
-        when timeout(1.second)
+        when timeout(tick)
           elapsed = (Time.instant - start).total_seconds.to_i
           STDERR.printf("\r%s%s  [%4ds]", line, pad, elapsed)
           STDERR.flush

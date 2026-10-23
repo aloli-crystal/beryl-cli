@@ -9,6 +9,21 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl rescue` / `boot-hd` : attente du redémarrage OVH
+
+* 15 min au lieu de 5 : les ADV-3 mettent 6 à 9 min à finir leur
+  `hardReboot` ; beryl abandonnait (« non aboutie après 5 min ») alors que
+  le redémarrage aboutissait chez OVH.
+* Refus « A reboot has already been requested » (commande relancée trop
+  tôt) : la tâche `hardReboot` en cours est retrouvée et attendue ; `rescue`
+  continue, `boot-hd` redemande ensuite le démarrage sur disque.
+* Délai dépassé : le message dit que le redémarrage continue chez OVH et
+  qu'il suffit de relancer la même commande.
+* Une seule attente pour les deux commandes (`Beryl::CLI::OvhTaskWait`).
+* Compteur de progression `[NNNs]` rafraîchi toutes les 10 s (au lieu de
+  chaque seconde) quand la session est journalisée : le journal ne garde
+  plus une copie de la ligne par seconde.
+
 === `beryl reboot` : sudo, rebond, preuve de redémarrage, Linux
 
 `--soft` lançait `shutdown -r now` sans sudo par le compte de connexion

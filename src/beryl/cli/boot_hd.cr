@@ -8,6 +8,7 @@ require "./credentials"
 require "./rescue"
 require "./host_keys"
 require "./machine_kind"
+require "./ovh_task_wait"
 
 # Sous-commande `beryl boot-hd <host>` : bascule OVH sur le boot
 # disque (inverse de rescue) et attend le retour SSH de l'OS installé.
@@ -25,8 +26,6 @@ module Beryl::CLI::BootHd
   EXIT_TASK_FAILED    = 9
 
   DEFAULT_SSH_WAIT_TIMEOUT = 10.minutes
-  TASK_POLL_INTERVAL       = 10.seconds
-  TASK_WAIT_TIMEOUT        = 5.minutes
 
   alias OvhClientFactory = -> OvhApi::Client
 
@@ -101,7 +100,19 @@ module Beryl::CLI::BootHd
 
     client = ovh_client_factory.call
     log "H2.1 OVH : boot_from_disk pour #{service_name}"
-    task = client.dedicated_servers.boot_from_disk(service_name)
+    task = begin
+      client.dedicated_servers.boot_from_disk(service_name)
+    rescue ex : OvhApi::Error
+      # Commande relancée pendant qu'un redémarrage est encore en cours chez
+      # OVH. Ce redémarrage peut être celui d'un rescue (netboot lu avant
+      # notre changement) : on attend qu'il finisse, puis on redemande le
+      # démarrage sur disque.
+      raise ex unless Beryl::CLI::OvhTaskWait.already_requested?(ex)
+      pending = Beryl::CLI::OvhTaskWait.pending_reboot(client, service_name) || raise ex
+      log "H2.1 OVH : redémarrage déjà demandé — attente de la tâche ##{pending.id} (#{pending.status}), puis nouvelle demande"
+      wait_ovh_task_done(service_name, pending, client)
+      client.dedicated_servers.boot_from_disk(service_name)
+    end
     # Le système installé reprend ses propres clés d'hôte (celles du rescue
     # partent).
     Beryl::CLI::HostKeys.forget(host, "boot-hd")
@@ -149,34 +160,16 @@ module Beryl::CLI::BootHd
     EXIT_UNEXPECTED
   end
 
-  # Poll la task `reboot` OVH jusqu'à son état terminal. Une ligne
-  # `log_step` par état avec compteur vivant — même pattern que rescue.
+  # Attend la tâche `reboot` OVH jusqu'à son état terminal (même attente que
+  # rescue, cf. `Beryl::CLI::OvhTaskWait`).
   private def self.wait_ovh_task_done(
     service_name : String,
     task : OvhApi::Endpoints::Task,
     client : OvhApi::Client,
   ) : Nil
-    deadline = Time.instant + TASK_WAIT_TIMEOUT
-    current = task
-    while Time.instant < deadline
-      return if current.success?
-      if current.failed? || current.status == "cancelled"
-        raise TaskFailed.new(
-          "tâche OVH ##{current.id} (#{current.function}) terminée en #{current.status} — #{current.comment}"
-        )
-      end
-      current_status = current.status
-      Beryl.log_step("beryl boot-hd", "OVH : tâche ##{task.id} en #{current_status}") do
-        while Time.instant < deadline
-          sleep TASK_POLL_INTERVAL
-          current = client.dedicated_servers.task(service_name, task.id)
-          break if current.status != current_status
-        end
-      end
+    if error = Beryl::CLI::OvhTaskWait.wait("beryl boot-hd", client, service_name, task)
+      raise TaskFailed.new(error)
     end
-    raise TaskFailed.new(
-      "tâche OVH ##{task.id} (#{task.function}) non aboutie après #{TASK_WAIT_TIMEOUT.total_minutes.to_i} min (dernier état : #{current.status})"
-    )
   end
 
   private def self.log(message : String) : Nil
