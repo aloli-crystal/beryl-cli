@@ -338,6 +338,7 @@ module Beryl::CLI::OsUpgrade
       puts "  1. repoint #{conf} : #{cur_branch} → #{branch}"
       puts "  2. #{IGNORE_OSV} pkg update -f -r #{BASE_REPO}"
       puts "  3. #{IGNORE_OSV} pkg upgrade -r #{BASE_REPO}   # voir le plan : --apply le montre réellement"
+      puts "  3b. retrait des paquets du système de base devenus inutiles (FreeBSD-* orphelins, jamais noyau ni ensemble)"
       puts "  4. shutdown -r now                    # (--reboot l'automatise)"
       puts ""
       puts "→ `beryl os-upgrade #{host.short_name} --to #{target} --apply` exécute 1-3 (s'arrête avant 4)."
@@ -395,7 +396,8 @@ module Beryl::CLI::OsUpgrade
         puts "→ `beryl os-upgrade #{host.short_name} --apply --reboot` (ou `beryl reboot #{host.short_name}`) le charge."
         return EXIT_OK
       end
-      log "#{host.fqdn} : #{target}-RELEASE, aucun correctif en attente — rien à faire."
+      log "#{host.fqdn} : #{target}-RELEASE, aucun correctif en attente."
+      remove_base_orphans(shell, host, apply)
       Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::UPTODATE, "aucun correctif en attente")
       return EXIT_OK
     end
@@ -403,6 +405,7 @@ module Beryl::CLI::OsUpgrade
     unless apply
       log "#{host.fqdn} : correctifs #{target}-RELEASE en attente (dry-run) :"
       puts plan.stdout.strip
+      remove_base_orphans(shell, host, apply: false)
       puts ""
       puts "→ `beryl os-upgrade #{host.short_name} --apply` les installe (s'arrête avant le reboot)."
       puts "  Ajoutez `--reboot` pour enchaîner le reboot + attente SSH."
@@ -448,10 +451,47 @@ module Beryl::CLI::OsUpgrade
   # rafraîchir, puis redémarrer les jails qui le montent en nullfs RO).
   private def self.after_base_upgrade(shell, host) : Nil
     reconfigure_base_services(shell, host)
+    remove_base_orphans(shell, host, apply: true)
     if shell.exec("test -d /jails/.base", raise_on_error: false).success?
       log "#{host.fqdn} : des thin jails partagent /jails/.base → rafraîchissez-le " \
           "(`beryl apply #{host.short_name} jail-base`) puis redémarrez les jails (`service jail restart`)."
     end
+  end
+
+  # Paquets du système de base devenus inutiles : `FreeBSD-*` installés comme
+  # dépendance des ensembles (`%a`) que plus rien ne requiert (`%#r` = 0) —
+  # un ensemble ne les utilise plus (montée de release, paquet retiré
+  # d'un ensemble). Le ménage des paquets logiciels (recette `pkg-autoremove`)
+  # ne touche JAMAIS au base : c'est ici. Ni le noyau ni un ensemble, même
+  # orphelins (installés explicitement par le bootstrap, double sécurité).
+  BASE_LEAVES_QUERY = "pkg query -e '%a == 1 && %#r == 0' %n"
+
+  # Noms à retirer dans la sortie de BASE_LEAVES_QUERY. Pur.
+  def self.base_orphans(output : String) : Array(String)
+    output.lines.map(&.strip).select do |n|
+      n.starts_with?("FreeBSD-") && !n.starts_with?("FreeBSD-kernel") && !n.starts_with?("FreeBSD-set-")
+    end
+  end
+
+  # Retrait par passes sur les FEUILLES (un retrait n'entraîne rien d'autre ;
+  # chaque passe libère la suivante). En dry-run, la première passe est listée.
+  private def self.remove_base_orphans(shell, host, apply : Bool) : Nil
+    removed = [] of String
+    30.times do
+      leaves = base_orphans(shell.exec(BASE_LEAVES_QUERY, raise_on_error: false).stdout)
+      break if leaves.empty?
+      unless apply
+        log "#{host.fqdn} : système de base, paquets devenus inutiles (retirés avec --apply, et ceux qu'ils libèrent) : #{leaves.join(", ")}"
+        return
+      end
+      res = shell.exec("pkg delete -y #{leaves.map { |p| Process.quote(p) }.join(" ")}", raise_on_error: false)
+      unless res.success?
+        log "#{host.fqdn} : ⚠ retrait des paquets inutiles du système de base en échec (#{res.stderr.strip.lines.last?}) : #{leaves.join(", ")}"
+        break
+      end
+      removed.concat(leaves)
+    end
+    log "#{host.fqdn} : système de base, paquets inutiles retirés : #{removed.join(", ")}" unless removed.empty?
   end
 
   # Fin commune d'une mise à jour système : sans --reboot, rappel du reboot ;

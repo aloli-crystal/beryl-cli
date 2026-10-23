@@ -101,4 +101,20 @@ describe Beryl::CLI::OsUpgrade do
       hint.should contain("beryl os-upgrade <host> --apply")
     end
   end
+
+  describe ".base_orphans" do
+    it "garde les paquets FreeBSD-* devenus inutiles" do
+      listing = "FreeBSD-clibs-lib32\nFreeBSD-lib9p\n"
+      Beryl::CLI::OsUpgrade.base_orphans(listing).should eq(%w[FreeBSD-clibs-lib32 FreeBSD-lib9p])
+    end
+
+    it "jamais le noyau ni un ensemble, même orphelins" do
+      listing = "FreeBSD-kernel-generic\nFreeBSD-kernel-generic-dbg\nFreeBSD-set-base\nFreeBSD-clibs-lib32\n"
+      Beryl::CLI::OsUpgrade.base_orphans(listing).should eq(%w[FreeBSD-clibs-lib32])
+    end
+
+    it "ignore les paquets logiciels (affaire de pkg-autoremove)" do
+      Beryl::CLI::OsUpgrade.base_orphans("python312\nperl5\n").should be_empty
+    end
+  end
 end

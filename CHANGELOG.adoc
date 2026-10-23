@@ -9,6 +9,16 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl os-upgrade` : ménage des paquets inutiles du système de base
+
+Paquets `FreeBSD-*` installés comme dépendance des ensembles que plus aucun
+ensemble n'utilise (`pkg query -e '%a == 1 && %#r == 0'`) : listés en
+essai à blanc, retirés avec `--apply` par passes sur les feuilles (un
+retrait n'entraîne rien d'autre), y compris sans correctif en attente.
+Jamais le noyau (`FreeBSD-kernel*`) ni un ensemble (`FreeBSD-set-*`). Le
+ménage des paquets logiciels (recette `pkg-autoremove`) ne touche plus au
+système de base.
+
 === Monitoring OVH : coupé par `rescue`, `beryl monitoring on|off`
 
 * `beryl rescue` coupe le monitoring OVH (ping + intervention) avant le
