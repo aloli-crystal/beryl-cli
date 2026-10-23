@@ -67,12 +67,25 @@ done
 NB_BOOT_DISKS=${i}
 
 # Construction du vdev du pool boot selon le mode RAID. `stripe` = pas de
-# mot-clé (concaténation implicite des labels). Les autres modes
-# (mirror/raidz/raidz2/raidz3) préfixent le mot-clé ZFS. RAID 10
-# (mirror_stripe) est refusé en amont par beryl pour le pool boot.
+# mot-clé (concaténation implicite des labels). RAID 10 (`mirror_stripe`) =
+# miroirs de paires CONSÉCUTIVES (ordre de `disks:`, que `beryl scan`
+# alterne entre modèles) : `mirror zfs0 zfs1 mirror zfs2 zfs3`. L'amorce
+# (gptzfsboot + loader.efi) est posée sur chaque disque plus bas : le
+# chargeur lit un pool de plusieurs miroirs. Les autres modes
+# (mirror/raidz/raidz2/raidz3) préfixent le mot-clé ZFS.
+mirror_pairs() {
+  v=""
+  while [ $# -ge 2 ]; do
+    v="${v} mirror $1 $2"
+    shift 2
+  done
+  printf '%s' "${v}"
+}
 case "${BOOT_RAID}" in
-  stripe) BOOT_VDEV="${ZFS_LABELS}" ;;
-  *)      BOOT_VDEV="${BOOT_RAID} ${ZFS_LABELS}" ;;
+  stripe)        BOOT_VDEV="${ZFS_LABELS}" ;;
+  # shellcheck disable=SC2086
+  mirror_stripe) BOOT_VDEV=$(mirror_pairs ${ZFS_LABELS}) ;;
+  *)             BOOT_VDEV="${BOOT_RAID} ${ZFS_LABELS}" ;;
 esac
 
 echo "==> [beryl] Création du pool ZFS ${POOL} (vdev :${BOOT_VDEV})"

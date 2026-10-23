@@ -13,12 +13,11 @@ module Beryl::Config
   #   5     raidz     3    1                 Σ-1           3-5 disques
   #   6     raidz2    4    2                 Σ-2           6-8 disques
   #   7     raidz3    5    3                 Σ-3           8+ disques
-  #   10    mirror×N  4    1 par paire       Σ/2           non supporté encore
+  #   10    mirror×N  4    1 par paire       Σ/2           bases de données
   #
-  # Le cas 10 n'est pas câblé côté bootstrap (bsdinstall
-  # `ZFSBOOT_VDEV_TYPE` ne gère qu'un seul vdev type). À implémenter
-  # via un flux ZFS manuel (zpool create mirror…mirror…) quand le
-  # besoin se présente.
+  # Le cas 10 (miroirs de paires consécutives) : pools data, et pool boot
+  # avec `install_type: packages` (script pkgbase, `zpool create mirror…
+  # mirror…`) ; bsdinstall (`ZFSBOOT_VDEV_TYPE`) ne gère qu'un type de vdev.
   module Zpool
     extend self
 

@@ -9,6 +9,14 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl bootstrap` : RAID 10 du pool système
+
+`raid: 10` sur `zroot` avec `install_type: packages` (pkgbase) : miroirs
+de paires consécutives de `disks:` (`mirror zfs0 zfs1 mirror zfs2 zfs3`),
+amorce sur chaque disque. bsdinstall (`distribution_sets`) ne fait qu'un
+type de vdev : refusé clairement sur ce chemin. À valider au premier
+bootstrap réel (ADV-3).
+
 === `postgresql` : serveur maison (`pkg-versioned` / `server_package`)
 
 `server_package` : nom exact d'un serveur maison de la même majeure (ex.

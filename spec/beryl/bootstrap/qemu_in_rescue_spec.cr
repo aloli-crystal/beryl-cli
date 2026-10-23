@@ -182,6 +182,22 @@ describe Beryl::Bootstrap::QemuInRescue do
       make_bootstrap(install_type: "packages", packages: ["sudo", "zsh"]).packages.should eq(["sudo", "zsh"])
     end
 
+    it "pkgbase : RAID 10 du pool boot — 4 disques, miroirs de paires consécutives" do
+      sh = make_bootstrap(
+        install_type: "packages", raid: "mirror_stripe",
+        disks: ["/dev/nvme0n1", "/dev/nvme2n1", "/dev/nvme1n1", "/dev/nvme3n1"],
+      ).render_install_pkgbase
+      sh.should contain(%(BOOT_RAID="mirror_stripe"))
+      sh.should contain("/dev/vtbd1 /dev/vtbd2 /dev/vtbd3 /dev/vtbd4")
+      sh.should contain("mirror_stripe) BOOT_VDEV=$(mirror_pairs ${ZFS_LABELS})")
+    end
+
+    it "RAID 10 du pool boot refusé avec bsdinstall (distribution_sets)" do
+      expect_raises(ArgumentError, /install_type packages seulement/) do
+        make_bootstrap(raid: "mirror_stripe", disks: ["/dev/sda", "/dev/sdb", "/dev/sdc", "/dev/sdd"])
+      end
+    end
+
     it "pkgbase : le dépôt suit la version à installer, pas mfsBSD (15.1 via mfsBSD 15.0)" do
       sh = make_bootstrap(install_type: "packages", freebsd_version: "15.1", mfsbsd_version: "15.0").render_install_pkgbase
       sh.should contain("/${ABI}/base_release_1")

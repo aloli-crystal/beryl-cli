@@ -182,9 +182,11 @@ module Beryl::CLI::Bootstrap
     disks = boot_pool.disks
     raid_level = boot_pool.raid
     raid = boot_pool.zfs_mode
-    if raid == "mirror_stripe"
-      STDERR.puts "beryl : RAID 10 pas encore câblé côté bsdinstall (pool boot)."
-      STDERR.puts "        Utilisez RAID 0, 1, 5, 6 ou 7 pour le pool boot."
+    # RAID 10 du pool boot : seulement par le script pkgbase (bsdinstall ne
+    # fait qu'un type de vdev).
+    if raid == "mirror_stripe" && host.freebsd_string("install_type") != "packages"
+      STDERR.puts "beryl : RAID 10 du pool boot : seulement avec `install_type: packages` (pkgbase)."
+      STDERR.puts "        bsdinstall (distribution_sets) ne fait qu'un type de vdev : RAID 0, 1, 5, 6 ou 7."
       return EXIT_USAGE
     end
     pool_name = boot_pool.name

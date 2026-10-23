@@ -267,7 +267,12 @@ module Beryl::Bootstrap
       raise ArgumentError.new("qemu_ram_mb doit être >= 1024") if @qemu_ram_mb < 1024
       raise ArgumentError.new("qemu_cpus doit être >= 1") if @qemu_cpus < 1
       raise ArgumentError.new("users ne peut pas être vide (sinon aucun accès SSH après bootstrap)") if @users.empty?
-      raise ArgumentError.new("raid invalide : #{@raid} (attendu : stripe, mirror, raidz, raidz2, raidz3)") unless VALID_RAID.includes?(@raid)
+      raise ArgumentError.new("raid invalide : #{@raid} (attendu : #{VALID_RAID.join(", ")})") unless VALID_RAID.includes?(@raid)
+      # RAID 10 du pool boot : script pkgbase seulement (bsdinstall, chemin
+      # distribution_sets, ne gère qu'un type de vdev, `ZFSBOOT_VDEV_TYPE`).
+      if @raid == "mirror_stripe" && @install_type != "packages"
+        raise ArgumentError.new("RAID 10 du pool boot : install_type packages seulement (bsdinstall ne fait qu'un type de vdev)")
+      end
       unless VALID_INSTALL_TYPES.includes?(@install_type)
         raise ArgumentError.new("install_type invalide : #{@install_type.inspect} (attendu : #{VALID_INSTALL_TYPES.join(", ")})")
       end
@@ -317,7 +322,7 @@ module Beryl::Bootstrap
     class PkgbaseScopeUnsupported < Exception
     end
 
-    VALID_RAID          = %w[stripe mirror raidz raidz2 raidz3]
+    VALID_RAID          = %w[stripe mirror raidz raidz2 raidz3 mirror_stripe]
     VALID_INSTALL_TYPES = %w[distribution_sets packages]
 
     def self.default_mfsbsd_url(mfsbsd_version : String) : String
