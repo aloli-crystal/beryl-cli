@@ -9,6 +9,15 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `postgresql` : serveur maison (`pkg-versioned` / `server_package`)
+
+`server_package` : nom exact d'un serveur maison de la même majeure (ex.
+PostgreSQL sans JIT, `postgresql18-server-aloli`), le client restant
+l'officiel. Exige une `version` explicite et un nom `<base><version>-server…` ;
+un serveur maison déjà installé compte comme la majeure en place. La
+bascule officiel → maison est faite par la recette `postgresql`
+(beryl-recipes).
+
 === `beryl scan` : miroirs de deux modèles de disques
 
 Deux disques du même modèle (même lot, même firmware) tendent à tomber en

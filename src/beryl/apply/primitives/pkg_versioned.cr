@@ -8,6 +8,7 @@ module Beryl::Apply
   #         base: mariadb
   #         version: latest      # défaut ; ou un numéro FreeBSD : 114, 1011…
   #         only: server         # optionnel : `server` ou `client`
+  #         server_package: postgresql18-server-aloli   # optionnel, cf. plus bas
   #
   # Sans `only` → installe `server` ET `client`. `version: latest` (ou
   # absent) → résolu par la VRAIE version (`pkg rquery '%v %n' | sort -V`),
@@ -21,6 +22,14 @@ module Beryl::Apply
   # cluster existant (`/var/db/postgres/data18`) ne serait plus servi : le
   # serveur repartirait sur un data dir vide, ou ne démarrerait pas. Une montée
   # de majeure est une migration (pg_upgrade, mariadb-upgrade), pas un apply.
+  #
+  # `server_package` : NOM EXACT du serveur, à la place de `<base>NN-server` —
+  # un paquet maison de la même majeure (options différentes, ex. PostgreSQL
+  # sans JIT), le client restant l'officiel. Exige une `version` explicite (un
+  # paquet maison n'existe que pour SA majeure) et un nom qui commence par
+  # `<base><version>-server`. Remplacer le serveur officiel déjà installé par
+  # le maison est le travail de la recette (arrêt, retrait, installation,
+  # redémarrage) : ici, on ne fait qu'installer ce qui manque.
   class PkgVersioned < Primitive
     def name : String
       "pkg-versioned"
@@ -50,7 +59,17 @@ module Beryl::Apply
           version
         end
 
-      packages = components.map { |c| "#{base}#{num}-#{c}" }
+      server_package = string(params, "server_package").try(&.strip).presence
+      if sp = server_package
+        if version == "latest"
+          return StepResult.failed("`server_package` (#{sp}) exige une `version` explicite : un paquet maison n'existe que pour sa majeure")
+        end
+        unless sp.starts_with?("#{base}#{version}-server")
+          return StepResult.failed("`server_package` #{sp} n'est pas un serveur #{base}#{version} (attendu : #{base}#{version}-server…)")
+        end
+      end
+
+      packages = components.map { |c| c == "server" && server_package ? server_package : "#{base}#{num}-#{c}" }
       missing = packages.reject { |p| Primitive.probe?(shell, "pkg info -e #{Process.quote(p)}") }
       return StepResult.skipped("#{packages.join(", ")} déjà installé(s)") if missing.empty?
       return StepResult.applied("installerait #{missing.join(", ")} (dry-run)") if dry_run
@@ -63,7 +82,8 @@ module Beryl::Apply
     # déjà installé ; le serveur prime sur le client. nil si aucun.
     private def installed_major(shell : Shell, base : String) : String?
       names = shell.exec("pkg query '%n'", raise_on_error: false).stdout.lines.map(&.strip)
-      pattern = /^#{Regex.escape(base)}(\d+)-(server|client)$/
+      # Suffixe toléré : un serveur maison (`postgresql18-server-aloli`) compte.
+      pattern = /^#{Regex.escape(base)}(\d+)-(server|client)(?:-[A-Za-z0-9_.]+)?$/
       found = names.compact_map { |n| n.match(pattern) }
       (found.find { |m| m[2] == "server" } || found.first?).try(&.[1])
     end

@@ -70,4 +70,47 @@ describe Beryl::Apply::PkgVersioned do
       shell, apply_params("{base: postgresql, version: latest}"), dry_run: false, context: ctx)
     shell.ran?(/pkg install -y postgresql18-server postgresql18-client/).should be_true
   end
+
+  it "`server_package` : serveur maison, client officiel" do
+    shell = FakeShell.new
+    shell.stub(/pkg info -e/, exit_code: 1)
+    result = prim("pkg-versioned").apply(
+      shell, apply_params("{base: postgresql, version: 18, server_package: postgresql18-server-aloli}"), dry_run: false, context: ctx)
+    result.outcome.should eq(Beryl::Apply::Outcome::Applied)
+    shell.ran?(/pkg install -y postgresql18-server-aloli postgresql18-client$/).should be_true
+  end
+
+  it "`server_package` : skip si le serveur maison et le client sont en place" do
+    shell = FakeShell.new
+    shell.stub(/pkg info -e/, exit_code: 0)
+    result = prim("pkg-versioned").apply(
+      shell, apply_params("{base: postgresql, version: 18, server_package: postgresql18-server-aloli}"), dry_run: false, context: ctx)
+    result.outcome.should eq(Beryl::Apply::Outcome::Skipped)
+  end
+
+  it "`server_package` exige une version explicite" do
+    shell = FakeShell.new
+    result = prim("pkg-versioned").apply(
+      shell, apply_params("{base: postgresql, server_package: postgresql18-server-aloli}"), dry_run: false, context: ctx)
+    result.outcome.should eq(Beryl::Apply::Outcome::Failed)
+    shell.ran?(/pkg install/).should be_false
+  end
+
+  it "`server_package` d'une autre majeure : refusé" do
+    shell = FakeShell.new
+    result = prim("pkg-versioned").apply(
+      shell, apply_params("{base: postgresql, version: 17, server_package: postgresql18-server-aloli}"), dry_run: false, context: ctx)
+    result.outcome.should eq(Beryl::Apply::Outcome::Failed)
+    shell.ran?(/pkg install/).should be_false
+  end
+
+  it "`latest` reconnaît un serveur maison déjà installé comme majeure en place" do
+    shell = FakeShell.new
+    shell.stub(/pkg query/, stdout: "postgresql18-client\npostgresql18-server-aloli\n")
+    shell.stub(/pkg info -e 'postgresql18-client'|pkg info -e postgresql18-client/, exit_code: 0)
+    shell.stub(/pkg info -e/, exit_code: 1)
+    prim("pkg-versioned").apply(
+      shell, apply_params("{base: postgresql, version: latest, only: client}"), dry_run: false, context: ctx)
+    shell.ran?(/pkg rquery/).should be_false
+  end
 end
