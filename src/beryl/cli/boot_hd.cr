@@ -9,6 +9,7 @@ require "./rescue"
 require "./host_keys"
 require "./machine_kind"
 require "./ovh_task_wait"
+require "./ovh_monitoring"
 
 # Sous-commande `beryl boot-hd <host>` : bascule OVH sur le boot
 # disque (inverse de rescue) et attend le retour SSH de l'OS installé.
@@ -128,6 +129,7 @@ module Beryl::CLI::BootHd
         "attente SSH sur #{target} (port #{host.port}, user #{user}, timeout #{timeout.total_minutes.to_i} min)",
       ) { wait_for_ssh.call(host.ssh_host, host.port, user, timeout, 15.seconds) }
       if ssh_ok
+        resume_ovh_monitoring(service_name, client)
         EXIT_OK
       else
         STDERR.puts "beryl : timeout SSH sur #{target}"
@@ -135,6 +137,7 @@ module Beryl::CLI::BootHd
       end
     else
       log "H2 commande boot-hd envoyée ; attente SSH désactivée (--no-wait)"
+      log "H2 monitoring OVH laissé tel quel (rétabli seulement après un démarrage vérifié : relancez sans --no-wait)"
       EXIT_OK
     end
   rescue ex : Beryl::Config::Root::HostNotFound
@@ -170,6 +173,17 @@ module Beryl::CLI::BootHd
     if error = Beryl::CLI::OvhTaskWait.wait("beryl boot-hd", client, service_name, task)
       raise TaskFailed.new(error)
     end
+  end
+
+  # Rétablit le monitoring OVH coupé par `beryl rescue`, une fois le système
+  # installé joignable (cf. `OvhMonitoring`). Un échec est signalé sans faire
+  # échouer boot-hd.
+  private def self.resume_ovh_monitoring(service_name : String, client : OvhApi::Client) : Nil
+    if msg = Beryl::CLI::OvhMonitoring.resume(client, service_name)
+      log "H3 OVH : #{msg}"
+    end
+  rescue ex : OvhApi::Error
+    log "H3 OVH : ⚠ monitoring OVH non rétabli (#{ex.message}) — à réactiver dans l'espace client OVH"
   end
 
   private def self.log(message : String) : Nil

@@ -35,6 +35,7 @@ require "./cli/os_upgrade"
 require "./cli/build_status"
 require "./cli/pg_upgrade"
 require "./cli/session_log"
+require "./cli/monitoring"
 
 # Point d'entrée CLI de beryl.
 #
@@ -164,6 +165,7 @@ module Beryl::CLI
     when "lock"               then Beryl::CLI::Lock.run(config_root, sub_args)
     when "unlock"             then Beryl::CLI::Unlock.run(config_root, sub_args)
     when "reboot"             then Beryl::CLI::Reboot.run(config_root, sub_args)
+    when "monitoring"         then Beryl::CLI::Monitoring.run(config_root, sub_args)
     when "status"             then Beryl::CLI::Status.run(config_root, sub_args)
     when "tang-enroll"        then Beryl::CLI::TangEnroll.run(config_root, sub_args)
     when "env"                then Beryl::CLI::Env.run(config_root, sub_args)
@@ -204,6 +206,7 @@ module Beryl::CLI
     {"init", "i", "Initialise ~/.config/beryl/<société>/ + providers/domaines"},
     {"list-hosts", "ls", "Liste les hôtes de toutes les sociétés"},
     {"lock", "l", "Verrouille les pools chiffrés (unload-key + export) — inverse d'unlock"},
+    {"monitoring", "mo", "Monitoring OVH des serveurs (état ; on/off — DRY-RUN par défaut, --apply pour exécuter)"},
     {"os-upgrade", "", "Met à jour le système FreeBSD (correctifs via --apply ; runbook pour une montée de release)"},
     {"pg-upgrade", "", "Migre PostgreSQL vers une version majeure (pg_upgrade) — DRY-RUN par défaut, --apply pour exécuter"},
     {"prep-rescue", "pr", "HTTP local pour préparer un rescue Debian"},
@@ -281,6 +284,7 @@ module Beryl::CLI
     when "lock"           then Beryl::CLI::Lock.run(config_root, ["--help"])
     when "unlock"         then Beryl::CLI::Unlock.run(config_root, ["--help"])
     when "reboot"         then Beryl::CLI::Reboot.run(config_root, ["--help"])
+    when "monitoring"     then Beryl::CLI::Monitoring.run(config_root, ["--help"])
     when "status"         then Beryl::CLI::Status.run(config_root, ["--help"])
     when "tang-enroll"    then Beryl::CLI::TangEnroll.run(config_root, ["--help"])
     when "env"            then Beryl::CLI::Env.run(config_root, ["--help"])

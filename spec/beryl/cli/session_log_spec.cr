@@ -89,6 +89,12 @@ describe Beryl::CLI::SessionLog do
       Beryl::CLI::SessionLog.label("upgrade", ["--status"]).should eq("upgrade-status")
     end
 
+    it "monitoring : dry-run seulement avec on/off sans --apply" do
+      Beryl::CLI::SessionLog.label("monitoring", ["quimeo"]).should eq("monitoring")
+      Beryl::CLI::SessionLog.label("monitoring", ["quimeo", "off"]).should eq("monitoring-dry-run")
+      Beryl::CLI::SessionLog.label("monitoring", ["quimeo", "off", "--apply"]).should eq("monitoring")
+    end
+
     it "commande sans --apply : son nom" do
       Beryl::CLI::SessionLog.label("update", ["aloli.net"]).should eq("update")
       Beryl::CLI::SessionLog.label("info", ["loulou"]).should eq("info")

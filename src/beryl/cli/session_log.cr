@@ -52,7 +52,7 @@ module Beryl::CLI::SessionLog
 
   # Sous-commandes en essai à blanc par défaut (`--apply` pour agir).
   DRY_RUN_BY_DEFAULT = {"apply", "boot-hd", "bootstrap", "dns", "dns-alias", "dns-record", "headscale-authkey",
-                        "lock", "os-upgrade", "pg-upgrade", "reboot", "rescue", "scaleway-reinstall", "scan",
+                        "lock", "monitoring", "os-upgrade", "pg-upgrade", "reboot", "rescue", "scaleway-reinstall", "scan",
                         "tang-enroll", "unlock", "upgrade", "wipe"}
 
   # Libellé de la commande dans le nom du journal : `upgrade-dry-run` pour un
@@ -62,6 +62,8 @@ module Beryl::CLI::SessionLog
   def label(subcommand : String, sub_args : Array(String)) : String
     return "#{subcommand}-status" if sub_args.includes?("--status")
     return subcommand unless DRY_RUN_BY_DEFAULT.includes?(subcommand)
+    # `monitoring` sans on/off : lecture de l'état, pas un essai à blanc.
+    return subcommand if subcommand == "monitoring" && !sub_args.any? { |a| a == "on" || a == "off" }
     acts = sub_args.any? { |a| a == "--apply" || a == "-W" || a.starts_with?("--write-to") }
     acts ? subcommand : "#{subcommand}-dry-run"
   end

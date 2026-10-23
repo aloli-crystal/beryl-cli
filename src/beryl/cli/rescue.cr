@@ -12,6 +12,7 @@ require "./provider_shortcut"
 require "./machine_kind"
 require "./host_keys"
 require "./ovh_task_wait"
+require "./ovh_monitoring"
 
 # Sous-commande `beryl rescue <host> [options]` : bascule un hôte en
 # rescue via l'API de l'hébergeur (OVH ou Scaleway) puis attend le
@@ -153,6 +154,8 @@ module Beryl::CLI::Rescue
     # ce qui serait appelé.
     if !dry_run && provider && ssh_root_is_linux?(host)
       log "4.0 #{provider} : root@#{host.rescue_ssh_host} répond déjà en Linux (kernel rescue) — rescue déjà en place, skip."
+      # Rescue lancé avant que beryl coupe le monitoring : coupé ici aussi.
+      suspend_ovh_monitoring(host, ovh_client_factory) if provider == "ovh"
       return EXIT_OK
     end
 
@@ -163,11 +166,13 @@ module Beryl::CLI::Rescue
         "champ `ovh.service_name` manquant pour #{host.fqdn}"
       )
       if dry_run
+        log "4 DRY-RUN : OVHcloud → monitoring OVH coupé s'il est actif (rétabli par boot-hd / bootstrap)"
         log "4 DRY-RUN : OVHcloud → prepare_rescue(#{service_name}, ssh_key=#{host.ovh_ssh_key_name || "<auto>"})"
         log "4 DRY-RUN : puis wait_for_ssh(#{host.rescue_ssh_host}:#{host.port} as root, timeout #{timeout.total_minutes.to_i}m)" if wait
         log "Pour exécuter : #{Beryl.rerun_hint("rescue", args, replace_host: {raw, Beryl::CLI::AccountUtils.host_ref(host)})}"
         return EXIT_OK
       end
+      suspend_ovh_monitoring(host, ovh_client_factory)
       task = begin
         trigger_ovh(host, ovh_client_factory)
       rescue ex : OvhApi::Error
@@ -307,6 +312,18 @@ module Beryl::CLI::Rescue
     if error = Beryl::CLI::OvhTaskWait.wait("beryl rescue", factory.call, host.ovh_service_name.not_nil!, task)
       raise TaskFailed.new(error)
     end
+  end
+
+  # Coupe le monitoring OVH avant le redémarrage (cf. `OvhMonitoring`). Un
+  # échec n'arrête pas le rescue : il est signalé (OVH pourra alors ouvrir un
+  # incident pendant le redémarrage).
+  private def self.suspend_ovh_monitoring(host : Beryl::Config::ResolvedHost, factory : OvhClientFactory) : Nil
+    return unless sn = host.ovh_service_name
+    if msg = Beryl::CLI::OvhMonitoring.suspend(factory.call, sn)
+      log "4.1 OVH : #{msg}"
+    end
+  rescue ex : OvhApi::Error
+    log "4.1 OVH : ⚠ monitoring OVH non coupé (#{ex.message}) — OVH peut ouvrir un incident pendant le redémarrage"
   end
 
   private def self.auto_select_ovh_ssh_key(client : OvhApi::Client, host : Beryl::Config::ResolvedHost) : String

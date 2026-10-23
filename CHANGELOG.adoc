@@ -9,6 +9,16 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Monitoring OVH : coupé par `rescue`, `beryl monitoring on|off`
+
+* `beryl rescue` coupe le monitoring OVH (ping + intervention) avant le
+  redémarrage, et le note dans `<état>/ovh-monitoring/` ; `boot-hd` (système
+  joignable) et `bootstrap` (fin d'installation) le rétablissent, seulement
+  si beryl l'avait coupé.
+* `beryl monitoring <portée> [on|off] [--apply]` (alias `mo`) : état des
+  serveurs OVH d'un serveur, domaine ou société ; `on`/`off` en essai à
+  blanc par défaut. Un réglage à la main prime sur la coupure de rescue.
+
 === `beryl bootstrap` : RAID 10 du pool système
 
 `raid: 10` sur `zroot` avec `install_type: packages` (pkgbase) : miroirs

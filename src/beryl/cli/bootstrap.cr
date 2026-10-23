@@ -10,6 +10,7 @@ require "./machine_kind"
 require "./apply"
 require "./config_git"
 require "./host_keys"
+require "./ovh_monitoring"
 
 # Sous-commande `beryl bootstrap <host>` : installe FreeBSD 15 sur un
 # hôte actuellement en rescue Linux (voie mfsBSD-in-QEMU, ADR-012/013).
@@ -436,6 +437,17 @@ module Beryl::CLI::Bootstrap
     # Le FreeBSD installé a de nouvelles clés d'hôte (le rescue aussi).
     Beryl::CLI::HostKeys.forget(host, "bootstrap")
     mark_installed(host)
+    # Monitoring OVH coupé par `beryl rescue` : rétabli, le serveur installé
+    # répond (cf. `OvhMonitoring`).
+    if (client = ovh_client) && (sn = host.ovh_service_name)
+      begin
+        if msg = Beryl::CLI::OvhMonitoring.resume(client, sn)
+          STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 7] OVH : #{msg}"
+        end
+      rescue ex : OvhApi::Error
+        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 7] OVH : ⚠ monitoring OVH non rétabli (#{ex.message}) — à réactiver dans l'espace client OVH"
+      end
+    end
     return EXIT_OK unless chain_apply
 
     # Étape 8 : le serveur est installé et répond → on pose tout de suite ses
