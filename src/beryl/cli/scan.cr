@@ -402,6 +402,10 @@ module Beryl::CLI::Scan
       end
     end
 
+    # Miroirs : modèles de disques alternés (RAID 10) et miroirs d'un seul
+    # modèle signalés, cf. `mix_models`.
+    pools = mix_models(pools, disks)
+
     # OVH + service_name inconnu (host scanné par FQDN/IP) → on le résout
     # via l'API (match de l'IP). INDISPENSABLE : sans service_name, le
     # bootstrap ne peut pas faire boot_from_disk → le serveur revient en
@@ -887,8 +891,72 @@ module Beryl::CLI::Scan
   # Exemples de réponse construits sur les VRAIS disques (pas `sda,sdb` en
   # dur) : `1,2 | nvme0n1,nvme1n1 | all`. Appelé avec au moins 2 disques.
   def self.disk_choice_hint(candidates : Array(Disk)) : String
-    pair = candidates.first(2)
-    "#{(1..pair.size).join(",")} | #{pair.map(&.name).join(",")} | all"
+    # Exemple de miroir : de préférence deux modèles différents (cf. `mix_models`).
+    first = candidates.first
+    second = candidates.find { |d| d.model != first.model && Scan.mirror_partner?(first, d) } || candidates[1]
+    idx = [candidates.index!(first), candidates.index!(second)].map(&.+(1))
+    "#{idx.join(",")} | #{first.name},#{second.name} | all"
+  end
+
+  # Deux disques du même modèle viennent souvent du même lot, avec le même
+  # firmware : ils tendent à tomber en panne ensemble. Un miroir ZFS doit
+  # donc réunir deux modèles différents quand le serveur en a (ADV-3 : 2 ×
+  # Micron + 2 × Samsung). Pour un RAID 10, beryl forme les miroirs avec des
+  # paires CONSÉCUTIVES de `disks:` : l'ordre de `lsblk` (nvme0n1, nvme1n1…)
+  # donnerait Micron + Micron et Samsung + Samsung. `mix_models` réordonne
+  # chaque pool RAID 10 et avertit de tout miroir resté d'un seul modèle
+  # alors qu'un disque d'un autre modèle, de même taille et même type, aurait
+  # pu l'accompagner (`all` : tous les disques détectés).
+  def self.mix_models(pools : Array(PoolSpec), all : Array(Disk)) : Array(PoolSpec)
+    pools.map do |pool|
+      ordered = pool.raid == 10 ? raid10_order(pool.disks) : pool.disks
+      if ordered != pool.disks
+        STDERR.puts "  → #{pool.name} : disques réordonnés pour que chaque miroir réunisse deux modèles : #{ordered.map(&.name).join(", ")}"
+      end
+      mirror_warnings(pool.name, ordered, pool.raid, all).each { |w| STDERR.puts w }
+      pool.copy_with(disks: ordered)
+    end
+  end
+
+  # Partenaire de miroir possible : même taille et même type (SSD ou disque
+  # dur) — un NVMe n'est pas une alternative pour un miroir de disques durs. Pur.
+  def self.mirror_partner?(a : Disk, b : Disk) : Bool
+    a.size_bytes == b.size_bytes && a.is_ssd == b.is_ssd
+  end
+
+  # Le serveur a-t-il un disque d'un AUTRE modèle qui pourrait être le
+  # partenaire de `disk` ? Pur.
+  def self.other_model?(disk : Disk, all : Array(Disk)) : Bool
+    all.any? { |d| d.model != disk.model && mirror_partner?(disk, d) }
+  end
+
+  # Ordre RAID 10 : paires consécutives de deux modèles différents tant que
+  # possible (on puise d'abord dans le modèle le plus nombreux) ; à égalité,
+  # l'ordre de détection est gardé. Pur.
+  def self.raid10_order(disks : Array(Disk)) : Array(Disk)
+    groups = disks.group_by(&.model).values.map(&.dup)
+    result = [] of Disk
+    until groups.empty?
+      groups = groups.each_with_index.to_a.sort_by! { |(g, i)| {-g.size, i} }.map(&.[0])
+      result << groups[0].shift
+      partner = groups[1..].find(&.present?) || groups[0]
+      if second = partner.shift?
+        result << second
+      end
+      groups.reject!(&.empty?)
+    end
+    result
+  end
+
+  # Avertissements des miroirs d'un seul modèle (RAID 1 : le pool entier ;
+  # RAID 10 : chaque paire), seulement si un autre modèle compatible existe. Pur.
+  def self.mirror_warnings(pool_name : String, disks : Array(Disk), raid : Int32, all : Array(Disk)) : Array(String)
+    return [] of String unless raid == 1 || raid == 10
+    mirrors = raid == 1 ? [disks] : disks.each_slice(2).to_a
+    mirrors.select { |m| m.size > 1 && m.map(&.model).uniq.size == 1 && other_model?(m.first, all) }.map do |m|
+      "  ⚠ #{pool_name} : miroir #{m.map(&.name).join(" + ")} de deux disques du même modèle (#{m.first.model}) " \
+      "alors que le serveur en a d'autres — même lot, même firmware : risque de panne simultanée."
+    end
   end
 
   def self.resolve_disk_selection(all : Array(Disk), answer : String) : Array(Disk)

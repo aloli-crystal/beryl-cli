@@ -9,6 +9,20 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl scan` : miroirs de deux modèles de disques
+
+Deux disques du même modèle (même lot, même firmware) tendent à tomber en
+panne ensemble. Pour un RAID 10, beryl forme les miroirs par paires
+consécutives de `disks:` : l'ordre de `lsblk` d'un ADV-3 (2 Micron puis 2
+Samsung) donnait Micron + Micron et Samsung + Samsung.
+
+* RAID 10 : disques réordonnés pour que chaque miroir réunisse deux
+  modèles (`nvme0n1, nvme2n1, nvme1n1, nvme3n1`), signalé à l'écran.
+* Avertissement d'un miroir (RAID 1, ou paire de RAID 10) de deux disques
+  du même modèle quand un autre modèle de même taille et même type était
+  disponible ; rien sur un serveur d'un seul modèle.
+* Exemple de saisie des disques : une paire de deux modèles (`1,3`).
+
 === `beryl rescue` / `boot-hd` : attente du redémarrage OVH
 
 * 15 min au lieu de 5 : les ADV-3 mettent 6 à 9 min à finir leur

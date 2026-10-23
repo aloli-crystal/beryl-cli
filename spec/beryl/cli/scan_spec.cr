@@ -10,6 +10,20 @@ private def sample_disk(name = "sda", size = 1_000_000_000_000_i64)
   )
 end
 
+private def model_disk(name : String, model : String, size = 960_197_124_096_i64, ssd = true)
+  Beryl::CLI::Scan::Disk.new(name: name, size_bytes: size, model: model, is_ssd: ssd, transport: "nvme")
+end
+
+# Disques d'un ADV-3, dans l'ordre de `lsblk` (relevé sur be le 23 oct. 2026).
+private def adv3_disks
+  [
+    model_disk("nvme0n1", "MTFDKCC960TGP-1BK1DABYY"),
+    model_disk("nvme1n1", "MTFDKCC960TGP-1BK1DABYY"),
+    model_disk("nvme2n1", "SAMSUNG MZQL2960HCJR-00A07"),
+    model_disk("nvme3n1", "SAMSUNG MZQL2960HCJR-00A07"),
+  ]
+end
+
 private def single_zroot(disks, raid = 0)
   [Beryl::CLI::Scan::PoolSpec.zroot(disks, raid)]
 end
@@ -187,6 +201,64 @@ describe Beryl::CLI::Scan do
     it "cite les vrais noms de disques" do
       candidates = %w[nvme0n1 nvme1n1 nvme2n1].map { |n| sample_disk(n) }
       Beryl::CLI::Scan.disk_choice_hint(candidates).should eq("1,2 | nvme0n1,nvme1n1 | all")
+    end
+
+    it "propose en exemple une paire de deux modèles (ADV-3)" do
+      Beryl::CLI::Scan.disk_choice_hint(adv3_disks).should eq("1,3 | nvme0n1,nvme2n1 | all")
+    end
+  end
+
+  describe ".raid10_order" do
+    it "alterne les modèles : chaque paire consécutive (un miroir) réunit deux modèles" do
+      Beryl::CLI::Scan.raid10_order(adv3_disks).map(&.name).should eq(%w[nvme0n1 nvme2n1 nvme1n1 nvme3n1])
+    end
+
+    it "un seul modèle : ordre de détection gardé" do
+      disks = %w[nvme0n1 nvme1n1 nvme2n1 nvme3n1].map { |n| model_disk(n, "MICRON") }
+      Beryl::CLI::Scan.raid10_order(disks).map(&.name).should eq(%w[nvme0n1 nvme1n1 nvme2n1 nvme3n1])
+    end
+
+    it "modèles déséquilibrés : un seul miroir d'un modèle, le plus tard possible" do
+      disks = [model_disk("a", "M"), model_disk("b", "M"), model_disk("c", "M"), model_disk("d", "S")]
+      Beryl::CLI::Scan.raid10_order(disks).map(&.name).should eq(%w[a d b c])
+    end
+  end
+
+  describe ".mirror_warnings" do
+    it "RAID 1 de deux disques du même modèle alors qu'un autre modèle existe : avertit" do
+      pool = adv3_disks[0, 2]
+      w = Beryl::CLI::Scan.mirror_warnings("zroot", pool, 1, adv3_disks)
+      w.size.should eq 1
+      w.first.should contain "nvme0n1 + nvme1n1"
+    end
+
+    it "miroir de deux modèles : rien" do
+      pool = [adv3_disks[0], adv3_disks[2]]
+      Beryl::CLI::Scan.mirror_warnings("zroot", pool, 1, adv3_disks).should be_empty
+    end
+
+    it "serveur d'un seul modèle (ah, so) : rien, aucune alternative" do
+      disks = %w[nvme0n1 nvme1n1 nvme2n1 nvme3n1].map { |n| model_disk(n, "MICRON") }
+      Beryl::CLI::Scan.mirror_warnings("zroot", disks, 10, disks).should be_empty
+    end
+
+    it "un autre modèle d'une autre taille ou d'un autre type n'est pas une alternative" do
+      hdd = [model_disk("sda", "HGST", 6_000_000_000_000_i64, ssd: false), model_disk("sdb", "HGST", 6_000_000_000_000_i64, ssd: false)]
+      nvme = [model_disk("nvme0n1", "SAMSUNG"), model_disk("nvme1n1", "MICRON")]
+      Beryl::CLI::Scan.mirror_warnings("zdata", hdd, 1, hdd + nvme).should be_empty
+    end
+
+    it "stripe ou raidz : pas concernés" do
+      Beryl::CLI::Scan.mirror_warnings("zroot", adv3_disks[0, 2], 0, adv3_disks).should be_empty
+    end
+  end
+
+  describe ".mix_models" do
+    it "réordonne un pool RAID 10 et laisse les autres tels quels" do
+      pools = [Beryl::CLI::Scan::PoolSpec.zroot(adv3_disks, 10)]
+      Beryl::CLI::Scan.mix_models(pools, adv3_disks).first.disks.map(&.name).should eq(%w[nvme0n1 nvme2n1 nvme1n1 nvme3n1])
+      pools = [Beryl::CLI::Scan::PoolSpec.zroot(adv3_disks, 6)]
+      Beryl::CLI::Scan.mix_models(pools, adv3_disks).first.disks.map(&.name).should eq(%w[nvme0n1 nvme1n1 nvme2n1 nvme3n1])
     end
   end
 
