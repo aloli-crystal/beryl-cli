@@ -29,4 +29,26 @@ describe "Beryl::CLI::HostKeys.names" do
       "rescuehidden.initech.example", "192.168.42.50", "ns9999.ip-1-2-3.eu", "1.2.3.4", "192.168.42.150",
     ])
   end
+
+  describe ".pair_by_model" do
+    disk = ->(name : String, model : String) {
+      Beryl::CLI::Scan::Disk.new(name: name, size_bytes: 960_197_124_096_i64, model: model, is_ssd: true, transport: "nvme")
+    }
+    known = {
+      "/dev/nvme0n1" => disk.call("nvme0n1", "MICRON"),
+      "/dev/nvme1n1" => disk.call("nvme1n1", "MICRON"),
+      "/dev/nvme2n1" => disk.call("nvme2n1", "SAMSUNG"),
+      "/dev/nvme3n1" => disk.call("nvme3n1", "SAMSUNG"),
+    }
+
+    it "forme des miroirs de deux modèles, quel que soit l'ordre (trié) de la fiche" do
+      Beryl::CLI::Bootstrap.pair_by_model(%w[/dev/nvme0n1 /dev/nvme1n1 /dev/nvme2n1 /dev/nvme3n1], known)
+        .should eq(%w[/dev/nvme0n1 /dev/nvme2n1 /dev/nvme1n1 /dev/nvme3n1])
+    end
+
+    it "disque déclaré absent du rescue : ordre déclaré gardé" do
+      paths = %w[/dev/nvme0n1 /dev/nvme1n1 /dev/nvme2n1 /dev/sdz]
+      Beryl::CLI::Bootstrap.pair_by_model(paths, known).should eq(paths)
+    end
+  end
 end

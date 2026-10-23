@@ -902,16 +902,18 @@ module Beryl::CLI::Scan
   # firmware : ils tendent à tomber en panne ensemble. Un miroir ZFS doit
   # donc réunir deux modèles différents quand le serveur en a (ADV-3 : 2 ×
   # Micron + 2 × Samsung). Pour un RAID 10, beryl forme les miroirs avec des
-  # paires CONSÉCUTIVES de `disks:` : l'ordre de `lsblk` (nvme0n1, nvme1n1…)
-  # donnerait Micron + Micron et Samsung + Samsung. `mix_models` réordonne
-  # chaque pool RAID 10 et avertit de tout miroir resté d'un seul modèle
+  # paires CONSÉCUTIVES : l'ordre de `lsblk` (nvme0n1, nvme1n1…) donnerait
+  # Micron + Micron et Samsung + Samsung. La fiche est triée (`beryl fmt`) et
+  # ne garde pas d'ordre : c'est `beryl bootstrap` qui forme les paires
+  # (`raid10_order` sur les disques du rescue). `mix_models` annonce ces
+  # paires pour chaque pool RAID 10 et avertit de tout miroir resté d'un seul modèle
   # alors qu'un disque d'un autre modèle, de même taille et même type, aurait
   # pu l'accompagner (`all` : tous les disques détectés).
   def self.mix_models(pools : Array(PoolSpec), all : Array(Disk)) : Array(PoolSpec)
     pools.map do |pool|
       ordered = pool.raid == 10 ? raid10_order(pool.disks) : pool.disks
       if ordered != pool.disks
-        STDERR.puts "  → #{pool.name} : disques réordonnés pour que chaque miroir réunisse deux modèles : #{ordered.map(&.name).join(", ")}"
+        STDERR.puts "  → #{pool.name} : miroirs formés au bootstrap, deux modèles chacun : #{ordered.each_slice(2).map(&.map(&.name).join(" + ")).join(" ; ")}"
       end
       mirror_warnings(pool.name, ordered, pool.raid, all).each { |w| STDERR.puts w }
       pool.copy_with(disks: ordered)

@@ -9,6 +9,16 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== RAID 10 : les miroirs sont formés par `beryl bootstrap`
+
+La fiche est triée (`beryl fmt` : listes en bloc par ordre alphabétique) et
+ne garde pas l'ordre de `disks:` que `scan` avait alterné. `bootstrap`
+relit les disques dans le rescue (`lsblk`) et forme lui-même les paires de
+chaque pool RAID 10 (système et données) : deux modèles par miroir quand
+le serveur en a, annoncées avant l'installation ; avertissement d'un
+miroir d'un seul modèle évitable. Une fiche triée ou modifiée à la main
+donne les mêmes miroirs. `scan` annonce ces miroirs au lieu de réordonner.
+
 === `beryl os-upgrade` : ménage des paquets inutiles du système de base
 
 Paquets `FreeBSD-*` installés comme dépendance des ensembles que plus aucun

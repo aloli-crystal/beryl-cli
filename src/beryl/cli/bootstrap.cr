@@ -11,6 +11,7 @@ require "./apply"
 require "./config_git"
 require "./host_keys"
 require "./ovh_monitoring"
+require "./scan"
 
 # Sous-commande `beryl bootstrap <host>` : installe FreeBSD 15 sur un
 # hôte actuellement en rescue Linux (voie mfsBSD-in-QEMU, ADR-012/013).
@@ -192,6 +193,16 @@ module Beryl::CLI::Bootstrap
     end
     pool_name = boot_pool.name
 
+    # RAID 10 : les miroirs sont des paires CONSÉCUTIVES des disques passés à
+    # l'installation. La fiche, triée (`beryl fmt`), ne porte pas cet ordre :
+    # les paires sont formées ICI, d'après les modèles vus dans le rescue,
+    # deux modèles par miroir quand le serveur en a (cf. Scan.raid10_order).
+    rescue_disks = rescue_disks_by_path(rescue_conn)
+    if boot_pool.raid == 10
+      disks = pair_by_model(disks, rescue_disks)
+      log_mirrors(pool_name, disks, rescue_disks)
+    end
+
     # Taille de bloc PHYSIQUE de chaque disque, détectée côté rescue Linux
     # (qui voit le vrai matériel ; la VM QEMU ne voit que du 512 via virtio).
     # On en déduit l'ashift NATIF par pool (log2) → zpool create -o ashift=N
@@ -251,10 +262,12 @@ module Beryl::CLI::Bootstrap
                       "après le 1er reboot pour basculer vers Tang."
         end
       end
+      pool_disks = pool.raid == 10 ? pair_by_model(pool.disks, rescue_disks) : pool.disks
+      log_mirrors(pool.name, pool_disks, rescue_disks) if pool.raid == 10
       Beryl::Bootstrap::DataPoolSpec.new(
         name: pool.name,
         raid: pool.raid,
-        disks: pool.disks,
+        disks: pool_disks,
         mountpoint: mp,
         encryption_key_hex: key_hex,
         ashift: pool.disks.map { |d| ashift_by_disk[d]? || 12 }.max,
@@ -534,6 +547,31 @@ module Beryl::CLI::Bootstrap
         ssh_keys: ssh_keys,
       )
     end
+  end
+
+  # Disques vus par le rescue, par chemin (`/dev/nvme0n1` → modèle, taille…),
+  # même lecture que `beryl scan` (lsblk).
+  private def self.rescue_disks_by_path(conn : SSH::Connection) : Hash(String, Beryl::CLI::Scan::Disk)
+    listing = conn.exec("lsblk -b -d -n -o NAME,SIZE,MODEL,ROTA,TRAN,VENDOR 2>/dev/null | cat", raise_on_error: false).stdout
+    Beryl::CLI::Scan.parse_lsblk(listing).to_h { |d| {d.dev_path, d} }
+  end
+
+  # Ordre RAID 10 d'un pool : paires de deux modèles (Scan.raid10_order). Un
+  # disque déclaré que le rescue ne montre pas → ordre déclaré gardé (le
+  # précheck l'a déjà signalé). Pur.
+  def self.pair_by_model(paths : Array(String), known : Hash(String, Beryl::CLI::Scan::Disk)) : Array(String)
+    found = paths.compact_map { |p| known[p]? }
+    return paths if found.size != paths.size
+    Beryl::CLI::Scan.raid10_order(found).map(&.dev_path)
+  end
+
+  # Une ligne par miroir, et l'avertissement d'un miroir d'un seul modèle quand
+  # un autre aurait pu l'accompagner.
+  private def self.log_mirrors(pool : String, paths : Array(String), known : Hash(String, Beryl::CLI::Scan::Disk)) : Nil
+    pairs = paths.each_slice(2).map { |m| m.map { |p| "#{File.basename(p)} (#{known[p]?.try(&.model) || "?"})" }.join(" + ") }
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 7] #{pool} RAID 10, miroirs : #{pairs.join(" ; ")}"
+    found = paths.compact_map { |p| known[p]? }
+    Beryl::CLI::Scan.mirror_warnings(pool, found, 10, known.values).each { |w| STDERR.puts w } if found.size == paths.size
   end
 
   # Interroge le rescue (Linux) pour la taille de bloc PHYSIQUE de chaque
