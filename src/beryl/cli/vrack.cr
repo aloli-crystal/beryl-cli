@@ -12,6 +12,8 @@ module Beryl::CLI
   #   beryl vrack han.example.net              # statut seulement
   #   beryl vrack han.example.net --attach     # rattache (task async + suivi)
   #   beryl vrack han.example.net --attach --vrack pn-12345
+  #   beryl vrack han.example.net --via=zgra [--apply]  # rôle d'accès SSH imposé
+  #   beryl vrack han.example.net --public | --bastion [--apply]
   module Vrack
     EXIT_OK         = 0
     EXIT_USAGE      = 1
@@ -24,14 +26,22 @@ module Beryl::CLI
     def self.run(config_root : String, args : Array(String)) : Int32
       attach = false
       forced_vrack : String? = nil
+      roles = [] of String
+      via : String? = nil
+      apply = false
       account_hint : String? = nil
       domain_hint : String? = nil
       positional = [] of String
 
       parser = OptionParser.new do |p|
-        p.banner = "USAGE : beryl vrack <host> [--attach] [--vrack pn-XXXX]"
+        p.banner = "USAGE : beryl vrack <host> [--attach] [--vrack pn-XXXX]\n" \
+                   "        beryl vrack <host> --via=BASTION | --public | --bastion [--apply]   (rôle d'accès SSH imposé, DRY-RUN par défaut)"
         p.on("--attach", "Rattache le serveur au vRack s'il ne l'est pas (task async)") { attach = true }
         p.on("--vrack NAME", "Forcer le vRack cible si le compte en a plusieurs") { |v| forced_vrack = v }
+        p.on("--via=BASTION", "Rôle : joindre par ce bastion (vrack.proxy_jump, chemin vérifié) — remplace le rôle de la fiche") { |v| roles << "via"; via = v }
+        p.on("--public", "Rôle : SSH direct, pas de bastion (vrack.bastion: false) — remplace le rôle de la fiche") { roles << "public" }
+        p.on("--bastion", "Rôle : ce serveur EST un bastion (vrack.bastion: true) — remplace le rôle de la fiche") { roles << "bastion" }
+        p.on("--apply", "Avec --via/--public/--bastion : écrit le rôle (sinon : dry-run)") { apply = true }
         p.on("-a NAME", "--account=NAME", "Forcer la société") { |v| account_hint = v }
         p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
         p.on("-h", "--help", "Aide") { puts p; exit 0 }
@@ -51,6 +61,12 @@ module Beryl::CLI
       root = Beryl::Config::Root.load(config_root)
       host = root.resolve(parsed[:host], account_hint: account_hint, domain_hint: domain_hint)
       return EXIT_USAGE if Beryl::CLI::MachineKind.refuse_vps(host, "vrack")
+
+      if roles.size > 1
+        STDERR.puts "beryl : un seul rôle à la fois (--via, --public ou --bastion)."
+        return EXIT_USAGE
+      end
+      return set_role(root, host, roles.first, via, apply) unless roles.empty?
       host.apply_all_credentials_to_env!
 
       service = host.ovh_service_name
@@ -217,6 +233,49 @@ module Beryl::CLI
       else
         log "rôle réseau inchangé."
       end
+    end
+
+    # Rôle d'accès SSH IMPOSÉ en ligne de commande (`--via`, `--public`,
+    # `--bastion`) : remplace celui de la fiche, même déjà déclaré (la question
+    # interactive, elle, ne s'ouvre que si aucun rôle n'est écrit). Essai à
+    # blanc par défaut, `--apply` écrit. Pour `--via`, le chemin par le bastion
+    # est VÉRIFIÉ (lecture seule, aussi en dry-run) et rien n'est écrit s'il
+    # échoue.
+    private def self.set_role(root : Beryl::Config::Root, host : Beryl::Config::ResolvedHost, role : String, via : String?, apply : Bool) : Int32
+      log "rôle actuel de #{host.fqdn} : #{vrack_label(host)}"
+      if role != "via"
+        wanted = role == "bastion" ? "EST un bastion (vrack.bastion: true)" : "public (vrack.bastion: false)"
+        unless apply
+          log "écrirait : #{wanted}, sans vrack.proxy_jump (dry-run ; --apply pour écrire)"
+          return EXIT_OK
+        end
+        write_vrack(host, "bastion", role == "bastion" ? "true" : "false")
+        write_vrack_remove(host, "proxy_jump")
+        return EXIT_OK
+      end
+
+      name = via.not_nil!
+      bastions = bastion_hosts(root)
+      bastion = bastions.find { |b| b.short_name == name || b.fqdn == name }
+      unless bastion
+        STDERR.puts "beryl : #{name} n'est pas un bastion (vrack.bastion: true). Bastions : #{bastions.map(&.short_name).join(", ")}"
+        return EXIT_USAGE
+      end
+      pj = derive_proxy_jump(connect_user(host), bastion.short_name, host.domain_name)
+      log "vérification du chemin caché : ssh #{pj} → #{host.vrack_ips.first? || "(pas d'IP vRack)"} → uname…"
+      unless verify_via_bastion(host, pj)
+        log "✗ #{host.fqdn} injoignable par #{pj} — rien écrit. IP vRack montée (vrack-interface) ? bastion joignable ?"
+        return EXIT_FAIL
+      end
+      unless apply
+        log "✓ chemin vérifié — écrirait : vrack.proxy_jump: #{pj}, sans vrack.bastion (dry-run ; --apply pour écrire)"
+        return EXIT_OK
+      end
+      write_vrack(host, "proxy_jump", pj)
+      write_vrack_remove(host, "bastion")
+      log "✓ chemin vérifié — proxy_jump posé."
+      offer_close_22(host, pj) if STDIN.tty?
+      EXIT_OK
     end
 
     # Hosts marqués bastion (`vrack.bastion: true` ou legacy), triés par nom.

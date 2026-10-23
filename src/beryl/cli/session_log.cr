@@ -53,7 +53,7 @@ module Beryl::CLI::SessionLog
   # Sous-commandes en essai à blanc par défaut (`--apply` pour agir).
   DRY_RUN_BY_DEFAULT = {"apply", "boot-hd", "bootstrap", "dns", "dns-alias", "dns-record", "headscale-authkey",
                         "lock", "monitoring", "os-upgrade", "pg-upgrade", "reboot", "rescue", "scaleway-reinstall", "scan",
-                        "tang-enroll", "unlock", "upgrade", "wipe"}
+                        "tang-enroll", "unlock", "upgrade", "vrack", "wipe"}
 
   # Libellé de la commande dans le nom du journal : `upgrade-dry-run` pour un
   # essai à blanc, `upgrade` quand elle agit (`--apply` ; `-W`/`--write-to`
@@ -64,6 +64,8 @@ module Beryl::CLI::SessionLog
     return subcommand unless DRY_RUN_BY_DEFAULT.includes?(subcommand)
     # `monitoring` sans on/off : lecture de l'état, pas un essai à blanc.
     return subcommand if subcommand == "monitoring" && !sub_args.any? { |a| a == "on" || a == "off" }
+    # `vrack` : seuls --via/--public/--bastion suivent la règle du dry-run.
+    return subcommand if subcommand == "vrack" && !sub_args.any? { |a| a.starts_with?("--via") || a == "--public" || a == "--bastion" }
     acts = sub_args.any? { |a| a == "--apply" || a == "-W" || a.starts_with?("--write-to") }
     acts ? subcommand : "#{subcommand}-dry-run"
   end

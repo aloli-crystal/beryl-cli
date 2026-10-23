@@ -9,6 +9,14 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl vrack` : rôle d'accès SSH imposé (`--via`, `--public`, `--bastion`)
+
+`--via=BASTION`, `--public` ou `--bastion` remplacent le rôle déjà écrit
+dans la fiche (la question interactive ne s'ouvre que si aucun rôle n'est
+écrit). Essai à blanc par défaut, `--apply` écrit ; pour `--via`, le
+chemin par le bastion est vérifié (aussi en dry-run) et rien n'est écrit
+s'il échoue.
+
 === `beryl info` : datacentre, tri des IP, « Accès SSH »
 
 * Colonne « Datacentre » (tableau Matériel, site HTML, page serveur),

@@ -95,6 +95,13 @@ describe Beryl::CLI::SessionLog do
       Beryl::CLI::SessionLog.label("monitoring", ["quimeo", "off", "--apply"]).should eq("monitoring")
     end
 
+    it "vrack : dry-run seulement pour un rôle imposé sans --apply" do
+      Beryl::CLI::SessionLog.label("vrack", ["be"]).should eq("vrack")
+      Beryl::CLI::SessionLog.label("vrack", ["be", "--attach"]).should eq("vrack")
+      Beryl::CLI::SessionLog.label("vrack", ["be", "--via=zgra"]).should eq("vrack-dry-run")
+      Beryl::CLI::SessionLog.label("vrack", ["be", "--public", "--apply"]).should eq("vrack")
+    end
+
     it "commande sans --apply : son nom" do
       Beryl::CLI::SessionLog.label("update", ["aloli.net"]).should eq("update")
       Beryl::CLI::SessionLog.label("info", ["loulou"]).should eq("info")
