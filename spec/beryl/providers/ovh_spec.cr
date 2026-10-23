@@ -201,13 +201,14 @@ describe Beryl::Providers::Ovh do
   end
 
   describe "#server_detail" do
-    it "extrait gamme + rack + IPv4 en un GET" do
+    it "extrait gamme + datacentre + rack + IPv4 en un GET" do
       transport = FakeOvhTransport.new
       transport.stub("GET", /dedicated\/server\/ns123\.eu$/, status: 200,
-        body: %({"commercialRange":"Advance-2","rack":"16RA09","ip":"1.2.3.4"}))
+        body: %({"commercialRange":"Advance-2","datacenter":"gra3","rack":"16RA09","ip":"1.2.3.4"}))
       provider = Beryl::Providers::Ovh.new(build_fake_ovh_client(transport))
       d = provider.server_detail("ns123.eu")
       d[:commercial].should eq("Advance-2")
+      d[:datacenter].should eq("gra3")
       d[:rack].should eq("16RA09")
       d[:ipv4].should eq("1.2.3.4")
     end

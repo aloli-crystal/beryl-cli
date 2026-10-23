@@ -673,7 +673,7 @@ module Beryl::CLI
           path = h.node.source_path
           content = File.read(path)
           content = upsert_block(content, "ovh",
-            ovh_block(sn, detail[:commercial], detail[:rack], detail[:ipv4], ipv6, price, ipv6_gateway))
+            ovh_block(sn, detail[:commercial], detail[:rack], detail[:ipv4], ipv6, price, ipv6_gateway, detail[:datacenter]))
           content = upsert_block(content, "hardware", hardware_block(hw)) if hw
           Beryl::CLI::Fmt.write(path, content)
           ok += 1
@@ -687,14 +687,15 @@ module Beryl::CLI
       EXIT_OK
     end
 
-    # Lignes du bloc `ovh:` (service_name + gamme + rack + IPs + prix/mois).
+    # Lignes du bloc `ovh:` (service_name + gamme + datacentre + rack + IPs + prix/mois).
     def self.ovh_block(service_name : String, commercial : String?, rack : String?,
                        ipv4 : String?, ipv6 : String?, price : String?,
-                       ipv6_gateway : String? = nil) : Array(String)
+                       ipv6_gateway : String? = nil, datacenter : String? = nil) : Array(String)
       # Clés par ordre alphabétique, comme `beryl fmt` : un refresh ne réordonne
       # pas le bloc (pas de va-et-vient refresh ↔ fmt).
       b = ["ovh:"]
       b << "  commercial_name: #{commercial}" if commercial
+      b << "  datacenter: #{datacenter}" if datacenter
       b << "  ipv4: #{ipv4}" if ipv4
       # IPv6 TOUJOURS quotée : pleine de `:` (et parfois finissant par `::`) →
       # YAML la mal-parserait sans guillemets.
@@ -779,8 +780,8 @@ module Beryl::CLI
         io << "|===\n\n"
 
         io << "== Matériel\n\n"
-        io << "[options=\"header\",cols=\"2,2,2,2,3,1,3,>2\"]\n|===\n"
-        io << "| Host | Rôle | Nom commercial | Baie | CPU | RAM | Disques | Prix/mois\n\n"
+        io << "[options=\"header\",cols=\"2,2,2,1,2,3,1,3,>2\"]\n|===\n"
+        io << "| Host | Rôle | Nom commercial | Datacentre | Baie | CPU | RAM | Disques | Prix/mois\n\n"
         hosts.each do |h|
           hw = h.hardware
           # « Nom commercial » = la gamme SEULE (ex. RISE-1), sans le CPU qui
@@ -790,6 +791,7 @@ module Beryl::CLI
             h.short_name,
             h.role || "—",
             gamme,
+            h.ovh_datacenter_label || "—",
             h.ovh_rack || "—",
             hw ? "#{hw.cpu} (#{hw.cores}c/#{hw.threads}t)" : "—",
             hw ? "#{hw.ram_gb} Go" : "—",
@@ -823,7 +825,7 @@ module Beryl::CLI
         net_hosts = hosts.select { |h| h.ovh_ipv4 || h.ovh_ipv6 || h.vrack_ip }
         unless net_hosts.empty?
           io << "== Réseau\n\n[options=\"header\",cols=\"2,2,3,2,2\"]\n|===\n"
-          io << "| Host | IPv4 publique | IPv6 publique | vRack | Accès\n\n"
+          io << "| Host | IPv4 publique | IPv6 publique | vRack | Accès SSH\n\n"
           net_hosts.each do |h|
             io << "| #{h.short_name} | #{h.ovh_ipv4 || "—"} | #{h.ovh_ipv6 || "—"} "
             io << "| #{h.vrack_ip || "—"} | #{esc.call(adoc_role(h))}\n"
@@ -912,6 +914,27 @@ module Beryl::CLI
     # Échappe une valeur pour insertion HTML (texte ou attribut).
     def self.hesc(s : String) : String
       s.gsub('&', "&amp;").gsub('<', "&lt;").gsub('>', "&gt;").gsub('"', "&quot;")
+    end
+
+    # Clé de tri d'une IPv4 (`data-sort`) : un nombre, octet par octet
+    # (`192.168.42.4` → 192168042004) ; sans adresse, -1 (en tête). Pur.
+    def self.ipv4_sort_key(ip : String?) : Int64
+      parts = ip.try(&.split('.').map(&.to_i64?))
+      return -1_i64 unless parts && parts.size == 4 && parts.all? { |p| p && p >= 0 && p <= 255 }
+      parts.reduce(0_i64) { |acc, p| acc * 1000 + p.not_nil! }
+    end
+
+    # Clé de tri d'une IPv6 (`data-sort`) : la forme COMPLÈTE, 8 groupes de 4
+    # chiffres hexadécimaux, comparée comme du texte (`2001:41d0:364:4100::1` →
+    # `2001:41d0:0364:4100:0000:0000:0000:0001`) ; sans adresse, chaîne vide. Pur.
+    def self.ipv6_sort_key(ip : String?) : String
+      return "" unless ip && ip.includes?(':')
+      head, sep, tail = ip.downcase.partition("::")
+      left = head.empty? ? [] of String : head.split(':')
+      right = tail.empty? ? [] of String : tail.split(':')
+      fill = sep.empty? ? 0 : 8 - left.size - right.size
+      return "" if fill < 0
+      (left + Array.new(fill, "0") + right).map(&.rjust(4, '0')).join(':')
     end
 
     # Convertit une taille humaine (`14T`, `460G`, `512K`, `8.0G`) en octets,
@@ -1012,7 +1035,7 @@ module Beryl::CLI
         end
 
         io << "<h2>Matériel</h2>\n<table class=\"sortable\">\n<thead><tr>"
-        %w[Host Rôle Nom\ commercial Baie CPU Cœurs RAM Disques Prix/mois].each { |th| io << "<th>#{hesc(th)}</th>" }
+        %w[Host Rôle Nom\ commercial Datacentre Baie CPU Cœurs RAM Disques Prix/mois].each { |th| io << "<th>#{hesc(th)}</th>" }
         io << "</tr></thead>\n<tbody>\n"
         hosts.each do |h|
           hw = h.hardware
@@ -1021,6 +1044,7 @@ module Beryl::CLI
           io << "<td><a href=\"#{hesc(h.short_name)}.html\">#{hesc(h.short_name)}</a></td>"
           io << "<td>#{hesc(h.role || "—")}</td>"
           io << "<td>#{hesc(gamme)}</td>"
+          io << "<td>#{hesc(h.ovh_datacenter_label || "—")}</td>"
           io << "<td>#{hesc(h.ovh_rack || "—")}</td>"
           io << "<td>#{hesc(hw.try(&.cpu) || "—")}</td>"
           io << "<td data-sort=\"#{hw.try(&.cores) || 0}\">#{hw ? "#{hw.cores}c/#{hw.threads}t" : "—"}</td>"
@@ -1034,12 +1058,13 @@ module Beryl::CLI
         net_hosts = hosts.select { |h| h.ovh_ipv4 || h.ovh_ipv6 || h.vrack_ip }
         unless net_hosts.empty?
           io << "<h2>Réseau</h2>\n<table class=\"sortable\">\n<thead><tr>"
-          ["Host", "IPv4 publique", "IPv6 publique", "vRack", "Accès"].each { |th| io << "<th>#{hesc(th)}</th>" }
+          ["Host", "IPv4 publique", "IPv6 publique", "vRack", "Accès SSH"].each { |th| io << "<th>#{hesc(th)}</th>" }
           io << "</tr></thead>\n<tbody>\n"
           net_hosts.each do |h|
             io << "<tr><td><a href=\"#{hesc(h.short_name)}.html\">#{hesc(h.short_name)}</a></td>"
-            io << "<td>#{hesc(h.ovh_ipv4 || "—")}</td><td>#{hesc(h.ovh_ipv6 || "—")}</td>"
-            io << "<td>#{hesc(h.vrack_ip || "—")}</td><td>#{hesc(adoc_role(h))}</td></tr>\n"
+            io << "<td data-sort=\"#{ipv4_sort_key(h.ovh_ipv4)}\">#{hesc(h.ovh_ipv4 || "—")}</td>"
+            io << "<td data-sort=\"#{ipv6_sort_key(h.ovh_ipv6)}\">#{hesc(h.ovh_ipv6 || "—")}</td>"
+            io << "<td data-sort=\"#{ipv4_sort_key(h.vrack_ip)}\">#{hesc(h.vrack_ip || "—")}</td><td>#{hesc(adoc_role(h))}</td></tr>\n"
           end
           io << "</tbody></table>\n"
         end
@@ -1096,6 +1121,7 @@ module Beryl::CLI
         kv.call("Provider", host.provider || "—")
         kv.call("Service OVH", host.ovh_service_name || "—")
         kv.call("Nom commercial", host.ovh_commercial_name || "—")
+        kv.call("Datacentre", host.ovh_datacenter_label || "—")
         kv.call("Baie (rack)", host.ovh_rack || "—")
         price = host.ovh_price
         kv.call("Prix/mois", price ? "#{price} €" : "—")
@@ -1187,11 +1213,17 @@ module Beryl::CLI
               var ca = a.cells[idx], cb = b.cells[idx];
               if (!ca || !cb) return 0;
               var xa = ca.getAttribute("data-sort"), xb = cb.getAttribute("data-sort");
-              var na = parseFloat(xa !== null ? xa : ca.textContent);
-              var nb = parseFloat(xb !== null ? xb : cb.textContent);
+              var num = function (v) { return v.trim() !== "" && !isNaN(Number(v)); };
               var r;
-              if (!isNaN(na) && !isNaN(nb)) { r = na - nb; }
-              else { r = ca.textContent.trim().localeCompare(cb.textContent.trim()); }
+              if (xa !== null && xb !== null && !(num(xa) && num(xb))) {
+                // Clés textuelles (IPv6 en forme complète) : ordre des caractères.
+                r = xa < xb ? -1 : (xa > xb ? 1 : 0);
+              } else {
+                var na = parseFloat(xa !== null ? xa : ca.textContent);
+                var nb = parseFloat(xb !== null ? xb : cb.textContent);
+                if (!isNaN(na) && !isNaN(nb)) { r = na - nb; }
+                else { r = ca.textContent.trim().localeCompare(cb.textContent.trim()); }
+              }
               return asc ? r : -r;
             });
             rows.forEach(function (row) { tb.appendChild(row); });

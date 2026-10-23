@@ -9,6 +9,18 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl info` : datacentre, tri des IP, « Accès SSH »
+
+* Colonne « Datacentre » (tableau Matériel, site HTML, page serveur),
+  entre « Nom commercial » et « Baie » : champ `datacenter` de l'API OVH
+  (même appel que la baie), écrit en `ovh.datacenter` par `info --refresh`
+  et `scan --discover`, affiché en capitales (`GRA04`).
+* Tableau Réseau du site HTML : tri des IPv4 (vRack, publique) octet par
+  octet (`.4` < `.19` < `.39`) et des IPv6 dans l'ordre des adresses ;
+  `parseFloat` lisait `192.168.42.39` comme `192.168`.
+* Colonne « Accès » renommée « Accès SSH » (c'est l'accès SSH de beryl :
+  bastion, caché via un bastion, public).
+
 === RAID 10 : les miroirs sont formés par `beryl bootstrap`
 
 La fiche est triée (`beryl fmt` : listes en bloc par ordre alphabétique) et

@@ -2,6 +2,7 @@ provider: ovh
 ovh:
   service_name: ns999.eu
   commercial_name: Advance-2
+  datacenter: gra3
   rack: 16RA09
   ipv4: 1.2.3.4
   ipv6: "2001:db8::1"

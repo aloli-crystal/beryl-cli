@@ -26,11 +26,12 @@ describe Beryl::CLI::Info do
       out.should contain("== Synthèse")
       out.should contain("| Serveurs | 1") # synthèse = tableau
       out.should contain("== Matériel")
-      out.should contain("| Host | Rôle | Nom commercial | Baie | CPU | RAM | Disques | Prix/mois")
+      out.should contain("| Host | Rôle | Nom commercial | Datacentre | Baie | CPU | RAM | Disques | Prix/mois")
+      out.should contain("| GRA3 | 16RA09 |")         # datacentre en capitales, avant la baie
       out.should contain("| infohw | apps-crystal |") # rôle fonctionnel
       out.should contain("16RA09")                    # rack
       out.should contain("== Réseau")
-      out.should contain("| Host | IPv4 publique | IPv6 publique | vRack | Accès")
+      out.should contain("| Host | IPv4 publique | IPv6 publique | vRack | Accès SSH")
       out.should contain("1.2.3.4")
       out.should contain("2001:db8::1")
       out.should contain("89.99 €")                   # prix lu depuis un NOMBRE YAML (pas une chaîne)
@@ -82,6 +83,37 @@ describe Beryl::CLI::Info do
       out.should contain("SOUS 10")
       out.should contain("*infohw* / zroot : 5% libre") # nom serveur en GRAS, volume saturé
       out.should_not contain("zdata : 92%")             # le volume sain n'est pas listé
+    end
+  end
+
+  describe ".ipv4_sort_key" do
+    it "trie les IP du vRack octet par octet (.4 < .19 < .39)" do
+      keys = %w[192.168.42.39 192.168.42.19 192.168.42.4].map { |ip| Beryl::CLI::Info.ipv4_sort_key(ip) }
+      keys.sort.should eq([192168042004_i64, 192168042019_i64, 192168042039_i64])
+    end
+
+    it "sans adresse ou illisible : -1 (en tête)" do
+      Beryl::CLI::Info.ipv4_sort_key(nil).should eq(-1)
+      Beryl::CLI::Info.ipv4_sort_key("—").should eq(-1)
+      Beryl::CLI::Info.ipv4_sort_key("1.2.3.256").should eq(-1)
+    end
+  end
+
+  describe ".ipv6_sort_key" do
+    it "forme complète, triable comme du texte" do
+      Beryl::CLI::Info.ipv6_sort_key("2001:41d0:364:4100::1").should eq("2001:41d0:0364:4100:0000:0000:0000:0001")
+      Beryl::CLI::Info.ipv6_sort_key("fe80::1").should eq("fe80:0000:0000:0000:0000:0000:0000:0001")
+      Beryl::CLI::Info.ipv6_sort_key("2001:db8:0:1:2:3:4:5").should eq("2001:0db8:0000:0001:0002:0003:0004:0005")
+    end
+
+    it "l'ordre suit les adresses, pas leur écriture abrégée" do
+      a = Beryl::CLI::Info.ipv6_sort_key("2001:41d0:303:9cd0::1")
+      b = Beryl::CLI::Info.ipv6_sort_key("2001:41d0:1000::1")
+      (a < b).should be_true
+    end
+
+    it "sans adresse : chaîne vide" do
+      Beryl::CLI::Info.ipv6_sort_key(nil).should eq("")
     end
   end
 
@@ -170,9 +202,9 @@ describe Beryl::CLI::Info do
     end
 
     it "écrit les clés par ordre alphabétique (comme beryl fmt)" do
-      block = Beryl::CLI::Info.ovh_block("ns1.eu", "GAME-1", "S355A02", "1.2.3.4", "2001:db8::1", "99.99", "fe80::1")
+      block = Beryl::CLI::Info.ovh_block("ns1.eu", "GAME-1", "S355A02", "1.2.3.4", "2001:db8::1", "99.99", "fe80::1", "sbg1")
       keys = block[1..].map { |l| l.strip.split(':').first }
-      keys.should eq(%w[commercial_name ipv4 ipv6 ipv6_gateway price_eur rack service_name])
+      keys.should eq(%w[commercial_name datacenter ipv4 ipv6 ipv6_gateway price_eur rack service_name])
     end
 
     it "ajoute la passerelle IPv6 d'OVH, quotée" do

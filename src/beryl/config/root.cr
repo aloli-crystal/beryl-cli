@@ -529,6 +529,17 @@ module Beryl::Config
       provider_field("ovh", "rack")
     end
 
+    # Datacentre OVH écrit par `beryl info --refresh` / `scan --discover`
+    # (`ovh.datacenter`, tel que l'API le donne : `gra3`, `sbg5`, `rbx8`).
+    def ovh_datacenter : String?
+      provider_field("ovh", "datacenter")
+    end
+
+    # Pour l'affichage : en capitales (`GRA3`).
+    def ovh_datacenter_label : String?
+      ovh_datacenter.try(&.upcase)
+    end
+
     # IPv4 / IPv6 publiques écrites par `beryl info --refresh` (`ovh.ipv4`/`ovh.ipv6`).
     def ovh_ipv4 : String?
       provider_field("ovh", "ipv4")

@@ -120,17 +120,19 @@ module Beryl::Providers
     # `GET /dedicated/server/{s}` → champ `commercialRange`. nil si l'API ne
     # répond pas. Couvert par le droit `GET /dedicated/server/*`.
     # Détails d'un serveur dédié en UN GET (`/dedicated/server/{s}`) : gamme
-    # commerciale, baie (`rack`), IPv4 primaire (`ip`). Champs nil si absents /
+    # commerciale, datacentre (`datacenter`, ex. `gra3`), baie (`rack`), IPv4
+    # primaire (`ip`). Champs nil si absents /
     # API muette. Couvert par `GET /dedicated/server/*`.
-    def server_detail(service_name : String) : NamedTuple(commercial: String?, rack: String?, ipv4: String?)
+    def server_detail(service_name : String) : NamedTuple(commercial: String?, datacenter: String?, rack: String?, ipv4: String?)
       resp = client.call("GET", "/dedicated/server/#{service_name}")
       {
         commercial: resp.try(&.["commercialRange"]?).try(&.as_s?),
+        datacenter: resp.try(&.["datacenter"]?).try(&.as_s?),
         rack:       resp.try(&.["rack"]?).try(&.as_s?),
         ipv4:       resp.try(&.["ip"]?).try(&.as_s?),
       }
     rescue
-      {commercial: nil, rack: nil, ipv4: nil}
+      {commercial: nil, datacenter: nil, rack: nil, ipv4: nil}
     end
 
     # Gamme commerciale OVH seule (ex. "Advance-2"). Délègue à `server_detail`.

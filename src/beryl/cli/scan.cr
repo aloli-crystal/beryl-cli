@@ -1500,7 +1500,7 @@ module Beryl::CLI::Scan
   # rescue). Réutilise `Info.ovh_block`. Les disques/ZFS/hardware seront
   # ajoutés plus tard par `beryl scan <host> --apply`.
   private def self.discover_skeleton(short : String, domain : String, service_name : String,
-                                     detail : NamedTuple(commercial: String?, rack: String?, ipv4: String?),
+                                     detail : NamedTuple(commercial: String?, datacenter: String?, rack: String?, ipv4: String?),
                                      ipv6 : String?, price : String?,
                                      ipv6_gateway : String? = nil) : String
     stamp = Time.local.to_s("%d/%m/%Y %Hh%Mm%S")
@@ -1513,7 +1513,7 @@ module Beryl::CLI::Scan
       "installed: false # sauté par update/upgrade/os-upgrade ; retiré par `beryl bootstrap`",
       "provider: ovh",
     ]
-    lines.concat(Beryl::CLI::Info.ovh_block(service_name, detail[:commercial], detail[:rack], detail[:ipv4], ipv6, price, ipv6_gateway))
+    lines.concat(Beryl::CLI::Info.ovh_block(service_name, detail[:commercial], detail[:rack], detail[:ipv4], ipv6, price, ipv6_gateway, detail[:datacenter]))
     lines.join('\n') + "\n"
   end
 
