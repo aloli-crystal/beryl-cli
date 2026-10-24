@@ -1,0 +1,3 @@
+freebsd:
+  hostname: db01
+  disks: [/dev/sda]

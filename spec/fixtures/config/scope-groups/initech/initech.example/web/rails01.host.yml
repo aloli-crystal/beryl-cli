@@ -1,0 +1,3 @@
+freebsd:
+  hostname: rails01
+  disks: [/dev/sda]

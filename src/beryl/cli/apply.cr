@@ -41,7 +41,7 @@ module Beryl::CLI::Apply
     positional = [] of String
 
     parser = OptionParser.new do |p|
-      p.banner = "USAGE : beryl apply <host|domaine|société> [recette] [options]"
+      p.banner = "USAGE : beryl apply <host|groupe|domaine|société|a,b,…> [recette] [options]"
       p.on("-a NAME", "--account=NAME", "Forcer la société (si ambiguë)") { |v| account_hint = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
       p.on("--apply", "Applique réellement les changements (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false }
@@ -66,9 +66,14 @@ module Beryl::CLI::Apply
     root = Beryl::Config::Root.load(config_root)
     # Portée : host, domaine OU société (comme rotate-key). `apply example.net`
     # → tous les hosts du domaine ; `apply acme` → toute la société.
-    hosts = resolve_hosts(root, host_name, account_hint, domain_hint)
+    list = raw.includes?(',')
+    if list && !(unknown = unknown_parts(root, raw, account_hint, domain_hint)).empty?
+      STDERR.puts "beryl : élément(s) inconnu(s) dans la liste #{raw} : #{unknown.join(", ")} (ni host, ni groupe, ni domaine, ni société)."
+      return EXIT_USAGE
+    end
+    hosts = list ? resolve_list(root, raw, account_hint, domain_hint) : resolve_hosts(root, host_name, account_hint, domain_hint)
     if hosts.empty?
-      STDERR.puts "beryl : portée inconnue : #{raw} (ni host, ni domaine, ni société). " \
+      STDERR.puts "beryl : portée inconnue : #{raw} (ni host, ni groupe, ni domaine, ni société). " \
                   "Sociétés configurées : #{root.accounts.keys.sort.join(", ")}"
       return EXIT_USAGE
     end
@@ -77,7 +82,9 @@ module Beryl::CLI::Apply
     # `installed: false` (pas encore bootstrappé) : sauté sur une portée
     # (société, domaine), comme update/upgrade/os-upgrade ; refusé s'il est
     # nommé explicitement — au lieu d'un échec de connexion SSH.
-    single_host = host_scope?(root, host_name, account_hint, domain_hint)
+    single_host = !list && host_scope?(root, host_name, account_hint, domain_hint)
+    # Serveurs NOMMÉS d'une liste (`zgra,zrbx`) : traités comme un serveur nommé.
+    named = list ? named_hosts(root, raw, account_hint, domain_hint) : Set(String).new
     pending, hosts = split_installed(hosts)
     if !pending.empty? && single_host
       ref = Beryl::CLI::AccountUtils.host_ref(pending.first)
@@ -97,7 +104,9 @@ module Beryl::CLI::Apply
     # Recette ponctuelle sur un domaine ou une société : seuls les serveurs
     # qui la déclarent l'appliquent (cf. adhoc_requests).
     hosts.each do |host|
-      rc = apply_one(config_root, host, adhoc_recipe, dry_run, restrict_adhoc: !single_host)
+      # Serveur nommé (seul ou dans une liste) : la recette ponctuelle vaut
+      # pour lui ; domaine, société, groupe : seulement là où elle est déclarée.
+      rc = apply_one(config_root, host, adhoc_recipe, dry_run, restrict_adhoc: !single_host && !named.includes?(host.fqdn))
       worst = rc unless rc == EXIT_OK
     end
     worst
@@ -143,7 +152,45 @@ module Beryl::CLI::Apply
       return account.domains.values.flat_map { |domain| resolve_domain_hosts(root, account, domain) }
     end
 
-    [] of Beryl::Config::ResolvedHost
+    # Groupe (`<domaine>/<groupe>.group.yml` + `<groupe>/*.host.yml`) : ses
+    # serveurs, dans tous les domaines qui en ont un de ce nom (sauf -a/-d).
+    group_hosts = [] of Beryl::Config::ResolvedHost
+    root.accounts.each_value do |acct|
+      next if account_hint && acct.name != account_hint
+      acct.domains.each_value do |domain|
+        next if domain_hint && domain.name != domain_hint
+        next unless group = domain.groups[scope]?
+        group.hosts.each_key do |hn|
+          group_hosts << root.resolve(hn, account_hint: acct.name, domain_hint: domain.name)
+        rescue
+          next
+        end
+      end
+    end
+    group_hosts
+  end
+
+  # Éléments d'une liste qui ne désignent aucun serveur (faute de frappe…) :
+  # refusés plutôt qu'ignorés en silence.
+  def self.unknown_parts(root : Beryl::Config::Root, scope : String, account_hint : String?, domain_hint : String?) : Array(String)
+    scope.split(',').map(&.strip).reject(&.empty?).select { |part| resolve_hosts(root, part, account_hint, domain_hint).empty? }
+  end
+
+  # FQDN des éléments d'une liste qui sont des SERVEURS (et non un groupe, un
+  # domaine ou une société).
+  private def self.named_hosts(root : Beryl::Config::Root, scope : String, account_hint : String?, domain_hint : String?) : Set(String)
+    scope.split(',').map(&.strip).reject(&.empty?).compact_map do |part|
+      root.resolve(part, account_hint: account_hint, domain_hint: domain_hint).fqdn
+    rescue Beryl::Config::Root::HostNotFound | Beryl::Config::Root::UnknownDomain
+      nil
+    end.to_set
+  end
+
+  # Portée LISTE `a,b,c` : union des portées citées (serveur, groupe, domaine,
+  # société), dans l'ordre de la liste, sans doublon. Pur côté config.
+  def self.resolve_list(root : Beryl::Config::Root, scope : String, account_hint : String?, domain_hint : String?) : Array(Beryl::Config::ResolvedHost)
+    scope.split(',').map(&.strip).reject(&.empty?)
+      .flat_map { |part| resolve_hosts(root, part, account_hint, domain_hint) }.uniq(&.fqdn)
   end
 
   private def self.resolve_domain_hosts(root : Beryl::Config::Root, account : Beryl::Config::Account, domain : Beryl::Config::Domain) : Array(Beryl::Config::ResolvedHost)

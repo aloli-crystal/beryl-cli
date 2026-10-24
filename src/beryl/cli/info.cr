@@ -621,6 +621,12 @@ module Beryl::CLI
         nil
       end
       return hosts unless (s = scope)
+      # LISTE `a,b,c` : union des portées citées (serveur, groupe, domaine…),
+      # dans l'ordre de la liste, sans doublon.
+      if s.includes?(',')
+        return s.split(',').map(&.strip).reject(&.empty?)
+          .flat_map { |part| scoped_hosts(root, part) }.uniq(&.fqdn)
+      end
       # Forme CHEMIN `société[/domaine]/host` (ex. `acme/pkg`) : on filtre
       # par composants (l'host par nom court OU fqdn).
       if s.includes?("/")
@@ -631,8 +637,9 @@ module Beryl::CLI
             {h.short_name, h.fqdn}.includes?(p[:host])
         end
       end
-      # Forme simple : société, domaine, fqdn ou nom court.
-      hosts.select { |h| {h.account_name, h.domain_name, h.fqdn, h.short_name}.includes?(s) }
+      # Forme simple : société, domaine, groupe (`<groupe>.group.yml`), fqdn ou
+      # nom court.
+      hosts.select { |h| {h.account_name, h.domain_name, h.group_name, h.fqdn, h.short_name}.includes?(s) }
     end
 
     private def self.refresh_metadata(root : Beryl::Config::Root, scope : String?) : Int32

@@ -9,6 +9,18 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Portées : groupe et liste
+
+* Groupe (`<domaine>/<groupe>.group.yml` + `<groupe>/*.host.yml`) comme
+  portée de `apply`, `upgrade`, `os-upgrade`, `info`, `monitoring` :
+  `beryl apply bastions`. Un groupe du même nom dans plusieurs domaines :
+  réunis, sauf `-a`/`-d`.
+* Liste `a,b,c` : union des portées citées (serveur, groupe, domaine,
+  société), dans l'ordre, sans doublon. `apply` refuse une liste dont un
+  élément ne désigne aucun serveur. Recette ponctuelle : appliquée aux
+  serveurs nommés de la liste ; ailleurs, seulement là où elle est
+  déclarée.
+
 === `beryl vrack` : rôle d'accès SSH imposé (`--via`, `--public`, `--bastion`)
 
 `--via=BASTION`, `--public` ou `--bastion` remplacent le rôle déjà écrit
