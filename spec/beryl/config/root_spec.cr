@@ -41,7 +41,19 @@ describe Beryl::Config::Root do
       domain.direct_hosts["loulou"].name.should eq("loulou")
     end
 
-    it "charge des groupes avec fichier + dossier" do
+    it "refuse un dossier à point dans un domaine (un sous-domaine se range à côté, pas dedans)" do
+      expect_raises(Exception, /un nom à point est un domaine/) do
+        Beryl::Config::Root.load(fixture("group-with-dot"))
+      end
+    end
+
+    it "refuse l'ancienne déclaration <groupe>.group.yml (→ <groupe>/_defaults.yml)" do
+      expect_raises(Exception, /web\/_defaults.yml/) do
+        Beryl::Config::Root.load(fixture("legacy-group-yml"))
+      end
+    end
+
+    it "charge des groupes : un dossier sous le domaine, réglages dans _defaults.yml" do
       initech = Beryl::Config::Root.load(fixture("with-group")).account?("initech").not_nil!
       domain = initech.domain?("initech.example").not_nil!
       domain.direct_hosts.should be_empty
@@ -49,14 +61,16 @@ describe Beryl::Config::Root do
       web = domain.groups["web"]
       web.hosts.size.should eq(2)
       web.hosts.keys.sort.should eq(["rails01", "rails02"])
+      web.raw[YAML::Any.new("freebsd")].should_not be_nil
+      web.source_path.not_nil!.should end_with("web/_defaults.yml")
     end
 
-    it "charge un groupe à définition vide (api.group.yml sans contenu)" do
+    it "charge un groupe sans _defaults.yml (réglages vides)" do
       initech = Beryl::Config::Root.load(fixture("group-dir-without-yml")).account?("initech").not_nil!
       domain = initech.domain?("initech.example").not_nil!
       api = domain.groups["api"]
       api.raw.should be_empty
-      api.source_path.should_not be_nil
+      api.source_path.should be_nil
       api.hosts.size.should eq(1)
     end
 

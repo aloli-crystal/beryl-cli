@@ -334,7 +334,8 @@ module Beryl::CLI::Scan
     # + YAML, mais on ne simule aucun contenu. `--dry-run` EXPLIQUE,
     # il ne FAIT rien (pas de SSH, pas de YAML).
     if dry_run
-      target = resolve_write_target(write_path, write_auto, config_root, host.account_name, host.domain_name, short)
+      target = resolve_write_target(write_path, write_auto, config_root, host.account_name, host.domain_name, short,
+        existing: host.virtual ? nil : host.node.source_path)
       effective_provider = provider_override || host.provider
       STDERR.puts
       STDERR.puts "DRY-RUN : actions `beryl scan` prévues :"
@@ -423,7 +424,8 @@ module Beryl::CLI::Scan
       provider_override: provider_override, server_id_override: server_id_flag,
       scaleway_zone_override: scaleway_zone_override, ovh_service_name_override: ovh_sn_override,
       ovh_commercial_override: ovh_commercial_override, ovh_hardware_override: ovh_hardware_override)
-    target = resolve_write_target(write_path, write_auto, config_root, host.account_name, host.domain_name, short)
+    target = resolve_write_target(write_path, write_auto, config_root, host.account_name, host.domain_name, short,
+      existing: host.virtual ? nil : host.node.source_path)
 
     if target
       if File.exists?(target)
@@ -1517,9 +1519,13 @@ module Beryl::CLI::Scan
     lines.join('\n') + "\n"
   end
 
-  def self.resolve_write_target(explicit : String?, auto : Bool, config_root : String, account_name : String, domain_name : String, short : String) : String?
+  # `existing` : fiche ACTUELLE du serveur (même nom court), là où elle est —
+  # y compris dans un groupe (`<domaine>/<groupe>/`) : réécrite sur place,
+  # jamais doublée à la racine du domaine.
+  def self.resolve_write_target(explicit : String?, auto : Bool, config_root : String, account_name : String, domain_name : String, short : String, existing : String? = nil) : String?
     return explicit if explicit
     return unless auto
+    return existing if existing && File.basename(existing) == "#{short}.host.yml"
     File.join(config_root, account_name, domain_name, "#{short}.host.yml")
   end
 

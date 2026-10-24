@@ -17,12 +17,11 @@ require "./fleet_job"
 #   * primitives Crystal natives idempotentes (`pkg-install`, …).
 #
 # Dossiers lus :
-#   * orchestration du host : `<config>/<société>/<domaine>/<host>/`
-#     (recettes explicitement demandées + overrides locaux) ;
+#   * recettes PRIVÉES de la société : `<config>/<société>/recipes/` ;
 #   * dépôt central : `<recipes.local_path>/recipes/`
 #     (défaut `<config>/recipes/recipes/`).
 #
-# Priorité de résolution : dossier host > dépôt central. Idempotence :
+# Priorité de résolution : recettes de la société > dépôt central. Idempotence :
 # chaque primitive lit l'état réel via SSH avant d'agir. Dry-run par
 # défaut (calcule le plan sans rien modifier) ; `--apply` pour appliquer.
 module Beryl::CLI::Apply

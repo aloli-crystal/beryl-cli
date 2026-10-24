@@ -9,6 +9,11 @@ describe Beryl::CLI::Fmt do
       Beryl::CLI::Fmt.host_fqdn("/c/popi/popi.net/ben.host.yml").should eq("ben.popi.net")
     end
 
+    it "serveur d'un groupe : le domaine, pas le groupe (`<domaine>/<groupe>/`)" do
+      path = File.join(FIXTURES, "with-group", "initech", "initech.example", "web", "rails01.host.yml")
+      Beryl::CLI::Fmt.host_fqdn(path).should eq("rails01.initech.example")
+    end
+
     it "nil pour un fichier structurel (pas d'en-tête FQDN)" do
       Beryl::CLI::Fmt.host_fqdn("/c/popi/_default.yml").should be_nil
       Beryl::CLI::Fmt.host_fqdn("/c/popi/popi.net.domain.yml").should be_nil

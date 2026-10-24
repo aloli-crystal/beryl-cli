@@ -11,10 +11,10 @@ Convention :
     .env.yml              (optionnel)
     <domaine>.yml         (au moins un)
     <domaine>/            (optionnel, contenu du domaine)
-      <host>.yml
-      <groupe>.yml
-      <groupe>/
-        <host>.yml
+      <host>.host.yml
+      <groupe>/           (groupe : dossier sans point)
+        _defaults.yml     (optionnel, réglages communs)
+        <host>.host.yml
 
 Un spec charge un cas via :
 
@@ -26,8 +26,12 @@ Un spec charge un cas via :
 - `with-defaults-and-env/`  : _default.yml + .env.yml + un domaine.
 - `direct-hosts/`           : un domaine avec un host direct.
 - `with-group/`             : un domaine avec un groupe + 2 hosts.
-- `group-dir-without-yml/`  : groupe-dossier sans fichier de
-                              définition (propriétés par défaut).
+- `group-dir-without-yml/`  : groupe sans `_defaults.yml`
+                              (réglages vides).
+- `group-with-dot/`         : dossier à point dans un domaine
+                              (refusé : un sous-domaine est à côté).
+- `legacy-group-yml/`       : ancien `<groupe>.group.yml` (refusé).
+- `scope-groups/`           : un groupe + un host direct (portées).
 - `multi-domains/`          : deux domaines indépendants.
 - `provider-name-search/`   : host dont le `ovh.service_name` est
                               utilisé pour la recherche par

@@ -9,9 +9,9 @@ module Beryl::Config
   # est possible (groupe défini mais pas encore instancié).
   class Group
     getter name : String                    # "web"
-    getter raw : Hash(YAML::Any, YAML::Any) # <groupe>.yml (vide si absent)
+    getter raw : Hash(YAML::Any, YAML::Any) # <groupe>/_defaults.yml (vide si absent)
     getter hosts : Hash(String, HostNode)   # "rails01" => HostNode
-    getter source_path : String?            # <groupe>.yml path (nil si absent)
+    getter source_path : String?            # <groupe>/_defaults.yml (nil si absent)
 
     def initialize(@name, @raw, @hosts, @source_path)
     end

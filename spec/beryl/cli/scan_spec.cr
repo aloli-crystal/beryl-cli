@@ -608,6 +608,26 @@ describe Beryl::CLI::Scan do
       result.should eq("/tmp/.config/beryl/initech/initech.example/loulou.host.yml")
     end
 
+    it "serveur rangé dans un groupe : sa fiche réécrite sur place, pas doublée" do
+      result = Beryl::CLI::Scan.resolve_write_target(
+        explicit: nil, auto: true,
+        config_root: "/tmp/.config/beryl", account_name: "initech",
+        domain_name: "initech.example", short: "loulou",
+        existing: "/tmp/.config/beryl/initech/initech.example/web/loulou.host.yml",
+      )
+      result.should eq("/tmp/.config/beryl/initech/initech.example/web/loulou.host.yml")
+    end
+
+    it "nom court changé (--hostname) : nouvelle fiche à la racine du domaine" do
+      result = Beryl::CLI::Scan.resolve_write_target(
+        explicit: nil, auto: true,
+        config_root: "/tmp/.config/beryl", account_name: "initech",
+        domain_name: "initech.example", short: "lou",
+        existing: "/tmp/.config/beryl/initech/initech.example/web/loulou.host.yml",
+      )
+      result.should eq("/tmp/.config/beryl/initech/initech.example/lou.host.yml")
+    end
+
     it "retourne le chemin explicite quand fourni (write_path gagne)" do
       result = Beryl::CLI::Scan.resolve_write_target(
         explicit: "/custom/path.yml", auto: true,

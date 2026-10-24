@@ -4,7 +4,7 @@ require "yaml-tidy"
 
 module Beryl::CLI
   # `beryl fmt [host|société|domaine] [--check]` : normalise les fichiers de
-  # config beryl — `*.host.yml`, `_default.yml`, `*.domain.yml`, `*.group.yml`,
+  # config beryl — `*.host.yml`, `_default.yml`, `*.domain.yml`,
   # `_account.yml` : clés triées alpha (récursif) ET éléments des listes en bloc
   # (`- …`, yaml-tidy >= 0.1.5), commentaires préservés ; un
   # `*.host.yml` reçoit en plus son FQDN en 1ʳᵉ ligne.
@@ -15,7 +15,7 @@ module Beryl::CLI
     EXIT_OK = 0
 
     CONFIG_BASENAMES = {"_defaults.yml", "_default.yml", "_account.yml"}
-    CONFIG_SUFFIXES  = {".host.yml", ".domain.yml", ".group.yml"}
+    CONFIG_SUFFIXES  = {".host.yml", ".domain.yml"}
 
     def self.run(config_root : String, args : Array(String)) : Int32
       check = false
@@ -76,11 +76,16 @@ module Beryl::CLI
     end
 
     # FQDN d'un `*.host.yml` (depuis le chemin : `<short>.host.yml` sous le
-    # dossier `<domaine>/`). nil pour les fichiers structurels (pas d'en-tête FQDN).
+    # dossier `<domaine>/`, ou sous `<domaine>/<groupe>/` — un groupe n'a pas de
+    # point, un domaine en a un ; le groupe n'entre pas dans le FQDN). nil pour les
+    # fichiers structurels (pas d'en-tête FQDN).
     def self.host_fqdn(path : String) : String?
       base = File.basename(path)
       return unless base.ends_with?(".host.yml")
-      "#{base.rchop(".host.yml")}.#{File.basename(File.dirname(path))}"
+      dir = File.dirname(path)
+      parent = File.dirname(dir)
+      domain = File.basename(dir).includes?('.') ? File.basename(dir) : File.basename(parent)
+      "#{base.rchop(".host.yml")}.#{domain}"
     end
 
     # Le fichier est-il dans le périmètre (société / domaine / host court / fqdn) ?

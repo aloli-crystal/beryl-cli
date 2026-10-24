@@ -9,6 +9,22 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Groupes : un dossier sous un domaine, réglages dans `_defaults.yml`
+
+Convention de l'arborescence : un dossier sous une société est un domaine
+(nom à point) ; un dossier sous un domaine est un GROUPE (nom sans point),
+ses réglages communs dans `<groupe>/_defaults.yml` (optionnel), comme pour
+une société ou un domaine. Refusés, avec la correction à faire : un ancien
+`<groupe>.group.yml` (à déplacer en `<groupe>/_defaults.yml`), un dossier à
+point dans un domaine (un sous-domaine se range À CÔTÉ de son parent, à la
+racine de la société), un groupe du nom d'un host du domaine.
+
+* FQDN toujours déduit du chemin (`<court>.host.yml` + dossier du domaine,
+  le groupe n'y entre pas) : l'en-tête des fiches d'un groupe est juste
+  (`# zgra.quimeo.net`, pas `zgra.bastions`).
+* `scan --apply` réécrit la fiche d'un serveur là où elle est (dans son
+  groupe), au lieu d'en créer une seconde à la racine du domaine.
+
 === `beryl apply --parallel=N` : canari puis N serveurs à la fois
 
 Même mécanisme de flotte qu'`upgrade` (`--canary=HOST`, `--detach`,
@@ -20,7 +36,7 @@ l'autre ; en dry-run, plan séquentiel. Chaque `apply` enfant rapporte
 
 === Portées : groupe et liste
 
-* Groupe (`<domaine>/<groupe>.group.yml` + `<groupe>/*.host.yml`) comme
+* Groupe (dossier `<domaine>/<groupe>/`, cf. plus haut) comme
   portée de `apply`, `upgrade`, `os-upgrade`, `info`, `monitoring` :
   `beryl apply bastions`. Un groupe du même nom dans plusieurs domaines :
   réunis, sauf `-a`/`-d`.
