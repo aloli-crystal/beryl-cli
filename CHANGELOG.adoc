@@ -9,6 +9,15 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl apply --parallel=N` : canari puis N serveurs à la fois
+
+Même mécanisme de flotte qu'`upgrade` (`--canary=HOST`, `--detach`,
+`--status`, journal par serveur, jamais deux d'un même `reboot_group`),
+en option : sans `--parallel`, les serveurs restent traités l'un après
+l'autre ; en dry-run, plan séquentiel. Chaque `apply` enfant rapporte
+« mis à jour » (une étape a agi : canari validé), « à jour » ou
+« échec » ; un serveur protégé est « annulé ».
+
 === Portées : groupe et liste
 
 * Groupe (`<domaine>/<groupe>.group.yml` + `<groupe>/*.host.yml`) comme

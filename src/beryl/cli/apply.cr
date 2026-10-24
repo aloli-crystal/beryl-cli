@@ -5,6 +5,7 @@ require "../apply"
 require "ssh"
 require "./account_utils"
 require "./dns_record"
+require "./fleet_job"
 
 # Sous-commande `beryl apply <host>` : applique sur le serveur FreeBSD
 # (déjà bootstrappé) les *recettes* déclarées dans le dossier
@@ -36,6 +37,12 @@ module Beryl::CLI::Apply
 
   def self.run(config_root : String, args : Array(String)) : Int32
     dry_run = true
+    parallel : Int32? = nil
+    canary : String? = nil
+    detach = false
+    status = false
+    job_dir : String? = nil
+    declared_only = false
     account_hint : String? = nil
     domain_hint : String? = nil
     positional = [] of String
@@ -45,10 +52,25 @@ module Beryl::CLI::Apply
       p.on("-a NAME", "--account=NAME", "Forcer la société (si ambiguë)") { |v| account_hint = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
       p.on("--apply", "Applique réellement les changements (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false }
+      p.on("--parallel=N", "Plusieurs serveurs en --apply : canari, puis N à la fois (journal par serveur, suivi par --status)") { |v| parallel = v.to_i? || 0 }
+      p.on("--canary=HOST", "Avec --parallel : canari choisi (défaut : le premier de la portée)") { |v| canary = v }
+      p.on("--detach", "Avec --parallel : tâche en arrière-plan (suivi par --status)") { detach = true }
+      p.on("--status", "État de la dernière tâche --parallel (ou de TÂCHE)") { status = true }
+      p.on("--job=DIR", "(interne) orchestrateur d'une tâche détachée") { |v| job_dir = v }
+      p.on("--declared-only", "(interne) recette ponctuelle seulement si le serveur la déclare") { declared_only = true }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
       p.unknown_args { |rest, _| positional = rest }
     end
     Beryl::CLI.handle_option_errors(parser).parse(args)
+
+    return Beryl::CLI::FleetJob.status("apply", positional.first?) if status
+    if jd = job_dir
+      return Beryl::CLI::FleetJob.run(jd, Beryl::CLI::FleetJob.self_cmd(config_root))
+    end
+    if (n = parallel) && n < 1
+      STDERR.puts "beryl : --parallel attend un entier ≥ 1."
+      return EXIT_USAGE
+    end
 
     raw = positional.first?
     unless raw
@@ -98,6 +120,38 @@ module Beryl::CLI::Apply
       return EXIT_USAGE
     end
 
+    # `--parallel=N` + `--apply` sur plusieurs serveurs : tâche de flotte (canari
+    # puis N à la fois, cf. FleetJob), chaque serveur traité par un `beryl
+    # apply <fqdn> [recette] --apply` enfant. En dry-run, le plan reste
+    # séquentiel (lecture seule, sortie lisible d'un seul tenant).
+    if (n = parallel) && !dry_run && hosts.size > 1
+      fqdns = hosts.map(&.fqdn)
+      if c = canary
+        first = hosts.find { |h| h.fqdn == c || h.short_name == c }
+        unless first
+          STDERR.puts "beryl : canari « #{c} » absent de la portée #{raw}."
+          return EXIT_USAGE
+        end
+        fqdns = [first.fqdn] + (fqdns - [first.fqdn])
+      end
+      child_args = [adhoc_recipe].compact + ["--apply"]
+      # Recette ponctuelle : chaque enfant ne voit qu'UN serveur (nommé) ; la
+      # règle « seulement là où elle est déclarée » lui est passée, sauf si
+      # TOUS les serveurs de la portée ont été nommés.
+      child_args << "--declared-only" if adhoc_recipe && !hosts.all? { |h| named.includes?(h.fqdn) }
+      groups = hosts.compact_map { |h| h.reboot_group.try { |g| {h.fqdn, g} } }.to_h
+      log "portée #{raw} : #{fqdns.size} serveurs → canari #{fqdns.first}, puis #{n} en parallèle"
+      dir = Beryl::CLI::FleetJob.create("apply", raw, fqdns, child_args, n, groups,
+        account: hosts.first.account_name, config_root: config_root)
+      if detach
+        pid = Beryl::CLI::FleetJob.detach(dir, Beryl::CLI::FleetJob.self_cmd(config_root))
+        log "tâche #{File.basename(dir)} lancée en arrière-plan (pid #{pid}) — suivi : `beryl apply --status`"
+        return EXIT_OK
+      end
+      return Beryl::CLI::FleetJob.run(dir, Beryl::CLI::FleetJob.self_cmd(config_root))
+    end
+    log "--parallel ignoré en dry-run : plan séquentiel (lecture seule)." if parallel && dry_run && hosts.size > 1
+
     # Une erreur sur un host ne doit pas avorter le reste de la flotte :
     # apply_one capture ses propres erreurs et renvoie un code EXIT.
     worst = EXIT_OK
@@ -106,7 +160,7 @@ module Beryl::CLI::Apply
     hosts.each do |host|
       # Serveur nommé (seul ou dans une liste) : la recette ponctuelle vaut
       # pour lui ; domaine, société, groupe : seulement là où elle est déclarée.
-      rc = apply_one(config_root, host, adhoc_recipe, dry_run, restrict_adhoc: !single_host && !named.includes?(host.fqdn))
+      rc = apply_one(config_root, host, adhoc_recipe, dry_run, restrict_adhoc: declared_only || (!single_host && !named.includes?(host.fqdn)))
       worst = rc unless rc == EXIT_OK
     end
     worst
@@ -216,6 +270,7 @@ module Beryl::CLI::Apply
     # Un host virtuel (pas de `.host.yml`) n'a pas de connexion.
     if host.virtual
       log "#{host.fqdn} : host virtuel, rien à appliquer."
+      Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::UPTODATE, "host virtuel")
       return EXIT_OK
     end
     # Garde-fou : un host `protected: true` refuse un apply RÉEL (écriture). Le
@@ -223,6 +278,7 @@ module Beryl::CLI::Apply
     # (cible de pentest, gelés). Générique — aucun nom d'hôte en dur (libre).
     if !dry_run && host.protected?
       log "#{host.fqdn} : protégé (protected: true) → apply RÉEL refusé (le plan est le défaut, sans --apply)."
+      Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::CANCELLED, "protégé (protected: true)")
       return EXIT_OK
     end
 
@@ -384,6 +440,15 @@ module Beryl::CLI::Apply
     report = Beryl::Apply::Executor.new(shell, dry_run, context).run(recipes, recipe_args)
 
     log "apply terminé pour #{host.fqdn}#{dry_run ? " (dry-run)" : ""} — #{report.summary_line}"
+    # Tâche de flotte (`--parallel`, no-op sinon) : « mis à jour » si une étape a
+    # agi (le canari est validé), « à jour » sinon.
+    if report.failed > 0
+      Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::FAILED, report.summary_line, touched: report.applied > 0)
+    elsif report.applied > 0
+      Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::UPGRADED, report.summary_line, touched: true)
+    else
+      Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::UPTODATE, report.summary_line)
+    end
     report.failed > 0 ? EXIT_RECIPE : EXIT_OK
   rescue ex : Beryl::Apply::Resolver::RecipeNotFound | Beryl::Apply::Resolver::Cycle | Beryl::Apply::Recipe::InvalidRecipe | Beryl::Apply::UnknownPrimitive | Beryl::Apply::DuplicatePath | Beryl::Apply::ConflictingRequiredArgs
     STDERR.puts "beryl : #{host.fqdn} : #{ex.message}"
