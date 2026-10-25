@@ -238,7 +238,7 @@ module Beryl::CLI::Bootstrap
         # Tang peut ne pas être joignable (ou pas encore configuré).
         # On crée donc le pool en mode `ssh_unlock` au bootstrap, et
         # l'opérateur basculera vers `tang` plus tard via `beryl
-        # tang-enroll <host>` (T2, à venir) qui appelle
+        # tang-enroll <host>` (après la recette `tang-client`) qui appelle
         # `crystal-clevis-zfs bind --use-existing-key` côté serveur.
         key_path = Beryl::Encryption.key_path(
           config_root, host.account_name, host.domain_name, host.short_name
@@ -259,7 +259,7 @@ module Beryl::CLI::Bootstrap
           STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] " \
                       "7 mode tang demandé pour #{pool.name} : pool créé en ssh_unlock pour le bootstrap. " \
                       "Lancez `beryl tang-enroll #{host.account_name}/#{host.fqdn}` " \
-                      "après le 1er reboot pour basculer vers Tang."
+                      "après le 1er reboot et `beryl apply` (recette tang-client) pour basculer vers Tang."
         end
       end
       pool_disks = pool.raid == 10 ? pair_by_model(pool.disks, rescue_disks) : pool.disks

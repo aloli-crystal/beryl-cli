@@ -179,8 +179,8 @@ module Beryl::CLI::TangEnroll
     probe = conn.exec("test -x #{Process.quote(TANG_BINARY)}", raise_on_error: false)
     unless probe.success?
       STDERR.puts "beryl : binaire #{TANG_BINARY} absent ou non exécutable sur #{target}"
-      STDERR.puts "        Installez-le manuellement à partir du repo `crystal-clevis-zfs`,"
-      STDERR.puts "        ou via la recette beryl `crystal-clevis-zfs-install` (à venir)."
+      STDERR.puts "        Installez-le par la recette `tang-client` (paquet crystal-clevis-zfs) :"
+      STDERR.puts "          beryl apply #{host.account_name}/#{host.fqdn} --apply"
       return EXIT_TANG_BINARY_MISSING
     end
 

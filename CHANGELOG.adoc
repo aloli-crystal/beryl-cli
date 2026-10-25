@@ -9,6 +9,18 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Tang : la clé du poste en repli de `beryl unlock`
+
+En `mode: tang`, `beryl unlock` essaie toujours Tang d'abord ; s'il échoue
+(pool pas encore enrôlé juste après bootstrap, trop de Tang injoignables,
+binaire absent) et que la clé du poste existe, elle prend le relais.
+`tang-enroll` garde la même clé ZFS (`bind --use-existing-key`), elle reste
+donc valable. Sans clé du poste, l'erreur de Tang remonte comme avant.
+
+* Messages de `bootstrap`, `tang-enroll` et `unlock` : le binaire
+  `crystal-clevis-zfs` s'installe par la recette `tang-client` (paquet
+  `security/crystal-clevis-zfs`), plus « à venir ».
+
 === vRack : les fiches seules font foi, `beryl vrack-ip` et `vrack.yml` retirés
 
 Un seul juge de paix : le nom du vRack et son réseau (`vrack.name`,

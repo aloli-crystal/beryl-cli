@@ -17,7 +17,10 @@ require "./account_utils"
 #
 # * *mode tang* (Option D) — délègue à `crystal-clevis-zfs unlock`
 #   sur le serveur. Le binaire interroge Tang en interne, dérive la
-#   clé, la pousse à `zfs load-key`. Pas de clé locale nécessaire.
+#   clé, la pousse à `zfs load-key`. Si Tang échoue (pool pas encore
+#   enrôlé juste après bootstrap, trop de Tang injoignables) et que la clé
+#   du poste existe, elle prend le relais : `tang-enroll` garde la même
+#   clé ZFS (`bind --use-existing-key`), elle reste donc valable.
 #
 # Flow général :
 #
@@ -44,9 +47,8 @@ module Beryl::CLI::Unlock
   EXIT_TANG_BINARY_MISSING = 8
 
   # Chemin attendu du binaire `crystal-clevis-zfs` côté serveur. Le
-  # README du shard documente cet emplacement comme cible
-  # d'installation. Si l'opérateur l'a mis ailleurs, la recette beryl
-  # `crystal-clevis-zfs-install` pourra l'override plus tard.
+  # paquet `security/crystal-clevis-zfs` (recette `tang-client`) l'installe
+  # là.
   TANG_BINARY = "/usr/local/sbin/crystal-clevis-zfs"
 
   def self.run(config_root : String, args : Array(String)) : Int32
@@ -95,15 +97,14 @@ module Beryl::CLI::Unlock
       return EXIT_NO_DATA_POOLS
     end
 
-    # Lecture de la clé locale UNIQUEMENT si au moins une unité est en
-    # mode ssh_unlock. En mode tang seul, la clé vit côté serveur (via
-    # Tang) — pas besoin de fichier local.
+    # Clé locale OBLIGATOIRE si au moins une unité est en mode ssh_unlock.
+    # En mode tang seul, elle n'est que le repli de Tang : lue si présente.
     needs_local_key = encrypted_pools.any? { |p| p.encryption.not_nil!.ssh_unlock? } || enc_root_ssh
     key_hex : String? = nil
-    if needs_local_key
-      key_path = Beryl::Encryption.key_path(
-        config_root, host.account_name, host.domain_name, host.short_name
-      )
+    key_path = Beryl::Encryption.key_path(
+      config_root, host.account_name, host.domain_name, host.short_name
+    )
+    if needs_local_key || Beryl::Encryption.exists?(key_path)
       unless Beryl::Encryption.exists?(key_path)
         STDERR.puts "beryl : clé absente : #{key_path}"
         STDERR.puts "        Cette clé doit avoir été générée par `beryl bootstrap`."
@@ -131,7 +132,7 @@ module Beryl::CLI::Unlock
         when Beryl::Config::EncryptionConfig::Mode::SshUnlock
           log "H4 DRY-RUN :   echo '<64-char-hex-key>' | zfs load-key #{pool.name}"
         when Beryl::Config::EncryptionConfig::Mode::Tang
-          log "H4 DRY-RUN :   #{TANG_BINARY} unlock --no-mount --dataset #{pool.name}"
+          log "H4 DRY-RUN :   #{TANG_BINARY} unlock --no-mount --dataset #{pool.name}#{key_hex ? "   (repli : clé du poste)" : ""}"
         end
         log "H4 DRY-RUN :   zfs mount -a -l"
       end
@@ -154,13 +155,15 @@ module Beryl::CLI::Unlock
     # erreur claire AVANT de tenter quoi que ce soit (évite le
     # déchiffrement partiel).
     needs_tang = encrypted_pools.any? { |p| p.encryption.not_nil!.tang? } || enc_root_tang
+    tang_binary = false
     if needs_tang
-      probe = conn.exec("test -x #{Process.quote(TANG_BINARY)}", raise_on_error: false)
-      unless probe.success?
+      tang_binary = conn.exec("test -x #{Process.quote(TANG_BINARY)}", raise_on_error: false).success?
+      if !tang_binary && key_hex
+        log "H4 #{TANG_BINARY} absent sur #{target} → clé du poste pour les unités en mode tang"
+      elsif !tang_binary
         STDERR.puts "beryl : binaire #{TANG_BINARY} absent ou non exécutable sur #{target}"
         STDERR.puts "        Il est requis pour le `mode: tang`. Installez-le via :"
-        STDERR.puts "          beryl apply #{host.account_name}/#{host.fqdn}   (recette crystal-clevis-zfs-install, à venir)"
-        STDERR.puts "        Ou manuellement à partir du repo `clevis-zfs`."
+        STDERR.puts "          beryl apply #{host.account_name}/#{host.fqdn} --apply   (recette tang-client)"
         return EXIT_TANG_BINARY_MISSING
       end
     end
@@ -168,7 +171,7 @@ module Beryl::CLI::Unlock
     total = encrypted_pools.size + (enc_root ? 1 : 0)
     failures = 0
     encrypted_pools.each do |pool|
-      unlock_one(conn, pool, key_hex)
+      unlock_one(conn, pool, key_hex, tang_binary)
     rescue ex
       STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl unlock] " \
                   "H4 ÉCHEC pool #{pool.name} : #{ex.class}: #{ex.message}"
@@ -176,7 +179,7 @@ module Beryl::CLI::Unlock
     end
     if er = enc_root
       begin
-        unlock_encryption_root(conn, er, enc_root_cfg, key_hex)
+        unlock_encryption_root(conn, er, enc_root_cfg, key_hex, tang_binary)
       rescue ex
         STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl unlock] " \
                     "H4 ÉCHEC encryptionroot #{er} : #{ex.class}: #{ex.message}"
@@ -224,7 +227,7 @@ module Beryl::CLI::Unlock
   #
   # `key_hex` peut être nil si le pool est en mode tang (la clé arrive
   # via Tang côté serveur, pas via stdin SSH depuis le poste opérateur).
-  private def self.unlock_one(conn : SSH::Connection, pool : Beryl::Config::Pool, key_hex : String?) : Nil
+  private def self.unlock_one(conn : SSH::Connection, pool : Beryl::Config::Pool, key_hex : String?, tang_binary : Bool) : Nil
     pool_name = pool.name
     target = "#{conn.user}@#{conn.host}"
     enc = pool.encryption.not_nil!
@@ -252,7 +255,7 @@ module Beryl::CLI::Unlock
       when Beryl::Config::EncryptionConfig::Mode::SshUnlock
         load_key_via_ssh_stdin(conn, pool_name, key_hex.not_nil!)
       when Beryl::Config::EncryptionConfig::Mode::Tang
-        load_key_via_tang(conn, pool_name, enc)
+        load_key_tang_or_local(conn, pool_name, enc, key_hex, tang_binary)
       end
     end
 
@@ -289,7 +292,7 @@ module Beryl::CLI::Unlock
   #
   # `enc_cfg` est la config `encryption:` du pool boot (le mode des datasets).
   # nil ou non-tang ⇒ ssh_unlock (clé locale via stdin). `key_hex` requis alors.
-  private def self.unlock_encryption_root(conn : SSH::Connection, enc_root : String, enc_cfg : Beryl::Config::EncryptionConfig?, key_hex : String?) : Nil
+  private def self.unlock_encryption_root(conn : SSH::Connection, enc_root : String, enc_cfg : Beryl::Config::EncryptionConfig?, key_hex : String?, tang_binary : Bool) : Nil
     target = "#{conn.user}@#{conn.host}"
     tang = enc_cfg.try(&.tang?) == true
 
@@ -298,7 +301,7 @@ module Beryl::CLI::Unlock
     if status == "available"
       log "H4   clé déjà chargée pour #{enc_root} (sur #{target})"
     elsif tang
-      load_key_via_tang(conn, enc_root, enc_cfg.not_nil!)
+      load_key_tang_or_local(conn, enc_root, enc_cfg.not_nil!, key_hex, tang_binary)
     else
       load_key_via_ssh_stdin(conn, enc_root, key_hex.not_nil!)
     end
@@ -328,6 +331,20 @@ module Beryl::CLI::Unlock
     unless load.success?
       raise "zfs load-key #{pool_name} a échoué : exit=#{load.exit_code} stderr=#{load.stderr.strip.inspect}"
     end
+  end
+
+  # Mode tang avec repli : Tang d'abord ; en échec (ou binaire absent), la clé
+  # du poste si elle existe, sinon l'erreur de Tang remonte.
+  private def self.load_key_tang_or_local(conn : SSH::Connection, name : String, enc : Beryl::Config::EncryptionConfig, key_hex : String?, tang_binary : Bool) : Nil
+    if tang_binary
+      begin
+        return load_key_via_tang(conn, name, enc)
+      rescue ex
+        raise ex unless key_hex
+        log "H4   Tang en échec pour #{name} (#{ex.message}) → repli sur la clé du poste"
+      end
+    end
+    load_key_via_ssh_stdin(conn, name, key_hex.not_nil!)
   end
 
   # Mode tang — délègue à `crystal-clevis-zfs unlock` sur le serveur.
