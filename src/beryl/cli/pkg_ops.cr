@@ -349,7 +349,8 @@ module Beryl::CLI
       apply = false
       recipes_only = false
       restart = true
-      parallel = 4
+      parallel : Int32? = nil
+      sequential = false
       canary : String? = nil
       detach = false
       status = false
@@ -364,7 +365,11 @@ module Beryl::CLI
         p.on("--apply", "Exécute réellement (sinon : dry-run, affiche le plan sans rien changer)") { apply = true }
         p.on("--recipes", "Ne met à jour QUE les paquets gérés par les recettes (défaut : tous)") { recipes_only = true }
         p.on("--no-restart", "Ne relance pas les services touchés (seulement signalés)") { restart = false }
-        p.on("--parallel=N", "Plusieurs serveurs : N à la fois après le canari (défaut 4)") { |v| parallel = v.to_i }
+        p.on("--parallel=N", "Plusieurs serveurs : N à la fois après le canari (défaut : réglage `parallel:` de la configuration, sinon 4 ; `no` = un à la fois)") do |v|
+          n = Beryl::CLI::FleetJob.parse_parallel(v)
+          n == 0 ? (sequential = true) : (parallel = n)
+        end
+        p.on("--no-parallel", "Plusieurs serveurs : un à la fois (après le canari)") { sequential = true }
         p.on("--canary=HOST", "Plusieurs serveurs : canari choisi (défaut : le premier de la portée)") { |v| canary = v }
         p.on("--detach", "Plusieurs serveurs : tâche en arrière-plan (suivi par --status)") { detach = true }
         p.on("--status", "État de la dernière tâche (ou de TÂCHE)") { status = true }
@@ -380,7 +385,7 @@ module Beryl::CLI
       if jd = job_dir
         return Beryl::CLI::FleetJob.run(jd, Beryl::CLI::FleetJob.self_cmd(config_root))
       end
-      if parallel < 1
+      if (n = parallel) && n < 1
         STDERR.puts "beryl : --parallel attend un entier ≥ 1."
         return EXIT_USAGE
       end
@@ -402,6 +407,7 @@ module Beryl::CLI
 
       # Plusieurs serveurs en --apply : tâche (canari puis parallèle limité).
       if apply && hosts.size > 1
+        width = sequential ? 1 : Beryl::CLI::FleetJob.parallel_for(hosts, parallel)
         fqdns = hosts.map(&.fqdn)
         if c = canary
           first = hosts.find { |h| h.fqdn == c || h.short_name == c }
@@ -414,9 +420,9 @@ module Beryl::CLI
         child_args = ["--apply"]
         child_args << "--recipes" if recipes_only
         child_args << "--no-restart" unless restart
-        PkgOps.log("upgrade", "portée #{scope} : #{fqdns.size} serveurs → canari #{fqdns.first}, puis #{parallel} en parallèle")
+        PkgOps.log("upgrade", "portée #{scope} : #{fqdns.size} serveurs → canari #{fqdns.first}, puis #{width} en parallèle")
         groups = hosts.compact_map { |h| h.reboot_group.try { |g| {h.fqdn, g} } }.to_h
-        dir = Beryl::CLI::FleetJob.create("upgrade", scope || "tous", fqdns, child_args, parallel, groups,
+        dir = Beryl::CLI::FleetJob.create("upgrade", scope || "tous", fqdns, child_args, width, groups,
           account: hosts.first.account_name, config_root: config_root)
         if detach
           pid = Beryl::CLI::FleetJob.detach(dir, Beryl::CLI::FleetJob.self_cmd(config_root))

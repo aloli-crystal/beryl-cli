@@ -37,6 +37,7 @@ module Beryl::CLI::Apply
   def self.run(config_root : String, args : Array(String)) : Int32
     dry_run = true
     parallel : Int32? = nil
+    sequential = false
     canary : String? = nil
     detach = false
     status = false
@@ -51,10 +52,14 @@ module Beryl::CLI::Apply
       p.on("-a NAME", "--account=NAME", "Forcer la société (si ambiguë)") { |v| account_hint = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
       p.on("--apply", "Applique réellement les changements (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false }
-      p.on("--parallel=N", "Plusieurs serveurs en --apply : canari, puis N à la fois (journal par serveur, suivi par --status)") { |v| parallel = v.to_i? || 0 }
-      p.on("--canary=HOST", "Avec --parallel : canari choisi (défaut : le premier de la portée)") { |v| canary = v }
-      p.on("--detach", "Avec --parallel : tâche en arrière-plan (suivi par --status)") { detach = true }
-      p.on("--status", "État de la dernière tâche --parallel (ou de TÂCHE)") { status = true }
+      p.on("--parallel=N", "Plusieurs serveurs en --apply : canari puis N à la fois (défaut : réglage `parallel:` de la configuration, sinon 4 ; `no` = un après l'autre)") do |v|
+        n = Beryl::CLI::FleetJob.parse_parallel(v)
+        n == 0 ? (sequential = true) : (parallel = n)
+      end
+      p.on("--no-parallel", "Plusieurs serveurs : un après l'autre, sortie à l'écran (sans tâche de flotte)") { sequential = true }
+      p.on("--canary=HOST", "Plusieurs serveurs : canari choisi (défaut : le premier de la portée)") { |v| canary = v }
+      p.on("--detach", "Plusieurs serveurs : tâche en arrière-plan (suivi par --status)") { detach = true }
+      p.on("--status", "État de la dernière tâche de flotte (ou de TÂCHE)") { status = true }
       p.on("--job=DIR", "(interne) orchestrateur d'une tâche détachée") { |v| job_dir = v }
       p.on("--declared-only", "(interne) recette ponctuelle seulement si le serveur la déclare") { declared_only = true }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
@@ -119,11 +124,13 @@ module Beryl::CLI::Apply
       return EXIT_USAGE
     end
 
-    # `--parallel=N` + `--apply` sur plusieurs serveurs : tâche de flotte (canari
-    # puis N à la fois, cf. FleetJob), chaque serveur traité par un `beryl
-    # apply <fqdn> [recette] --apply` enfant. En dry-run, le plan reste
-    # séquentiel (lecture seule, sortie lisible d'un seul tenant).
-    if (n = parallel) && !dry_run && hosts.size > 1
+    # `--apply` sur plusieurs serveurs : tâche de flotte PAR DÉFAUT (canari puis
+    # N à la fois, cf. FleetJob ; N = --parallel, sinon le réglage `parallel:`,
+    # sinon 4), chaque serveur traité par un `beryl apply <fqdn> [recette]
+    # --apply` enfant. `--no-parallel` : un après l'autre, sortie à l'écran.
+    # En dry-run, le plan reste séquentiel (lecture seule, d'un seul tenant).
+    if !sequential && !dry_run && hosts.size > 1
+      n = Beryl::CLI::FleetJob.parallel_for(hosts, parallel)
       fqdns = hosts.map(&.fqdn)
       if c = canary
         first = hosts.find { |h| h.fqdn == c || h.short_name == c }
@@ -149,7 +156,6 @@ module Beryl::CLI::Apply
       end
       return Beryl::CLI::FleetJob.run(dir, Beryl::CLI::FleetJob.self_cmd(config_root))
     end
-    log "--parallel ignoré en dry-run : plan séquentiel (lecture seule)." if parallel && dry_run && hosts.size > 1
 
     # Une erreur sur un host ne doit pas avorter le reste de la flotte :
     # apply_one capture ses propres erreurs et renvoie un code EXIT.

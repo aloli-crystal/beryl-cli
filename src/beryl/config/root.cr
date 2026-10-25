@@ -626,6 +626,15 @@ module Beryl::Config
       @merged[YAML::Any.new("reboot_group")]?.try(&.as_s?).try(&.strip).presence
     end
 
+    # `parallel: N` (héritable société/domaine/groupe) : serveurs traités à
+    # la fois par une tâche de flotte (`apply`, `upgrade`, `os-upgrade`) ;
+    # nil = défaut (cf. FleetJob.parallel_for). Une valeur < 1 est ignorée.
+    def parallel : Int32?
+      v = @merged[YAML::Any.new("parallel")]?
+      n = v.try { |x| x.as_i? || x.as_s?.try(&.to_i?) }
+      n && n >= 1 ? n : nil
+    end
+
     # Le host a-t-il du chiffrement ZFS (pools data chiffrés OU datasets zroot
     # chiffrés du profil Option I) ? Sert à savoir s'il faut être déverrouillé
     # avant une opération qui ÉCRIT (pkg upgrade…).

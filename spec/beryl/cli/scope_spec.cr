@@ -43,3 +43,31 @@ describe "Portées de beryl : groupe et liste" do
     end
   end
 end
+
+describe "Parallélisme des tâches de flotte" do
+  it "lit --parallel=… : un nombre, `no`/`non` (coupé), sinon illisible" do
+    Beryl::CLI::FleetJob.parse_parallel("3").should eq 3
+    Beryl::CLI::FleetJob.parse_parallel("no").should eq 0
+    Beryl::CLI::FleetJob.parse_parallel("non").should eq 0
+    Beryl::CLI::FleetJob.parse_parallel("0").should eq -1
+    Beryl::CLI::FleetJob.parse_parallel("beaucoup").should eq -1
+  end
+
+  it "réglage `parallel:` hérité du groupe" do
+    web = Beryl::CLI::Info.scoped_hosts(scope_root, "web")
+    web.map(&.parallel).should eq [2, 2]
+    Beryl::CLI::FleetJob.parallel_for(web, nil).should eq 2
+  end
+
+  it "portée mêlée : le plus petit réglage ; sans réglage : 4" do
+    mixed = Beryl::CLI::Info.scoped_hosts(scope_root, "web,db01")
+    Beryl::CLI::FleetJob.parallel_for(mixed, nil).should eq 2
+    db = Beryl::CLI::Info.scoped_hosts(scope_root, "db01")
+    Beryl::CLI::FleetJob.parallel_for(db, nil).should eq Beryl::CLI::FleetJob::DEFAULT_PARALLEL
+  end
+
+  it "--parallel=N l'emporte sur la configuration" do
+    web = Beryl::CLI::Info.scoped_hosts(scope_root, "web")
+    Beryl::CLI::FleetJob.parallel_for(web, 7).should eq 7
+  end
+end

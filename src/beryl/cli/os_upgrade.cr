@@ -40,7 +40,8 @@ module Beryl::CLI::OsUpgrade
     to : String? = nil
     apply = false
     reboot = false
-    parallel = 4
+    parallel : Int32? = nil
+    sequential = false
     canary : String? = nil
     detach = false
     status = false
@@ -55,7 +56,11 @@ module Beryl::CLI::OsUpgrade
       p.on("--to=VERSION", "Release cible X.Y (défaut : dernière de la branche courante)") { |v| to = v }
       p.on("--apply", "Exécute (repoint + pkg upgrade). S'arrête AVANT le reboot sauf --reboot") { apply = true }
       p.on("--reboot", "Avec --apply : reboot + attente du retour SSH (pour enchaîner une flotte)") { reboot = true }
-      p.on("--parallel=N", "Plusieurs serveurs : N à la fois après le canari (défaut 4)") { |v| parallel = v.to_i }
+      p.on("--parallel=N", "Plusieurs serveurs : N à la fois après le canari (défaut : réglage `parallel:` de la configuration, sinon 4 ; `no` = un à la fois)") do |v|
+        n = Beryl::CLI::FleetJob.parse_parallel(v)
+        n == 0 ? (sequential = true) : (parallel = n)
+      end
+      p.on("--no-parallel", "Plusieurs serveurs : un à la fois (après le canari)") { sequential = true }
       p.on("--canary=HOST", "Plusieurs serveurs : canari choisi (défaut : le premier de la portée)") { |v| canary = v }
       p.on("--detach", "Plusieurs serveurs : tâche en arrière-plan (rend la main ; suivi par --status)") { detach = true }
       p.on("--status", "État de la dernière tâche (ou de TÂCHE)") { status = true }
@@ -71,7 +76,7 @@ module Beryl::CLI::OsUpgrade
     if jd = job_dir
       return Beryl::CLI::FleetJob.run(jd, Beryl::CLI::FleetJob.self_cmd(config_root))
     end
-    if parallel < 1
+    if (n = parallel) && n < 1
       STDERR.puts "beryl : --parallel attend un entier ≥ 1."
       return EXIT_USAGE
     end
@@ -106,6 +111,7 @@ module Beryl::CLI::OsUpgrade
     end
 
     # Plusieurs serveurs en --apply : tâche (canari puis parallèle limité).
+    width = sequential ? 1 : Beryl::CLI::FleetJob.parallel_for(hosts, parallel)
     fqdns = hosts.map(&.fqdn)
     if c = canary
       first = hosts.find { |h| h.fqdn == c || h.short_name == c }
@@ -115,7 +121,7 @@ module Beryl::CLI::OsUpgrade
       end
       fqdns = [first.fqdn] + (fqdns - [first.fqdn])
     end
-    log "périmètre #{scope} : #{fqdns.size} serveurs → canari #{fqdns.first}, puis #{parallel} en parallèle"
+    log "périmètre #{scope} : #{fqdns.size} serveurs → canari #{fqdns.first}, puis #{width} en parallèle"
     log "⚠ SANS --reboot : le canari ne valide que l'INSTALLATION, pas le démarrage sur le nouveau noyau." unless reboot
     child_args = ["--apply"]
     child_args << "--reboot" if reboot
@@ -123,7 +129,7 @@ module Beryl::CLI::OsUpgrade
       child_args << "--to" << t
     end
     groups = hosts.compact_map { |h| h.reboot_group.try { |g| {h.fqdn, g} } }.to_h
-    dir = Beryl::CLI::FleetJob.create("os-upgrade", scope, fqdns, child_args, parallel, groups,
+    dir = Beryl::CLI::FleetJob.create("os-upgrade", scope, fqdns, child_args, width, groups,
       account: hosts.first.account_name, config_root: config_root)
     if detach
       pid = Beryl::CLI::FleetJob.detach(dir, Beryl::CLI::FleetJob.self_cmd(config_root))

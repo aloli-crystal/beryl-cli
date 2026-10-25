@@ -9,6 +9,16 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Parallèle par défaut, réglage `parallel:`, `--no-parallel`
+
+* `apply` en `--apply` sur plusieurs serveurs lance la tâche de flotte PAR
+  DÉFAUT (canari puis N à la fois) ; `--no-parallel` (ou `--parallel=no`)
+  revient au déroulement un par un, sortie à l'écran.
+* N : `--parallel=N` s'il est donné, sinon le plus petit réglage
+  `parallel:` des serveurs de la portée (héritable : société, domaine,
+  groupe, fiche), sinon 4. Vaut aussi pour `upgrade` et `os-upgrade`, où
+  `--no-parallel` traite un serveur à la fois après le canari.
+
 === Groupes : un dossier sous un domaine, réglages dans `_defaults.yml`
 
 Convention de l'arborescence : un dossier sous une société est un domaine

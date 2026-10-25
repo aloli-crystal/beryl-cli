@@ -35,6 +35,26 @@ module Beryl::CLI::FleetJob
 
   FINAL = {UPGRADED, UPTODATE, FAILED, CANCELLED}
 
+  # Serveurs traités à la fois quand ni `--parallel=N` ni le réglage
+  # `parallel:` de la configuration ne le disent.
+  DEFAULT_PARALLEL = 4
+
+  # Valeur de `--parallel=…` : N ≥ 1, 0 pour `no`/`non` (parallèle coupé,
+  # comme `--no-parallel`), -1 si illisible. Pur.
+  def parse_parallel(value : String) : Int32
+    return 0 if {"no", "non"}.includes?(value.strip.downcase)
+    n = value.strip.to_i?
+    n && n >= 1 ? n : -1
+  end
+
+  # Serveurs à la fois : `--parallel=N` s'il est donné, sinon le PLUS PETIT
+  # réglage `parallel:` des serveurs de la portée (prudence quand elle mêle
+  # des groupes), sinon DEFAULT_PARALLEL. Pur côté config.
+  def parallel_for(hosts : Array(Beryl::Config::ResolvedHost), flag : Int32?) : Int32
+    return flag if flag && flag >= 1
+    hosts.compact_map(&.parallel).min? || DEFAULT_PARALLEL
+  end
+
   struct HostRef
     include JSON::Serializable
     getter fqdn : String

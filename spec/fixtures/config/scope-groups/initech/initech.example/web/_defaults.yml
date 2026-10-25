@@ -1,2 +1,3 @@
 freebsd:
   packages: [nginx, postgresql16-server]
+parallel: 2
