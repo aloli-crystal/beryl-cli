@@ -1,5 +1,5 @@
 name: beryl
-version: 0.6.87
+version: 0.6.88
 
 description: >
   Outil Crystal de gestion de configuration FreeBSD, agentless SSH.
@@ -31,6 +31,9 @@ dependencies:
     branch: production
   secrets:
     github: aloli-crystal/secrets
+    branch: production
+  session-log:
+    github: aloli-crystal/session-log
     branch: production
   silex:
     github: aloli-crystal/silex

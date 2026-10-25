@@ -9,6 +9,15 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Journal de session : shard `session-log`
+
+La mécanique du journal (relance sous `script(1)`, recopie écran +
+fichier, en-tête, ménage des vieux journaux, nom du fichier) vit désormais
+dans le shard `aloli-crystal/session-log`, extrait de beryl pour d'autres
+outils. Restent dans beryl ses règles : quoi journaliser, le libellé
+(`-dry-run`, `-status`), la portée, le dossier d'état XDG. Comportement
+inchangé, variable `BERYL_SESSION_LOG` comprise.
+
 === Parallèle par défaut, réglage `parallel:`, `--no-parallel`
 
 * `apply` en `--apply` sur plusieurs serveurs lance la tâche de flotte PAR

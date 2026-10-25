@@ -32,6 +32,10 @@ shards:
     git: https://github.com/aloli-crystal/secrets.git
     version: 0.5.3+git.commit.3e15d6964d51f87cd509003778119f63964ea95c
 
+  session-log:
+    git: https://github.com/aloli-crystal/session-log.git
+    version: 0.1.0+git.commit.a7f55b81d8a680f4d16cdfb51df245e6883e6f01
+
   silex:
     git: https://github.com/aloli-crystal/silex.git
     version: 0.1.2+git.commit.090dcaac8de8e56d1400f328d9c5acc63922605b

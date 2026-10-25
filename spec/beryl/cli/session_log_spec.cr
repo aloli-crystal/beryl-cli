@@ -108,15 +108,13 @@ describe Beryl::CLI::SessionLog do
     end
   end
 
-  describe ".script_args" do
-    it "BSD et macOS : script -q -a -F journal commande…" do
-      Beryl::CLI::SessionLog.script_args("/l.log", ["/bin/beryl", "apply", "x y"], linux: false)
-        .should eq(["-q", "-a", "-F", "/l.log", "/bin/beryl", "apply", "x y"])
-    end
-
-    it "Linux : commande en une chaîne -c, code de sortie par -e" do
-      Beryl::CLI::SessionLog.script_args("/l.log", ["/bin/beryl", "apply", "x y"], linux: true)
-        .should eq(["-q", "-a", "-e", "-c", "/bin/beryl apply 'x y'", "/l.log"])
+  describe ".config" do
+    it "réglages du shard session-log : BERYL_SESSION_LOG (lue par log_step), 90 jours" do
+      c = Beryl::CLI::SessionLog.config("/logs")
+      c.app.should eq("beryl")
+      c.env_var.should eq("BERYL_SESSION_LOG")
+      c.keep_days.should eq(90)
+      c.dir.should eq("/logs")
     end
   end
 end
