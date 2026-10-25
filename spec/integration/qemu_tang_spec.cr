@@ -50,7 +50,7 @@ private def bench_running? : Bool
     tcp_open?("127.0.0.1", 8890)    # Tang #3
 end
 
-describe "intégration beryl ↔ crystal-clevis-zfs (banc QEMU)" do
+describe "intégration beryl ↔ clevis-zfs (banc QEMU)" do
   it "passe les 5 scénarios de test-beryl.sh end-to-end", tags: "integration" do
     unless File.exists?(TEST_BERYL_SCRIPT) && File::Info.executable?(TEST_BERYL_SCRIPT)
       pending! "script #{TEST_BERYL_SCRIPT} absent ou non exécutable"

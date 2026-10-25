@@ -15,7 +15,7 @@ require "./account_utils"
 #   `~/.config/beryl/<société>/<domaine>/<host>.key` voyage via stdin SSH
 #   jusqu'à `zfs load-key`. Aucune dépendance Tang.
 #
-# * *mode tang* (Option D) — délègue à `crystal-clevis-zfs unlock`
+# * *mode tang* (Option D) — délègue à `clevis-zfs unlock`
 #   sur le serveur. Le binaire interroge Tang en interne, dérive la
 #   clé, la pousse à `zfs load-key`. Si Tang échoue (pool pas encore
 #   enrôlé juste après bootstrap, trop de Tang injoignables) et que la clé
@@ -28,7 +28,7 @@ require "./account_utils"
 #      a. `zpool import -N <pool>` si pas déjà importé.
 #      b. Selon le mode :
 #         - *ssh_unlock* : `zfs load-key <pool>` avec clé locale via stdin.
-#         - *tang* : `crystal-clevis-zfs unlock --no-mount --dataset <pool>`.
+#         - *tang* : `clevis-zfs unlock --no-mount --dataset <pool>`.
 #      c. `zfs mount -a -l` (côté beryl, garde le contrôle du mount).
 #   2. Idempotent : si le pool est déjà importé et la clé chargée,
 #      log « déjà déverrouillé » et passe au suivant.
@@ -46,10 +46,10 @@ module Beryl::CLI::Unlock
   EXIT_MISSING_CONFIG      = 7
   EXIT_TANG_BINARY_MISSING = 8
 
-  # Chemin attendu du binaire `crystal-clevis-zfs` côté serveur. Le
-  # paquet `security/crystal-clevis-zfs` (recette `tang-client`) l'installe
+  # Chemin attendu du binaire `clevis-zfs` côté serveur. Le
+  # paquet `security/clevis-zfs` (recette `tang-client`) l'installe
   # là.
-  TANG_BINARY = "/usr/local/sbin/crystal-clevis-zfs"
+  TANG_BINARY = "/usr/local/sbin/clevis-zfs"
 
   def self.run(config_root : String, args : Array(String)) : Int32
     account_hint : String? = nil
@@ -151,7 +151,7 @@ module Beryl::CLI::Unlock
     conn = host.connection
 
     # Pre-flight : si au moins un pool est en mode tang, vérifier que
-    # le binaire `crystal-clevis-zfs` est présent côté serveur. Sinon
+    # le binaire `clevis-zfs` est présent côté serveur. Sinon
     # erreur claire AVANT de tenter quoi que ce soit (évite le
     # déchiffrement partiel).
     needs_tang = encrypted_pools.any? { |p| p.encryption.not_nil!.tang? } || enc_root_tang
@@ -260,7 +260,7 @@ module Beryl::CLI::Unlock
     end
 
     # 3. Monte les datasets du pool. Étape commune aux deux modes —
-    # `crystal-clevis-zfs unlock` est appelé avec `--no-mount` pour
+    # `clevis-zfs unlock` est appelé avec `--no-mount` pour
     # qu'on garde le contrôle ici (cohérence avec le mode ssh_unlock,
     # diagnostic uniforme).
     log "H4   zfs mount -a -l (montage des datasets de #{pool_name})"
@@ -347,9 +347,9 @@ module Beryl::CLI::Unlock
     load_key_via_ssh_stdin(conn, name, key_hex.not_nil!)
   end
 
-  # Mode tang — délègue à `crystal-clevis-zfs unlock` sur le serveur.
+  # Mode tang — délègue à `clevis-zfs unlock` sur le serveur.
   # Le binaire :
-  #   1. lit le JWE local /var/db/crystal-clevis-zfs/<dataset_aplati>.jwe ;
+  #   1. lit le JWE local /var/db/clevis-zfs/<dataset_aplati>.jwe ;
   #   2. dialogue avec les Tangs configurés (single ou SSS multi-Tang) ;
   #   3. dérive la clé, la pousse à `zfs load-key` via stdin (côté shard) ;
   #   4. avec `--no-mount`, ne fait PAS le mount (beryl s'en occupe).
@@ -366,7 +366,7 @@ module Beryl::CLI::Unlock
     cmd = "#{Process.quote(TANG_BINARY)} unlock --no-mount --dataset #{Process.quote(pool_name)}"
     result = conn.exec(cmd, raise_on_error: false)
     unless result.success?
-      raise "crystal-clevis-zfs unlock #{pool_name} a échoué : " \
+      raise "clevis-zfs unlock #{pool_name} a échoué : " \
             "exit=#{result.exit_code} stderr=#{result.stderr.strip.inspect}"
     end
   end

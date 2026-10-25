@@ -833,7 +833,7 @@ Tang URL côté beryl :  http://100.64.0.10:8888/
 Au boot d'un serveur encrypted :
 . Le serveur monte son lien WireGuard via `tailscale up --auth-key=...`
   (clé pré-posée par bootstrap, expirable).
-. `crystal-clevis-zfs unlock` interroge `http://100.64.0.10:8888`.
+. `clevis-zfs unlock` interroge `http://100.64.0.10:8888`.
 . Le mesh route vers le Tang. Réponse OK → unlock.
 
 Si le serveur est volé et sorti du mesh : le `tailscale up` échoue
@@ -893,7 +893,7 @@ Pendant le `beryl bootstrap`, mfsBSD-in-QEMU :
   WireGuard direct grâce au key-relay déjà en place).
 * *Tang en HA via Headscale* : on peut avoir 3 Tangs sur 3 IPs
   Tailscale différentes, tous joignables via le mesh. Cohérent
-  avec `crystal-clevis-zfs` v0.2.0 SSS multi-Tang.
+  avec `clevis-zfs` v0.2.0 SSS multi-Tang.
 * *Pre-auth-key vs OAuth-style* : Headscale supporte plusieurs
   modes d'authent. Pour beryl, pre-auth-key single-use posée au
   bootstrap est probablement le plus simple. Renouvellement

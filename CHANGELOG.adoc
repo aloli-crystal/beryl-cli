@@ -9,6 +9,13 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Client Tang : `clevis-zfs` (plus de `crystal-clevis-zfs`)
+
+Suit `clevis-zfs` 0.2.7 (paquet `security/clevis-zfs`) : `tang-enroll` et
+`unlock` appellent `/usr/local/sbin/clevis-zfs`, et `tang-enroll` pose
+`clevis_zfs_enable` / `clevis_zfs_datasets` dans `/etc/rc.conf`. Aucun
+serveur n'était encore enrôlé : pas de migration.
+
 === Tang : la clé du poste en repli de `beryl unlock`
 
 En `mode: tang`, `beryl unlock` essaie toujours Tang d'abord ; s'il échoue

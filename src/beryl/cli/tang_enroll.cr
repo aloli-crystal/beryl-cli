@@ -14,8 +14,8 @@ require "./account_utils"
 # * Le host a été bootstrapé : ses pools data sont chiffrés en
 #   ZFS native avec `keyformat=hex`. La clé locale
 #   `~/.config/beryl/<société>/<domaine>/<host>.key` existe.
-# * Le binaire `crystal-clevis-zfs` est installé sur le serveur
-#   (à `/usr/local/sbin/crystal-clevis-zfs`).
+# * Le binaire `clevis-zfs` est installé sur le serveur
+#   (à `/usr/local/sbin/clevis-zfs`).
 # * Le YAML host déclare `encryption.mode: tang` avec au moins une
 #   URL Tang (cf. `boot-and-mount-plan.adoc`).
 # * Le serveur peut joindre les Tangs (réseau).
@@ -30,7 +30,7 @@ require "./account_utils"
 #      (`/var/run/beryl-tang-key.<rand>`, mode 0600).
 #   3. `zfs set keylocation=file:///var/run/beryl-tang-key.<rand>` —
 #      change UNIQUEMENT la propriété, pas la clé.
-#   4. `crystal-clevis-zfs bind --use-existing-key --dataset <pool>
+#   4. `clevis-zfs bind --use-existing-key --dataset <pool>
 #      -t URL1 [-t URL2 ...] [--threshold K]` — le shard lit la clé
 #      via la `keylocation`, l'enrôle via Tang, écrit le JWE.
 #   5. `rm /var/run/beryl-tang-key.<rand>` — la clé sur disque ne
@@ -39,15 +39,15 @@ require "./account_utils"
 #
 # Après tang-enroll, la commande met à jour `/etc/rc.conf` du
 # serveur pour activer le déverrouillage automatique au boot
-# (`crystal_clevis_zfs_enable=YES` + ajout du dataset à la liste
-# `crystal_clevis_zfs_datasets`).
+# (`clevis_zfs_enable=YES` + ajout du dataset à la liste
+# `clevis_zfs_datasets`).
 #
 # Idempotent : relancer sur un host déjà enrôlé est un no-op (le
 # shard détecte que la clé est déjà enrôlée via le JWE existant ;
 # `sysrc` est idempotent).
 #
 # Voir `boot-and-mount-plan.adoc` § « Variantes de provisionnement »
-# pour le contexte général, et `crystal-clevis-zfs/README.adoc`
+# pour le contexte général, et `clevis-zfs/README.adoc`
 # pour la commande sous-jacente.
 module Beryl::CLI::TangEnroll
   EXIT_OK                  =  0
@@ -62,8 +62,8 @@ module Beryl::CLI::TangEnroll
   EXIT_RC_CONF_FAILED      =  9
   EXIT_PRECHECK_FAILED     = 10
 
-  # Chemin attendu du binaire `crystal-clevis-zfs` côté serveur.
-  TANG_BINARY = "/usr/local/sbin/crystal-clevis-zfs"
+  # Chemin attendu du binaire `clevis-zfs` côté serveur.
+  TANG_BINARY = "/usr/local/sbin/clevis-zfs"
 
   # Préfixe du tmpfs où la clé est posée temporairement pendant
   # l'enrôlement. Le suffixe aléatoire évite les collisions et le
@@ -166,8 +166,8 @@ module Beryl::CLI::TangEnroll
         log "TE DRY-RUN :   zfs set keylocation=prompt #{pool.name}"
       end
       unless skip_rc_conf
-        log "TE DRY-RUN :   sysrc crystal_clevis_zfs_enable=YES"
-        log "TE DRY-RUN :   sysrc crystal_clevis_zfs_datasets=\"#{tang_pools.map(&.name).join(" ")}\""
+        log "TE DRY-RUN :   sysrc clevis_zfs_enable=YES"
+        log "TE DRY-RUN :   sysrc clevis_zfs_datasets=\"#{tang_pools.map(&.name).join(" ")}\""
       end
       return EXIT_OK
     end
@@ -179,7 +179,7 @@ module Beryl::CLI::TangEnroll
     probe = conn.exec("test -x #{Process.quote(TANG_BINARY)}", raise_on_error: false)
     unless probe.success?
       STDERR.puts "beryl : binaire #{TANG_BINARY} absent ou non exécutable sur #{target}"
-      STDERR.puts "        Installez-le par la recette `tang-client` (paquet crystal-clevis-zfs) :"
+      STDERR.puts "        Installez-le par la recette `tang-client` (paquet clevis-zfs) :"
       STDERR.puts "          beryl apply #{host.account_name}/#{host.fqdn} --apply"
       return EXIT_TANG_BINARY_MISSING
     end
@@ -215,8 +215,8 @@ module Beryl::CLI::TangEnroll
       rescue ex
         STDERR.puts "beryl : enrôlement OK mais update /etc/rc.conf a échoué — #{ex.message}"
         STDERR.puts "        Ajoutez à la main :"
-        STDERR.puts "          crystal_clevis_zfs_enable=\"YES\""
-        STDERR.puts "          crystal_clevis_zfs_datasets=\"#{enrolled_names.join(" ")}\""
+        STDERR.puts "          clevis_zfs_enable=\"YES\""
+        STDERR.puts "          clevis_zfs_datasets=\"#{enrolled_names.join(" ")}\""
         return EXIT_RC_CONF_FAILED
       end
     end
@@ -294,7 +294,7 @@ module Beryl::CLI::TangEnroll
       end
 
       # 4. Bind via Tang. Le shard lit la keylocation, ouvre le
-      # fichier, l'enrôle, écrit le JWE dans /var/db/crystal-clevis-zfs/.
+      # fichier, l'enrôle, écrit le JWE dans /var/db/clevis-zfs/.
       tang_args = enc.tang_urls.map { |u| "-t #{Process.quote(u)}" }.join(" ")
       threshold_arg = enc.threshold > 1 ? "--threshold #{enc.threshold}" : ""
       bind_cmd = "#{Process.quote(TANG_BINARY)} bind --use-existing-key " \
@@ -302,7 +302,7 @@ module Beryl::CLI::TangEnroll
       log "TE   #{TANG_BINARY} bind --use-existing-key --dataset #{pool_name} (#{enc.tang_urls.size} Tang, threshold #{enc.threshold})"
       bind_result = conn.exec(bind_cmd, raise_on_error: false)
       unless bind_result.success?
-        raise "crystal-clevis-zfs bind a échoué : " \
+        raise "clevis-zfs bind a échoué : " \
               "exit=#{bind_result.exit_code} stderr=#{bind_result.stderr.strip.inspect}"
       end
       stdout_strip = bind_result.stdout.strip
@@ -325,7 +325,7 @@ module Beryl::CLI::TangEnroll
   # 0600. Utilise stdin SSH — la clé n'apparaît jamais dans la ligne
   # de commande (visible dans `ps`).
   #
-  # Ajoute un newline final au contenu : le shard `crystal-clevis-zfs`
+  # Ajoute un newline final au contenu : le shard `clevis-zfs`
   # fait un `.strip` à la lecture, donc l'un comme l'autre marche,
   # mais le newline est plus standard côté Unix.
   private def self.push_key_to_tmpfs(conn : SSH::Connection, path : String, key_hex : String) : Nil
@@ -342,19 +342,19 @@ module Beryl::CLI::TangEnroll
   # déverrouillage automatique au boot. Utilise `sysrc` (idempotent
   # par construction) plutôt que d'éditer le fichier à la main.
   #
-  # Stratégie pour `crystal_clevis_zfs_datasets` : si la variable
+  # Stratégie pour `clevis_zfs_datasets` : si la variable
   # existe déjà, on prend l'union des datasets existants + les
   # nouveaux. Permet une montée en charge progressive sans écraser
   # un travail manuel précédent.
   private def self.update_rc_conf(conn : SSH::Connection, enrolled_names : Array(String)) : Nil
-    log "TE   sysrc crystal_clevis_zfs_enable=YES"
-    enable = conn.exec("sysrc crystal_clevis_zfs_enable=YES", raise_on_error: false)
+    log "TE   sysrc clevis_zfs_enable=YES"
+    enable = conn.exec("sysrc clevis_zfs_enable=YES", raise_on_error: false)
     unless enable.success?
-      raise "sysrc crystal_clevis_zfs_enable=YES a échoué : exit=#{enable.exit_code} stderr=#{enable.stderr.strip.inspect}"
+      raise "sysrc clevis_zfs_enable=YES a échoué : exit=#{enable.exit_code} stderr=#{enable.stderr.strip.inspect}"
     end
 
     # Lecture de la valeur actuelle (vide si la variable n'existe pas).
-    current = conn.exec("sysrc -n crystal_clevis_zfs_datasets", raise_on_error: false)
+    current = conn.exec("sysrc -n clevis_zfs_datasets", raise_on_error: false)
     existing = if current.success?
                  current.stdout.strip.split(/\s+/).reject(&.empty?)
                else
@@ -362,13 +362,13 @@ module Beryl::CLI::TangEnroll
                end
     union = (existing + enrolled_names).uniq
     new_value = union.join(" ")
-    log "TE   sysrc crystal_clevis_zfs_datasets=#{new_value.inspect}"
+    log "TE   sysrc clevis_zfs_datasets=#{new_value.inspect}"
     set = conn.exec(
-      "sysrc crystal_clevis_zfs_datasets=#{Process.quote(new_value)}",
+      "sysrc clevis_zfs_datasets=#{Process.quote(new_value)}",
       raise_on_error: false,
     )
     unless set.success?
-      raise "sysrc crystal_clevis_zfs_datasets a échoué : exit=#{set.exit_code} stderr=#{set.stderr.strip.inspect}"
+      raise "sysrc clevis_zfs_datasets a échoué : exit=#{set.exit_code} stderr=#{set.stderr.strip.inspect}"
     end
   end
 

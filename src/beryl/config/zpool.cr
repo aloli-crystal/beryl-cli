@@ -110,7 +110,7 @@ module Beryl::Config
   # * *tang* (Option D) — la clé est dérivée à chaque boot via le
   #   protocole Tang (échange McCallum-Relyea). Le serveur doit
   #   pouvoir joindre au moins `threshold` Tangs au moment du boot.
-  #   Le shard `crystal-clevis-zfs` v0.2 (livré 27 avril 2026)
+  #   Le shard `clevis-zfs` v0.2 (livré 27 avril 2026)
   #   implémente le client Tang + le binding ZFS native. Multi-Tang
   #   threshold N-of-M supporté via SSS.
   #

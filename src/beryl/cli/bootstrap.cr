@@ -239,7 +239,7 @@ module Beryl::CLI::Bootstrap
         # On crée donc le pool en mode `ssh_unlock` au bootstrap, et
         # l'opérateur basculera vers `tang` plus tard via `beryl
         # tang-enroll <host>` (après la recette `tang-client`) qui appelle
-        # `crystal-clevis-zfs bind --use-existing-key` côté serveur.
+        # `clevis-zfs bind --use-existing-key` côté serveur.
         key_path = Beryl::Encryption.key_path(
           config_root, host.account_name, host.domain_name, host.short_name
         )
