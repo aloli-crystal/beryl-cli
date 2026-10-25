@@ -5,6 +5,7 @@ require "../apply"
 require "../freebsd_release" # RELEASE FreeBSD disponibles en amont (--freebsd)
 require "./apply"            # Beryl::CLI::Apply.recipes_search_path (paquets gérés par recettes)
 require "./machine_kind"
+require "../vrack_plan"
 
 module Beryl::CLI
   # `beryl info [host] [--usage]` : inventaire des serveurs.
@@ -131,6 +132,11 @@ module Beryl::CLI
       scanned = hosts.count(&.hardware)
       puts
       puts "#{hosts.size} host(s) — #{scanned} scanné(s), #{hosts.size - scanned} à scanner."
+      unless (plan = Beryl::VrackPlan.problems(Beryl::VrackPlan.entries(hosts))).empty?
+        puts
+        puts "⚠ Plan d'adressage vRack :"
+        plan.each { |p| puts "  · #{p}" }
+      end
       if usage
         puts
         puts "ℹ --usage est ignoré sans host précis : `beryl info <host> --usage`."
@@ -838,6 +844,7 @@ module Beryl::CLI
             io << "| #{h.vrack_ip || "—"} | #{esc.call(adoc_role(h))}\n"
           end
           io << "|===\n\n"
+          Beryl::VrackPlan.problems(Beryl::VrackPlan.entries(hosts)).each { |p| io << "WARNING: Plan d'adressage vRack : #{esc.call(p)}\n\n" }
         end
 
         if usage
@@ -1074,6 +1081,11 @@ module Beryl::CLI
             io << "<td data-sort=\"#{ipv4_sort_key(h.vrack_ip)}\">#{hesc(h.vrack_ip || "—")}</td><td>#{hesc(adoc_role(h))}</td></tr>\n"
           end
           io << "</tbody></table>\n"
+          unless (plan = Beryl::VrackPlan.problems(Beryl::VrackPlan.entries(hosts))).empty?
+            io << "<div class=\"warn\"><strong>Plan d'adressage vRack</strong><ul>"
+            plan.each { |p| io << "<li>#{hesc(p)}</li>" }
+            io << "</ul></div>\n"
+          end
         end
 
         if usage

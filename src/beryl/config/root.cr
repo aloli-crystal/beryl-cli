@@ -712,6 +712,13 @@ module Beryl::Config
       vrack_hash.try(&.[YAML::Any.new(key)]?)
     end
 
+    # Réseau du vRack (`vrack.subnet`, ex. 192.168.42.0/24 ; héritable, en
+    # général dans le `_defaults.yml` du domaine), ou nil. Sert au contrôle du
+    # plan d'adressage (`beryl info`).
+    def vrack_subnet : String?
+      vrack_field("subnet").try(&.as_s?)
+    end
+
     # Nom du vRack (id OVH pn-XXXX) déclaré dans `vrack.name`, ou nil.
     def vrack_name : String?
       vrack_field("name").try(&.as_s?)

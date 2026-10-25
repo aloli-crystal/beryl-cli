@@ -9,6 +9,21 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== vRack : les fiches seules font foi, `beryl vrack-ip` et `vrack.yml` retirés
+
+Un seul juge de paix : le nom du vRack et son réseau (`vrack.name`,
+`vrack.subnet`) dans les `_defaults.yml`, `vrack.bastion: true` dans celui
+du groupe des bastions, l'IP dans chaque `.host.yml`. Le registre
+`<société>/vrack.yml` et la commande `beryl vrack-ip` (`--collect`,
+`--distribute`, `--check`) sont retirés : un second registre pouvait
+diverger des fiches.
+
+* `beryl info` (récapitulatif du terminal, `--adoc`, `--html`) contrôle le
+  plan d'adressage lu dans les fiches : collision (deux serveurs sur la
+  même IP d'un même vRack ; une liste de rotation sur une fiche n'en est
+  pas une), adresse `.0`/`.255`, adresse hors de `vrack.subnet` s'il est
+  déclaré.
+
 === Journal de session : shard `session-log`
 
 La mécanique du journal (relance sous `script(1)`, recopie écran +
