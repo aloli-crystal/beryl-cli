@@ -1776,6 +1776,7 @@ module Beryl::CLI::Scan
   # question en --non-interactive).
   private def self.dns_wanted?(fqdn : String, non_interactive : Bool) : Bool
     return true if non_interactive
+    STDERR.puts # ligne vide : la question se détache du journal qui précède
     ans = ask("Voulez-vous lancer le DNS de #{fqdn} (forward A/AAAA, reverse, rename chez l'hébergeur) ? [O/n] : ", default: "O")
     !ans.downcase.starts_with?("n")
   end

@@ -9,6 +9,11 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl scan` : ligne vide avant la question du DNS
+
+La question « Voulez-vous lancer le DNS de … ? » suivait directement la
+ligne du commit de la fiche ; une ligne vide la détache du journal.
+
 === Étapes du journal numérotées à partir de 1, par commande
 
 Les journaux reprenaient les numéros des spécifications : la première étape
