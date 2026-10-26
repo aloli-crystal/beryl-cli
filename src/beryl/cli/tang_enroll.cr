@@ -2,6 +2,7 @@ require "option_parser"
 require "./scope"
 require "./option_errors"
 require "ssh"
+require "./root_conn"
 require "../config"
 require "../encryption"
 require "./account_utils"
@@ -180,7 +181,8 @@ module Beryl::CLI::TangEnroll
       return EXIT_OK
     end
 
-    conn = host.connection
+    # Commandes ZFS en root (sudo -n si beryl n'est pas connecté en root).
+    conn = Beryl::CLI::RootConn.new(host.connection)
 
     # Pre-flight côté serveur.
     log "1 pré-check serveur"
@@ -257,7 +259,7 @@ module Beryl::CLI::TangEnroll
   # Enrôle un pool en mode tang. Le `ensure` garantit que le tmpfs
   # est nettoyé même en cas d'erreur — la clé sur disque (en RAM) ne
   # doit pas survivre.
-  private def self.enroll_one(conn : SSH::Connection, pool : Beryl::Config::Pool, key_hex : String) : Nil
+  private def self.enroll_one(conn : Beryl::CLI::RootConn, pool : Beryl::Config::Pool, key_hex : String) : Nil
     pool_name = pool.name
     enc = pool.encryption.not_nil!
 
@@ -336,7 +338,7 @@ module Beryl::CLI::TangEnroll
   # Ajoute un newline final au contenu : le shard `clevis-zfs`
   # fait un `.strip` à la lecture, donc l'un comme l'autre marche,
   # mais le newline est plus standard côté Unix.
-  private def self.push_key_to_tmpfs(conn : SSH::Connection, path : String, key_hex : String) : Nil
+  private def self.push_key_to_tmpfs(conn : Beryl::CLI::RootConn, path : String, key_hex : String) : Nil
     # `umask 0177` garantit mode 0600 par défaut sur le fichier créé.
     cmd = "umask 0177 && cat > #{Process.quote(path)}"
     result = conn.exec(cmd, stdin: key_hex + "\n", raise_on_error: false)
@@ -354,7 +356,7 @@ module Beryl::CLI::TangEnroll
   # existe déjà, on prend l'union des datasets existants + les
   # nouveaux. Permet une montée en charge progressive sans écraser
   # un travail manuel précédent.
-  private def self.update_rc_conf(conn : SSH::Connection, enrolled_names : Array(String)) : Nil
+  private def self.update_rc_conf(conn : Beryl::CLI::RootConn, enrolled_names : Array(String)) : Nil
     log "4 sysrc clevis_zfs_enable=YES"
     enable = conn.exec("sysrc clevis_zfs_enable=YES", raise_on_error: false)
     unless enable.success?

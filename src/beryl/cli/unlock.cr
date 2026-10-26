@@ -2,6 +2,7 @@ require "option_parser"
 require "./scope"
 require "./option_errors"
 require "ssh"
+require "./root_conn"
 require "../config"
 require "../encryption"
 require "./account_utils"
@@ -156,7 +157,8 @@ module Beryl::CLI::Unlock
       return EXIT_OK
     end
 
-    conn = host.connection
+    # Commandes ZFS en root (sudo -n si beryl n'est pas connecté en root).
+    conn = Beryl::CLI::RootConn.new(host.connection)
 
     # Pre-flight : si au moins un pool est en mode tang, vérifier que
     # le binaire `clevis-zfs` est présent côté serveur. Sinon
@@ -235,7 +237,7 @@ module Beryl::CLI::Unlock
   #
   # `key_hex` peut être nil si le pool est en mode tang (la clé arrive
   # via Tang côté serveur, pas via stdin SSH depuis le poste opérateur).
-  private def self.unlock_one(conn : SSH::Connection, pool : Beryl::Config::Pool, key_hex : String?, tang_binary : Bool) : Nil
+  private def self.unlock_one(conn : Beryl::CLI::RootConn, pool : Beryl::Config::Pool, key_hex : String?, tang_binary : Bool) : Nil
     pool_name = pool.name
     target = "#{conn.user}@#{conn.host}"
     enc = pool.encryption.not_nil!
@@ -300,7 +302,7 @@ module Beryl::CLI::Unlock
   #
   # `enc_cfg` est la config `encryption:` du pool boot (le mode des datasets).
   # nil ou non-tang ⇒ ssh_unlock (clé locale via stdin). `key_hex` requis alors.
-  private def self.unlock_encryption_root(conn : SSH::Connection, enc_root : String, enc_cfg : Beryl::Config::EncryptionConfig?, key_hex : String?, tang_binary : Bool) : Nil
+  private def self.unlock_encryption_root(conn : Beryl::CLI::RootConn, enc_root : String, enc_cfg : Beryl::Config::EncryptionConfig?, key_hex : String?, tang_binary : Bool) : Nil
     target = "#{conn.user}@#{conn.host}"
     tang = enc_cfg.try(&.tang?) == true
 
@@ -333,7 +335,7 @@ module Beryl::CLI::Unlock
   end
 
   # Mode ssh_unlock — clé locale via stdin SSH (Option C historique).
-  private def self.load_key_via_ssh_stdin(conn : SSH::Connection, pool_name : String, key_hex : String) : Nil
+  private def self.load_key_via_ssh_stdin(conn : Beryl::CLI::RootConn, pool_name : String, key_hex : String) : Nil
     log "2 zfs load-key #{pool_name} (mode ssh_unlock, clé via stdin SSH)"
     load = conn.exec("zfs load-key #{Process.quote(pool_name)}", stdin: key_hex, raise_on_error: false)
     unless load.success?
@@ -343,7 +345,7 @@ module Beryl::CLI::Unlock
 
   # Mode tang avec repli : Tang d'abord ; en échec (ou binaire absent), la clé
   # du poste si elle existe, sinon l'erreur de Tang remonte.
-  private def self.load_key_tang_or_local(conn : SSH::Connection, name : String, enc : Beryl::Config::EncryptionConfig, key_hex : String?, tang_binary : Bool) : Nil
+  private def self.load_key_tang_or_local(conn : Beryl::CLI::RootConn, name : String, enc : Beryl::Config::EncryptionConfig, key_hex : String?, tang_binary : Bool) : Nil
     if tang_binary
       begin
         return load_key_via_tang(conn, name, enc)
@@ -364,7 +366,7 @@ module Beryl::CLI::Unlock
   #
   # La clé hex ne transite jamais par beryl en mode tang — c'est tout
   # l'intérêt du modèle (Tang reste la seule autorité de la clé).
-  private def self.load_key_via_tang(conn : SSH::Connection, pool_name : String, enc : Beryl::Config::EncryptionConfig) : Nil
+  private def self.load_key_via_tang(conn : Beryl::CLI::RootConn, pool_name : String, enc : Beryl::Config::EncryptionConfig) : Nil
     urls_summary = if enc.tang_urls.size == 1
                      enc.tang_urls.first
                    else

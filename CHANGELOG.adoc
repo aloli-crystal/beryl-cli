@@ -9,6 +9,14 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `unlock`, `tang-enroll`, `lock`, `status` : commandes ZFS en root via sudo
+
+Ces commandes envoyaient `zpool`/`zfs` avec le compte de connexion ; depuis
+que root est fermé en SSH (`PermitRootLogin no`), c'est `admin`, qui ne voit
+aucun pool (« cannot import 'zbackup': no such pool available »). Elles
+passent désormais par `sudo -n` quand beryl n'est pas connecté en root, comme
+`sync` ; l'entrée standard (clé de `zfs load-key`) traverse `sudo`.
+
 === `wipe` et `bootstrap` : jamais sur plusieurs serveurs dont un est installé
 
 Sur plusieurs serveurs (liste, groupe, domaine, société), `wipe` et

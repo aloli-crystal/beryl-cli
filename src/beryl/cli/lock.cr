@@ -2,6 +2,7 @@ require "option_parser"
 require "./scope"
 require "./option_errors"
 require "ssh"
+require "./root_conn"
 require "../config"
 require "./account_utils"
 
@@ -91,7 +92,8 @@ module Beryl::CLI::Lock
       return EXIT_OK
     end
 
-    conn = host.connection
+    # Commandes ZFS en root (sudo -n si beryl n'est pas connecté en root).
+    conn = Beryl::CLI::RootConn.new(host.connection)
     failures = 0
     encrypted_pools.each do |pool|
       lock_one(conn, pool, force)
@@ -127,7 +129,7 @@ module Beryl::CLI::Lock
 
   # Verrouille un pool : `zpool export` (démonte datasets + décharge la clé +
   # retire le pool). Idempotent : pool non importé → no-op.
-  private def self.lock_one(conn : SSH::Connection, pool : Beryl::Config::Pool, force : Bool) : Nil
+  private def self.lock_one(conn : Beryl::CLI::RootConn, pool : Beryl::Config::Pool, force : Bool) : Nil
     pool_name = pool.name
     target = "#{conn.user}@#{conn.host}"
 

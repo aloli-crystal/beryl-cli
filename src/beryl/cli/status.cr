@@ -2,6 +2,7 @@ require "option_parser"
 require "./scope"
 require "./option_errors"
 require "ssh"
+require "./root_conn"
 require "../config"
 require "./account_utils"
 
@@ -72,7 +73,8 @@ module Beryl::CLI::Status
     services = DEFAULT_SERVICES + extra_services
     declared_pools = host.zpools
 
-    conn = host.connection
+    # Commandes ZFS en root (sudo -n si beryl n'est pas connecté en root).
+    conn = Beryl::CLI::RootConn.new(host.connection)
 
     # --- Pools ---
     puts ""
@@ -128,7 +130,7 @@ module Beryl::CLI::Status
   #   LOCKED   : pool importé mais clé non chargée (cas chiffré pas-encore-unlock)
   #   DEGRADED : pool importé mais en état dégradé (un disque tombé)
   #   FAULTED  : pool importé mais en panne complète
-  private def self.pool_status(conn : SSH::Connection, pool : Beryl::Config::Pool) : NamedTuple(state: String, detail: String)
+  private def self.pool_status(conn : Beryl::CLI::RootConn, pool : Beryl::Config::Pool) : NamedTuple(state: String, detail: String)
     listed = conn.exec("zpool list -H -o health #{Process.quote(pool.name)}", raise_on_error: false)
     unless listed.success? && !listed.stdout.strip.empty?
       detail = pool.encrypted? ? "(pool non importé — chiffré, clé non chargée)" : "(pool absent)"
@@ -181,7 +183,7 @@ module Beryl::CLI::Status
   #   UNLOCKED : clé chargée (keystatus=available) — enfants montables/montés
   #   LOCKED   : clé non chargée → `beryl unlock`
   #   ABSENT   : dataset inexistant (host pas bootstrappé en profil Option I)
-  private def self.encryption_root_status(conn : SSH::Connection, enc_root : String) : NamedTuple(state: String, detail: String)
+  private def self.encryption_root_status(conn : Beryl::CLI::RootConn, enc_root : String) : NamedTuple(state: String, detail: String)
     keystatus = conn.exec("zfs get -H -o value keystatus #{Process.quote(enc_root)}", raise_on_error: false)
     unless keystatus.success? && !keystatus.stdout.strip.empty? && keystatus.stdout.strip != "-"
       return {state: "ABSENT", detail: "(dataset chiffré absent — host pas en profil Option I ?)"}
@@ -216,7 +218,7 @@ module Beryl::CLI::Status
   # Statut FreeBSD d'un service via `service <name> status`. Retourne
   # `up`, `down`, ou un état brut. La commande FreeBSD retourne 0 si
   # le service tourne, !=0 sinon.
-  private def self.service_status(conn : SSH::Connection, name : String) : String
+  private def self.service_status(conn : Beryl::CLI::RootConn, name : String) : String
     # PAS de `2>&1` : sous csh (login shell de root sur FreeBSD) cette syntaxe
     # Bourne casse (le `2` devient un argument). On lit stdout ET stderr du
     # `SSH::Result` à la place — `service status` écrit son diagnostic sur l'un
