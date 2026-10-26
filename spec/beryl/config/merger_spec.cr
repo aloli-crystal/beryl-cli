@@ -104,6 +104,32 @@ describe Beryl::Config::Merger do
       recipes = merged[YAML::Any.new("apply_recipes")].as_a.map(&.as_s)
       recipes.should eq(["ssh-hardening", "ruby", "headscale-node"])
     end
+
+    it "apply_recipes : la recette avec arguments remplace la même recette nue (défauts → fiche)" do
+      defaults = hash_from_yaml("os: freebsd\n")
+      account_meta = hash_from_yaml("apply_recipes: [monit, zfs-scrub]\n")
+      d = domain(<<-YAML)
+        ssh_keys: ['ssh-ed25519 AAAA k']
+        YAML
+      h = host_node(<<-YAML)
+        freebsd:
+          hostname: x
+        apply_recipes:
+          - zfs-scrub: { scrub_schedule: "0 3 * * 3" }
+          - pkg-del: python311
+          - pkg-del: py311-setuptools
+        YAML
+
+      merged = Beryl::Config::Merger.merge(defaults, account_meta, d, nil, h)
+      recipes = merged[YAML::Any.new("apply_recipes")].as_a
+      recipes.map { |r| r.as_s? || r.as_h.keys.first.as_s }.should eq(["monit", "zfs-scrub", "pkg-del", "pkg-del"])
+      recipes[1].as_h.values.first.as_h[YAML::Any.new("scrub_schedule")].as_s.should eq("0 3 * * 3")
+    end
+
+    it "apply_recipes : deux fois la même recette nue → une seule" do
+      Beryl::Config::Merger.drop_bare_recipes([YAML::Any.new("monit")]).size.should eq(1)
+      Beryl::Config::Merger.merge_arrays([YAML::Any.new("monit")], [YAML::Any.new("monit")], "apply_recipes").size.should eq(1)
+    end
   end
 
   describe "clé domaine injectée dans les users" do

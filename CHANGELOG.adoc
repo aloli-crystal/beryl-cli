@@ -9,6 +9,16 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `apply_recipes` : la recette réglée remplace la recette nue
+
+Une recette NUE dans les défauts (`- zfs-scrub`, « avec ses défauts ») et la
+même recette AVEC arguments dans une fiche (`- zfs-scrub: { scrub_schedule:
+… }`) étaient gardées toutes les deux : même fichier écrit deux fois, apply
+refusé (`DuplicatePath`). L'entrée avec arguments remplace désormais l'entrée
+nue, à quelque niveau que ce soit ; plusieurs entrées avec arguments
+(`- pkg-del: a`, `- pkg-del: b`) restent toutes. Les défauts d'une société
+peuvent ainsi déclarer une recette qu'une fiche règle autrement.
+
 === `beryl scan` : DNS proposé APRÈS l'écriture de la fiche
 
 Le DNS passait en premier, avant la lecture des disques. Il vient

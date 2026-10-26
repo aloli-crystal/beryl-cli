@@ -109,11 +109,22 @@ module Beryl::Config
         # `ssh_keys` du niveau supérieur remplace celui du niveau base.
         merge_users(base, override)
       else
-        # packages / sudoers : append + dédup par contenu.
+        # packages / sudoers / apply_recipes : append + dédup par contenu.
         seen = [] of YAML::Any
         (base + override).each { |item| seen << item unless seen.includes?(item) }
-        seen
+        path == "apply_recipes" ? drop_bare_recipes(seen) : seen
       end
+    end
+
+    # `apply_recipes` : une recette NUE (`- zfs-scrub`, « avec ses défauts »)
+    # cède la place à la même recette AVEC arguments (`- zfs-scrub: { … }`),
+    # à quelque niveau que ce soit : les défauts de la société déclarent la
+    # recette, une fiche la règle. Sans cela, les deux tourneraient (même
+    # fichier écrit deux fois → DuplicatePath). Plusieurs entrées avec
+    # arguments (`- pkg-del: a`, `- pkg-del: b`) restent toutes. Pur.
+    def self.drop_bare_recipes(items : Array(YAML::Any)) : Array(YAML::Any)
+      with_args = items.compact_map { |i| i.as_h?.try(&.keys.first?.try(&.as_s?)) }.to_set
+      items.reject { |i| (n = i.as_s?) && with_args.includes?(n) }
     end
 
     # Merge de deux listes de users par leur champ `name`. Pour un
