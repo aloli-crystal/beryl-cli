@@ -295,7 +295,7 @@ module Beryl::Apply
     end
 
     # Résout les variables BUILT-IN de beryl (`company`, `fqdn`, `hostname`,
-    # `domain`, `vrack_ip`, `public_ip` — cf. `Apply::Context.vars`) dans une
+    # `domain`, `vrack_ip`, `vrack_subnet`, `public_ip` — cf. `Apply::Context.vars`) dans une
     # valeur de `default:` ou d'argument `apply_recipes`. Permet à une recette
     # de défaut-er un paramètre sur un fait du host sans le dupliquer côté YAML :
     #

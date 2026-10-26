@@ -435,6 +435,12 @@ module Beryl::CLI::Apply
     # même vRack : zone, données (`unbound-vrack`), serveurs de la zone et
     # zone inverse (`vrack-resolver`). Absents hors vRack ou sans bastion
     # (UnknownVariable explicite dans une recette qui s'en sert).
+    # Réseau du vRack (`vrack.subnet`) → `{{ vrack_subnet }}` : défaut des
+    # `allow_from` des recettes (tang-server, mirror-http…), sans recopier le
+    # réseau dans chaque recette. Absent : UnknownVariable explicite.
+    if subnet = host.vrack_subnet
+      vars["vrack_subnet"] = subnet
+    end
     if host.vrack_ip && (vname = host.vrack_name)
       peers = Beryl::VrackZone.peers(fleet_hosts(config_root), vname)
       vars["vrack_zone"] = host.vrack_zone

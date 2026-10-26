@@ -9,6 +9,14 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `{{ vrack_subnet }}` : le réseau du vRack pour les recettes
+
+`beryl apply` expose `vrack.subnet` (héritable, en général dans le
+`_defaults.yml` du domaine) sous `{{ vrack_subnet }}`, défaut des
+`allow_from` des recettes (tang-server, mirror-http, poudriere-rsync,
+unbound-vrack, sshd-vrack-only) : le réseau n'est plus recopié dans chaque
+recette.
+
 === Journal : rien pour une sous-commande inconnue ; étape 4 du bootstrap formatée
 
 * Une faute de frappe (`beryl bootstarp …`, `beryl zipe …`) créait un
