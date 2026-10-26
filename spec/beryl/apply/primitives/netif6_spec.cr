@@ -48,6 +48,27 @@ describe Beryl::Apply::Netif6 do
     sh.ran?(/service netif restart|ifconfig ice0 down/).should be_false
   end
 
+  it "retire l'ancienne IPv6 globale après la pose de la nouvelle (ke, no)" do
+    sh = FakeShell.new
+    sh.stub(/route -n get default/, stdout: "bnxt0\n")
+    sh.stub(/ifconfig bnxt0 2>\/dev\/null/, stdout: "bnxt0: flags=...\n")
+    sh.stub(/ifconfig bnxt0 inet6/, stdout: "fe80::a%bnxt0\n2001:41d0:306:43d3::1\n2001:41d0:364:3e00::1\n")
+    sh.stub(/netstat -rn -f inet6/, stdout: "fe80::1%bnxt0\n")
+    sh.stub(/sysrc -n ifconfig_bnxt0_ipv6/, stdout: "inet6 2001:41d0:364:3e00::1 prefixlen 64\n")
+    sh.stub(/sysrc -n ipv6_defaultrouter/, stdout: "fe80::1%bnxt0\n")
+    r = Beryl::Apply::Netif6.new.apply(sh, params({"address" => "2001:41d0:364:3e00::1"}), false, ctx)
+    r.outcome.should eq(Beryl::Apply::Outcome::Applied)
+    r.message.should contain "retirée(s) : 2001:41d0:306:43d3::1"
+    sh.ran?(/ifconfig bnxt0 inet6 2001:41d0:306:43d3::1 delete/).should be_true
+    sh.ran?(/inet6 2001:41d0:364:3e00::1 delete|fe80::a.* delete/).should be_false
+  end
+
+  it "stale_globals : garde voulues, keep, link-local et ::1" do
+    Beryl::Apply::Netif6.stale_globals(
+      ["fe80::a%ix0", "::1", "2001:db8::1", "2001:db8::5", "2001:0db8:0000:0000:0000:0000:0000:0009"],
+      ["2001:db8::1", "2001:db8::5"]).should eq(["2001:db8::9"])
+  end
+
   it "idempotent : skip si adresse + route + rc.conf déjà en place" do
     sh = FakeShell.new
     sh.stub(/route -n get default/, stdout: "ice0\n")

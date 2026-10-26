@@ -9,6 +9,16 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `netif6` : seules restent les adresses de la fiche
+
+`netif6` (recette `netif-ipv6`) ajoutait l'adresse de la fiche en alias sans
+rien retirer : l'ancienne adresse restait sur l'interface et servait
+d'adresse source, non routée (ke, no : rien ne sortait). Toute autre IPv6
+GLOBALE de l'interface publique est désormais retirée, APRÈS la pose de la
+nouvelle et de la route ; link-local (`fe80::`) et `::1` jamais touchées.
+Paramètre `keep:` pour garder d'autres adresses voulues. L'essai à blanc
+annonce « retire … ».
+
 === `ovh.ipv6_block` dans la fiche, et contrôle « IPv6 hors du bloc »
 
 `beryl info --refresh` (et `scan --discover`) écrivent désormais le bloc
