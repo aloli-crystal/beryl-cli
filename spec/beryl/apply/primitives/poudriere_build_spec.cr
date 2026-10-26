@@ -126,6 +126,8 @@ describe "Beryl::Apply::PoudriereBuild (overlays)" do
     s.should contain("mv -f /pkg/.beryl-build-15.overlays.tmp /pkg/.beryl-build-15.overlays")
     (s.index!("ln -sfh") < s.index!("printf '%s")).should be_true
     (s.index!("poudriere bulk") < s.index!("ln -sfh")).should be_true
+    s.should contain("poudriere pkgclean -y -j fbsd151amd64 -p default -O globex -O initech -f /q.list -f /a.list ||")
+    (s.index!("poudriere bulk") < s.index!("poudriere pkgclean") < s.index!("ln -sfh")).should be_true
   end
 
   it "parse_state / parse_trees" do

@@ -25,8 +25,10 @@ module Beryl::Apply
   # build en DÉTACHÉ (daemon -f + log + lock anti-double-build), qui crée la
   # jail au besoin, met à jour l'arbre `default`, `poudriere bulk` avec
   # TOUS les overlays (`-O a -O b`, accumulés par poudriere) et la réunion
-  # des build-lists (`-f x -f y`, idem), puis repointe l'alias et
-  # enregistre les commits construits. Rien de changé → skip.
+  # des build-lists (`-f x -f y`, idem), retire les paquets périmés
+  # (`poudriere pkgclean` : ni listés ni dépendances, ex. un port renommé ;
+  # catalogue reconstruit), puis repointe l'alias et enregistre les commits
+  # construits. Rien de changé → skip.
   #
   # Git : avance rapide seulement, jamais `reset --hard` sur un overlay.
   # Des modifications suivies non commitées, une branche autre que celle
@@ -220,6 +222,10 @@ module Beryl::Apply
         #{branch_block}poudriere ports -u -p #{Process.quote(ports)}
         #{reapply_line}
         poudriere bulk -j #{Process.quote(jail)} -p #{Process.quote(ports)}#{ov_args}#{list_args}
+        # Paquets périmés (port retiré ou renommé) : bulk ne supprime rien. Un
+        # échec ici ne défait pas un build réussi : on prévient et on continue.
+        poudriere pkgclean -y -j #{Process.quote(jail)} -p #{Process.quote(ports)}#{ov_args}#{list_args} ||
+          echo "beryl: poudriere pkgclean en échec, paquets périmés NON retirés"
         ln -sfh #{Process.quote(set)} #{Process.quote(ali)}
         #{state_line}
         echo "poudriere-build #{version} OK ($(date -u +%FT%TZ))"

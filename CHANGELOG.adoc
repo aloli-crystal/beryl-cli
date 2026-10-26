@@ -9,6 +9,16 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `poudriere-build` : paquets périmés retirés après chaque build
+
+`poudriere bulk` ne supprime rien : un port retiré ou renommé laissait son
+ancien paquet dans le dépôt (ex. `crystal-clevis-zfs` après le passage à
+`clevis-zfs`). Après le bulk, le script de build (lancé par `beryl apply` et
+par le build planifié) appelle `poudriere pkgclean -y` avec les mêmes
+overlays et listes : tout paquet ni listé ni dépendance est retiré, le
+catalogue reconstruit. Un échec de `pkgclean` est signalé dans le journal
+sans défaire le build.
+
 === Client Tang : `clevis-zfs` (plus de `crystal-clevis-zfs`)
 
 Suit `clevis-zfs` 0.2.7 (paquet `security/clevis-zfs`) : `tang-enroll` et
