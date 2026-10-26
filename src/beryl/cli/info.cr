@@ -1142,10 +1142,12 @@ module Beryl::CLI
             elsif rows.empty?
               io << "<tr><td>#{link}</td><td>#{hesc(os)}</td><td colspan=\"5\"><em>aucun volume</em></td></tr>\n"
             else
-              rows.each_with_index do |r, i|
+              rows.each do |r|
                 low_row = (fp = pct_int(r.pct)) && fp < 10
-                io << "<tr#{low_row ? " class=\"low\"" : ""}><td>#{i.zero? ? link : ""}</td>"
-                io << "<td>#{i.zero? ? hesc(os) : ""}</td>"
+                # Host et OS sur CHAQUE ligne (pas seulement la 1ʳᵉ du serveur) : le
+                # tableau est triable, une ligne doit rester lisible seule.
+                io << "<tr#{low_row ? " class=\"low\"" : ""}><td>#{link}</td>"
+                io << "<td>#{hesc(os)}</td>"
                 io << "<td>#{hesc(r.label)}</td>"
                 io << "<td data-sort=\"#{size_bytes(r.size)}\">#{hesc(r.size)}</td>"
                 io << "<td data-sort=\"#{size_bytes(r.used)}\">#{hesc(r.used)}</td>"

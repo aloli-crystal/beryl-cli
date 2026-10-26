@@ -9,6 +9,13 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl info --usage --html` : Host et OS sur chaque ligne du tableau
+
+Un serveur à plusieurs pools n'affichait son nom et son OS que sur la 1ʳᵉ
+ligne : une fois le tableau trié, les lignes suivantes ne disaient plus à
+quel serveur elles appartenaient. Les deux colonnes sont désormais remplies
+sur chaque ligne.
+
 === IPv6 : le bloc ROUTÉ selon l'API OVH, jamais l'AAAA du DNS
 
 `beryl info --refresh` prenait d'abord l'AAAA du FQDN dans le DNS : un AAAA
