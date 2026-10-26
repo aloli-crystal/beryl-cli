@@ -2,6 +2,7 @@ require "option_parser"
 require "./option_errors"
 require "../config"
 require "../apply"
+require "../vrack_zone"
 require "ssh"
 require "./account_utils"
 require "./dns_record"
@@ -90,6 +91,7 @@ module Beryl::CLI::Apply
     domain_hint ||= parsed[:domain]
 
     root = Beryl::Config::Root.load(config_root)
+    @@fleet_root = root
     # Portée : host, domaine OU société (comme rotate-key). `apply example.net`
     # → tous les hosts du domaine ; `apply acme` → toute la société.
     list = raw.includes?(',')
@@ -429,6 +431,20 @@ module Beryl::CLI::Apply
     if gw6 = host.ovh_ipv6_gateway
       vars["public_ip6_gateway"] = gw6
     end
+    # DNS interne du vRack (`Beryl::VrackZone`), lu dans TOUTES les fiches du
+    # même vRack : zone, données (`unbound-vrack`), serveurs de la zone et
+    # zone inverse (`vrack-resolver`). Absents hors vRack ou sans bastion
+    # (UnknownVariable explicite dans une recette qui s'en sert).
+    if host.vrack_ip && (vname = host.vrack_name)
+      peers = Beryl::VrackZone.peers(fleet_hosts(config_root), vname)
+      vars["vrack_zone"] = host.vrack_zone
+      vars["vrack_local_data"] = Beryl::VrackZone.local_data(peers, host.vrack_zone)
+      stubs = Beryl::VrackZone.stub_addrs(peers)
+      vars["vrack_stub_addrs"] = stubs unless stubs.empty?
+      if rz = Beryl::VrackZone.reverse_zone(host.vrack_subnet)
+        vars["vrack_reverse_zone"] = rz
+      end
+    end
     vars["root_ssh_login"] = root_ssh_login(host)
     vars["os"] = os
     # Compte par lequel beryl se connecte : une recette qui restreint l'accès
@@ -467,6 +483,24 @@ module Beryl::CLI::Apply
   rescue ex
     STDERR.puts "beryl : #{host.fqdn} : erreur inattendue — #{ex.class}: #{ex.message}"
     EXIT_UNEXPECTED
+  end
+
+  @@fleet_root : Beryl::Config::Root? = nil
+  @@fleet_hosts = {} of String => Array(Beryl::Config::ResolvedHost)
+
+  # Toutes les fiches résolues de la config (une résolution par processus,
+  # même en apply de flotte), comme `beryl info` : le DNS interne du vRack se
+  # calcule sur le parc. Réutilise la config déjà chargée par `run`. Une fiche
+  # qui ne se résout pas est ignorée (elle échouera dans son propre apply).
+  def self.fleet_hosts(config_root : String) : Array(Beryl::Config::ResolvedHost)
+    @@fleet_hosts[config_root] ||= begin
+      root = @@fleet_root || Beryl::Config::Root.load(config_root)
+      root.all_hosts_by_fqdn.keys.compact_map do |fqdn|
+        root.resolve(fqdn)
+      rescue
+        nil
+      end
+    end
   end
 
   # `{{ root_ssh_login }}` (PermitRootLogin, recette sshd-auth-keys-only) : la

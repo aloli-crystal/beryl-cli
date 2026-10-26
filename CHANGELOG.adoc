@@ -9,6 +9,19 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== DNS interne du vRack calculé depuis les fiches ; `beryl vrack-dns` retiré
+
+`beryl apply` fournit aux recettes la zone interne du vRack, lue dans
+TOUTES les fiches du même vRack (`Beryl::VrackZone`, mêmes fiches que
+`beryl info`) : `{{ vrack_zone }}` (`vrack.zone`, `vrack.internal` par
+défaut), `{{ vrack_local_data }}` (A + PTR de chaque host),
+`{{ vrack_stub_addrs }}` (IP vRack des bastions) et
+`{{ vrack_reverse_zone }}` (zone inverse de `vrack.subnet`). Recettes
+`unbound-vrack` (bastions) et `vrack-resolver` (chaque host).
+
+* `beryl vrack-dns` (zone écrite par ssh hors recette, en deux temps) est
+  retiré : la recette écrit la zone à chaque apply.
+
 === `beryl scan` : DNS posé par défaut, `--no-dns` pour s'en passer
 
 Le scan enchaîne désormais la pose DNS (forward via le `dns_provider` de la

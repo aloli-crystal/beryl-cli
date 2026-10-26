@@ -724,6 +724,12 @@ module Beryl::Config
       vrack_field("name").try(&.as_s?)
     end
 
+    # Zone DNS interne du vRack (`vrack.zone`, héritable), `vrack.internal`
+    # par défaut (cf. `Beryl::VrackZone`).
+    def vrack_zone : String
+      vrack_field("zone").try(&.as_s?) || "vrack.internal"
+    end
+
     # CE host est un bastion (point d'entrée public du vRack). Modèle :
     # `vrack.bastion: true`. Fallback legacy : `bastion: true` top-level.
     def bastion? : Bool
@@ -766,7 +772,7 @@ module Beryl::Config
       !proxy_jump.nil?
     end
 
-    # IP vRack du host, source de vérité du DNS interne (`beryl vrack-dns`).
+    # IP vRack du host, source de vérité du DNS interne (`Beryl::VrackZone`).
     # Lue d'un champ explicite `vrack_ip:` ou, à défaut, des arguments de la
     # recette `vrack-interface` dans `apply_recipes:` (`{ ip: 192.168.42.x }`).
     # nil si le host n'est pas sur le vRack.
@@ -791,7 +797,7 @@ module Beryl::Config
     end
 
     # 1ʳᵉ IP vRack (primaire), ou nil si le host n'est pas sur le vRack.
-    # Source de vérité du DNS interne (`beryl vrack-dns`) et de `ssh_host`
+    # Source de vérité du DNS interne (`Beryl::VrackZone`) et de `ssh_host`
     # quand le host est caché.
     def vrack_ip : String?
       vrack_ips.first?
