@@ -9,6 +9,17 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== IPv6 : le bloc ROUTÉ selon l'API OVH, jamais l'AAAA du DNS
+
+`beryl info --refresh` prenait d'abord l'AAAA du FQDN dans le DNS : un AAAA
+ancien (serveur précédent du même nom) se recopiait dans la fiche, puis
+`netif-ipv6` posait une adresse non routée et `beryl dns` reposait le même
+AAAA (boucle, vue sur ke : `…:306:43d3::1` au lieu du `…:364:3e00::/56`
+affiché par OVH). L'IPv6 vient désormais de l'API seule, et du bloc routé
+(`specifications/network` → `routing.ipv6.ip`, le /56 du serveur — pas
+`.network`, le /48 agrégé de la baie), à défaut la liste `/ips`. Le plan de `beryl dns` (reverse IPv6) suit la même
+règle.
+
 === `beryl info --ovh-network <portée>` : l'API réseau d'OVH telle quelle
 
 Lecture seule : pour chaque serveur OVH de la portée, les réponses brutes de

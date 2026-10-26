@@ -718,8 +718,10 @@ module Beryl::CLI
           detail = ovh.server_detail(sn)
           hw = ovh.server_hardware(sn)
           price = ovh.monthly_price(sn)
-          # IPv6 : l'AAAA du FQDN, sinon le bloc déclaré par OVH (<bloc>::1).
-          ipv6 = Beryl::CLI::Scan.resolve_host_ipv6(h.fqdn) || ovh.ipv6_address(sn)
+          # IPv6 : le bloc ROUTÉ selon l'API OVH (<bloc>::1). Jamais l'AAAA du
+          # DNS : un AAAA ancien (serveur précédent du même nom) se recopiait
+          # dans la fiche, puis dans le serveur et le DNS (boucle, vu sur ke).
+          ipv6 = ovh.ipv6_address(sn)
           ipv6_gateway = ovh.ipv6_gateway(sn)
           path = h.node.source_path
           content = File.read(path)

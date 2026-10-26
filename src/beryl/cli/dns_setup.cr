@@ -1,4 +1,5 @@
 require "api-ovh/ovh_api"
+require "../apply/primitives/netif6"
 
 # Helpers OVH compute pour le nommage d'un serveur dédié : détection des
 # IPs (IPv4/IPv6) à partir du `service_name`, dérivation du bloc /64 pour
@@ -40,20 +41,32 @@ module Beryl::CLI::DnsSetup
     server_info = client.dedicated_servers.info(service_name)
     ipv4 = server_info["ip"]?.try(&.as_s) || raise "aucune IPv4 déclarée sur #{service_name}"
 
-    # Liste des IPs affectées au serveur. On cherche la première v6.
-    # Format des IPs : "51.83.6.X/32" pour v4, "2001:...::/64" pour v6.
+    # Bloc IPv6 : celui ROUTÉ vers le serveur (`specifications/network` →
+    # `routing.ipv6`), à défaut le premier v6 de `/ips` — qui peut lister un
+    # ancien bloc (ADV recyclé). Format : "2001:...::/56" ou "/64".
     ipv6 = nil
-    ipv6_block = nil
-    client.dedicated_servers.ips(service_name).each do |cidr|
-      next unless cidr.includes?(':')
-      base = cidr.split('/').first
-      ipv6 = derive_ipv6_address(base, cidr)
-      ipv6_block = cidr
-      break
+    ipv6_block = routed_ipv6_block(client, service_name) ||
+                 client.dedicated_servers.ips(service_name).find(&.includes?(':'))
+    if cidr = ipv6_block
+      ipv6 = derive_ipv6_address(Beryl::Apply::Netif6.canonical(cidr.split('/').first), cidr)
     end
 
     fqdn = "#{short_name}.#{zone}"
     Plan.new(service_name, fqdn, short_name, zone, ipv4, ipv6, ipv6_block)
+  end
+
+  # Bloc IPv6 du serveur selon `specifications/network` (`routing.ipv6.ip`,
+  # le /56 ou /64 ; PAS `.network`, le /48 agrégé de la baie), forme
+  # canonique + longueur de préfixe ; nil si absent.
+  def self.routed_ipv6_block(client : OvhApi::Client, service_name : String) : String?
+    v6 = client.call("GET", "/dedicated/server/#{service_name}/specifications/network")
+      .try(&.["routing"]?).try(&.["ipv6"]?)
+    raw = v6.try(&.["ip"]?).try(&.as_s?).presence
+    return unless raw && raw.includes?(':')
+    base, slash, len = raw.partition('/')
+    "#{Beryl::Apply::Netif6.canonical(base)}#{slash}#{len}"
+  rescue
+    nil
   end
 
   # À partir d'un bloc CIDR IPv6 (ex. "2001:41d0:2:6e01::/64"), déduit

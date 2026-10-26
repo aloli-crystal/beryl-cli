@@ -281,13 +281,27 @@ module Beryl::Providers
       {ips: ips, network: net}
     end
 
+    # Adresse IPv6 HÔTE : `<bloc>::1` du bloc ROUTÉ vers le serveur
+    # (`specifications/network` → `routing.ipv6.ip` ; PAS `.network`, le /48
+    # agrégé de la baie, commun à tous ses serveurs), à défaut
+    # le premier bloc de `/ips` — qui peut lister un ancien bloc (vu sur des
+    # ADV recyclés : bloc /64 d'un ancien serveur listé, /56 réellement routé).
     def ipv6_address(service_name : String) : String?
-      block = client.dedicated_servers.ips(service_name)
-        .find(&.includes?(':')).try(&.split('/').first)
-      return unless block
-      block.ends_with?("::") ? "#{block}1" : block
+      v6 = client.call("GET", "/dedicated/server/#{service_name}/specifications/network")
+        .try(&.["routing"]?).try(&.["ipv6"]?)
+      routed = v6.try(&.["ip"]?).try(&.as_s?).presence.try { |ip| ip.includes?(':') ? ip : nil }
+      block = routed || client.dedicated_servers.ips(service_name).find(&.includes?(':'))
+      block && self.class.host_ipv6(block)
     rescue
       nil
+    end
+
+    # `2001:41d0:0364:3e00:0000:…/56` → `2001:41d0:364:3e00::1` : forme
+    # canonique, `::1` quand le bloc se termine par `::` (le `::` nu est
+    # l'anycast routeur, jamais le serveur). Pur.
+    def self.host_ipv6(block : String) : String
+      base = Beryl::Apply::Netif6.canonical(block.split('/').first)
+      base.ends_with?("::") ? "#{base}1" : base
     end
 
     # Nom du serveur TEL QU'AFFICHÉ dans l'interface OVH (ex. "qwerty") :

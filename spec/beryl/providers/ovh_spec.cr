@@ -376,3 +376,14 @@ describe Beryl::Providers::Ovh do
     end
   end
 end
+
+describe "Beryl::Providers::Ovh.host_ipv6" do
+  it "bloc /56 ou /64 en forme longue → adresse hôte ::1 canonique" do
+    Beryl::Providers::Ovh.host_ipv6("2001:41d0:0364:3e00:0000:0000:0000:0000/56").should eq("2001:41d0:364:3e00::1")
+    Beryl::Providers::Ovh.host_ipv6("2001:41d0:306:43d3::/64").should eq("2001:41d0:306:43d3::1")
+  end
+
+  it "adresse précise : gardée" do
+    Beryl::Providers::Ovh.host_ipv6("2001:41d0:364:3e00::5/128").should eq("2001:41d0:364:3e00::5")
+  end
+end
