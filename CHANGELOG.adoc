@@ -9,6 +9,15 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Journal : rien pour une sous-commande inconnue ; étape 4 du bootstrap formatée
+
+* Une faute de frappe (`beryl bootstarp …`, `beryl zipe …`) créait un
+  journal de session pour un simple « sous-commande inconnue » : seules les
+  sous-commandes connues sont désormais journalisées.
+* `bootstrap` : les lignes du redémarrage et de l'attente SSH (étape 4)
+  affichaient le numéro brut (« 4 SSH … répond ») ; elles passent au format
+  « [Étape 4] » comme les autres.
+
 === `beryl scan` : ligne vide avant la question du DNS
 
 La question « Voulez-vous lancer le DNS de … ? » suivait directement la

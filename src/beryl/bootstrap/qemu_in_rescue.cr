@@ -910,7 +910,7 @@ module Beryl::Bootstrap
     end
 
     private def log(message : String) : Nil
-      STDERR.puts "[#{self.class.timestamp}] [beryl bootstrap mfsbsd] #{message}"
+      STDERR.puts "[#{self.class.timestamp}] [beryl bootstrap mfsbsd] #{Beryl.format_step(message)}"
     end
   end
 end

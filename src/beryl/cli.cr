@@ -127,8 +127,10 @@ module Beryl::CLI
     resolved = resolve_alias(subcommand)
 
     # Journal de session (défaut) : beryl se relance sous journal, cf.
-    # `Beryl::CLI::SessionLog`.
-    if (cmd = resolved) && Beryl::CLI::SessionLog.wanted?(cmd, sub_args, no_log, ENV.has_key?(Beryl::CLI::SessionLog::ENV_ACTIVE))
+    # `Beryl::CLI::SessionLog`. Sous-commande inconnue (faute de frappe) :
+    # pas de journal, juste l'aide.
+    if (cmd = resolved) && known_subcommand?(cmd) &&
+       Beryl::CLI::SessionLog.wanted?(cmd, sub_args, no_log, ENV.has_key?(Beryl::CLI::SessionLog::ENV_ACTIVE))
       return Beryl::CLI::SessionLog.run(argv, Beryl::CLI::SessionLog.path(cmd, sub_args, Time.local))
     end
 
@@ -221,6 +223,11 @@ module Beryl::CLI
     {"vrack", "", "Gère le vRack OVH (statut / rattachement)"},
     {"wipe", "w", "Efface un disque sur un hôte en rescue"},
   ]
+
+  # Sous-commande (nom long) connue ? Pur.
+  def self.known_subcommand?(name : String) : Bool
+    SUBCOMMANDS.any? { |c| c[0] == name }
+  end
 
   # Alias courts → nom long, DÉRIVÉS de SUBCOMMANDS (source unique).
   SUBCOMMAND_ALIASES = SUBCOMMANDS.each_with_object({} of String => String) do |(name, short, _desc), h|
