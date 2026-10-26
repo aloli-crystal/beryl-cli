@@ -42,7 +42,7 @@ rescue — n'est ni reproductible ni automatisable. beryl automatise le cycle co
 . `beryl bootstrap <host>` lance une VM mfsBSD *dans* le rescue (via QEMU) et
   installe FreeBSD 15 sur les disques déclarés (ADR-012/013 : post-install hors chroot).
 . `beryl follow-install <host>` suit en direct le `bsdinstall.log` de la VM mfsBSD.
-. `beryl apply <host>` synchronise la config effective (packages, users, clés SSH,
+. `beryl sync <host>` synchronise la config effective (packages, users, clés SSH,
   sudoers) avec le serveur FreeBSD bootstrappé — travail en cours, pour l'instant
   limité au cycle bootstrap-only.
 

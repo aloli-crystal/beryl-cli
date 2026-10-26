@@ -12,7 +12,7 @@ module Beryl::Apply
   #         after_hours: 1
   #         recipe: sshd-public-close
   #
-  # Le job posé exécute `beryl apply --recipe <recipe>` au moment où
+  # Le job posé exécute `beryl sync --recipe <recipe>` au moment où
   # il se déclenche. Il faut donc que le binaire `beryl` soit présent
   # côté serveur cible (cf. recipe `beryl-bin` à venir, ou
   # `pkg-install` du shard packagé).
@@ -61,7 +61,7 @@ module Beryl::Apply
       end
 
       # 2. Poser le nouveau job.
-      at_command = "beryl apply --recipe #{Process.quote(recipe)} $(hostname -f)"
+      at_command = "beryl sync --recipe #{Process.quote(recipe)} $(hostname -f)"
       submit = shell.exec(
         "echo #{Process.quote(at_command)} | at now + #{at_spec} 2>&1",
         raise_on_error: false,

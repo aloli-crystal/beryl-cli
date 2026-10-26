@@ -188,7 +188,7 @@ module Beryl::CLI::TangEnroll
     unless probe.success?
       STDERR.puts "beryl : binaire #{TANG_BINARY} absent ou non exécutable sur #{target}"
       STDERR.puts "        Installez-le par la recette `tang-client` (paquet clevis-zfs) :"
-      STDERR.puts "          beryl apply #{host.account_name}/#{host.fqdn} --apply"
+      STDERR.puts "          beryl sync #{host.account_name}/#{host.fqdn} --apply"
       return EXIT_TANG_BINARY_MISSING
     end
 

@@ -30,7 +30,7 @@ module Beryl::Config
   #   - `*.domain.yml` → domaine ;
   #   - `*.host.yml`   → host (direct, ou membre d'un groupe) ;
   #   - `<groupe>/`    → groupe (dossier sans point sous un domaine) ;
-  #   - `*.recipe.yml` → recette (lue par `beryl apply`, ignorée ici).
+  #   - `*.recipe.yml` → recette (lue par `beryl sync`, ignorée ici).
   #
   # Tolère les fichiers/dossiers absents : une société peut avoir un
   # seul domaine sans sous-dossier d'hosts, un `_default.yml` peut

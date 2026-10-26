@@ -49,7 +49,7 @@ end
 
 private INSTALLED_FLAG = File.expand_path(File.join(__DIR__, "..", "..", "fixtures", "config", "installed-flag"))
 
-describe "beryl apply et installed: false" do
+describe "beryl sync et installed: false" do
   it "refuse un serveur nommé qui n'est pas encore installé, sans SSH" do
     Beryl::CLI::Apply.run(INSTALLED_FLAG, ["pending"]).should eq(Beryl::CLI::Apply::EXIT_NOT_INSTALLED)
   end

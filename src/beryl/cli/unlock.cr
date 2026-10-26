@@ -171,7 +171,7 @@ module Beryl::CLI::Unlock
       elsif !tang_binary
         STDERR.puts "beryl : binaire #{TANG_BINARY} absent ou non exécutable sur #{target}"
         STDERR.puts "        Il est requis pour le `mode: tang`. Installez-le via :"
-        STDERR.puts "          beryl apply #{host.account_name}/#{host.fqdn} --apply   (recette tang-client)"
+        STDERR.puts "          beryl sync #{host.account_name}/#{host.fqdn} --apply   (recette tang-client)"
         return EXIT_TANG_BINARY_MISSING
       end
     end

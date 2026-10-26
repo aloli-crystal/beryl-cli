@@ -7,7 +7,7 @@ require "./config"
 # true`) servent la zone (recette `unbound-vrack`) ; chaque host l'interroge
 # par son résolveur local (recette `vrack-resolver`).
 #
-# `beryl apply` en fait des variables built-in (`vrack_zone`,
+# `beryl sync` en fait des variables built-in (`vrack_zone`,
 # `vrack_local_data`, `vrack_stub_addrs`, `vrack_reverse_zone`) : la zone est
 # écrite PAR la recette, à chaque apply, sans étape à part.
 module Beryl::VrackZone

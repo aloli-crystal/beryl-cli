@@ -69,7 +69,7 @@ module Beryl::Apply
   # `schedule` (5 champs cron) : pose sur le builder un script
   # `/usr/local/etc/poudriere.d/beryl-build-<majeur>.sh` et une entrée
   # `/usr/local/etc/cron.d/beryl-poudriere-<majeur>` qui relancent LE MÊME
-  # build que `beryl apply` (verrou partagé, overlays gérés mis à jour en
+  # build que `beryl sync` (verrou partagé, overlays gérés mis à jour en
   # avance rapide, arbre de ports frais → correctifs de sécurité), sur la
   # mineure visée au dernier apply. Régénérés à chaque apply. Échec signalé
   # par mail (sortie de cron), détail dans le journal des builds.
@@ -419,11 +419,11 @@ module Beryl::Apply
     end
 
     # Script du build PLANIFIÉ (cron) : le MÊME build que celui lancé par
-    # `beryl apply` (`build_script`), précédé du verrou partagé et de la mise
+    # `beryl sync` (`build_script`), précédé du verrou partagé et de la mise
     # à jour en avance rapide des overlays gérés par beryl, suivi de
     # l'enregistrement des commits réellement construits (lus à l'exécution).
     # Reconstruit la mineure visée au dernier apply ; une NOUVELLE mineure
-    # reste l'affaire de `beryl apply` (qui régénère ce script). Pur.
+    # reste l'affaire de `beryl sync` (qui régénère ce script). Pur.
     def self.scheduled_script(version : String, arch : String, ports : String,
                               overlays : Array(ScheduledOverlay), pkglists : Array(String),
                               pkgdir : String, reapply : String?, ports_branch : String? = nil) : String

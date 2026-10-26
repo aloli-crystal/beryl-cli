@@ -17,7 +17,7 @@ describe Beryl::Apply::AutoCloseSchedule do
     )
     result.outcome.should eq(Beryl::Apply::Outcome::Applied)
     shell.ran?(/at now \+ 1 hours/).should be_true
-    shell.ran?(/beryl apply --recipe sshd-public-close/).should be_true
+    shell.ran?(/beryl sync --recipe sshd-public-close/).should be_true
   end
 
   it "supporte after_minutes (granularité fine, ex. dead-man's-switch)" do

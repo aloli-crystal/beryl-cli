@@ -154,7 +154,7 @@ module Beryl::CLI
     when "dns"                then Beryl::CLI::Dns.run(config_root, sub_args)
     when "dns-alias"          then Beryl::CLI::DnsAlias.run(config_root, sub_args)
     when "dns-record"         then Beryl::CLI::DnsRecord.run(config_root, sub_args)
-    when "apply"              then Beryl::CLI::Apply.run(config_root, sub_args)
+    when "sync"               then Beryl::CLI::Apply.run(config_root, sub_args)
     when "rotate-key"         then Beryl::CLI::RotateKey.run(config_root, sub_args)
     when "vrack"              then Beryl::CLI::Vrack.run(config_root, sub_args)
     when "prep-rescue"        then Beryl::CLI::PrepRescue.run(sub_args)
@@ -187,7 +187,6 @@ module Beryl::CLI
   SUBCOMMANDS = [
     {"add-domain", "ad", "Ajoute un domaine à une société (zone DNS)"},
     {"add-provider", "ap", "Ajoute un fournisseur à une société (credentials)"},
-    {"apply", "a", "Synchronise packages/users/clés SSH (recettes)"},
     {"bake-seed", "bs", "cloud-init seed.img pour Ubuntu Server live"},
     {"boot-hd", "bh", "Bascule sur le disque via l'API (inverse rescue)"},
     {"bootstrap", "b", "Installe FreeBSD 15 (mfsBSD-in-QEMU)"},
@@ -214,6 +213,7 @@ module Beryl::CLI
     {"scaleway-reinstall", "", "Réinstalle un serveur Scaleway via l'API"},
     {"scan", "s", "Détecte les disques et propose un YAML host"},
     {"show", "sh", "Détails d'un hôte (config mergée complète)"},
+    {"sync", "sy", "Synchronise packages/users/clés SSH (recettes) — ex-`apply`"},
     {"status", "st", "État pools / services chiffrés d'un host"},
     {"tang-enroll", "te", "Enrôle les pools chiffrés via Tang"},
     {"update", "", "pkg update (rafraîchit le catalogue) sur une portée"},
@@ -234,9 +234,13 @@ module Beryl::CLI
     h[short] = name unless short.empty?
   end
 
+  # Anciens noms gardés comme alias : `apply` (et `a`) est devenu `sync` —
+  # tâches planifiées, scripts et habitudes continuent de marcher.
+  LEGACY_ALIASES = {"apply" => "sync", "a" => "sync"}
+
   private def self.resolve_alias(name : String?) : String?
     return name unless name
-    SUBCOMMAND_ALIASES[name]? || name
+    SUBCOMMAND_ALIASES[name]? || LEGACY_ALIASES[name]? || name
   end
 
   # Affiche l'aide globale (sans topic) ou l'aide d'une sous-commande
@@ -279,7 +283,7 @@ module Beryl::CLI
     when "info"           then Beryl::CLI::Info.run(config_root, ["--help"])
     when "fmt"            then Beryl::CLI::Fmt.run(config_root, ["--help"])
     when "dns"            then Beryl::CLI::Dns.run(config_root, ["--help"])
-    when "apply"          then Beryl::CLI::Apply.run(config_root, ["--help"])
+    when "sync"           then Beryl::CLI::Apply.run(config_root, ["--help"])
     when "prep-rescue"    then Beryl::CLI::PrepRescue.run(["--help"])
     when "bake-seed"      then Beryl::CLI::BakeSeed.run(["--help"])
     when "lock"           then Beryl::CLI::Lock.run(config_root, ["--help"])

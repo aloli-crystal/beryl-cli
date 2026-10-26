@@ -657,7 +657,7 @@ module Beryl::Config
     # (ordre ALPHABÉTIQUE) user sudo-capable de `freebsd.users` (groupe `wheel`
     # ou `sudo: true`), à défaut root. Sur les
     # hôtes durcis le root SSH est fermé → beryl entre par ce compte. Aligné sur
-    # `beryl apply`/`vrack` (qui dérivaient cette logique chacun de leur côté).
+    # `beryl sync`/`vrack` (qui dérivaient cette logique chacun de leur côté).
     def connect_user : String
       connect_users.first
     end
@@ -908,7 +908,7 @@ module Beryl::Config
     end
 
     # `skip_recipes:` : recettes héritées (défauts société ou domaine) que
-    # `beryl apply` ne joue PAS sur cet hôte, ex. `[ssh-hardening]` sur une VM
+    # `beryl sync` ne joue PAS sur cet hôte, ex. `[ssh-hardening]` sur une VM
     # dont les comptes d'un tiers doivent garder leur accès. Les dépendances
     # de la recette écartée ne sont pas tirées non plus.
     def skip_recipes : Array(String)

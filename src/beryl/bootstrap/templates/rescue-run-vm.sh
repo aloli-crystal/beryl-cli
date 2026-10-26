@@ -335,7 +335,7 @@ PasswordAuthentication no
 ChallengeResponseAuthentication no
 SSHD"
 # FreeBSD n'inclut PAS sshd_config.d/*.conf par défaut → on pose l'Include EN
-# TÊTE pour que le drop-in ci-dessus (et ceux de `beryl apply`) priment.
+# TÊTE pour que le drop-in ci-dessus (et ceux de `beryl sync`) priment.
 ssh_vm "grep -qE '^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d/' /mnt/etc/ssh/sshd_config 2>/dev/null || { \
   printf 'Include /etc/ssh/sshd_config.d/*.conf\n' > /mnt/etc/ssh/sshd_config.new; \
   cat /mnt/etc/ssh/sshd_config >> /mnt/etc/ssh/sshd_config.new 2>/dev/null; \

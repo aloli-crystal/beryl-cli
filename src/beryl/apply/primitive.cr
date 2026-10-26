@@ -29,10 +29,10 @@ module Beryl::Apply
   #   `VersionAddendum: "{{ company }}"`, `listen {{ vrack_ip }}:80`.
   #
   # * `dns` : pose d'un enregistrement DNS chez le fournisseur de la zone
-  #   (primitive `dns-record`), fourni par `beryl apply` : (nom complet,
-  #   type, cible, dry_run) → {changé ?, message}. Absent hors `beryl apply`.
+  #   (primitive `dns-record`), fourni par `beryl sync` : (nom complet,
+  #   type, cible, dry_run) → {changé ?, message}. Absent hors `beryl sync`.
   #
-  # * `os` : système de l'hôte, détecté par `beryl apply` (`uname -s`) :
+  # * `os` : système de l'hôte, détecté par `beryl sync` (`uname -s`) :
   #   `FREEBSD` (cas général) ou `LINUX` (systemd), cf. `Primitive#systems`.
   alias DnsHook = Proc(String, String, String, Bool, {Bool, String})
 

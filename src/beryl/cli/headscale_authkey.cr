@@ -161,7 +161,7 @@ module Beryl::CLI::HeadscaleAuthkey
       puts ""
       puts "À injecter dans le node (recette headscale-node) :"
       puts "  export HEADSCALE_AUTHKEY=#{key}"
-      puts "  beryl apply <node> --transport=public   # ou via le coffre .env"
+      puts "  beryl sync <node> --transport=public   # ou via le coffre .env"
     end
     EXIT_OK
   rescue ex : Beryl::Config::Root::HostNotFound

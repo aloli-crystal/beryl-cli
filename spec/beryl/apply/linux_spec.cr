@@ -4,7 +4,7 @@ require "../../support/apply_helpers"
 
 # Prise en charge de Linux (systemd, SUSE) : les primitives portées
 # choisissent leurs commandes selon `context.os`.
-describe "beryl apply sous Linux" do
+describe "beryl sync sous Linux" do
   describe Beryl::Apply::Posix do
     it "choisit stat et sha256 GNU sous Linux, BSD sinon" do
       Beryl::Apply::Posix.mode("/etc/x", Beryl::Apply::LINUX).should eq "stat -c %a /etc/x"

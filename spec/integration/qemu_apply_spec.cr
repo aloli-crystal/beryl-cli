@@ -1,7 +1,7 @@
 require "../spec_helper"
 require "socket"
 
-# Spec d'intégration : exerce `beryl apply` (moteur de recettes +
+# Spec d'intégration : exerce `beryl sync` (moteur de recettes +
 # primitives) contre une VRAIE VM FreeBSD du banc QEMU
 # (`prod-crystal/qemu/`).
 #
@@ -28,13 +28,13 @@ rescue
   false
 end
 
-# `beryl apply` n'a besoin que de la VM client (port SSH 2223) — pas
+# `beryl sync` n'a besoin que de la VM client (port SSH 2223) — pas
 # des Tangs, contrairement à la spec de chiffrement.
 private def client_vm_running? : Bool
   tcp_open?("127.0.0.1", 2223)
 end
 
-describe "intégration beryl apply (banc QEMU)" do
+describe "intégration beryl sync (banc QEMU)" do
   it "applique les primitives sur une VM FreeBSD et est idempotent", tags: "integration" do
     unless File.exists?(TEST_APPLY_SCRIPT) && File::Info.executable?(TEST_APPLY_SCRIPT)
       pending! "script #{TEST_APPLY_SCRIPT} absent ou non exécutable"

@@ -48,7 +48,7 @@ module Beryl::Config
   # Chaque entrée est soit :
   #   * une clé (string)                  → la clé.
   #   * une PAIRE `[active, suivante]`    → la PREMIÈRE (l'active).
-  # La paire signale une rotation en cours : `beryl apply` ne pose que
+  # La paire signale une rotation en cours : `beryl sync` ne pose que
   # l'active ; `beryl rotate-key` promeut la suivante. Les entrées non
   # exploitables sont ignorées.
   def self.deployed_key_names(entries : Array(YAML::Any)) : Array(String)

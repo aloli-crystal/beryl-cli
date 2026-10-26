@@ -45,7 +45,7 @@ operator's workstation*:
   outside the chroot).
 . `beryl follow-install <host>` tails the `bsdinstall.log` from the mfsBSD VM
   in real time.
-. `beryl apply <host>` reconciles the effective config (packages, users, SSH
+. `beryl sync <host>` reconciles the effective config (packages, users, SSH
   keys, sudoers) with the running FreeBSD server — work in progress, currently
   limited to a bootstrap-only cycle.
 

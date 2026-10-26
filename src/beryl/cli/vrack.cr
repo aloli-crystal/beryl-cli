@@ -426,7 +426,7 @@ module Beryl::CLI
       host.connect_user
     end
 
-    # Connexion sudo-capable vers le host (même logique que `beryl apply` :
+    # Connexion sudo-capable vers le host (même logique que `beryl sync` :
     # user sudo-capable, escalade SudoShell si non-root). nil si injoignable / sudo KO.
     private def self.network_shell(host : Beryl::Config::ResolvedHost) : Beryl::Apply::Shell?
       cu = connect_user(host)

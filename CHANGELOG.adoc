@@ -9,6 +9,15 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl apply` devient `beryl sync`
+
+`beryl apply <portée> --apply` bégayait. La commande s'appelle désormais
+`sync` (alias court `sy`) : `beryl sync production --apply`. `apply` et `a`
+restent des alias (tâches planifiées par `auto-close-schedule`, tâches de
+flotte déjà lancées, scripts, habitudes). Les messages, l'aide, les journaux
+(`--sync--`, `[beryl sync]`) et les tâches de flotte (`jobs/sync/`) suivent ;
+le drapeau `--apply` ne change pas, le même sur toutes les commandes.
+
 === DNS : IPv6 du serveur, jamais l'adresse réseau du bloc
 
 Les ADV récents reçoivent un bloc IPv6 `/56` (`…:6600::/56`) ; le plan DNS

@@ -9,7 +9,7 @@ require "./account_utils"
 require "./dns_record"
 require "./fleet_job"
 
-# Sous-commande `beryl apply <host>` : applique sur le serveur FreeBSD
+# Sous-commande `beryl sync <host>` : applique sur le serveur FreeBSD
 # (déjà bootstrappé) les *recettes* déclarées dans le dossier
 # d'orchestration du host.
 #
@@ -50,7 +50,7 @@ module Beryl::CLI::Apply
     positional = [] of String
 
     parser = OptionParser.new do |p|
-      p.banner = "USAGE : beryl apply <host|groupe|domaine|société|a,b,…> [recette] [options]"
+      p.banner = "USAGE : beryl sync <host|groupe|domaine|société|a,b,…> [recette] [options]"
       p.on("-a NAME", "--account=NAME", "Forcer la société (si ambiguë)") { |v| account_hint = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
       p.on("--apply", "Applique réellement les changements (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false }
@@ -71,7 +71,7 @@ module Beryl::CLI::Apply
     # `a, b, c` (espaces après les virgules, coupés par le shell) → `a,b,c`.
     positional = Beryl::CLI::Scope.join_list(positional)
 
-    return Beryl::CLI::FleetJob.status("apply", positional.first?) if status
+    return Beryl::CLI::FleetJob.status("sync", positional.first?) if status
     if jd = job_dir
       return Beryl::CLI::FleetJob.run(jd, Beryl::CLI::FleetJob.self_cmd(config_root))
     end
@@ -82,7 +82,7 @@ module Beryl::CLI::Apply
 
     raw = positional.first?
     unless raw
-      STDERR.puts "beryl : portée non précisée. USAGE : beryl apply <host|domaine|société> [recette]"
+      STDERR.puts "beryl : portée non précisée. USAGE : beryl sync <host|domaine|société> [recette]"
       return EXIT_USAGE
     end
     # 2e positionnel optionnel : une recette nommée à appliquer en
@@ -131,7 +131,7 @@ module Beryl::CLI::Apply
 
     # `--apply` sur plusieurs serveurs : tâche de flotte PAR DÉFAUT (canari puis
     # N à la fois, cf. FleetJob ; N = --parallel, sinon le réglage `parallel:`,
-    # sinon 4), chaque serveur traité par un `beryl apply <fqdn> [recette]
+    # sinon 4), chaque serveur traité par un `beryl sync <fqdn> [recette]
     # --apply` enfant. `--no-parallel` : un après l'autre, sortie à l'écran.
     # En dry-run, le plan reste séquentiel (lecture seule, d'un seul tenant).
     if !sequential && !dry_run && hosts.size > 1
@@ -152,11 +152,11 @@ module Beryl::CLI::Apply
       child_args << "--declared-only" if adhoc_recipe && !hosts.all? { |h| named.includes?(h.fqdn) }
       groups = hosts.compact_map { |h| h.reboot_group.try { |g| {h.fqdn, g} } }.to_h
       log "portée #{raw} : #{fqdns.size} serveurs → canari #{fqdns.first}, puis #{n} en parallèle"
-      dir = Beryl::CLI::FleetJob.create("apply", raw, fqdns, child_args, n, groups,
+      dir = Beryl::CLI::FleetJob.create("sync", raw, fqdns, child_args, n, groups,
         account: hosts.first.account_name, config_root: config_root)
       if detach
         pid = Beryl::CLI::FleetJob.detach(dir, Beryl::CLI::FleetJob.self_cmd(config_root))
-        log "tâche #{File.basename(dir)} lancée en arrière-plan (pid #{pid}) — suivi : `beryl apply --status`"
+        log "tâche #{File.basename(dir)} lancée en arrière-plan (pid #{pid}) — suivi : `beryl sync --status`"
         return EXIT_OK
       end
       return Beryl::CLI::FleetJob.run(dir, Beryl::CLI::FleetJob.self_cmd(config_root))
@@ -636,14 +636,14 @@ module Beryl::CLI::Apply
   # `parameters` de la recette pour CET hôte).
   record RecipeRequest, name : String, arguments : Hash(String, String)
 
-  # Recettes d'entrée du mode ponctuel (`beryl apply <portée> <recette>`) :
+  # Recettes d'entrée du mode ponctuel (`beryl sync <portée> <recette>`) :
   #   * recette DÉCLARÉE dans `apply_recipes:` → ses jeux d'arguments du
   #     host.yml sont repris (sinon une recette paramétrée par le host,
   #     ex. `zfs-scrub: { scrub_schedule: … }`, repartirait de ses défauts) ;
   #   * tirée par une recette déclarée (`requires:`) → sans argument ;
   #   * non déclarée : appliquée telle quelle sur UN serveur nommé (action
   #     ponctuelle, ex. rotation de clé), mais `nil` (serveur sauté) quand
-  #     `restrict` — portée domaine ou société : `beryl apply <société>
+  #     `restrict` — portée domaine ou société : `beryl sync <société>
   #     nginx-lite` ne doit pas installer nginx là où rien ne le demande.
   def self.adhoc_requests(name : String, declared : Array(RecipeRequest), closure : Array(String), restrict : Bool) : Array(RecipeRequest)?
     own = declared.select { |req| req.name == name }
@@ -730,7 +730,7 @@ module Beryl::CLI::Apply
   end
 
   private def self.log(message : String) : Nil
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl apply] #{message}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl sync] #{message}"
   end
 end
 

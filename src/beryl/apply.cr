@@ -1,4 +1,4 @@
-# Moteur `beryl apply` — architecture à 2 niveaux (cf.
+# Moteur `beryl sync` — architecture à 2 niveaux (cf.
 # `apply-recipes-architecture.adoc`) :
 #
 #   * Niveau 1 — PRIMITIVES : tâches élémentaires idempotentes en

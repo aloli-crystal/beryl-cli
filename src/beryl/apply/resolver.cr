@@ -13,7 +13,7 @@ module Beryl::Apply
   #
   # Les recettes d'entrée viennent de la config (`apply_recipes:`,
   # cascadé du merge société → domaine → host) ou d'un argument CLI
-  # one-off (`beryl apply <host> <recette>`). Il n'y a PLUS de dossier
+  # one-off (`beryl sync <host> <recette>`). Il n'y a PLUS de dossier
   # d'orchestration par host : la personnalisation passe par les
   # `parameters:` des recettes.
   #

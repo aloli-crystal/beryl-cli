@@ -57,7 +57,7 @@ module Beryl::CLI::SessionLog
   end
 
   # Sous-commandes en essai à blanc par défaut (`--apply` pour agir).
-  DRY_RUN_BY_DEFAULT = {"apply", "boot-hd", "bootstrap", "dns", "dns-alias", "dns-record", "headscale-authkey",
+  DRY_RUN_BY_DEFAULT = {"sync", "boot-hd", "bootstrap", "dns", "dns-alias", "dns-record", "headscale-authkey",
                         "lock", "monitoring", "os-upgrade", "pg-upgrade", "reboot", "rescue", "scaleway-reinstall", "scan",
                         "tang-enroll", "unlock", "upgrade", "vrack", "wipe"}
 

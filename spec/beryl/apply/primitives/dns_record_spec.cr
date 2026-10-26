@@ -4,7 +4,7 @@ require "../../../support/apply_helpers"
 require "../../../../src/beryl/cli/apply"
 
 describe Beryl::Apply::DnsRecord do
-  it "pose l'enregistrement par la pose DNS de beryl apply, sans toucher à l'hôte" do
+  it "pose l'enregistrement par la pose DNS de beryl sync, sans toucher à l'hôte" do
     calls = [] of {String, String, String, Bool}
     hook = ->(fqdn : String, type : String, target : String, dry_run : Bool) do
       calls << {fqdn, type, target, dry_run}

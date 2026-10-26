@@ -29,7 +29,7 @@ require "./scan"
 #         image téléchargée, scripts déposés (QemuInRescue) ;
 #   3     installation de FreeBSD dans QEMU ;
 #   4     redémarrage sur le disque, attente SSH, monitoring OVH ;
-#   5     recettes (`beryl apply` enchaîné).
+#   5     recettes (`beryl sync` enchaîné).
 module Beryl::CLI::Bootstrap
   EXIT_OK          =  0
   EXIT_USAGE       =  1
@@ -59,7 +59,7 @@ module Beryl::CLI::Bootstrap
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
       p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (ex: dedibox, ovh, scaleway)") { |v| provider_override = v }
       p.on("--apply", "Applique réellement les changements (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false }
-      p.on("--skip-recipes", "Ne pas enchaîner `beryl apply` (les recettes) après l'installation") { chain_apply = false }
+      p.on("--skip-recipes", "Ne pas enchaîner `beryl sync` (les recettes) après l'installation") { chain_apply = false }
       p.on("--no-monitoring", "Laisser coupé le monitoring OVH (sinon remis en service à la fin)") { monitoring = false }
       p.on("-f", "--force", "Bypass le précheck (disques déclarés != physiques)") { force = true }
       p.on("-i URL", "--iso-url=URL", "URL mfsBSD (override)") { |v| iso_url_override = v }
@@ -279,7 +279,7 @@ module Beryl::CLI::Bootstrap
           STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] " \
                       "[Étape 1] mode tang demandé pour #{pool.name} : pool créé en ssh_unlock pour le bootstrap. " \
                       "Lancez `beryl tang-enroll #{host.account_name}/#{host.fqdn}` " \
-                      "après le 1er reboot et `beryl apply` (recette tang-client) pour basculer vers Tang."
+                      "après le 1er reboot et `beryl sync` (recette tang-client) pour basculer vers Tang."
         end
       end
       pool_disks = pool.raid == 10 ? pair_by_model(pool.disks, rescue_disks) : pool.disks
@@ -324,7 +324,7 @@ module Beryl::CLI::Bootstrap
       STDERR.puts "        (déclarez au moins un user dans _default.yml ou le domaine)"
       return EXIT_USAGE
     end
-    # Compte par lequel attendre le FreeBSD installé : le même que `beryl apply`
+    # Compte par lequel attendre le FreeBSD installé : le même que `beryl sync`
     # (`connect_user`), jamais « le premier de la liste ».
     installed_user = host.connect_user
     if installed_user == "root"
@@ -370,7 +370,7 @@ module Beryl::CLI::Bootstrap
       STDERR.puts "  sudoers     :"
       sudoers.each { |s| STDERR.puts "    - #{s}" }
       if chain_apply
-        STDERR.puts "  ensuite     : beryl apply #{Beryl::CLI::AccountUtils.host_ref(host)} --apply (enchaîné ; --skip-recipes pour l'éviter)"
+        STDERR.puts "  ensuite     : beryl sync #{Beryl::CLI::AccountUtils.host_ref(host)} --apply (enchaîné ; --skip-recipes pour l'éviter)"
       end
       STDERR.puts "─" * 60
       STDERR.puts "DRY-RUN : aucune action exécutée."
@@ -486,10 +486,10 @@ module Beryl::CLI::Bootstrap
     # recettes (celles par défaut de la société : relais SMTP, supervision…),
     # pour qu'aucun serveur ne reste « nu », sans courrier ni alertes.
     ref = Beryl::CLI::AccountUtils.host_ref(host)
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 5] enchaîne `beryl apply #{ref} --apply`"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 5] enchaîne `beryl sync #{ref} --apply`"
     code = Beryl::CLI::Apply.run(config_root, ["#{host.account_name}/#{host.domain_name}/#{host.short_name}", "--apply"])
     unless code == Beryl::CLI::Apply::EXIT_OK
-      STDERR.puts "beryl : FreeBSD est installé, mais `apply` a échoué (code #{code}). Corrigez puis relancez : beryl apply #{ref} --apply"
+      STDERR.puts "beryl : FreeBSD est installé, mais `apply` a échoué (code #{code}). Corrigez puis relancez : beryl sync #{ref} --apply"
     end
     code
   rescue ex : Beryl::Config::Root::HostNotFound
@@ -561,7 +561,7 @@ module Beryl::CLI::Bootstrap
                            (f[YAML::Any.new("groups")]?.try(&.as_a?).try(&.compact_map(&.as_s?)) || [] of String)).uniq,
         # `shell` À LA CRÉATION : seulement un /chemin de login. Une RECETTE
         # (ex. `oh-my-zsh`) n'EST PAS un shell de login → on garde le défaut ;
-        # la recette posera le vrai shell (/usr/local/bin/zsh) au 1ᵉʳ `beryl apply`.
+        # la recette posera le vrai shell (/usr/local/bin/zsh) au 1ᵉʳ `beryl sync`.
         # Défaut = celui de FreeBSD (`pw`, et root depuis 14.0) : /bin/sh, pas csh
         # (piège des redirections Bourne, `2>&1` y crée un fichier `1`).
         shell: e.shell_path || "/bin/sh",

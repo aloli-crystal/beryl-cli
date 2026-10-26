@@ -39,11 +39,11 @@ module Beryl::Apply
     # et `order:` dit ce qui doit passer avant quoi (ex. le dépôt pkg avant la
     # recette qui installe son paquet). Chaque nom figure dans `requires:`.
     getter order : Array(String)
-    # `requires_vrack: true` → recette ÉCARTÉE par `beryl apply` si le host n'a
+    # `requires_vrack: true` → recette ÉCARTÉE par `beryl sync` si le host n'a
     # pas d'IP vRack (ex. `pkg-repo-acme` joint le builder sur le vRack).
     getter requires_vrack : Bool
     # `systems: [linux]` (ou `[freebsd, linux]`) : systèmes pris en charge.
-    # FreeBSD seul par défaut ; `beryl apply` ÉCARTE une recette hors de la
+    # FreeBSD seul par défaut ; `beryl sync` ÉCARTE une recette hors de la
     # liste du système de l'hôte (ex. les recettes des défauts de la société
     # sur une VM Linux confiée par un client).
     getter systems : Array(String)

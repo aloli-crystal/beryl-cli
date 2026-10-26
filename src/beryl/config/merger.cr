@@ -93,7 +93,7 @@ module Beryl::Config
     # « toutes les arrays s'appendent » pour éviter les surprises
     # (disks, ssh_keys qui doivent rester override).
     def self.append_array_path?(path : String) : Bool
-      # `apply_recipes` (recettes beryl apply) cascade comme packages :
+      # `apply_recipes` (recettes beryl sync) cascade comme packages :
       # domaine → groupe → host s'additionnent (ssh-hardening au domaine
       # + headscale-node sur un host = les deux).
       {"freebsd.packages", "freebsd.sudoers", "freebsd.users", "apply_recipes"}.includes?(path)
@@ -131,7 +131,7 @@ module Beryl::Config
     # user présent des deux côtés, on applique un deep_merge (scalaires
     # overridés). `ssh_keys` est remplacé par la version du niveau
     # supérieur (pas append, cohérent avec la sémantique déclarative
-    # voulue pour `beryl apply`).
+    # voulue pour `beryl sync`).
     def self.merge_users(base : Array(YAML::Any), override : Array(YAML::Any)) : Array(YAML::Any)
       fields = {} of String => Hash(YAML::Any, YAML::Any)
       order = [] of String

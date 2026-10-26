@@ -464,7 +464,7 @@ module Beryl::CLI::OsUpgrade
     refresh_setuid_baseline(shell, host)
     if shell.exec("test -d /jails/.base", raise_on_error: false).success?
       log "#{host.fqdn} : des thin jails partagent /jails/.base → rafraîchissez-le " \
-          "(`beryl apply #{host.short_name} jail-base`) puis redémarrez les jails (`service jail restart`)."
+          "(`beryl sync #{host.short_name} jail-base`) puis redémarrez les jails (`service jail restart`)."
     end
   end
 

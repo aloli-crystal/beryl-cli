@@ -26,7 +26,7 @@ require "./fleet_job" # canari + parallèle + --status (portée multi-serveurs)
 #   * Un host `installed: false` (pas encore bootstrappé) est sauté.
 #
 # Connexion : premier user de `connect_users` qui répond (admin… puis root),
-# exécution en root via SudoShell (comme `beryl apply`). FreeBSD uniquement.
+# exécution en root via SudoShell (comme `beryl sync`). FreeBSD uniquement.
 module Beryl::CLI
   module PkgOps
     # Shell root sur le host via le premier user de connexion qui répond ; nil

@@ -327,7 +327,7 @@ describe "Beryl::Apply::PoudriereBuild (overlays)" do
     script = Beryl::Apply::PoudriereBuild.scheduled_script("15.1", "amd64", "default", ov,
       ["/e/globex-pkglist", "/e/initech-pkglist"], "/pkg", "/e/reapply.sh")
 
-    it "partage le verrou de beryl apply et le libère en sortie" do
+    it "partage le verrou de beryl sync et le libère en sortie" do
       script.should contain("if [ -f /pkg/.beryl-build-15.lock ]; then")
       script.should contain("trap 'rm -f /pkg/.beryl-build-15.lock' EXIT")
     end
@@ -338,7 +338,7 @@ describe "Beryl::Apply::PoudriereBuild (overlays)" do
       script.should_not contain("git -C /p/globex-ports fetch")
     end
 
-    it "lance le même build que beryl apply" do
+    it "lance le même build que beryl sync" do
       script.should contain("poudriere bulk -j fbsd151amd64 -p default -O globex -O initech -f /e/globex-pkglist -f /e/initech-pkglist")
       script.should contain("/e/reapply.sh \"$PTDIR\"")
       script.should contain("ln -sfh fbsd151amd64-default /pkg/FreeBSD:15:amd64")
