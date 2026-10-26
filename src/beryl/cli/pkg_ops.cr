@@ -578,13 +578,33 @@ module Beryl::CLI
       failed = [] of String
       services.each do |svc|
         PkgOps.log("upgrade", "#{h.short_name} : service #{svc} restart (paquet ou bibliothèque mis à jour)")
-        r = shell.exec("service #{Process.quote(svc)} restart", raise_on_error: false)
-        unless r.success?
+        if cut = DISRUPTIVE_RESTARTS[svc]?
+          PkgOps.log("upgrade", "#{h.short_name} : ⚠ relancer #{svc} #{cut}")
+        end
+        # Détachée de la session ssh (sinon un démon relancé la retient sans
+        # fin : strongswan sur pkg, 26 oct. 2026) et bornée dans le temps.
+        r = shell.exec(Beryl::Apply::Primitive.service_command(svc, "restart", timeout: RESTART_TIMEOUT), raise_on_error: false)
+        if r.exit_code == TIMEOUT_EXIT
+          PkgOps.log("upgrade", "#{h.short_name} : ⚠ #{svc} restart sans réponse après #{RESTART_TIMEOUT} s — vérifiez `service #{svc} status`")
+          failed << svc
+        elsif !r.success?
           PkgOps.log("upgrade", "#{h.short_name} : ⚠ #{svc} restart en échec : #{(r.stderr + r.stdout).strip.lines.last?}")
           failed << svc
         end
       end
       {failed: failed, note: " ; relancé(s) : #{(services - failed).join(", ")}"}
     end
+
+    # Relances qui coupent un accès réseau le temps de redémarrer : annoncées
+    # avant d'être faites.
+    DISRUPTIVE_RESTARTS = {
+      "openvpn"    => "coupe les tunnels OpenVPN quelques secondes",
+      "strongswan" => "coupe les tunnels IPsec quelques secondes",
+      "tailscaled" => "coupe le réseau Tailscale quelques secondes",
+    }
+
+    # Délai maximal d'une relance (secondes) ; `timeout(1)` sort alors en 124.
+    RESTART_TIMEOUT = 120
+    TIMEOUT_EXIT    = 124
   end
 end

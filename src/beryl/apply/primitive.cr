@@ -187,10 +187,12 @@ module Beryl::Apply
     # alors indéfiniment la fin d'un démon qui ne finit jamais (cas réel
     # le 6 oct. 2026). Les descripteurs du démon pointent ici vers un
     # fichier temporaire, relu ensuite : la sortie et le code de retour de
-    # `service` sont conservés.
-    def self.service_command(svc : String, action : String) : String
+    # `service` sont conservés. `timeout` (secondes) borne une action qui ne
+    # rend pas la main : `timeout(1)` du système de base sort alors en 124.
+    def self.service_command(svc : String, action : String, timeout : Int32? = nil) : String
+      limit = timeout ? "timeout #{timeout} " : ""
       "out=$(mktemp \"${TMPDIR:-/tmp}/beryl-service.XXXXXX\") && " \
-      "{ service #{Process.quote(svc)} #{action} </dev/null >\"$out\" 2>&1; rc=$?; " \
+      "{ #{limit}service #{Process.quote(svc)} #{action} </dev/null >\"$out\" 2>&1; rc=$?; " \
       "cat \"$out\"; rm -f \"$out\"; exit $rc; }"
     end
 

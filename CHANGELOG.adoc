@@ -9,6 +9,16 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl upgrade --apply` : plus de blocage à la relance d'un service
+
+La relance d'un service touché par la mise à jour passe par la même
+commande détachée que les recettes : un démon relancé ne retient plus la
+session ssh (`beryl upgrade` restait bloqué après `service strongswan
+restart` sur pkg, le 26 oct. 2026, alors que strongswan tournait). Chaque
+relance est bornée à 120 s (`timeout(1)`), puis signalée « sans réponse ».
+Une relance qui coupe un tunnel (strongswan, openvpn, tailscaled) est
+annoncée avant d'être faite.
+
 === `{{ vrack_subnet }}` : le réseau du vRack pour les recettes
 
 `beryl apply` expose `vrack.subnet` (héritable, en général dans le
