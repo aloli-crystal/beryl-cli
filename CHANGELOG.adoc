@@ -9,6 +9,14 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Bootstrap : shell par défaut `/bin/sh` (celui de FreeBSD), plus `/bin/csh`
+
+Un user sans `shell:` en chemin (ou avec une recette, ex. `oh-my-zsh`, posée
+au 1ᵉʳ apply) était créé en `/bin/csh`. Il l'est désormais en `/bin/sh`,
+comme le fait FreeBSD (`pw`, et root depuis 14.0) : plus de piège des
+redirections Bourne de csh (`2>&1` y crée un fichier `1`). Comptes déjà
+créés : inchangés. Gabarit de `beryl init` aligné (`deploy` en `/bin/sh`).
+
 === `apply_recipes` : la recette réglée remplace la recette nue
 
 Une recette NUE dans les défauts (`- zfs-scrub`, « avec ses défauts ») et la

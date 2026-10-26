@@ -303,7 +303,7 @@ module Beryl::CLI::Init
           - name: deploy
             primary_group: www
             secondary_groups: []
-            shell: /bin/csh
+            shell: /bin/sh
       YAML
   end
 end

@@ -544,7 +544,9 @@ module Beryl::CLI::Bootstrap
         # `shell` À LA CRÉATION : seulement un /chemin de login. Une RECETTE
         # (ex. `oh-my-zsh`) n'EST PAS un shell de login → on garde le défaut ;
         # la recette posera le vrai shell (/usr/local/bin/zsh) au 1ᵉʳ `beryl apply`.
-        shell: e.shell_path || "/bin/csh",
+        # Défaut = celui de FreeBSD (`pw`, et root depuis 14.0) : /bin/sh, pas csh
+        # (piège des redirections Bourne, `2>&1` y crée un fichier `1`).
+        shell: e.shell_path || "/bin/sh",
         ssh_keys: ssh_keys,
       )
     end
