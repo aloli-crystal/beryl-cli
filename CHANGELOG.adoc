@@ -9,6 +9,15 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl scan` : DNS posé par défaut, `--no-dns` pour s'en passer
+
+Le scan enchaîne désormais la pose DNS (forward via le `dns_provider` de la
+zone, reverse IPv4/IPv6, rename chez l'hébergeur), au lieu de l'attendre de
+`--dns` : elle n'est plus oubliée après le scan d'un nouveau serveur.
+Idempotent (un reverse déjà posé est reconnu), toujours en best-effort (un
+échec DNS n'arrête pas le scan). `--no-dns` s'en passe ; `--dns` reste
+accepté.
+
 === `poudriere-build` : paquets périmés retirés après chaque build
 
 `poudriere bulk` ne supprime rien : un port retiré ou renommé laissait son

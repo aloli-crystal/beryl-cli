@@ -21,10 +21,12 @@ require "./machine_kind"
 # détecte les disques, propose un YAML pour le fichier host.
 #
 # Forme typique :
-#   beryl scan ns3156789.ip-51-83-6.eu --domain=example.net --dns --apply
+#   beryl scan ns3156789.ip-51-83-6.eu --domain=example.net --apply
 #
-# Avec `--dns` : pose les records DNS (CNAME vers le FQDN OVH) + le
-# reverse DNS IPv4/IPv6.
+# Par défaut, pose aussi les records DNS (forward via le dns_provider de la
+# zone) + le reverse DNS IPv4/IPv6, pour ne pas l'oublier après le scan
+# (idempotent : un nouveau scan d'un host en place ne change rien).
+# `--no-dns` s'en passe ; `--dns` reste accepté.
 # Défaut : dry-run (affiche le YAML sans rien écrire). Avec `--apply` :
 # écrit ~/.config/beryl/<domaine>/<nom>.yml (nom court
 # demandé interactivement ou via --hostname).
@@ -141,7 +143,7 @@ module Beryl::CLI::Scan
     zone_flag : String? = nil
     provider_override : String? = nil
     server_id_flag : String? = nil
-    dns_setup = false
+    dns_setup = true
     dry_run = true
     account_hint : String? = nil
     domain_hint : String? = nil
@@ -156,15 +158,16 @@ module Beryl::CLI::Scan
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
       p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (ex: dedibox, ovh, scaleway)") { |v| provider_override = v }
       p.on("-I ID", "--server-id=ID", "ID serveur côté hébergeur (ex: Dedibox entier, Scaleway UUID). Inutile pour OVH (le FQDN est le service_name)") { |v| server_id_flag = v }
-      p.on("--apply", "Applique : écrit le host.yml (chemin auto) + actions --dns (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false; write_auto = true }
+      p.on("--apply", "Applique : écrit le host.yml (chemin auto) + DNS (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false; write_auto = true }
       p.on("-W PATH", "--write-to=PATH", "Écrit dans un chemin explicite (implique --apply)") { |v| write_path = File.expand_path(v, home: true); dry_run = false }
       p.on("-k LIST", "--disks=LIST", "Disques du pool zroot (ex: sda,sdb | 'all')") { |v| disks_flag = v }
       p.on("-r N", "--raid=N", "Niveau RAID du pool zroot (0|1|5|6|7|10)") { |v| raid_flag = v }
       p.on("--pool=SPEC", "Pool additionnel NAME:DISKS:RAID (répétable, ex: zdata:sda,sdb:10)") { |v| pool_specs << v }
       p.on("-H NAME", "--hostname=NAME", "Nom court à poser (défaut : nom court du FQDN)") { |v| hostname_flag = v }
       p.on("--host=NAME", "Alias de --hostname") { |v| hostname_flag = v }
-      p.on("-z ZONE", "--zone=ZONE", "Zone DNS pour --dns (défaut : le domaine)") { |v| zone_flag = v }
-      p.on("-D", "--dns", "Pose records DNS + reverse + rename OVH") { dns_setup = true }
+      p.on("-z ZONE", "--zone=ZONE", "Zone DNS (défaut : le domaine)") { |v| zone_flag = v }
+      p.on("-D", "--dns", "Pose records DNS + reverse + rename OVH (défaut)") { dns_setup = true }
+      p.on("--no-dns", "Ne pose pas les records DNS") { dns_setup = false }
       p.on("-N", "--non-interactive", "Refuse toute invite") { non_interactive = true }
       p.on("--no-commit", "N'auto-commite pas le YAML dans le dépôt git de config") { no_commit = true }
       p.on("--discover", "Découvre les serveurs OVH du compte et écrit un host.yml minimal par NOUVEAU serveur (société : positionnel ou --account). Sans SSH ni rescue.") { discover = true }
@@ -242,7 +245,7 @@ module Beryl::CLI::Scan
       server_id_flag = answer
     end
 
-    # --dns : pose le nommage DNS AVANT le scan disques, mais en
+    # DNS (défaut, sauf --no-dns) : pose le nommage DNS AVANT le scan disques, mais en
     # BEST-EFFORT. Le DNS est SECONDAIRE par rapport au scan + write :
     # un échec ici (zone introuvable, API qui 404…) affiche un warning
     # et laisse le scan continuer vers la détection disques + l'écriture
