@@ -144,8 +144,9 @@ module Beryl::CLI::Reboot
 
     if has_encrypted && !skip_unlock
       log "4 enchaînement avec beryl unlock pour les #{encrypted_pools.size} pool(s) chiffré(s)"
-      # On ré-utilise la commande unlock comme une fonction.
-      unlock_args = ["#{host.account_name}/#{host.fqdn}"]
+      # On ré-utilise la commande unlock comme une fonction. `--apply` : unlock
+      # est en essai à blanc par défaut, et ce redémarrage-ci a bien eu lieu.
+      unlock_args = ["#{host.account_name}/#{host.fqdn}", "--apply"]
       ec = Beryl::CLI::Unlock.run(config_root, unlock_args)
       if ec != Beryl::CLI::Unlock::EXIT_OK
         STDERR.puts "beryl : reboot OK mais unlock a échoué (code #{ec}). Réessayez avec : beryl unlock #{host.account_name}/#{host.fqdn}"

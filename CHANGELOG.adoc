@@ -9,6 +9,14 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `reboot` et `os-upgrade` : le déverrouillage enchaîné agit vraiment
+
+Après le redémarrage, `reboot` (étape 4) et `os-upgrade` appelaient
+`unlock` sans `--apply` : depuis qu'`unlock` est en essai à blanc par
+défaut, ils n'affichaient qu'un plan, et les pools chiffrés restaient
+verrouillés (vu sur hoth : `zbackup` fermé, `tang-enroll` ensuite refusé).
+Ils passent désormais `--apply`.
+
 === `beryl vrack --attach` : essai à blanc par défaut, `--apply` pour rattacher
 
 `--attach` rattachait le serveur au vRack sans attendre de `--apply`,

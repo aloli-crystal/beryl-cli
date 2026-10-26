@@ -568,7 +568,8 @@ module Beryl::CLI::OsUpgrade
       if host.encrypted?
         log "#{host.fqdn} : chiffré → déverrouillage post-reboot (beryl unlock)…"
         Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::RUNNING, "revenu en #{new} — déverrouillage", new)
-        unless Beryl::CLI::Unlock.run(config_root, [host.fqdn]) == 0
+        # `--apply` : unlock est en essai à blanc par défaut.
+        unless Beryl::CLI::Unlock.run(config_root, ["#{host.account_name}/#{host.fqdn}", "--apply"]) == 0
           Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::FAILED, "revenu en #{new}, mais déverrouillage en échec (beryl unlock #{host.short_name})", new)
           return EXIT_FAILED
         end
