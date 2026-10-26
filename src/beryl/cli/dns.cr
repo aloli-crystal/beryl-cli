@@ -70,6 +70,14 @@ module Beryl::CLI
       host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
       host.apply_all_credentials_to_env!
 
+      # Portée multiple : un serveur dont la zone n'est pas gérée par beryl
+      # (pas de `dns_provider`, ex. domaine d'un client) est sauté, pas en échec.
+      if Beryl::CLI::Scope.fanning? && host.dns_provider.to_s.empty?
+        STDERR.puts "beryl dns : #{host.fqdn} sauté — aucun `dns_provider` pour #{host.domain_name} (zone non gérée par beryl)."
+        Beryl::CLI::Scope.warn("sauté : zone #{host.domain_name} sans dns_provider")
+        return EXIT_OK
+      end
+
       # Cœur partagé avec `scan --dns` (voir Beryl::CLI::DnsApply) : forward
       # via le dns_provider de la zone, reverse + rename via le compute.
       result = Beryl::CLI::DnsApply.for_host(host, hostname_flag, zone_flag, dry_run, non_interactive)

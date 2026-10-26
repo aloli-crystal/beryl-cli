@@ -23,6 +23,15 @@ module Beryl::CLI::Scope
     @@warnings << message
   end
 
+  # Vrai pendant le rejeu d'une portée multiple : une commande peut alors
+  # SAUTER un serveur hors de son ressort (avertissement) au lieu d'échouer ;
+  # nommé seul, il garde son erreur.
+  @@fanning = false
+
+  def fanning? : Bool
+    @@fanning
+  end
+
   # Recolle les positionnels de tête coupés aux virgules par le shell
   # (`["ah,", "be,", "ga", "x"]` → `["ah,be,ga", "x"]`). Pur.
   def join_list(positional : Array(String)) : Array(String)
@@ -87,6 +96,7 @@ module Beryl::CLI::Scope
                & : Array(String) -> Int32) : Int32
     STDERR.puts "[beryl #{cmd}] portée #{scope} → #{refs.size} serveur(s) : #{refs.map { |r| r.split('/').last }.join(", ")}"
     warned = {} of String => Array(String)
+    @@fanning = true
     results = refs.map_with_index do |ref, i|
       STDERR.puts
       STDERR.puts "──── beryl #{cmd} #{ref} (#{i + 1}/#{refs.size}) ────"
@@ -96,6 +106,7 @@ module Beryl::CLI::Scope
       {ref, code}
     end
     @@warnings.clear
+    @@fanning = false
     failed = results.reject { |_, code| code == 0 }
     STDERR.puts
     if failed.empty?

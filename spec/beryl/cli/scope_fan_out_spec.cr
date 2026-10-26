@@ -99,6 +99,15 @@ describe Beryl::CLI::Scope do
     end
   end
 
+  describe ".fanning?" do
+    it "vrai pendant le rejeu d'une portée, faux ensuite" do
+      seen = [] of Bool
+      Beryl::CLI::Scope.fan_out("test", FAN_FIXTURE, ["web"], ["web"]) { |_| seen << Beryl::CLI::Scope.fanning?; 0 }
+      seen.should eq [true, true]
+      Beryl::CLI::Scope.fanning?.should be_false
+    end
+  end
+
   describe ".warnings_line" do
     it "serveur court puis ses avertissements" do
       line = Beryl::CLI::Scope.warnings_line({"quimeo/quimeo.net/no" => ["reverse IPv6", "reverse IPv4"]})
