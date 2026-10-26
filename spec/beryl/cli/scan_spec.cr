@@ -417,6 +417,21 @@ describe Beryl::CLI::Scan do
     end
   end
 
+  describe ".default_raid" do
+    it "miroir sur deux disques, RAID 10 sur un nombre pair à partir de 4, stripe sinon" do
+      Beryl::CLI::Scan.default_raid(1).should eq 0
+      Beryl::CLI::Scan.default_raid(2).should eq 1
+      Beryl::CLI::Scan.default_raid(3).should eq 0
+      Beryl::CLI::Scan.default_raid(4).should eq 10
+      Beryl::CLI::Scan.default_raid(5).should eq 0
+      Beryl::CLI::Scan.default_raid(8).should eq 10
+    end
+
+    it "le défaut fait toujours partie des niveaux possibles" do
+      (1..12).each { |n| Beryl::Config::Zpool.possible_levels(n).should contain(Beryl::CLI::Scan.default_raid(n)) }
+    end
+  end
+
   describe ".stripe_warning" do
     it "avertit pour un zroot en stripe sur plusieurs disques" do
       w = Beryl::CLI::Scan.stripe_warning("zroot", 4, 0).not_nil!

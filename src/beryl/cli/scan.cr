@@ -976,12 +976,20 @@ module Beryl::CLI::Scan
   #
   # Format cohérent avec `pick_disks_for` : options entre `(…)`,
   # défaut entre `[…]` avec espaces français autour des `:`.
-  # Niveau RAID par défaut : toujours 0 (stripe), convention beryl —
-  # backups bétonnés > redondance disque. L'opérateur qui veut
-  # autre chose doit le dire explicitement, pas de magie sur le
-  # nombre de disques (un défaut qui change selon le contexte = UX
-  # imprévisible).
-  DEFAULT_RAID = 0
+  # Stripe (0) : seul niveau possible sur un disque.
+  STRIPE = 0
+
+  # Niveau RAID proposé par défaut, jamais un stripe quand une redondance
+  # simple existe (un stripe de N disques multiplie par N le risque de tout
+  # perdre) : miroir (1) sur deux disques, RAID 10 (miroirs agrégés, paires
+  # formées au bootstrap) sur un nombre PAIR de disques à partir de 4 ;
+  # stripe (0) sinon — un nombre impair de 3 et plus appelle un raidz, dont
+  # le niveau dépend de l'usage et se donne explicitement. Pur.
+  def self.default_raid(count : Int32) : Int32
+    return 1 if count == 2
+    return 10 if count >= 4 && count.even?
+    STRIPE
+  end
 
   private def self.pick_raid_for(pool_name : String, count : Int32, flag : String?, non_interactive : Bool) : Int32
     # Un seul disque → aucune redondance possible : le vdev est
@@ -990,13 +998,13 @@ module Beryl::CLI::Scan
     # devient alors une erreur claire plutôt qu'un échec tardif au
     # `zpool create`.
     if count <= 1
-      if flag && validate_raid!(flag) != DEFAULT_RAID
+      if flag && validate_raid!(flag) != STRIPE
         raise ArgumentError.new(
           "#{pool_name} : un seul disque sélectionné → RAID 0 (stripe) obligatoire, " \
           "--raid=#{flag} impossible (mirror/raidz exigent au moins 2 disques)"
         )
       end
-      return DEFAULT_RAID
+      return STRIPE
     end
     if flag
       level = validate_raid_for!(flag, count)
@@ -1004,14 +1012,14 @@ module Beryl::CLI::Scan
       return level
     end
     if non_interactive
-      stripe_warning(pool_name, count, DEFAULT_RAID).try { |w| STDERR.puts w }
-      return DEFAULT_RAID
+      stripe_warning(pool_name, count, default_raid(count)).try { |w| STDERR.puts w }
+      return default_raid(count)
     end
     legend = Beryl::Config::Zpool.legend(Beryl::Config::Zpool.possible_levels(count))
     loop do
       level = ask_until_valid(
-        "Niveau RAID de #{pool_name} sur #{count} disques (#{legend}) [défaut : #{DEFAULT_RAID}] : ",
-        default: DEFAULT_RAID.to_s,
+        "Niveau RAID de #{pool_name} sur #{count} disques (#{legend}) [défaut : #{default_raid(count)}] : ",
+        default: default_raid(count).to_s,
       ) { |ans| validate_raid_for!(ans, count) }
       warning = stripe_warning(pool_name, count, level)
       return level unless warning

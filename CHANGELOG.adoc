@@ -14,6 +14,14 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 La question « Voulez-vous lancer le DNS de … ? » suivait directement la
 ligne du commit de la fiche ; une ligne vide la détache du journal.
 
+=== `beryl scan` : miroir ou RAID 10 proposé par défaut
+
+Le niveau RAID proposé (question, et `--non-interactive`) était toujours 0
+(stripe). Il est désormais : 1 (miroir) sur deux disques, 10 sur un nombre
+pair de disques à partir de 4 (paires formées au bootstrap), 0 sinon — un
+seul disque, ou un nombre impair de 3 et plus, qui appelle un raidz dont le
+niveau se donne explicitement.
+
 === Étapes du journal numérotées à partir de 1, par commande
 
 Les journaux reprenaient les numéros des spécifications : la première étape
