@@ -151,7 +151,9 @@ module Beryl::CLI
       ovh = Beryl::CLI::Credentials.ovh_client
       plan = Beryl::CLI::DnsSetup.build_plan(ovh, service_name, short, zone)
       ipv4 = plan.ipv4
-      ipv6 = plan.ipv6
+      # La fiche fait foi (`ovh.ipv6`, l'adresse posée par netif-ipv6) ; à défaut,
+      # l'adresse déduite du bloc de l'API.
+      ipv6 = host.ovh_ipv6 || plan.ipv6
 
       # --- plan ------------------------------------------------------------
       STDERR.puts

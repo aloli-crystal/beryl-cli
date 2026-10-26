@@ -9,6 +9,14 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== DNS : IPv6 du serveur, jamais l'adresse réseau du bloc
+
+Les ADV récents reçoivent un bloc IPv6 `/56` (`…:6600::/56`) ; le plan DNS
+n'ajoutait `::1` que pour un `/64` et aurait posé l'AAAA et le reverse sur
+`…:6600::`, l'adresse réseau (anycast routeur). L'adresse vient désormais de
+la fiche (`ovh.ipv6`, celle que pose `netif-ipv6`), et à défaut tout bloc
+jusqu'au `/64` terminé par `::` donne `::1`.
+
 === Portée sur toutes les commandes « un serveur »
 
 `dns`, `rescue`, `wipe`, `bootstrap`, `scan`, `boot-hd`, `reboot`, `unlock`,

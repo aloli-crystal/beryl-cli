@@ -57,12 +57,12 @@ module Beryl::CLI::DnsSetup
   end
 
   # À partir d'un bloc CIDR IPv6 (ex. "2001:41d0:2:6e01::/64"), déduit
-  # l'adresse usable habituelle chez OVH : base + "::1".
+  # l'adresse usable habituelle chez OVH : base + "::1". Vaut pour tout bloc
+  # jusqu'au /64 : les ADV récents reçoivent un /56 ("…:6600::/56"), dont
+  # l'adresse « :: » est le réseau (anycast routeur), jamais le serveur.
   def self.derive_ipv6_address(base : String, cidr : String) : String
-    # Si le bloc se termine par ::/64, l'IP usable standard OVH est
-    # ::1 (ou plutôt l'adresse que le serveur utilise effectivement).
-    # Faute d'info précise, on pose ::1 qui marche dans 99% des cas.
-    if cidr.ends_with?("/64") && base.ends_with?("::")
+    prefix = cidr.split('/')[1]?.try(&.to_i?)
+    if prefix && prefix <= 64 && base.ends_with?("::")
       base + "1"
     else
       base
