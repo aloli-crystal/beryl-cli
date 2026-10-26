@@ -9,6 +9,14 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `info --refresh` : commit des fiches en attente, et « rien à committer »
+
+L'auto-commit ne prenait que les fiches modifiées par CE passage : celles
+récrites par un `--refresh` antérieur (avant l'auto-commit) restaient en
+attente, sans rien dire. Toutes les fiches récrites sont désormais confiées
+à git, qui ne commite que celles qui diffèrent du dernier commit, et
+l'indique (« rien à committer ») sinon.
+
 === `beryl vrack <portée>` sans option : l'état seul
 
 Sur un serveur déjà rattaché, `beryl vrack` écrivait dans la fiche (nom,

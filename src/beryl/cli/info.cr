@@ -714,7 +714,8 @@ module Beryl::CLI
         end
         puts "société #{account} : index des serveurs OVH (API)…"
         index = ovh.ip_to_service_index
-        changed = [] of {String, String} # {chemin, nom court} des fiches modifiées
+        written = [] of String           # fiches récrites (git ne commite que celles qui diffèrent du dernier commit)
+        changed = [] of {String, String} # {chemin, nom court} des fiches modifiées par CE passage
         hosts.each do |h|
           sn = h.ovh_service_name
           if sn.nil?
@@ -741,17 +742,21 @@ module Beryl::CLI
             ovh_block(sn, detail[:commercial], detail[:rack], detail[:ipv4], ipv6, price, ipv6_gateway, detail[:datacenter], ipv6_block))
           content = upsert_block(content, "hardware", hardware_block(hw)) if hw
           Beryl::CLI::Fmt.write(path, content)
+          written << path
           changed << {path, h.short_name} if File.read(path) != before
           ok += 1
           puts "  ✓ #{h.short_name} : #{detail[:commercial] || "gamme ?"}" \
                "#{detail[:rack] ? " [#{detail[:rack]}]" : ""}#{price ? " — #{price} €/mois" : ""} — " \
                "#{hw ? "#{hw.cores}c/#{hw.threads}t, #{hw.ram_gb} Go, #{hw.disks.size} grp disque(s)" : "specs indisponibles"}"
         end
-        # Fiches réellement modifiées, commitées ensemble (seulement elles :
-        # le reste du dépôt de config n'est pas touché).
-        unless changed.empty?
-          Beryl::CLI::ConfigGit.commit(changed.map(&.[0]),
-            "info --refresh : #{changed.size} fiche(s) mise(s) à jour par l'API OVH (#{changed.map(&.[1]).join(", ")})", no_commit)
+        # Fiches récrites, confiées à git ensemble : il ne commite que celles qui
+        # diffèrent du dernier commit — y compris les modifications laissées par
+        # un --refresh antérieur — et dit « rien à committer » sinon. Le reste du
+        # dépôt de config n'est pas touché.
+        unless written.empty?
+          names = changed.empty? ? "fiches déjà à jour, modifications en attente" : changed.map(&.[1]).join(", ")
+          Beryl::CLI::ConfigGit.commit(written,
+            "info --refresh : fiches mises à jour par l'API OVH (#{names})", no_commit)
         end
       end
       puts
