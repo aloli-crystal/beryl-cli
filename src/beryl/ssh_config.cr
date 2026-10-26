@@ -51,9 +51,9 @@ module Beryl::SshConfig
   end
 
   # Contenu des fichiers, par société (noms triés, hosts triés par FQDN).
-  # Bloc commun au FQDN et au nom court : adresse, port, rebond ; bloc du
-  # nom court seul : user et clé (le FQDN garde ceux de votre config, ex.
-  # `Host *.example.net`). Nom court présent dans deux sociétés : FQDN seul.
+  # Un bloc par host, commun au FQDN et au nom court : adresse, port, user et
+  # clé de la fiche, rebond (un user en ligne de commande, `ssh deploy@ke`,
+  # l'emporte toujours). Nom court présent dans deux sociétés : FQDN seul.
   # Hosts en `ssh_config: false` écartés.
   def render(hosts : Array(Beryl::Config::ResolvedHost)) : Hash(String, String)
     hosts = hosts.select(&.ssh_config?)
@@ -98,19 +98,17 @@ module Beryl::SshConfig
     # (known_hosts déjà rempli, une seule entrée par serveur).
     io << "  HostKeyAlias " << h.fqdn << "\n" unless address == h.fqdn
     io << "  Port " << h.port << "\n" unless h.port == 22
+    io << "  User " << h.connect_user << "\n"
+    if key = h.identity_file
+      io << "  IdentityFile " << key << "\n"
+      io << "  IdentitiesOnly yes\n"
+    end
     if pc = h.proxy_command
       io << "  ProxyCommand " << pc << "\n"
     elsif jumps.size == 1
       io << "  ProxyJump " << jumps.first << "\n"
     elsif jumps.size > 1
       io << "  ProxyCommand " << proxy_command(jumps) << "\n"
-    end
-    return unless short
-    io << "Host " << h.short_name << "\n"
-    io << "  User " << h.connect_user << "\n"
-    if key = h.identity_file
-      io << "  IdentityFile " << key << "\n"
-      io << "  IdentitiesOnly yes\n"
     end
   end
 

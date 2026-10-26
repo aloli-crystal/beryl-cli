@@ -68,12 +68,13 @@ describe Beryl::SshConfig do
     out = files["initech"]
     out.should contain("# app1.initech.example — caché, via zb, puis za, puis zc\n" \
                        "Host app1 app1.initech.example\n  HostName 192.168.42.11\n" \
-                       "  HostKeyAlias app1.initech.example\n  ProxyCommand sh -c '")
-    out.should contain("Host app1\n  User admin\n  IdentityFile /keys/ops.key\n  IdentitiesOnly yes\n")
-    out.should contain("# pub.initech.example — public\nHost pub pub.initech.example\n  HostName pub.initech.example\nHost pub\n  User admin\n")
+                       "  HostKeyAlias app1.initech.example\n  User admin\n  IdentityFile /keys/ops.key\n" \
+                       "  IdentitiesOnly yes\n  ProxyCommand sh -c '")
+    out.should contain("# pub.initech.example — public\nHost pub pub.initech.example\n  HostName pub.initech.example\n  User admin\n")
+    out.lines.count(&.starts_with?("Host ")).should eq 6 # un bloc par host (za, zb, zc, app1, pub, viaother)
     out.should contain("# za.initech.example — bastion\nHost za za.initech.example\n")
     out.should contain("Host viaother viaother.initech.example\n  HostName 192.168.42.40\n" \
-                       "  HostKeyAlias viaother.initech.example\n  ProxyJump admin@jump.other.example\n")
+                       "  HostKeyAlias viaother.initech.example\n  User admin\n  ProxyJump admin@jump.other.example\n")
     out.should_not contain("HostKeyAlias pub.initech.example")
     out.should_not contain("old1") # groupe `anciens` en ssh_config: false
   end

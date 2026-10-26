@@ -9,6 +9,14 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl ssh-config` : un seul bloc par serveur
+
+Le nom court avait un second bloc (`Host ke` : user et clé), le FQDN
+laissant ces réglages à votre config (`Host *.example.net`). Un seul bloc
+par serveur, commun au FQDN et au nom court, porte désormais user et clé
+de la fiche ; un user en ligne de commande (`ssh deploy@ke`) l'emporte.
+Messages de l'essai à blanc reformulés (« … serait ajouté en tête de … »).
+
 === `beryl ssh-config` : un fichier par société, tous les hosts
 
 `~/.ssh/beryl.conf` ne listait que les hosts cachés. `beryl ssh-config`

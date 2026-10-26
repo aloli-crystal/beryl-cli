@@ -54,7 +54,6 @@ module Beryl::CLI::SshConfig
     else
       Dir.mkdir_p(ssh_dir, 0o700)
     end
-    verb = dry_run ? "serait" : "✓"
     files.each do |account, content|
       path = File.join(ssh_dir, Beryl::SshConfig.file_name(account))
       tally = "#{counts[account]} host(s)#{(n = skipped[account]?) ? ", #{n} écarté(s) par ssh_config: false" : ""}"
@@ -70,13 +69,14 @@ module Beryl::CLI::SshConfig
         File.copy(main, "#{main}.beryl-avant") if File.exists?(main)
         File.write(main, included, perm: 0o600)
       end
-      STDERR.puts "[beryl ssh-config] #{verb} #{main} : « #{Beryl::SshConfig::INCLUDE_LINE} » en tête" \
+      STDERR.puts "[beryl ssh-config] #{dry_run ? "" : "✓ "}« #{Beryl::SshConfig::INCLUDE_LINE} » #{dry_run ? "serait ajouté" : "ajouté"} " \
+                  "en tête de #{main}" \
                   "#{current.includes?(Beryl::SshConfig::LEGACY_INCLUDE) ? ", à la place de « #{Beryl::SshConfig::LEGACY_INCLUDE} »" : ""}" \
                   "#{dry_run ? "" : " (ancien : #{main}.beryl-avant)"}."
     end
     if remove_legacy
       File.delete(legacy) unless dry_run
-      STDERR.puts "[beryl ssh-config] #{verb} #{legacy} retiré (remplacé par les fichiers par société)."
+      STDERR.puts "[beryl ssh-config] #{dry_run ? "#{legacy} serait retiré" : "✓ #{legacy} retiré"} (remplacé par les fichiers par société)."
     end
     STDERR.puts "[beryl ssh-config] dry-run ; --apply pour écrire." if dry_run
     EXIT_OK
