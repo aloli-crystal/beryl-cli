@@ -8,6 +8,7 @@ require "../freebsd_release" # RELEASE FreeBSD disponibles en amont (--freebsd)
 require "./apply"            # Beryl::CLI::Apply.recipes_search_path (paquets gérés par recettes)
 require "./machine_kind"
 require "../vrack_plan"
+require "../ssh_config"
 require "../ipv6_plan"
 
 module Beryl::CLI
@@ -316,11 +317,9 @@ module Beryl::CLI
     private def self.remote(host : Beryl::Config::ResolvedHost, user : String?, target : String, cmd : String, system_ssh : Bool) : Probe
       if system_ssh
         args = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=accept-new"]
-        # Host caché derrière le vRack : rebond par le bastion. nil pour les
-        # hosts à route directe (proxy_jump renvoie nil → pas d'option ajoutée).
-        if pj = host.proxy_jump(user)
-          args << "-o" << "ProxyJump=#{pj}"
-        end
+        # Host caché derrière le vRack : rebond par le bastion, puis les autres
+        # (replis). Rien pour un host à route directe.
+        args.concat(Beryl::SshConfig.jump_options(host.proxy_jumps(user)))
         args << (user ? "#{user}@#{target}" : target) << cmd
         obuf = IO::Memory.new
         ebuf = IO::Memory.new
@@ -329,11 +328,10 @@ module Beryl::CLI
       else
         eff_user = user || host.connect_user
         opts = {"ConnectTimeout" => "10"}
-        if pj = host.proxy_jump(eff_user)
-          opts["ProxyJump"] = pj
-        end
+        jumps = host.proxy_jumps(eff_user)
+        opts["ProxyJump"] = jumps.first unless jumps.empty?
         conn = SSH::Connection.new(host: target, user: eff_user, port: host.port,
-          identity_file: host.identity_file, options: opts)
+          identity_file: host.identity_file, options: opts, jump_fallbacks: jumps.skip(1))
         res = conn.exec(cmd, raise_on_error: false)
         Probe.new(res.success?, res.stdout, res.stderr)
       end

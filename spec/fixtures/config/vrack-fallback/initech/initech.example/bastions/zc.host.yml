@@ -1,0 +1,4 @@
+provider: local
+user: admin
+freebsd:
+  hostname: zc

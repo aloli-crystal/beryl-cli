@@ -9,6 +9,34 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Hosts cachés : repli sur les autres bastions, et `beryl ssh-config`
+
+Un host caché derrière le vRack (`vrack.proxy_jump`) n'était joint que par
+SON bastion : celui-ci en panne, plus d'accès. beryl essaie désormais le
+bastion préféré puis les autres bastions du domaine (`vrack.bastion: true`),
+dans l'ordre, et annonce le repli (« bastion … injoignable, essai par … ») ;
+`sshd-vrack-only` ouvrant le 22 à tout le sous-réseau vRack, n'importe quel
+bastion convient. Un rebond qui n'est pas un bastion du domaine reste seul.
+Le shard `ssh` prend pour cela des rebonds de repli (`jump_fallbacks:`).
+
+Nouvelle commande `beryl ssh-config [--apply]` : écrit `~/.ssh/beryl.conf`
+(IP vRack + même rebond à replis, pour chaque host caché) et l'inclut en
+tête de `~/.ssh/config` (ancienne version gardée en `config.beryl-avant`) :
+`ssh ke.example.net` ou `ssh ke` passent par les bastions.
+
+=== `beryl dns <portée>` : zone sans `dns_provider` sautée
+
+Un serveur dont la zone n'est pas gérée par beryl (pas de `dns_provider`,
+ex. domaine d'un client) faisait échouer `beryl dns` sur une portée
+multiple ; il est sauté, avec un avertissement repris au résumé. Nommé seul,
+il garde son erreur.
+
+=== Portée multiple : avertissements repris au résumé
+
+Un échec secondaire (reverse refusé par l'hébergeur) ne fait pas échouer
+`dns`, mais le résumé disait « tous réussis ». Il dit désormais « tous
+réussis, avec avertissement(s) : no (reverse IPv6) ».
+
 === `info --refresh` : commit des fiches en attente, et « rien à committer »
 
 L'auto-commit ne prenait que les fiches modifiées par CE passage : celles

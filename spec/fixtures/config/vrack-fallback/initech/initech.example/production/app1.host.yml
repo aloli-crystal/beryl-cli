@@ -1,0 +1,8 @@
+provider: local
+user: admin
+identity_file: /keys/ops.key
+vrack:
+  ip: 192.168.42.11
+  proxy_jump: admin@zb.initech.example
+freebsd:
+  hostname: app1

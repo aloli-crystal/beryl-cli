@@ -1,0 +1,7 @@
+provider: local
+user: admin
+vrack:
+  ip: 192.168.42.40
+  proxy_jump: admin@jump.other.example
+freebsd:
+  hostname: viaother

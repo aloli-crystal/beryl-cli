@@ -25,6 +25,7 @@ module Beryl::Config
     getter accounts : Hash(String, Account)
     getter env_file : EnvFile
     getter ssh_dir : String
+    @bastions_memo : Hash(String, Array(String))?
 
     def initialize(@path, @defaults, @accounts, @env_file, @ssh_dir = DEFAULT_SSH_DIR)
     end
@@ -299,6 +300,12 @@ module Beryl::Config
     end
 
     private def build_resolved(account : Account, domain : Domain, group : Group?, node : HostNode) : ResolvedHost
+      host = plain_resolved(account, domain, group, node)
+      host.bastion_fqdns = domain_bastions(account, domain)
+      host
+    end
+
+    private def plain_resolved(account : Account, domain : Domain, group : Group?, node : HostNode) : ResolvedHost
       merged = Merger.merge(@defaults, account.metadata, domain, group, node, ssh_dir: @ssh_dir)
       ResolvedHost.new(
         short_name: node.name,
@@ -309,6 +316,21 @@ module Beryl::Config
         merged: merged,
         env_file: @env_file,
       )
+    end
+
+    # FQDN des bastions (`vrack.bastion: true`) d'un domaine, triés : les
+    # rebonds de repli des hosts cachés (`ResolvedHost#proxy_jumps`).
+    # Calculé une fois par domaine.
+    private def domain_bastions(account : Account, domain : Domain) : Array(String)
+      memo = @bastions_memo ||= {} of String => Array(String)
+      memo["#{account.name}/#{domain.name}"] ||= begin
+        nodes = domain.direct_hosts.values.map { |n| {nil.as(Group?), n} } +
+                domain.groups.values.flat_map { |g| g.hosts.values.map { |n| {g.as(Group?), n} } }
+        nodes.compact_map do |group, node|
+          h = plain_resolved(account, domain, group, node)
+          h.fqdn if h.bastion?
+        end.sort
+      end
     end
 
     # Construit un host virtuel (pas de fichier host). Utilisé pour
@@ -365,6 +387,8 @@ module Beryl::Config
     getter merged : Hash(YAML::Any, YAML::Any)
     getter env_file : EnvFile
     getter virtual : Bool # true si pas de fichier
+    # Bastions du domaine (FQDN triés), posés par `Root` : replis du rebond.
+    property bastion_fqdns : Array(String) = [] of String
 
     def initialize(
       @short_name : String,
@@ -769,6 +793,20 @@ module Beryl::Config
         return "#{connect_user || user}@#{host}"
       end
       nil
+    end
+
+    # Rebonds à essayer dans l'ordre : le `proxy_jump` puis, s'il désigne un
+    # bastion du domaine, les AUTRES bastions (même user du saut) — un bastion
+    # en panne ne coupe pas l'accès (`sshd-vrack-only` ouvre le 22 à tout le
+    # sous-réseau vRack). Vide pour un host joint en direct.
+    def proxy_jumps(connect_user : String? = nil) : Array(String)
+      pj = proxy_jump(connect_user)
+      return [] of String unless pj
+      jump_user, at, jump_host = pj.rpartition('@')
+      jump_host = jump_host.partition(':').first
+      return [pj] unless @bastion_fqdns.includes?(jump_host)
+      prefix = at.empty? ? "" : "#{jump_user}@"
+      [pj] + (@bastion_fqdns - [jump_host, fqdn]).map { |b| "#{prefix}#{b}" }
     end
 
     # Host CACHÉ (22 public fermé) — IMPLICITE : présence d'un `proxy_jump`
@@ -1178,10 +1216,11 @@ module Beryl::Config
       # SSH), surtout en boucle de flotte. BatchMode : jamais de prompt de
       # mot de passe (beryl est non-interactif, auth par clé).
       opts = {"ConnectTimeout" => "10", "BatchMode" => "yes"}
+      jumps = [] of String
       if pc = proxy_command
         opts["ProxyCommand"] = pc
-      elsif pj = proxy_jump(eff_user)
-        opts["ProxyJump"] = pj
+      elsif !(jumps = proxy_jumps(eff_user)).empty?
+        opts["ProxyJump"] = jumps.first
       end
       SSH::Connection.new(
         host: ssh_host,
@@ -1189,6 +1228,7 @@ module Beryl::Config
         port: port,
         identity_file: identity_file,
         options: opts,
+        jump_fallbacks: jumps.skip(1),
       )
     end
 

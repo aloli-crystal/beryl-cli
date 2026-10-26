@@ -58,7 +58,7 @@ module Beryl::CLI::SessionLog
 
   # Sous-commandes en essai à blanc par défaut (`--apply` pour agir).
   DRY_RUN_BY_DEFAULT = {"sync", "boot-hd", "bootstrap", "dns", "dns-alias", "dns-record", "headscale-authkey",
-                        "lock", "monitoring", "os-upgrade", "pg-upgrade", "reboot", "rescue", "scaleway-reinstall", "scan",
+                        "lock", "monitoring", "os-upgrade", "pg-upgrade", "reboot", "rescue", "scaleway-reinstall", "scan", "ssh-config",
                         "tang-enroll", "unlock", "upgrade", "vrack", "wipe"}
 
   # Libellé de la commande dans le nom du journal : `upgrade-dry-run` pour un

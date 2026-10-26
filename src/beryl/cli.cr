@@ -28,6 +28,7 @@ require "./cli/status"
 require "./cli/tang_enroll"
 require "./cli/env"
 require "./cli/headscale_authkey"
+require "./cli/ssh_config"
 require "./cli/pkg_ops"
 require "./cli/os_upgrade"
 require "./cli/build_status"
@@ -164,6 +165,7 @@ module Beryl::CLI
     when "unlock"             then Beryl::CLI::Unlock.run(config_root, sub_args)
     when "reboot"             then Beryl::CLI::Reboot.run(config_root, sub_args)
     when "monitoring"         then Beryl::CLI::Monitoring.run(config_root, sub_args)
+    when "ssh-config"         then Beryl::CLI::SshConfig.run(config_root, sub_args)
     when "status"             then Beryl::CLI::Status.run(config_root, sub_args)
     when "tang-enroll"        then Beryl::CLI::TangEnroll.run(config_root, sub_args)
     when "env"                then Beryl::CLI::Env.run(config_root, sub_args)
@@ -213,6 +215,7 @@ module Beryl::CLI
     {"scaleway-reinstall", "", "Réinstalle un serveur Scaleway via l'API"},
     {"scan", "s", "Détecte les disques et propose un YAML host"},
     {"show", "sh", "Détails d'un hôte (config mergée complète)"},
+    {"ssh-config", "", "Écrit ~/.ssh/beryl.conf : hosts cachés derrière le vRack, rebond à replis — DRY-RUN par défaut"},
     {"sync", "sy", "Synchronise packages/users/clés SSH (recettes) — ex-`apply`"},
     {"status", "st", "État pools / services chiffrés d'un host"},
     {"tang-enroll", "te", "Enrôle les pools chiffrés via Tang"},
@@ -290,6 +293,7 @@ module Beryl::CLI
     when "unlock"         then Beryl::CLI::Unlock.run(config_root, ["--help"])
     when "reboot"         then Beryl::CLI::Reboot.run(config_root, ["--help"])
     when "monitoring"     then Beryl::CLI::Monitoring.run(config_root, ["--help"])
+    when "ssh-config"     then Beryl::CLI::SshConfig.run(config_root, ["--help"])
     when "status"         then Beryl::CLI::Status.run(config_root, ["--help"])
     when "tang-enroll"    then Beryl::CLI::TangEnroll.run(config_root, ["--help"])
     when "env"            then Beryl::CLI::Env.run(config_root, ["--help"])
