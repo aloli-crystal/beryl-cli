@@ -9,6 +9,15 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl vrack <portée>` sans option : l'état seul
+
+Sur un serveur déjà rattaché, `beryl vrack` écrivait dans la fiche (nom,
+IP), montait l'IP vRack sur le serveur, proposait une rotation et posait la
+question du rôle — sans `--apply`. Il n'affiche désormais que l'état
+(rattachement, IP de la fiche, rôle) ; tout le reste se fait avec `--apply`
+(`beryl vrack <portée> --apply`). `--via`/`--public`/`--bastion` et
+`--attach` gardent leur essai à blanc.
+
 === `beryl info --refresh` commite les fiches qu'il met à jour
 
 Comme `scan`, `bootstrap` ou `env`, `info --refresh` commite désormais dans

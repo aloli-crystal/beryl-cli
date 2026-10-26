@@ -43,7 +43,7 @@ module Beryl::CLI
         p.on("--via=BASTION", "Rôle : joindre par ce bastion (vrack.proxy_jump, chemin vérifié) — remplace le rôle de la fiche") { |v| roles << "via"; via = v }
         p.on("--public", "Rôle : SSH direct, pas de bastion (vrack.bastion: false) — remplace le rôle de la fiche") { roles << "public" }
         p.on("--bastion", "Rôle : ce serveur EST un bastion (vrack.bastion: true) — remplace le rôle de la fiche") { roles << "bastion" }
-        p.on("--apply", "Applique : --attach rattache, --via/--public/--bastion écrit le rôle (sinon : dry-run)") { apply = true }
+        p.on("--apply", "Applique : --attach rattache, --via/--public/--bastion écrit le rôle ; seul, consolide la fiche, monte l'IP, propose le rôle (sinon : état seul)") { apply = true }
         p.on("-a NAME", "--account=NAME", "Forcer la société") { |v| account_hint = v }
         p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
         p.on("-h", "--help", "Aide") { puts p; exit 0 }
@@ -96,6 +96,16 @@ module Beryl::CLI
       if current
         log "✅ #{service} est DÉJÀ dans le vRack #{current}."
         unless attach
+          # Sans --apply : ÉTAT seulement (fiche + rôle), rien n'est écrit ni
+          # posé sur le serveur. Avec --apply : consolidation de la fiche, IP
+          # montée, rotation, rôle et port 22 (questions en interactif).
+          unless apply
+            ips = host.vrack_ips
+            log "fiche : IP vRack #{ips.empty? ? "—" : ips.join(", ")}, rôle : #{vrack_label(host)}"
+            log "pour consolider la fiche, monter l'IP et choisir le rôle : beryl vrack #{raw} --apply"
+            warn_if_no_vrack_ip(host)
+            return EXIT_OK
+          end
           finalize_vrack(root, host, current)
           # finalize_vrack a pu RÉÉCRIRE le host.yml (rotation, consolidation
           # name/ip). `root` est un snapshot mémoire du démarrage → on RECHARGE
