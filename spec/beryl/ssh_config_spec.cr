@@ -62,20 +62,38 @@ describe Beryl::SshConfig do
     FileUtils.rm_rf(dir) if dir
   end
 
-  it "render : hosts cachés seulement ; FQDN sans user ni clé, nom court complet" do
-    out = Beryl::SshConfig.render(fallback_hosts)
-    out.should contain("Host app1.initech.example\n  HostName 192.168.42.11\n  ProxyCommand sh -c '")
-    out.should contain("Host app1\n  HostName 192.168.42.11\n  User admin\n  IdentityFile /keys/ops.key\n  IdentitiesOnly yes\n")
-    out.should contain("# app1.initech.example — via zb, puis za, puis zc")
-    out.should contain("Host viaother.initech.example\n  HostName 192.168.42.40\n  ProxyJump admin@jump.other.example\n")
-    out.should_not contain("Host pub")
-    out.should_not contain("Host za")
+  it "render : un fichier par société, TOUS les hosts, FQDN et nom court" do
+    files = Beryl::SshConfig.render(fallback_hosts)
+    files.keys.should eq ["initech"]
+    out = files["initech"]
+    out.should contain("# app1.initech.example — caché, via zb, puis za, puis zc\n" \
+                       "Host app1 app1.initech.example\n  HostName 192.168.42.11\n" \
+                       "  HostKeyAlias app1.initech.example\n  ProxyCommand sh -c '")
+    out.should contain("Host app1\n  User admin\n  IdentityFile /keys/ops.key\n  IdentitiesOnly yes\n")
+    out.should contain("# pub.initech.example — public\nHost pub pub.initech.example\n  HostName pub.initech.example\nHost pub\n  User admin\n")
+    out.should contain("# za.initech.example — bastion\nHost za za.initech.example\n")
+    out.should contain("Host viaother viaother.initech.example\n  HostName 192.168.42.40\n" \
+                       "  HostKeyAlias viaother.initech.example\n  ProxyJump admin@jump.other.example\n")
+    out.should_not contain("HostKeyAlias pub.initech.example")
+    out.should_not contain("old1") # groupe `anciens` en ssh_config: false
   end
 
   it "with_include : en tête, une seule fois" do
     added = Beryl::SshConfig.with_include("Host github.com\n  User git\n").not_nil!
-    added.lines.reject { |l| l.starts_with?('#') }.first.should eq "Include beryl.conf"
-    added.should end_with("Host github.com\n  User git\n")
+    added.lines.reject(&.starts_with?('#')).first.should eq "Include beryl--*.conf"
+    added.should end_with("\n\nHost github.com\n  User git\n")
     Beryl::SshConfig.with_include(added).should be_nil
+  end
+
+  it "with_include : remplace l'ancien `Include beryl.conf` (0.6.124)" do
+    old = "#{Beryl::SshConfig::LEGACY_COMMENT}\nInclude beryl.conf\n\nHost github.com\n  User git\n"
+    fixed = Beryl::SshConfig.with_include(old).not_nil!
+    fixed.should eq "#{Beryl::SshConfig::INCLUDE_COMMENT}\nInclude beryl--*.conf\n\nHost github.com\n  User git\n"
+    Beryl::SshConfig.with_include(fixed).should be_nil
+  end
+
+  it "ancien fichier retiré seulement s'il vient de beryl" do
+    Beryl::SshConfig.legacy_generated?("#{Beryl::SshConfig::HEADER}\n\nHost a\n").should be_true
+    Beryl::SshConfig.legacy_generated?("Host perso\n").should be_false
   end
 end

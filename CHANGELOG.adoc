@@ -9,6 +9,18 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl ssh-config` : un fichier par société, tous les hosts
+
+`~/.ssh/beryl.conf` ne listait que les hosts cachés. `beryl ssh-config`
+écrit désormais un fichier par société, `~/.ssh/beryl--<société>.conf`,
+avec TOUS ses hosts (publics, bastions, cachés), joignables par FQDN et
+par nom court (`ssh ke`, `ssh ke.example.net`) ; `HostKeyAlias` garde les
+clés d'hôte sous le FQDN quand l'adresse diffère (IP vRack). L'inclusion
+devient `Include beryl--*.conf` ; l'ancien `Include beryl.conf` et le
+fichier `beryl.conf` sont retirés. Un host, ou un groupe (dans son
+`_defaults.yml`), en `ssh_config: false` est écarté : d'anciens serveurs que
+beryl ne suit pas gardent vos propres entrées.
+
 === Hosts cachés : repli sur les autres bastions, et `beryl ssh-config`
 
 Un host caché derrière le vRack (`vrack.proxy_jump`) n'était joint que par

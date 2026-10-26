@@ -1,19 +1,31 @@
 require "./config"
 
-# Accès SSH « à la main » aux hosts CACHÉS derrière le vRack (port 22 public
-# fermé, `sshd-vrack-only`) : un fichier `~/.ssh/beryl.conf`, inclus en tête
-# de `~/.ssh/config`, donne pour chacun son IP vRack et un `ProxyCommand` qui
-# essaie son bastion préféré puis les autres (`ResolvedHost#proxy_jumps`) —
-# même repli que les connexions de beryl. Les sauts lisent VOTRE config ssh
-# (clé, agent) comme un `ssh` ordinaire.
+# Accès SSH « à la main » à TOUS les hosts gérés par beryl : un fichier par
+# société, `~/.ssh/beryl--<société>.conf`, inclus en tête de `~/.ssh/config`
+# (`Include beryl--*.conf`). Chaque host y est joignable par son FQDN et par
+# son nom court ; un host CACHÉ derrière le vRack l'est par son IP vRack et un
+# `ProxyCommand` qui essaie son bastion préféré puis les autres
+# (`ResolvedHost#proxy_jumps`) — même repli que les connexions de beryl. Les
+# sauts lisent VOTRE config ssh (clé, agent) comme un `ssh` ordinaire.
 module Beryl::SshConfig
   extend self
 
-  FILE_NAME = "beryl.conf"
-  # Ligne ajoutée en tête de `~/.ssh/config` (chemin relatif à `~/.ssh`).
-  INCLUDE_LINE = "Include #{FILE_NAME}"
+  # Fichiers générés (un par société) et ligne d'inclusion (chemin relatif à
+  # `~/.ssh`, motif accepté par `Include`).
+  FILE_PREFIX     = "beryl--"
+  INCLUDE_LINE    = "Include #{FILE_PREFIX}*.conf"
+  INCLUDE_COMMENT = "# Hosts gérés par beryl (fichiers générés par beryl ssh-config)"
+  # Ancien fichier unique (0.6.124), remplacé par les fichiers par société.
+  LEGACY_FILE    = "beryl.conf"
+  LEGACY_INCLUDE = "Include #{LEGACY_FILE}"
+  LEGACY_COMMENT = "# Hosts cachés derrière le vRack (fichier généré par beryl ssh-config)"
+  HEADER         = "# Généré par `beryl ssh-config --apply` — ne pas modifier à la main."
   # Délai par bastion avant de passer au suivant.
   JUMP_TIMEOUT = 5
+
+  def file_name(account : String) : String
+    "#{FILE_PREFIX}#{account}.conf"
+  end
 
   # Options `ssh -o …` du rebond pour un `ssh` système : `ProxyJump` s'il n'y
   # a qu'un bastion, sinon `ProxyCommand` à replis. Vide sans rebond. Pur.
@@ -38,47 +50,87 @@ module Beryl::SshConfig
     "sh -c '#{chain}'"
   end
 
-  # Contenu de `beryl.conf` pour les hosts cachés, triés par FQDN. Le bloc
-  # FQDN ne pose QUE l'adresse et le rebond (user, clé : ceux de votre
-  # config, ex. `Host *.example.net`) ; le nom court, qu'aucun motif ne
-  # couvre, porte aussi user et clé — sauf s'il est ambigu (deux sociétés).
-  def render(hosts : Array(Beryl::Config::ResolvedHost)) : String
-    hidden = hosts.select { |h| !h.proxy_jumps(h.connect_user).empty? && h.vrack_ips.first? }.sort_by(&.fqdn)
-    shorts = hidden.map(&.short_name).tally
-    String.build do |io|
-      io << "# Généré par `beryl ssh-config --apply` — ne pas modifier à la main.\n"
-      io << "# Hosts cachés derrière le vRack : IP vRack + bastion préféré, puis replis.\n"
-      hidden.each do |h|
-        jumps = h.proxy_jumps(h.connect_user)
-        ip = h.vrack_ips.first
-        hop = jump_line(jumps)
-        io << "\n# " << h.fqdn << " — via " << jumps.map { |j| j.rpartition('@').last.split('.').first }.join(", puis ") << "\n"
-        io << "Host " << h.fqdn << "\n"
-        io << "  HostName " << ip << "\n"
-        io << "  " << hop << "\n"
-        next if h.short_name.includes?('.') || shorts[h.short_name] > 1
-        io << "Host " << h.short_name << "\n"
-        io << "  HostName " << ip << "\n"
-        io << "  User " << h.connect_user << "\n"
-        if key = h.identity_file
-          io << "  IdentityFile " << key << "\n"
-          io << "  IdentitiesOnly yes\n"
-        end
-        io << "  " << hop << "\n"
+  # Contenu des fichiers, par société (noms triés, hosts triés par FQDN).
+  # Bloc commun au FQDN et au nom court : adresse, port, rebond ; bloc du
+  # nom court seul : user et clé (le FQDN garde ceux de votre config, ex.
+  # `Host *.example.net`). Nom court présent dans deux sociétés : FQDN seul.
+  # Hosts en `ssh_config: false` écartés.
+  def render(hosts : Array(Beryl::Config::ResolvedHost)) : Hash(String, String)
+    hosts = hosts.select(&.ssh_config?)
+    shorts = hosts.map(&.short_name).tally
+    hosts.group_by(&.account_name).to_a.sort_by(&.[0]).to_h.transform_values do |list|
+      String.build do |io|
+        io << HEADER << "\n"
+        io << "# Tous les hosts de la société : FQDN et nom court ; les hosts cachés\n"
+        io << "# derrière le vRack passent par leur bastion, puis les autres.\n"
+        list.sort_by(&.fqdn).each { |h| host_block(io, h, short_alias?(h, shorts)) }
       end
     end
   end
 
-  # `~/.ssh/config` avec l'`Include` en tête, ou nil s'il y est déjà. En
-  # tête : hors de tout bloc `Host` (un `Include` dedans n'y vaudrait que
-  # pour ce bloc), et premières valeurs lues = celles qui l'emportent. Pur.
+  # `~/.ssh/config` avec l'`Include` en tête (l'ancien `Include beryl.conf`
+  # retiré), ou nil s'il n'y a rien à changer. En tête : hors de tout bloc
+  # `Host` (un `Include` dedans n'y vaudrait que pour ce bloc), et premières
+  # valeurs lues = celles qui l'emportent. Pur.
   def with_include(config : String) : String?
-    return if config.each_line.any? { |l| l.strip == INCLUDE_LINE }
-    "# Hosts cachés derrière le vRack (fichier généré par beryl ssh-config)\n#{INCLUDE_LINE}\n\n#{config}"
+    lines = config.lines(chomp: false)
+    has_new = lines.any? { |l| l.strip == INCLUDE_LINE }
+    has_legacy = lines.any? { |l| l.strip == LEGACY_INCLUDE }
+    return if has_new && !has_legacy
+    body = lines.reject { |l| l.strip == LEGACY_INCLUDE || l.starts_with?(LEGACY_COMMENT) }.join
+    body = body.lchop("\n") if has_legacy
+    return body if has_new
+    "#{INCLUDE_COMMENT}\n#{INCLUDE_LINE}\n\n#{body}"
   end
 
-  private def jump_line(jumps : Array(String)) : String
-    return "ProxyJump #{jumps.first}" if jumps.size == 1
-    "ProxyCommand #{proxy_command(jumps)}"
+  # Ancien fichier unique à retirer : seulement s'il est bien de beryl. Pur.
+  def legacy_generated?(content : String) : Bool
+    content.starts_with?(HEADER)
+  end
+
+  private def host_block(io : IO, h : Beryl::Config::ResolvedHost, short : Bool) : Nil
+    jumps = h.proxy_jumps(h.connect_user)
+    address = hostname(h, jumps)
+    io << "\n# " << h.fqdn << " — " << role(h, jumps) << "\n"
+    io << "Host " << (short ? "#{h.short_name} " : "") << h.fqdn << "\n"
+    io << "  HostName " << address << "\n"
+    # Adresse ≠ nom : les clés d'hôte restent rangées sous le FQDN
+    # (known_hosts déjà rempli, une seule entrée par serveur).
+    io << "  HostKeyAlias " << h.fqdn << "\n" unless address == h.fqdn
+    io << "  Port " << h.port << "\n" unless h.port == 22
+    if pc = h.proxy_command
+      io << "  ProxyCommand " << pc << "\n"
+    elsif jumps.size == 1
+      io << "  ProxyJump " << jumps.first << "\n"
+    elsif jumps.size > 1
+      io << "  ProxyCommand " << proxy_command(jumps) << "\n"
+    end
+    return unless short
+    io << "Host " << h.short_name << "\n"
+    io << "  User " << h.connect_user << "\n"
+    if key = h.identity_file
+      io << "  IdentityFile " << key << "\n"
+      io << "  IdentitiesOnly yes\n"
+    end
+  end
+
+  # Caché → IP vRack ; `ssh_host:` explicite → lui ; sinon le FQDN (DNS, et
+  # clés d'hôte déjà connues sous ce nom).
+  private def hostname(h : Beryl::Config::ResolvedHost, jumps : Array(String)) : String
+    if !jumps.empty? && (ip = h.vrack_ips.first?)
+      return ip
+    end
+    h.merged[YAML::Any.new("ssh_host")]?.try(&.as_s?) || h.fqdn
+  end
+
+  private def role(h : Beryl::Config::ResolvedHost, jumps : Array(String)) : String
+    return "bastion" if h.bastion?
+    return "via #{h.proxy_command}" if h.proxy_command
+    return "public" if jumps.empty?
+    "caché, via " + jumps.map { |j| j.rpartition('@').last.split('.').first }.join(", puis ")
+  end
+
+  private def short_alias?(h : Beryl::Config::ResolvedHost, shorts : Hash(String, Int32)) : Bool
+    !h.short_name.includes?('.') && shorts[h.short_name] == 1
   end
 end

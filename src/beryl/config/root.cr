@@ -648,6 +648,13 @@ module Beryl::Config
       @merged[YAML::Any.new("installed")]?.try(&.as_bool?) != false
     end
 
+    # `ssh_config: false` (host.yml, héritable domaine/groupe) : host absent des
+    # fichiers de `beryl ssh-config` — ex. d'anciens serveurs que beryl ne suit
+    # pas, joints par vos propres entrées de `~/.ssh/config`. Absent = présent.
+    def ssh_config? : Bool
+      @merged[YAML::Any.new("ssh_config")]?.try(&.as_bool?) != false
+    end
+
     # `reboot_group: <nom>` (host.yml, héritable domaine/groupe) : les tâches de
     # flotte (`os-upgrade`, `upgrade`) ne traitent JAMAIS deux serveurs d'un
     # même groupe en même temps — ex. les bastions, un Headscale principal et
