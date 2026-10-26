@@ -23,6 +23,7 @@ module Beryl::CLI
       usage = false
       system_ssh = false
       refresh = false
+      ovh_network = false
       adoc = false
       html = false
       versions = false
@@ -52,11 +53,13 @@ module Beryl::CLI
                    "        beryl info --versions [--all-pkgs] [société|domaine]   (matrice serveurs × paquets, live)\n" \
                    "        beryl info --updates [société|domaine]                 (versions dispo vs installées, recettes)\n" \
                    "        beryl info --freebsd                                   (dernières RELEASE FreeBSD en amont, ex. 15.1)\n" \
-                   "        beryl info --refresh [société|domaine]                 (MAJ specs via API OVH)"
+                   "        beryl info --refresh [société|domaine]                 (MAJ specs via API OVH)\n" \
+                   "        beryl info --ovh-network <portée>                       (réponses brutes réseau de l'API OVH, lecture seule)"
         p.on("--usage", "Utilisation LIVE (zpool/df via SSH)") { usage = true }
         p.on("--system-ssh", "Pour --usage : utilise VOTRE ssh (~/.ssh/config + agent) au lieu de la clé beryl") { system_ssh = true }
         p.on("--adoc", "Document AsciiDoc sur stdout ; `--adoc=NOM` → écrit NOM.adoc, le convertit en PDF (crystal-asciidoctor-pdf) et l'ouvre") { adoc = true }
         p.on("--html", "Génère un site HTML triable dans <config>/<scope>/info/ (index + 1 page par serveur)") { html = true }
+        p.on("--ovh-network", "Réponses BRUTES de l'API OVH (IP/blocs + specifications/network, dont routing.ipv6) — lecture seule, pour un ticket") { ovh_network = true }
         p.on("--refresh", "Rafraîchit gamme + specs + prix via l'API OVH (écrit les host.yml, SANS SSH)") { refresh = true }
         p.on("--versions", "Tableau LIVE des versions de paquets (serveurs en colonnes, paquets en lignes)") { versions = true }
         p.on("--updates", "Pour les paquets des recettes : version DISPONIBLE au dépôt vs installée (retards)") { updates = true }
@@ -75,6 +78,7 @@ module Beryl::CLI
 
       root = Beryl::Config::Root.load(config_root)
       return refresh_metadata(root, positional.first?) if refresh
+      return render_ovh_network(root, positional.first?) if ovh_network
       if versions
         return render_pkg_versions(config_root, root, positional.first?, all_pkgs, system_ssh)
       end
@@ -649,6 +653,37 @@ module Beryl::CLI
       # Forme simple : société, domaine, groupe (`<groupe>.group.yml`), fqdn ou
       # nom court.
       hosts.select { |h| {h.account_name, h.domain_name, h.group_name, h.fqdn, h.short_name}.includes?(s) }
+    end
+
+    # `--ovh-network <portée>` : pour chaque serveur OVH, les réponses BRUTES de
+    # l'API réseau (`/ips`, `specifications/network`) et ce que la fiche en a
+    # retenu. Lecture seule (rien n'est écrit), pour un diagnostic ou un ticket.
+    private def self.render_ovh_network(root : Beryl::Config::Root, scope : String?) : Int32
+      hosts = scoped_hosts(root, scope).reject(&.virtual).select { |h| h.provider == "ovh" && h.ovh_service_name }
+      if hosts.empty?
+        puts "Aucun serveur OVH dans la portée #{scope || "(tous)"}."
+        return EXIT_OK
+      end
+      hosts.group_by(&.account_name).each do |account, group|
+        group.first.apply_all_credentials_to_env!
+        ovh = Beryl::Providers::Ovh.new
+        unless ovh.available?
+          puts "⚠ #{account} : credentials OVH absents — #{group.size} serveur(s) ignoré(s)."
+          next
+        end
+        group.each do |h|
+          sn = h.ovh_service_name.not_nil!
+          raw = ovh.network_raw(sn)
+          puts "═══ #{h.short_name} — #{sn}#{h.ovh_rack ? " — baie #{h.ovh_rack}" : ""}"
+          puts "fiche : ipv6 #{h.ovh_ipv6 || "—"}, passerelle #{h.ovh_ipv6_gateway || "—"}"
+          puts "GET /dedicated/server/#{sn}/ips :"
+          puts raw[:ips].try(&.to_pretty_json) || "  (erreur API)"
+          puts "GET /dedicated/server/#{sn}/specifications/network :"
+          puts raw[:network].try(&.to_pretty_json) || "  (erreur API)"
+          puts
+        end
+      end
+      EXIT_OK
     end
 
     private def self.refresh_metadata(root : Beryl::Config::Root, scope : String?) : Int32

@@ -271,6 +271,16 @@ module Beryl::Providers
       nil
     end
 
+    # Réponses BRUTES de l'API réseau d'un serveur (lecture seule), pour un
+    # diagnostic ou un ticket : `GET /dedicated/server/{s}/ips` (toutes les
+    # IP et blocs) et `GET …/specifications/network` (entier, dont
+    # `routing.ipv6`). nil pour une réponse en erreur.
+    def network_raw(service_name : String) : {ips: JSON::Any?, network: JSON::Any?}
+      ips = client.call("GET", "/dedicated/server/#{service_name}/ips") rescue nil
+      net = client.call("GET", "/dedicated/server/#{service_name}/specifications/network") rescue nil
+      {ips: ips, network: net}
+    end
+
     def ipv6_address(service_name : String) : String?
       block = client.dedicated_servers.ips(service_name)
         .find(&.includes?(':')).try(&.split('/').first)

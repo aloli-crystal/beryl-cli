@@ -9,6 +9,14 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl info --ovh-network <portée>` : l'API réseau d'OVH telle quelle
+
+Lecture seule : pour chaque serveur OVH de la portée, les réponses brutes de
+`GET /dedicated/server/{s}/ips` (toutes les IP et blocs) et de
+`GET …/specifications/network` (dont `routing.ipv6`), à côté de ce que la
+fiche en a retenu (`ovh.ipv6`, `ovh.ipv6_gateway`) et de la baie. Pour un
+diagnostic ou un ticket hébergeur, sans console API.
+
 === `reboot` et `os-upgrade` : le déverrouillage enchaîné agit vraiment
 
 Après le redémarrage, `reboot` (étape 4) et `os-upgrade` appelaient
