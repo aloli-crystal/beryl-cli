@@ -1,4 +1,5 @@
 require "option_parser"
+require "./scope"
 require "./option_errors"
 require "api-scaleway/scaleway_api"
 require "../config"
@@ -76,7 +77,14 @@ module Beryl::CLI::ScalewayReinstall
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
       p.unknown_args { |rest, _| positional = rest }
     end
+    # Copie AVANT l'analyse : `parse` retire les options reconnues de `args`
+    # (`--apply`…), que le rejeu par serveur doit garder.
+    all_args = args.dup
     Beryl::CLI.handle_option_errors(parser).parse(args)
+    # Plusieurs serveurs (liste, groupe, domaine, société) : rejouée pour chacun.
+    if code = Beryl::CLI::Scope.fan_out("scaleway-reinstall", config_root, all_args, positional) { |a| run(config_root, a) }
+      return code
+    end
 
     raw = positional.first?
     unless raw

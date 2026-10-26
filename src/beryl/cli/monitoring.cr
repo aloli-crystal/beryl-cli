@@ -1,4 +1,5 @@
 require "option_parser"
+require "./scope"
 require "./option_errors"
 require "api-ovh/ovh_api"
 require "../config"
@@ -37,6 +38,8 @@ module Beryl::CLI::Monitoring
       p.unknown_args { |rest, _| positional = rest }
     end
     Beryl::CLI.handle_option_errors(parser).parse(args)
+    # `a, b, c` (espaces après les virgules, coupés par le shell) → `a,b,c`.
+    positional = Beryl::CLI::Scope.join_list(positional)
 
     state, scope = split_args(positional)
     unless scope

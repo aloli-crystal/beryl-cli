@@ -1,4 +1,5 @@
 require "option_parser"
+require "./scope"
 require "./option_errors"
 require "./fmt"
 require "../apply"
@@ -67,6 +68,8 @@ module Beryl::CLI
         p.unknown_args { |rest, _| positional = rest }
       end
       Beryl::CLI.handle_option_errors(parser).parse(args)
+      # `a, b, c` (espaces après les virgules, coupés par le shell) → `a,b,c`.
+      positional = Beryl::CLI::Scope.join_list(positional)
 
       return render_freebsd_releases if freebsd_releases # réseau seul, pas de config requise
 

@@ -9,6 +9,22 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Portée sur toutes les commandes « un serveur »
+
+`dns`, `rescue`, `wipe`, `bootstrap`, `scan`, `boot-hd`, `reboot`, `unlock`,
+`lock`, `status`, `tang-enroll`, `vrack`, `pg-upgrade`, `build-status`,
+`headscale-authkey`, `scaleway-reinstall` acceptent désormais, comme
+`apply` : un serveur, une liste `a,b,c`, un groupe, un domaine ou une
+société. Plusieurs serveurs : la commande est rejouée pour chacun, l'un
+après l'autre, avec les mêmes options (questions, confirmations, essai à
+blanc et journal de la commande), puis un résumé ; code du premier échec.
+Un élément inconnu dans une liste arrête tout avant de commencer.
+
+* Espaces après les virgules tolérés partout (`ah, be, ga`), y compris pour
+  `apply`, `os-upgrade`, `upgrade`, `monitoring` et `info`.
+* `beryl dns` sur un serveur inconnu : erreur en une ligne au lieu d'une
+  trace d'exception.
+
 === `beryl upgrade --apply` : plus de blocage à la relance d'un service
 
 La relance d'un service touché par la mise à jour passe par la même

@@ -1,4 +1,5 @@
 require "option_parser"
+require "./scope"
 require "./option_errors"
 require "../config"
 require "../apply"
@@ -67,6 +68,8 @@ module Beryl::CLI::Apply
       p.unknown_args { |rest, _| positional = rest }
     end
     Beryl::CLI.handle_option_errors(parser).parse(args)
+    # `a, b, c` (espaces après les virgules, coupés par le shell) → `a,b,c`.
+    positional = Beryl::CLI::Scope.join_list(positional)
 
     return Beryl::CLI::FleetJob.status("apply", positional.first?) if status
     if jd = job_dir
