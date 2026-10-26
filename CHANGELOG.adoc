@@ -9,6 +9,16 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `wipe` et `bootstrap` : jamais sur plusieurs serveurs dont un est installé
+
+Sur plusieurs serveurs (liste, groupe, domaine, société), `wipe` et
+`bootstrap` n'acceptent que des serveurs pas encore installés
+(`installed: false`) ; un seul serveur installé dans la portée → refus de
+toute la portée, avant de commencer, avec la liste des serveurs en cause
+(une confusion `anciens`/`production` n'efface rien). Un serveur nommé seul
+reste possible, installé ou non. `bootstrap` retirant `installed: false`,
+un serveur devient intouchable en groupe dès son installation.
+
 === `beryl apply` devient `beryl sync`
 
 `beryl apply <portée> --apply` bégayait. La commande s'appelle désormais

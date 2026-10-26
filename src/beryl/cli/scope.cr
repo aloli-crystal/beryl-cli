@@ -36,8 +36,14 @@ module Beryl::CLI::Scope
   # `société/domaine/serveur`) et renvoie le code final ; nil si la portée est
   # UN serveur ou n'est pas reconnue — la commande suit alors son cours normal
   # (et donne son erreur habituelle). Élément inconnu dans une liste : erreur.
+  #
+  # `fresh_only` (commandes qui EFFACENT les disques : wipe, bootstrap) : sur
+  # plusieurs serveurs, tous doivent être encore `installed: false` ; un seul
+  # serveur installé dans la portée → refus de TOUTE la portée, avant de
+  # commencer (une confusion `anciens`/`production` n'efface rien). Un serveur
+  # nommé seul reste possible, installé ou non.
   def fan_out(cmd : String, config_root : String, args : Array(String), positional : Array(String),
-              & : Array(String) -> Int32) : Int32?
+              fresh_only : Bool = false, & : Array(String) -> Int32) : Int32?
     joined = join_list(positional)
     raw = joined.first?
     return unless raw
@@ -54,6 +60,12 @@ module Beryl::CLI::Scope
       return 1
     end
     hosts = Beryl::CLI::Info.scoped_hosts(root, raw)
+    if fresh_only && !(installed = hosts.select(&.installed?)).empty?
+      STDERR.puts "beryl #{cmd} : refusé sur la portée #{raw} — #{installed.size} serveur(s) déjà installé(s) : " \
+                  "#{installed.map(&.short_name).join(", ")}. Sur plusieurs serveurs, #{cmd} n'efface que des serveurs " \
+                  "pas encore installés (installed: false) ; pour un serveur installé, nommez-le seul."
+      return 1
+    end
     refs = hosts.map { |h| Beryl::CLI::AccountUtils.host_ref(h) }
     base = without_scope(args, positional.size - joined.size + 1, positional)
     run_each(cmd, raw, refs, base) { |a| yield a }

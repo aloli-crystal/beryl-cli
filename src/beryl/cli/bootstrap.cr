@@ -72,7 +72,7 @@ module Beryl::CLI::Bootstrap
     all_args = args.dup
     Beryl::CLI.handle_option_errors(parser).parse(args)
     # Plusieurs serveurs (liste, groupe, domaine, société) : rejouée pour chacun.
-    if code = Beryl::CLI::Scope.fan_out("bootstrap", config_root, all_args, positional) { |a| run(config_root, a) }
+    if code = Beryl::CLI::Scope.fan_out("bootstrap", config_root, all_args, positional, fresh_only: true) { |a| run(config_root, a) }
       return code
     end
 

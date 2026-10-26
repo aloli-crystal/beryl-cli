@@ -63,6 +63,25 @@ describe Beryl::CLI::Scope do
       calls.all?(&.includes?("--apply")).should be_true
     end
 
+    it "fresh_only (wipe, bootstrap) : groupe de serveurs neufs accepté" do
+      calls = [] of Array(String)
+      code = Beryl::CLI::Scope.fan_out("wipe", FAN_FIXTURE, ["neufs"], ["neufs"], fresh_only: true) { |x| calls << x; 0 }
+      code.should eq 0
+      calls.map(&.last.split('/').last).should eq(%w[new01 new02])
+    end
+
+    it "fresh_only : un serveur installé dans la portée → tout est refusé" do
+      calls = [] of Array(String)
+      code = Beryl::CLI::Scope.fan_out("wipe", FAN_FIXTURE, ["neufs,db01"], ["neufs,db01"], fresh_only: true) { |x| calls << x; 0 }
+      code.should eq 1
+      calls.should be_empty
+      Beryl::CLI::Scope.fan_out("wipe", FAN_FIXTURE, ["web"], ["web"], fresh_only: true) { |_| 0 }.should eq 1
+    end
+
+    it "fresh_only : un serveur installé nommé seul reste possible" do
+      Beryl::CLI::Scope.fan_out("wipe", FAN_FIXTURE, ["db01"], ["db01"], fresh_only: true) { |_| 0 }.should be_nil
+    end
+
     it "code du premier échec" do
       calls = 0
       code = Beryl::CLI::Scope.fan_out("test", FAN_FIXTURE, ["web"], ["web"]) { |_| calls += 1; calls == 2 ? 5 : 0 }

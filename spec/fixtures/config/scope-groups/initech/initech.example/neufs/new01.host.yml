@@ -1,0 +1,4 @@
+freebsd:
+  hostname: new01
+  disks: [/dev/sda]
+installed: false
