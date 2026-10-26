@@ -7,6 +7,7 @@ require "../freebsd_release" # RELEASE FreeBSD disponibles en amont (--freebsd)
 require "./apply"            # Beryl::CLI::Apply.recipes_search_path (paquets gérés par recettes)
 require "./machine_kind"
 require "../vrack_plan"
+require "../ipv6_plan"
 
 module Beryl::CLI
   # `beryl info [host] [--usage]` : inventaire des serveurs.
@@ -143,6 +144,11 @@ module Beryl::CLI
         puts
         puts "⚠ Plan d'adressage vRack :"
         plan.each { |p| puts "  · #{p}" }
+      end
+      unless (v6 = Beryl::Ipv6Plan.problems(hosts)).empty?
+        puts
+        puts "⚠ IPv6 (fiche ≠ bloc OVH) :"
+        v6.each { |p| puts "  · #{p}" }
       end
       if usage
         puts
@@ -721,12 +727,13 @@ module Beryl::CLI
           # IPv6 : le bloc ROUTÉ selon l'API OVH (<bloc>::1). Jamais l'AAAA du
           # DNS : un AAAA ancien (serveur précédent du même nom) se recopiait
           # dans la fiche, puis dans le serveur et le DNS (boucle, vu sur ke).
-          ipv6 = ovh.ipv6_address(sn)
+          ipv6_block = ovh.ipv6_block(sn)
+          ipv6 = ipv6_block.try { |b| Beryl::Providers::Ovh.host_ipv6(b) }
           ipv6_gateway = ovh.ipv6_gateway(sn)
           path = h.node.source_path
           content = File.read(path)
           content = upsert_block(content, "ovh",
-            ovh_block(sn, detail[:commercial], detail[:rack], detail[:ipv4], ipv6, price, ipv6_gateway, detail[:datacenter]))
+            ovh_block(sn, detail[:commercial], detail[:rack], detail[:ipv4], ipv6, price, ipv6_gateway, detail[:datacenter], ipv6_block))
           content = upsert_block(content, "hardware", hardware_block(hw)) if hw
           Beryl::CLI::Fmt.write(path, content)
           ok += 1
@@ -743,7 +750,8 @@ module Beryl::CLI
     # Lignes du bloc `ovh:` (service_name + gamme + datacentre + rack + IPs + prix/mois).
     def self.ovh_block(service_name : String, commercial : String?, rack : String?,
                        ipv4 : String?, ipv6 : String?, price : String?,
-                       ipv6_gateway : String? = nil, datacenter : String? = nil) : Array(String)
+                       ipv6_gateway : String? = nil, datacenter : String? = nil,
+                       ipv6_block : String? = nil) : Array(String)
       # Clés par ordre alphabétique, comme `beryl fmt` : un refresh ne réordonne
       # pas le bloc (pas de va-et-vient refresh ↔ fmt).
       b = ["ovh:"]
@@ -753,6 +761,8 @@ module Beryl::CLI
       # IPv6 TOUJOURS quotée : pleine de `:` (et parfois finissant par `::`) →
       # YAML la mal-parserait sans guillemets.
       b << %(  ipv6: "#{ipv6}") if ipv6
+      # Bloc routé par OVH (contrôle « IPv6 hors du bloc » de `beryl info`).
+      b << %(  ipv6_block: "#{ipv6_block}") if ipv6_block
       # Passerelle IPv6 d'OVH (netif-ipv6 : `{{ public_ip6_gateway }}`), quotée aussi.
       b << %(  ipv6_gateway: "#{ipv6_gateway}") if ipv6_gateway
       b << "  price_eur: #{price}" if price
@@ -885,6 +895,7 @@ module Beryl::CLI
           end
           io << "|===\n\n"
           Beryl::VrackPlan.problems(Beryl::VrackPlan.entries(hosts)).each { |p| io << "WARNING: Plan d'adressage vRack : #{esc.call(p)}\n\n" }
+          Beryl::Ipv6Plan.problems(hosts).each { |p| io << "WARNING: IPv6 : #{esc.call(p)}\n\n" }
         end
 
         if usage
@@ -1124,6 +1135,11 @@ module Beryl::CLI
           unless (plan = Beryl::VrackPlan.problems(Beryl::VrackPlan.entries(hosts))).empty?
             io << "<div class=\"warn\"><strong>Plan d'adressage vRack</strong><ul>"
             plan.each { |p| io << "<li>#{hesc(p)}</li>" }
+            io << "</ul></div>\n"
+          end
+          unless (v6 = Beryl::Ipv6Plan.problems(hosts)).empty?
+            io << "<div class=\"warn\"><strong>IPv6 (fiche ≠ bloc OVH)</strong><ul>"
+            v6.each { |p| io << "<li>#{hesc(p)}</li>" }
             io << "</ul></div>\n"
           end
         end

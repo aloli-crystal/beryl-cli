@@ -207,6 +207,13 @@ describe Beryl::CLI::Info do
       keys.should eq(%w[commercial_name datacenter ipv4 ipv6 ipv6_gateway price_eur rack service_name])
     end
 
+    it "ajoute le bloc IPv6 d'OVH, quoté, entre ipv6 et ipv6_gateway" do
+      block = Beryl::CLI::Info.ovh_block("ns1.eu", nil, nil, "1.2.3.4", "2001:db8:1200::1", nil, "fe80::1", nil, "2001:db8:1200::/56")
+      keys = block[1..].map { |l| l.strip.split(':').first }
+      keys.should eq(%w[ipv4 ipv6 ipv6_block ipv6_gateway service_name])
+      YAML.parse(block.join("\n") + "\n")["ovh"]["ipv6_block"].as_s.should eq("2001:db8:1200::/56")
+    end
+
     it "ajoute la passerelle IPv6 d'OVH, quotée" do
       block = Beryl::CLI::Info.ovh_block("ns1.eu", nil, nil, "1.2.3.4", "2001:db8:0:1::1", nil, "2001:db8:0:ff:ff:ff:ff:ff")
       YAML.parse(block.join("\n") + "\n")["ovh"]["ipv6_gateway"].as_s.should eq("2001:db8:0:ff:ff:ff:ff:ff")

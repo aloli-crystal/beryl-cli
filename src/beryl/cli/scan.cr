@@ -1412,7 +1412,8 @@ module Beryl::CLI::Scan
     end
     new_servers.each do |sn|
       detail = ovh.server_detail(sn)
-      ipv6 = ovh.ipv6_address(sn)
+      ipv6_block = ovh.ipv6_block(sn)
+      ipv6 = ipv6_block.try { |b| Beryl::Providers::Ovh.host_ipv6(b) }
       ipv6_gateway = ovh.ipv6_gateway(sn)
       price = ovh.monthly_price(sn)
       short = discover_short_name(ovh.server_display_name(sn), sn, domain)
@@ -1427,7 +1428,7 @@ module Beryl::CLI::Scan
         next
       end
       Dir.mkdir_p(File.dirname(path))
-      Beryl::CLI::Fmt.write(path, discover_skeleton(short, domain, sn, detail, ipv6, price, ipv6_gateway))
+      Beryl::CLI::Fmt.write(path, discover_skeleton(short, domain, sn, detail, ipv6, price, ipv6_gateway, ipv6_block))
       written += 1
       puts "  ✓ #{sn} → #{short}.host.yml (#{detail[:commercial] || "gamme ?"}#{price ? ", #{price} €/mois" : ""})"
     end
@@ -1493,7 +1494,7 @@ module Beryl::CLI::Scan
   private def self.discover_skeleton(short : String, domain : String, service_name : String,
                                      detail : NamedTuple(commercial: String?, datacenter: String?, rack: String?, ipv4: String?),
                                      ipv6 : String?, price : String?,
-                                     ipv6_gateway : String? = nil) : String
+                                     ipv6_gateway : String? = nil, ipv6_block : String? = nil) : String
     stamp = Time.local.to_s("%d/%m/%Y %Hh%Mm%S")
     lines = [
       "# #{short}.#{domain}",
@@ -1504,7 +1505,7 @@ module Beryl::CLI::Scan
       "installed: false # sauté par update/upgrade/os-upgrade ; retiré par `beryl bootstrap`",
       "provider: ovh",
     ]
-    lines.concat(Beryl::CLI::Info.ovh_block(service_name, detail[:commercial], detail[:rack], detail[:ipv4], ipv6, price, ipv6_gateway, detail[:datacenter]))
+    lines.concat(Beryl::CLI::Info.ovh_block(service_name, detail[:commercial], detail[:rack], detail[:ipv4], ipv6, price, ipv6_gateway, detail[:datacenter], ipv6_block))
     lines.join('\n') + "\n"
   end
 

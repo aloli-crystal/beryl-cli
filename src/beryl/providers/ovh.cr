@@ -287,11 +287,19 @@ module Beryl::Providers
     # le premier bloc de `/ips` — qui peut lister un ancien bloc (vu sur des
     # ADV recyclés : bloc /64 d'un ancien serveur listé, /56 réellement routé).
     def ipv6_address(service_name : String) : String?
+      ipv6_block(service_name).try { |b| self.class.host_ipv6(b) }
+    end
+
+    # Bloc IPv6 du serveur en forme canonique (`2001:41d0:364:3e00::/56`) :
+    # `routing.ipv6.ip`, sinon le premier v6 de `/ips`. nil si aucun. → `ovh.ipv6_block`.
+    def ipv6_block(service_name : String) : String?
       v6 = client.call("GET", "/dedicated/server/#{service_name}/specifications/network")
         .try(&.["routing"]?).try(&.["ipv6"]?)
       routed = v6.try(&.["ip"]?).try(&.as_s?).presence.try { |ip| ip.includes?(':') ? ip : nil }
       block = routed || client.dedicated_servers.ips(service_name).find(&.includes?(':'))
-      block && self.class.host_ipv6(block)
+      return unless block
+      base, slash, len = block.partition('/')
+      "#{Beryl::Apply::Netif6.canonical(base)}#{slash}#{len}"
     rescue
       nil
     end

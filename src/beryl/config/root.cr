@@ -549,6 +549,12 @@ module Beryl::Config
       provider_field("ovh", "ipv6")
     end
 
+    # Bloc IPv6 routé vers le serveur selon OVH (`ovh.ipv6_block`, ex.
+    # `2001:41d0:364:3e00::/56`, écrit par `beryl info --refresh`).
+    def ovh_ipv6_block : String?
+      provider_field("ovh", "ipv6_block")
+    end
+
     # Passerelle IPv6 déclarée par OVH (`ovh.ipv6_gateway`, écrite par
     # `beryl info --refresh` et `scan --discover`).
     def ovh_ipv6_gateway : String?

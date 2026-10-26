@@ -9,6 +9,16 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `ovh.ipv6_block` dans la fiche, et contrôle « IPv6 hors du bloc »
+
+`beryl info --refresh` (et `scan --discover`) écrivent désormais le bloc
+IPv6 qu'OVH route vers le serveur, en forme canonique
+(`ipv6_block: "2001:41d0:364:3e00::/56"`), à côté de l'adresse posée
+(`ipv6: "…::1"`) et de la passerelle. `beryl info` (terminal, AsciiDoc,
+HTML) signale toute fiche dont l'adresse n'est pas dans son bloc, à côté du
+plan d'adressage vRack — l'erreur de ke (ancien AAAA recopié) y serait
+apparue d'emblée.
+
 === `beryl info --usage --html` : Host et OS sur chaque ligne du tableau
 
 Un serveur à plusieurs pools n'affichait son nom et son OS que sur la 1ʳᵉ
