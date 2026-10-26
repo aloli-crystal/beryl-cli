@@ -87,5 +87,22 @@ describe Beryl::CLI::Scope do
       code = Beryl::CLI::Scope.fan_out("test", FAN_FIXTURE, ["web"], ["web"]) { |_| calls += 1; calls == 2 ? 5 : 0 }
       code.should eq 5
     end
+
+    it "avertissements d'un serveur repris au résumé, sans faire échouer" do
+      calls = 0
+      code = Beryl::CLI::Scope.fan_out("test", FAN_FIXTURE, ["web"], ["web"]) do |_|
+        calls += 1
+        Beryl::CLI::Scope.warn("reverse IPv6") if calls == 2
+        0
+      end
+      code.should eq 0
+    end
+  end
+
+  describe ".warnings_line" do
+    it "serveur court puis ses avertissements" do
+      line = Beryl::CLI::Scope.warnings_line({"quimeo/quimeo.net/no" => ["reverse IPv6", "reverse IPv4"]})
+      line.should eq "no (reverse IPv6 ; reverse IPv4)"
+    end
   end
 end

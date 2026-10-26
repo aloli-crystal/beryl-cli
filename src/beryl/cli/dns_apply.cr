@@ -4,6 +4,7 @@ require "./credentials"
 require "./dns_setup"
 require "./account_utils"
 require "./machine_kind"
+require "./scope"
 
 module Beryl::CLI
   # Cœur partagé du nommage DNS multi-provider (ADR-014), extrait de
@@ -220,6 +221,7 @@ module Beryl::CLI
             log.call("✓ reverse #{ipv4} → #{fqdn} (déjà posé)")
           else
             warnings << "reverse IPv4 (#{compute_provider_name}) : #{ex.message}"
+            Beryl::CLI::Scope.warn("reverse IPv4")
           end
         end
         if v6 = ipv6
@@ -231,11 +233,13 @@ module Beryl::CLI
               log.call("✓ reverse #{v6} → #{fqdn} (déjà posé)")
             else
               warnings << "reverse IPv6 (#{compute_provider_name}) : #{ex.message}"
+              Beryl::CLI::Scope.warn("reverse IPv6")
             end
           end
         end
       else
         warnings << "reverse non posé : `#{compute_provider_name}` n'expose pas le reverse DNS."
+        Beryl::CLI::Scope.warn("reverse non posé")
       end
 
       # --- bilan -----------------------------------------------------------

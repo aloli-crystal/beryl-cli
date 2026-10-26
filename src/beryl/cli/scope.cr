@@ -13,6 +13,16 @@ require "./info"
 module Beryl::CLI::Scope
   extend self
 
+  # Avertissements du serveur en cours (échec secondaire qui ne fait pas
+  # échouer la commande, ex. reverse IPv6 refusé par `dns`) : la commande les
+  # signale par `warn`, `run_each` les reprend dans son résumé. Sans portée
+  # multiple, personne ne les lit (la commande les a déjà affichés).
+  @@warnings = [] of String
+
+  def warn(message : String) : Nil
+    @@warnings << message
+  end
+
   # Recolle les positionnels de tête coupés aux virgules par le shell
   # (`["ah,", "be,", "ga", "x"]` → `["ah,be,ga", "x"]`). Pur.
   def join_list(positional : Array(String)) : Array(String)
@@ -76,21 +86,32 @@ module Beryl::CLI::Scope
   def run_each(cmd : String, scope : String, refs : Array(String), base : Array(String),
                & : Array(String) -> Int32) : Int32
     STDERR.puts "[beryl #{cmd}] portée #{scope} → #{refs.size} serveur(s) : #{refs.map { |r| r.split('/').last }.join(", ")}"
+    warned = {} of String => Array(String)
     results = refs.map_with_index do |ref, i|
       STDERR.puts
       STDERR.puts "──── beryl #{cmd} #{ref} (#{i + 1}/#{refs.size}) ────"
-      {ref, yield(base + [ref])}
+      @@warnings.clear
+      code = yield(base + [ref])
+      warned[ref] = @@warnings.dup unless @@warnings.empty?
+      {ref, code}
     end
+    @@warnings.clear
     failed = results.reject { |_, code| code == 0 }
     STDERR.puts
     if failed.empty?
-      STDERR.puts "[beryl #{cmd}] #{refs.size} serveur(s) : tous réussis."
+      STDERR.puts "[beryl #{cmd}] #{refs.size} serveur(s) : tous réussis#{warned.empty? ? "." : ", avec avertissement(s) : #{warnings_line(warned)}"}"
       0
     else
       STDERR.puts "[beryl #{cmd}] #{refs.size - failed.size}/#{refs.size} réussi(s) ; en échec : " +
                   failed.map { |ref, code| "#{ref.split('/').last} (code #{code})" }.join(", ")
+      STDERR.puts "[beryl #{cmd}] avertissement(s) : #{warnings_line(warned)}" unless warned.empty?
       failed.first[1]
     end
+  end
+
+  # `no (reverse IPv6), be (…)` : serveur court + avertissements. Pur.
+  def warnings_line(warned : Hash(String, Array(String))) : String
+    warned.map { |ref, msgs| "#{ref.split('/').last} (#{msgs.join(" ; ")})" }.join(", ")
   end
 
   # `args` sans les `count` premiers positionnels (la portée, éventuellement
