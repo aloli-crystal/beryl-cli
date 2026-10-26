@@ -23,9 +23,10 @@ require "./machine_kind"
 # Forme typique :
 #   beryl scan ns3156789.ip-51-83-6.eu --domain=example.net --apply
 #
-# Par défaut, pose aussi les records DNS (forward via le dns_provider de la
-# zone) + le reverse DNS IPv4/IPv6, pour ne pas l'oublier après le scan
-# (idempotent : un nouveau scan d'un host en place ne change rien).
+# Après l'écriture de la fiche, PROPOSE de poser les records DNS (forward
+# via le dns_provider de la zone) + le reverse IPv4/IPv6 (question, oui par
+# défaut), pour ne pas l'oublier (idempotent : un nouveau scan d'un host en
+# place ne change rien).
 # `--no-dns` s'en passe ; `--dns` reste accepté.
 # Défaut : dry-run (affiche le YAML sans rien écrire). Avec `--apply` :
 # écrit ~/.config/beryl/<domaine>/<nom>.yml (nom court
@@ -158,7 +159,7 @@ module Beryl::CLI::Scan
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
       p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (ex: dedibox, ovh, scaleway)") { |v| provider_override = v }
       p.on("-I ID", "--server-id=ID", "ID serveur côté hébergeur (ex: Dedibox entier, Scaleway UUID). Inutile pour OVH (le FQDN est le service_name)") { |v| server_id_flag = v }
-      p.on("--apply", "Applique : écrit le host.yml (chemin auto) + DNS (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false; write_auto = true }
+      p.on("--apply", "Applique : écrit le host.yml (chemin auto), puis propose le DNS (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false; write_auto = true }
       p.on("-W PATH", "--write-to=PATH", "Écrit dans un chemin explicite (implique --apply)") { |v| write_path = File.expand_path(v, home: true); dry_run = false }
       p.on("-k LIST", "--disks=LIST", "Disques du pool zroot (ex: sda,sdb | 'all')") { |v| disks_flag = v }
       p.on("-r N", "--raid=N", "Niveau RAID du pool zroot (0|1|5|6|7|10)") { |v| raid_flag = v }
@@ -166,8 +167,8 @@ module Beryl::CLI::Scan
       p.on("-H NAME", "--hostname=NAME", "Nom court à poser (défaut : nom court du FQDN)") { |v| hostname_flag = v }
       p.on("--host=NAME", "Alias de --hostname") { |v| hostname_flag = v }
       p.on("-z ZONE", "--zone=ZONE", "Zone DNS (défaut : le domaine)") { |v| zone_flag = v }
-      p.on("-D", "--dns", "Pose records DNS + reverse + rename OVH (défaut)") { dns_setup = true }
-      p.on("--no-dns", "Ne pose pas les records DNS") { dns_setup = false }
+      p.on("-D", "--dns", "Propose, après l'écriture, records DNS + reverse + rename (défaut)") { dns_setup = true }
+      p.on("--no-dns", "Ne propose pas le DNS") { dns_setup = false }
       p.on("-N", "--non-interactive", "Refuse toute invite") { non_interactive = true }
       p.on("--no-commit", "N'auto-commite pas le YAML dans le dépôt git de config") { no_commit = true }
       p.on("--discover", "Découvre les serveurs OVH du compte et écrit un host.yml minimal par NOUVEAU serveur (société : positionnel ou --account). Sans SSH ni rescue.") { discover = true }
@@ -245,47 +246,6 @@ module Beryl::CLI::Scan
       server_id_flag = answer
     end
 
-    # DNS (défaut, sauf --no-dns) : pose le nommage DNS AVANT le scan disques, mais en
-    # BEST-EFFORT. Le DNS est SECONDAIRE par rapport au scan + write :
-    # un échec ici (zone introuvable, API qui 404…) affiche un warning
-    # et laisse le scan continuer vers la détection disques + l'écriture
-    # du host. Constaté qsbg, 9 juin 2026 : un 404 OVH sur une zone Gandi
-    # avortait TOUT le scan (ni disques, ni --apply). Plus jamais.
-    #
-    # En dry-run, chaque flux respecte le flag et n'appelle aucune API.
-    dns_short : String? = nil
-    if dns_setup
-      begin
-        case effective_provider
-        when "ovh"
-          # Multi-provider (ADR-014) : forward via le dns_provider RÉEL de
-          # la zone (Gandi, OVH…), reverse + rename via OVH. Même cœur que
-          # `beryl dns` — voir Beryl::CLI::DnsApply. (Avant : DnsSetup
-          # 100% OVH → 404 sur une zone hébergée ailleurs.)
-          dns_short = Beryl::CLI::DnsApply.for_host(
-            host, hostname_flag, zone_flag, dry_run, non_interactive, cmd: "beryl scan").short_name
-        when "scaleway"
-          sid = server_id_flag || host.scaleway_server_id || raise MissingProviderConfig.new(
-            "--dns + provider=scaleway : server_id manquant (ni --server-id, ni scaleway.server_id dans le merge)"
-          )
-          zone = scaleway_zone_override || host.scaleway_zone
-          dns_short = run_dns_setup_scaleway(host, hostname_flag, zone_flag, non_interactive, dry_run, sid, zone).short_name
-        when "dedibox"
-          sid = server_id_flag || host.dedibox_server_id || raise MissingDediboxServerId.new
-          dns_short = run_dns_setup_dedibox(host, hostname_flag, zone_flag, non_interactive, dry_run, sid).short_name
-        else
-          STDERR.puts "beryl : --dns n'est pas câblé pour provider=#{effective_provider.inspect} " \
-                      "(supportés : dedibox, ovh, scaleway). Le scan continue sans DNS."
-        end
-      rescue ex
-        # Best-effort : on ne casse pas le scan pour un DNS raté. Inclut
-        # l'abandon explicite au prompt DNS (Aborted) → on saute juste le
-        # DNS, le scan disques + write se poursuit.
-        STDERR.puts "beryl : étape DNS non aboutie (#{ex.class}: #{ex.message}) — " \
-                    "le scan continue (détection disques + écriture du host)."
-      end
-    end
-
     # Scan disques : UNIQUEMENT hors dry-run. Le dry-run doit rester
     # purement informatif, aucune connexion SSH (donc pas de prompt
     # fingerprint, pas de host_key_verification qui plante si l'OS
@@ -328,9 +288,11 @@ module Beryl::CLI::Scan
       end
     end
 
-    # `dns_short` est le nom court retenu par l'étape DNS (flag ou prompt) ;
-    # il prime pour que le YAML porte le même nom que les records posés.
-    short = dns_short || hostname_flag || default_hostname(host.fqdn)
+    # Nom court du host : le DNS (posé après l'écriture) reprend CE nom, la
+    # fiche et les records portent donc le même. (Copie locale : `hostname_flag`,
+    # capturé par le parseur, ne se restreint pas à String.)
+    flag_short = hostname_flag
+    short = flag_short || default_hostname(host.fqdn)
 
     # En dry-run, on s'arrête ici : on a affiché ce qu'on ferait
     # (plan DNS si --dns), on annonce ce qui se passerait côté disques
@@ -340,6 +302,8 @@ module Beryl::CLI::Scan
       target = resolve_write_target(write_path, write_auto, config_root, host.account_name, host.domain_name, short,
         existing: host.virtual ? nil : host.node.source_path)
       effective_provider = provider_override || host.provider
+      # Plan DNS (aucun appel d'API en dry-run).
+      run_dns(host, effective_provider, short, zone_flag, true, non_interactive, server_id_flag, scaleway_zone_override) if dns_setup
       STDERR.puts
       STDERR.puts "DRY-RUN : actions `beryl scan` prévues :"
       STDERR.puts "  - SSH vers #{Beryl.format_ssh_target(host)} pour `lsblk` (lecture disques)"
@@ -351,6 +315,7 @@ module Beryl::CLI::Scan
       else
         STDERR.puts "  - YAML affiché à l'écran (dry-run — --apply ou --write-to pour écrire)"
       end
+      STDERR.puts "  - DNS : proposé après l'écriture (question ; forward, reverse, rename)" if dns_setup
       STDERR.puts "DRY-RUN : aucune action exécutée."
       # Afficher la commande à relancer avec --hostname=<short> pour
       # éviter le prompt interactif au 2e lancement.
@@ -470,6 +435,9 @@ module Beryl::CLI::Scan
         "scan : #{short}.#{host.domain_name} (#{pools.sum(&.disks.size)} disques, zroot raid#{zroot_raid})",
         no_commit,
       )
+      if dns_setup && dns_wanted?("#{short}.#{host.domain_name}", non_interactive)
+        run_dns(host, effective_provider, short, zone_flag, false, non_interactive, server_id_flag, scaleway_zone_override)
+      end
       log "5 Prochaine étape : beryl bootstrap #{host.account_name}/#{short}.#{host.domain_name}"
     else
       STDERR.puts "--- YAML suggéré (placez dans #{config_root}/#{host.account_name}/#{host.domain_name}/#{short}.host.yml) ---"
@@ -1773,6 +1741,43 @@ module Beryl::CLI::Scan
 
     log "5.3 Scaleway : nommage DNS posé : #{fqdn} ↔ serveur #{server_id} (zone #{scw_zone})"
     plan
+  end
+
+  # DNS du host, APRÈS le scan et l'écriture de la fiche : forward via le
+  # dns_provider RÉEL de la zone (Gandi, OVH… ; ADR-014), reverse + rename chez
+  # l'hébergeur — même cœur que `beryl dns` (Beryl::CLI::DnsApply). BEST-EFFORT :
+  # un échec (zone introuvable, API qui 404…) est signalé sans rien annuler du
+  # scan. Constaté qsbg, 9 juin 2026 : quand le DNS passait en premier, un 404
+  # OVH sur une zone Gandi avortait TOUT le scan. `short` = le nom de la fiche.
+  # En dry-run, chaque flux respecte le flag et n'appelle aucune API.
+  private def self.run_dns(host : Beryl::Config::ResolvedHost, provider : String?, short : String, zone_flag : String?,
+                           dry_run : Bool, non_interactive : Bool, server_id_flag : String?, scaleway_zone_override : String?) : Nil
+    case provider
+    when "ovh"
+      Beryl::CLI::DnsApply.for_host(host, short, zone_flag, dry_run, non_interactive, cmd: "beryl scan")
+    when "scaleway"
+      sid = server_id_flag || host.scaleway_server_id || raise MissingProviderConfig.new(
+        "DNS + provider=scaleway : server_id manquant (ni --server-id, ni scaleway.server_id dans le merge)"
+      )
+      zone = scaleway_zone_override || host.scaleway_zone
+      run_dns_setup_scaleway(host, short, zone_flag, non_interactive, dry_run, sid, zone)
+    when "dedibox"
+      sid = server_id_flag || host.dedibox_server_id || raise MissingDediboxServerId.new
+      run_dns_setup_dedibox(host, short, zone_flag, non_interactive, dry_run, sid)
+    else
+      STDERR.puts "beryl : DNS non câblé pour provider=#{provider.inspect} (supportés : dedibox, ovh, scaleway)."
+    end
+  rescue ex
+    STDERR.puts "beryl : étape DNS non aboutie (#{ex.class}: #{ex.message}) — la fiche est écrite ; " \
+                "relancez `beryl dns #{host.account_name}/#{short}.#{host.domain_name}`."
+  end
+
+  # Question posée après l'écriture de la fiche (oui par défaut ; oui sans
+  # question en --non-interactive).
+  private def self.dns_wanted?(fqdn : String, non_interactive : Bool) : Bool
+    return true if non_interactive
+    ans = ask("Voulez-vous lancer le DNS de #{fqdn} (forward A/AAAA, reverse, rename chez l'hébergeur) ? [O/n] : ", default: "O")
+    !ans.downcase.starts_with?("n")
   end
 
   private def self.ask(prompt : String, default : String) : String

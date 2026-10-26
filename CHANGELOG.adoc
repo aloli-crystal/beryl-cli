@@ -9,6 +9,15 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl scan` : DNS proposé APRÈS l'écriture de la fiche
+
+Le DNS passait en premier, avant la lecture des disques. Il vient
+maintenant après l'écriture (et le commit) de la fiche, sur une question
+(« Voulez-vous lancer le DNS de … ? [O/n] », oui sans question en
+`--non-interactive`), avec le nom court de la fiche : fiche et records
+portent le même nom. Toujours best-effort (un échec indique la commande
+`beryl dns` à relancer). En dry-run, le plan DNS reste affiché.
+
 === Monitoring OVH : règle simple, sans marqueur
 
 * `beryl rescue` coupe TOUJOURS le monitoring (déjà coupé : rien de changé)
