@@ -17,8 +17,7 @@ require "./ovh_monitoring"
 # les serveurs OVH (avec `ovh.service_name`) sont concernés.
 #
 # `beryl rescue` coupe ce monitoring tout seul et `boot-hd` / `bootstrap` le
-# rétablissent (cf. `Beryl::CLI::OvhMonitoring`). Un réglage fait ici PRIME :
-# la coupure de rescue est oubliée, boot-hd ne rétablira plus rien.
+# remettent en service, sauf `--no-monitoring` (cf. `Beryl::CLI::OvhMonitoring`).
 module Beryl::CLI::Monitoring
   EXIT_OK        = 0
   EXIT_USAGE     = 1
@@ -32,7 +31,7 @@ module Beryl::CLI::Monitoring
     parser = OptionParser.new do |p|
       p.banner = "USAGE : beryl monitoring <portée> [on|off] [--apply]\n" \
                  "        Monitoring OVH des serveurs (ping + intervention). Sans on/off : état ; on/off : DRY-RUN, --apply pour agir.\n" \
-                 "        Portée : serveur, domaine ou société. `beryl rescue` le coupe, `boot-hd`/`bootstrap` le rétablissent."
+                 "        Portée : serveur, domaine ou société. `beryl rescue` le coupe, `boot-hd`/`bootstrap` le remettent en service."
       p.on("--apply", "Applique réellement (sinon : dry-run, affiche ce qui changerait)") { dry_run = false }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
       p.unknown_args { |rest, _| positional = rest }
@@ -81,19 +80,21 @@ module Beryl::CLI::Monitoring
   end
 
   private def self.line(fqdn : String, client : OvhApi::Client, sn : String, state : String?, dry_run : Bool) : String
-    current = Beryl::CLI::OvhMonitoring.enabled?(client, sn)
-    since = Beryl::CLI::OvhMonitoring.suspended_at(sn)
-    return "#{fqdn} : #{status_text(current, since)}" unless state
+    current = Beryl::CLI::OvhMonitoring.state(client, sn)
+    return "#{fqdn} : #{status_text(current)}" unless state
     wanted = state == "on"
-    return "#{fqdn} : déjà #{wanted ? "actif" : "coupé"}" if current == wanted && since.nil?
-    return "#{fqdn} : #{status_text(current, since)} → serait #{wanted ? "activé" : "coupé"}" if dry_run
-    Beryl::CLI::OvhMonitoring.set_by_hand(client, sn, wanted)
+    return "#{fqdn} : déjà #{wanted ? "actif" : "coupé"}" if current == wanted
+    return "#{fqdn} : #{status_text(current)} → serait #{wanted ? "activé" : "coupé"}" if dry_run
+    Beryl::CLI::OvhMonitoring.set(client, sn, wanted)
     "#{fqdn} : monitoring #{wanted ? "activé" : "coupé"}"
   end
 
   # Texte d'état d'un serveur. Pur.
-  def self.status_text(enabled : Bool, suspended_at : String?) : String
-    return "monitoring actif" if enabled
-    suspended_at ? "monitoring coupé par beryl rescue (#{suspended_at}), rétabli au prochain boot-hd" : "monitoring coupé"
+  def self.status_text(enabled : Bool?) : String
+    case enabled
+    when true  then "monitoring actif"
+    when false then "monitoring coupé"
+    else            "état du monitoring illisible (champ `monitoring` absent de la réponse OVH)"
+    end
   end
 end

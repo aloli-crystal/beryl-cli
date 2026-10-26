@@ -38,6 +38,7 @@ module Beryl::CLI::Bootstrap
     freebsd_version_flag : String? = nil
     dry_run = true
     chain_apply = true
+    monitoring = true
     force = false
     positional = [] of String
 
@@ -48,6 +49,7 @@ module Beryl::CLI::Bootstrap
       p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (ex: dedibox, ovh, scaleway)") { |v| provider_override = v }
       p.on("--apply", "Applique réellement les changements (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false }
       p.on("--skip-recipes", "Ne pas enchaîner `beryl apply` (les recettes) après l'installation") { chain_apply = false }
+      p.on("--no-monitoring", "Laisser coupé le monitoring OVH (sinon remis en service à la fin)") { monitoring = false }
       p.on("-f", "--force", "Bypass le précheck (disques déclarés != physiques)") { force = true }
       p.on("-i URL", "--iso-url=URL", "URL mfsBSD (override)") { |v| iso_url_override = v }
       p.on("-v VER", "--freebsd-version=VER", "Version FreeBSD à installer (défaut : dernière mfsBSD SE détectée sur GitHub)") { |v| freebsd_version_flag = v }
@@ -450,13 +452,12 @@ module Beryl::CLI::Bootstrap
     # Le FreeBSD installé a de nouvelles clés d'hôte (le rescue aussi).
     Beryl::CLI::HostKeys.forget(host, "bootstrap")
     mark_installed(host)
-    # Monitoring OVH coupé par `beryl rescue` : rétabli, le serveur installé
-    # répond (cf. `OvhMonitoring`).
+    # Monitoring OVH (coupé par `beryl rescue`) remis en service, le serveur
+    # installé répond — sauf `--no-monitoring` (cf. `OvhMonitoring`).
     if (client = ovh_client) && (sn = host.ovh_service_name)
       begin
-        if msg = Beryl::CLI::OvhMonitoring.resume(client, sn)
-          STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 7] OVH : #{msg}"
-        end
+        msg = monitoring ? Beryl::CLI::OvhMonitoring.resume(client, sn) : "monitoring OVH laissé coupé (--no-monitoring)"
+        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 7] OVH : #{msg}"
       rescue ex : OvhApi::Error
         STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 7] OVH : ⚠ monitoring OVH non rétabli (#{ex.message}) — à réactiver dans l'espace client OVH"
       end

@@ -166,7 +166,7 @@ module Beryl::CLI::Rescue
         "champ `ovh.service_name` manquant pour #{host.fqdn}"
       )
       if dry_run
-        log "4 DRY-RUN : OVHcloud → monitoring OVH coupé s'il est actif (rétabli par boot-hd / bootstrap)"
+        log "4 DRY-RUN : OVHcloud → monitoring OVH coupé (remis en service par bootstrap / boot-hd)"
         log "4 DRY-RUN : OVHcloud → prepare_rescue(#{service_name}, ssh_key=#{host.ovh_ssh_key_name || "<auto>"})"
         log "4 DRY-RUN : puis wait_for_ssh(#{host.rescue_ssh_host}:#{host.port} as root, timeout #{timeout.total_minutes.to_i}m)" if wait
         log "Pour exécuter : #{Beryl.rerun_hint("rescue", args, replace_host: {raw, Beryl::CLI::AccountUtils.host_ref(host)})}"
@@ -319,9 +319,7 @@ module Beryl::CLI::Rescue
   # incident pendant le redémarrage).
   private def self.suspend_ovh_monitoring(host : Beryl::Config::ResolvedHost, factory : OvhClientFactory) : Nil
     return unless sn = host.ovh_service_name
-    if msg = Beryl::CLI::OvhMonitoring.suspend(factory.call, sn)
-      log "4.1 OVH : #{msg}"
-    end
+    log "4.1 OVH : #{Beryl::CLI::OvhMonitoring.suspend(factory.call, sn)}"
   rescue ex : OvhApi::Error
     log "4.1 OVH : ⚠ monitoring OVH non coupé (#{ex.message}) — OVH peut ouvrir un incident pendant le redémarrage"
   end

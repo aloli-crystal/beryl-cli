@@ -42,6 +42,7 @@ module Beryl::CLI::BootHd
     wait_for_ssh : Proc(String, Int32, String, Time::Span, Time::Span, Bool) = ->Beryl::CLI::Rescue.default_wait_for_ssh(String, Int32, String, Time::Span, Time::Span),
   ) : Int32
     wait = true
+    monitoring = true
     user = "admin"
     timeout = DEFAULT_SSH_WAIT_TIMEOUT
     account_hint : String? = nil
@@ -57,6 +58,7 @@ module Beryl::CLI::BootHd
       p.on("-P NAME", "--provider=NAME", "Surcharge `provider:` du merge (boot-hd n'est câblé que pour ovh)") { |v| provider_override = v }
       p.on("--apply", "Applique réellement les changements (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false }
       p.on("-W", "--no-wait", "Ne pas attendre le retour SSH") { wait = false }
+      p.on("--no-monitoring", "Laisser coupé le monitoring OVH (sinon remis en service une fois le serveur joignable)") { monitoring = false }
       p.on("-u USER", "--user=USER", "User pour le test SSH (défaut : admin)") { |v| user = v }
       p.on("-t MIN", "--timeout=MIN", "Timeout SSH en minutes (défaut : #{DEFAULT_SSH_WAIT_TIMEOUT.total_minutes.to_i})") { |v| timeout = v.to_i.minutes }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
@@ -129,7 +131,7 @@ module Beryl::CLI::BootHd
         "attente SSH sur #{target} (port #{host.port}, user #{user}, timeout #{timeout.total_minutes.to_i} min)",
       ) { wait_for_ssh.call(host.ssh_host, host.port, user, timeout, 15.seconds) }
       if ssh_ok
-        resume_ovh_monitoring(service_name, client)
+        resume_ovh_monitoring(service_name, client, monitoring)
         EXIT_OK
       else
         STDERR.puts "beryl : timeout SSH sur #{target}"
@@ -137,7 +139,7 @@ module Beryl::CLI::BootHd
       end
     else
       log "H2 commande boot-hd envoyée ; attente SSH désactivée (--no-wait)"
-      log "H2 monitoring OVH laissé tel quel (rétabli seulement après un démarrage vérifié : relancez sans --no-wait)"
+      log "H2 monitoring OVH laissé tel quel (remis en service seulement après un démarrage vérifié : relancez sans --no-wait)"
       EXIT_OK
     end
   rescue ex : Beryl::Config::Root::HostNotFound
@@ -175,13 +177,12 @@ module Beryl::CLI::BootHd
     end
   end
 
-  # Rétablit le monitoring OVH coupé par `beryl rescue`, une fois le système
-  # installé joignable (cf. `OvhMonitoring`). Un échec est signalé sans faire
-  # échouer boot-hd.
-  private def self.resume_ovh_monitoring(service_name : String, client : OvhApi::Client) : Nil
-    if msg = Beryl::CLI::OvhMonitoring.resume(client, service_name)
-      log "H3 OVH : #{msg}"
-    end
+  # Remet en service le monitoring OVH (coupé par `beryl rescue`), une fois
+  # le système installé joignable — sauf `--no-monitoring` (cf.
+  # `OvhMonitoring`). Un échec est signalé sans faire échouer boot-hd.
+  private def self.resume_ovh_monitoring(service_name : String, client : OvhApi::Client, monitoring : Bool) : Nil
+    return log("H3 OVH : monitoring OVH laissé coupé (--no-monitoring)") unless monitoring
+    log "H3 OVH : #{Beryl::CLI::OvhMonitoring.resume(client, service_name)}"
   rescue ex : OvhApi::Error
     log "H3 OVH : ⚠ monitoring OVH non rétabli (#{ex.message}) — à réactiver dans l'espace client OVH"
   end

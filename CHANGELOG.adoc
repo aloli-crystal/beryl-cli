@@ -9,6 +9,19 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Monitoring OVH : règle simple, sans marqueur
+
+* `beryl rescue` coupe TOUJOURS le monitoring (déjà coupé : rien de changé)
+  et l'écrit dans son journal ; avant, un monitoring déjà coupé passait sous
+  silence.
+* `beryl bootstrap` et `beryl boot-hd` le remettent TOUJOURS en service une
+  fois le serveur joignable, sauf `--no-monitoring`. Avant, seulement si
+  beryl l'avait coupé lui-même (marqueur dans `<état>/ovh-monitoring/`,
+  retiré) : un monitoring coupé hors beryl restait coupé après une
+  réinstallation.
+* `beryl monitoring` : « état illisible » quand la réponse OVH ne porte pas
+  le champ (avant, compté comme « coupé »).
+
 === DNS interne du vRack calculé depuis les fiches ; `beryl vrack-dns` retiré
 
 `beryl apply` fournit aux recettes la zone interne du vRack, lue dans
