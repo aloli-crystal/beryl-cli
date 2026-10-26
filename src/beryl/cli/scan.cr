@@ -217,7 +217,7 @@ module Beryl::CLI::Scan
         scaleway_factory: -> { Beryl::CLI::Credentials.scaleway_client },
       )
       if resolved
-        log "5.0 #{po} : id=#{host_name} → IP #{resolved[:ip]}" \
+        log "#{po} : id=#{host_name} → IP #{resolved[:ip]}" \
             "#{resolved[:zone] ? " (zone #{resolved[:zone]})" : ""} (résolu via API)"
         host_name = resolved[:ip]
         server_id_flag ||= resolved[:server_id]
@@ -260,7 +260,7 @@ module Beryl::CLI::Scan
       # est bien déposée côté provider (projet Scaleway, clé SSH OVH,
       # slot IAM Dedibox…).
       key = host.identity_file || "(aucune, résolution échouera)"
-      log "5.1 connexion SSH à #{Beryl.format_ssh_target(host)} (user=#{conn.user}, port=#{conn.port}, key=#{key})..."
+      log "1 connexion SSH à #{Beryl.format_ssh_target(host)} (user=#{conn.user}, port=#{conn.port}, key=#{key})..."
       disks = read_disks(conn)
       unless disks.empty?
         STDERR.puts
@@ -428,7 +428,7 @@ module Beryl::CLI::Scan
       end
       Dir.mkdir_p(File.dirname(target))
       Beryl::CLI::Fmt.write(target, yaml)
-      log "5.4 YAML écrit dans #{target}"
+      log "2 YAML écrit dans #{target}"
       zroot_raid = pools.find(&.boot).try(&.raid) || 0
       Beryl::CLI::ConfigGit.commit(
         [target],
@@ -438,7 +438,7 @@ module Beryl::CLI::Scan
       if dns_setup && dns_wanted?("#{short}.#{host.domain_name}", non_interactive)
         run_dns(host, effective_provider, short, zone_flag, false, non_interactive, server_id_flag, scaleway_zone_override)
       end
-      log "5 Prochaine étape : beryl bootstrap #{host.account_name}/#{short}.#{host.domain_name}"
+      log "Prochaine étape : beryl bootstrap #{host.account_name}/#{short}.#{host.domain_name}"
     else
       STDERR.puts "--- YAML suggéré (placez dans #{config_root}/#{host.account_name}/#{host.domain_name}/#{short}.host.yml) ---"
       print yaml
@@ -1584,7 +1584,7 @@ module Beryl::CLI::Scan
     STDERR.puts
 
     if dry_run
-      log "5 DRY-RUN : plan DNSDedibox affiché, aucun appel API effectué"
+      log "DRY-RUN : plan DNSDedibox affiché, aucun appel API effectué"
       return plan
     end
     unless non_interactive
@@ -1601,11 +1601,11 @@ module Beryl::CLI::Scan
 
     # Rename côté console Dedibox (via PUT /server/{id}).
     if current_hostname != short
-      log "5.3 Dedibox : renomme hostname console : #{server_id} → #{short}"
+      log "3 Dedibox : renomme hostname console : #{server_id} → #{short}"
       dedibox.servers.update_hostname(server_id, short)
     end
 
-    log "5.3 Dedibox : nommage DNS posé : #{fqdn} ↔ serveur #{server_id} (reverse DNS à poser manuellement)"
+    log "3 Dedibox : nommage DNS posé : #{fqdn} ↔ serveur #{server_id} (reverse DNS à poser manuellement)"
     plan
   end
 
@@ -1696,7 +1696,7 @@ module Beryl::CLI::Scan
     STDERR.puts
 
     if dry_run
-      log "5 DRY-RUN : plan DNSScaleway affiché, aucun appel API effectué"
+      log "DRY-RUN : plan DNSScaleway affiché, aucun appel API effectué"
       return plan
     end
     unless non_interactive
@@ -1717,7 +1717,7 @@ module Beryl::CLI::Scan
     new_name = current_name == short ? nil : short
     new_reverse_v4 = current_reverse_v4 == fqdn ? nil : fqdn
     if new_name || new_reverse_v4
-      log "5.3 Scaleway : PATCH server name=#{new_name || "(inchangé)"} reverse_v4=#{new_reverse_v4 || "(inchangé)"}"
+      log "3 Scaleway : PATCH server name=#{new_name || "(inchangé)"} reverse_v4=#{new_reverse_v4 || "(inchangé)"}"
       scaleway.baremetal.servers.update(
         server_id: server_id,
         zone: scw_zone,
@@ -1730,7 +1730,7 @@ module Beryl::CLI::Scan
     # scaleway-api 0.4.2+). Si pas d'IPv6 ou reverse déjà en place,
     # on ne fait rien.
     if ipv6_obj && current_reverse_v6 != fqdn
-      log "5.3 Scaleway : PATCH ip #{ipv6_obj.id} reverse_v6=#{fqdn}"
+      log "3 Scaleway : PATCH ip #{ipv6_obj.id} reverse_v6=#{fqdn}"
       scaleway.baremetal.servers.update_ip(
         server_id: server_id,
         ip_id: ipv6_obj.id,
@@ -1739,7 +1739,7 @@ module Beryl::CLI::Scan
       )
     end
 
-    log "5.3 Scaleway : nommage DNS posé : #{fqdn} ↔ serveur #{server_id} (zone #{scw_zone})"
+    log "3 Scaleway : nommage DNS posé : #{fqdn} ↔ serveur #{server_id} (zone #{scw_zone})"
     plan
   end
 
@@ -1790,6 +1790,6 @@ module Beryl::CLI::Scan
   end
 
   private def self.log(message : String) : Nil
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl scan] #{message}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl scan] #{Beryl.format_step(message)}"
   end
 end

@@ -122,28 +122,28 @@ module Beryl::CLI::Unlock
     target = Beryl.format_ssh_target(host)
     units = encrypted_pools.map { |p| "#{p.name}(#{mode_label(p)})" }
     units << "#{enc_root}(#{enc_root_tang ? "tang" : "ssh_unlock"})" if enc_root
-    log "H4 unlock #{target} : #{units.size} unité(s) chiffrée(s) à déverrouiller (#{units.join(", ")})"
+    log "unlock #{target} : #{units.size} unité(s) chiffrée(s) à déverrouiller (#{units.join(", ")})"
 
     if dry_run
-      log "H4 DRY-RUN : SSH root@#{host.ssh_host}:#{host.port}"
+      log "DRY-RUN : SSH root@#{host.ssh_host}:#{host.port}"
       encrypted_pools.each do |pool|
-        log "H4 DRY-RUN :   zpool import -N #{pool.name}"
+        log "DRY-RUN :   zpool import -N #{pool.name}"
         case pool.encryption.not_nil!.mode
         when Beryl::Config::EncryptionConfig::Mode::SshUnlock
-          log "H4 DRY-RUN :   echo '<64-char-hex-key>' | zfs load-key #{pool.name}"
+          log "DRY-RUN :   echo '<64-char-hex-key>' | zfs load-key #{pool.name}"
         when Beryl::Config::EncryptionConfig::Mode::Tang
-          log "H4 DRY-RUN :   #{TANG_BINARY} unlock --no-mount --dataset #{pool.name}#{key_hex ? "   (repli : clé du poste)" : ""}"
+          log "DRY-RUN :   #{TANG_BINARY} unlock --no-mount --dataset #{pool.name}#{key_hex ? "   (repli : clé du poste)" : ""}"
         end
-        log "H4 DRY-RUN :   zfs mount -a -l"
+        log "DRY-RUN :   zfs mount -a -l"
       end
       if er = enc_root
         # encryptionroot zroot : pas d'import (zroot déjà importé au boot).
         if enc_root_tang
-          log "H4 DRY-RUN :   #{TANG_BINARY} unlock --no-mount --dataset #{er}"
+          log "DRY-RUN :   #{TANG_BINARY} unlock --no-mount --dataset #{er}"
         else
-          log "H4 DRY-RUN :   echo '<64-char-hex-key>' | zfs load-key #{er}"
+          log "DRY-RUN :   echo '<64-char-hex-key>' | zfs load-key #{er}"
         end
-        log "H4 DRY-RUN :   zfs mount -a -l   (datasets zroot : /home, /opt, /usr/local/etc)"
+        log "DRY-RUN :   zfs mount -a -l   (datasets zroot : /home, /opt, /usr/local/etc)"
       end
       return EXIT_OK
     end
@@ -159,7 +159,7 @@ module Beryl::CLI::Unlock
     if needs_tang
       tang_binary = conn.exec("test -x #{Process.quote(TANG_BINARY)}", raise_on_error: false).success?
       if !tang_binary && key_hex
-        log "H4 #{TANG_BINARY} absent sur #{target} → clé du poste pour les unités en mode tang"
+        log "#{TANG_BINARY} absent sur #{target} → clé du poste pour les unités en mode tang"
       elsif !tang_binary
         STDERR.puts "beryl : binaire #{TANG_BINARY} absent ou non exécutable sur #{target}"
         STDERR.puts "        Il est requis pour le `mode: tang`. Installez-le via :"
@@ -174,7 +174,7 @@ module Beryl::CLI::Unlock
       unlock_one(conn, pool, key_hex, tang_binary)
     rescue ex
       STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl unlock] " \
-                  "H4 ÉCHEC pool #{pool.name} : #{ex.class}: #{ex.message}"
+                  "ÉCHEC pool #{pool.name} : #{ex.class}: #{ex.message}"
       failures += 1
     end
     if er = enc_root
@@ -182,7 +182,7 @@ module Beryl::CLI::Unlock
         unlock_encryption_root(conn, er, enc_root_cfg, key_hex, tang_binary)
       rescue ex
         STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl unlock] " \
-                    "H4 ÉCHEC encryptionroot #{er} : #{ex.class}: #{ex.message}"
+                    "ÉCHEC encryptionroot #{er} : #{ex.class}: #{ex.message}"
         failures += 1
       end
     end
@@ -192,7 +192,7 @@ module Beryl::CLI::Unlock
       return EXIT_UNLOCK_FAILED
     end
 
-    log "H4 unlock #{target} : terminé (#{total} unité(s) en ligne)"
+    log "unlock #{target} : terminé (#{total} unité(s) en ligne)"
     EXIT_OK
   rescue ex : Beryl::Config::Root::HostNotFound
     STDERR.puts "beryl : #{ex.message}"
@@ -236,9 +236,9 @@ module Beryl::CLI::Unlock
     listed = conn.exec("zpool list -H -o name #{Process.quote(pool_name)}", raise_on_error: false)
     already_imported = listed.success? && listed.stdout.strip == pool_name
     if already_imported
-      log "H4   pool #{pool_name} déjà importé sur #{target}"
+      log "1 pool #{pool_name} déjà importé sur #{target}"
     else
-      log "H4   zpool import -N #{pool_name} (sur #{target})"
+      log "1 zpool import -N #{pool_name} (sur #{target})"
       result = conn.exec("zpool import -N #{Process.quote(pool_name)}", raise_on_error: false)
       unless result.success?
         raise "zpool import #{pool_name} a échoué : exit=#{result.exit_code} stderr=#{result.stderr.strip.inspect}"
@@ -249,7 +249,7 @@ module Beryl::CLI::Unlock
     keystatus = conn.exec("zfs get -H -o value keystatus #{Process.quote(pool_name)}", raise_on_error: false)
     status = keystatus.success? ? keystatus.stdout.strip : "unknown"
     if status == "available"
-      log "H4   clé déjà chargée pour #{pool_name}"
+      log "2 clé déjà chargée pour #{pool_name}"
     else
       case enc.mode
       when Beryl::Config::EncryptionConfig::Mode::SshUnlock
@@ -263,13 +263,13 @@ module Beryl::CLI::Unlock
     # `clevis-zfs unlock` est appelé avec `--no-mount` pour
     # qu'on garde le contrôle ici (cohérence avec le mode ssh_unlock,
     # diagnostic uniforme).
-    log "H4   zfs mount -a -l (montage des datasets de #{pool_name})"
+    log "3 zfs mount -a -l (montage des datasets de #{pool_name})"
     mount = conn.exec("zfs mount -a -l", raise_on_error: false)
     unless mount.success?
       # `zfs mount -a` peut retourner non-zero si UN dataset échoue
       # (ex: mountpoint déjà utilisé par un dataset clair). On loggue
       # mais ne lève pas — l'opérateur regarde la sortie.
-      log "H4   zfs mount -a -l a retourné exit=#{mount.exit_code} stderr=#{mount.stderr.strip.inspect[0, 200]}"
+      log "3 zfs mount -a -l a retourné exit=#{mount.exit_code} stderr=#{mount.stderr.strip.inspect[0, 200]}"
     end
 
     # Diagnostic : liste les datasets montés du pool pour confirmer.
@@ -279,7 +279,7 @@ module Beryl::CLI::Unlock
     )
     if mounted.success?
       mounted.stdout.each_line do |line|
-        log "H4     #{line.strip}"
+        log "3   #{line.strip}"
       end
     end
   end
@@ -299,7 +299,7 @@ module Beryl::CLI::Unlock
     keystatus = conn.exec("zfs get -H -o value keystatus #{Process.quote(enc_root)}", raise_on_error: false)
     status = keystatus.success? ? keystatus.stdout.strip : "unknown"
     if status == "available"
-      log "H4   clé déjà chargée pour #{enc_root} (sur #{target})"
+      log "2 clé déjà chargée pour #{enc_root} (sur #{target})"
     elsif tang
       load_key_tang_or_local(conn, enc_root, enc_cfg.not_nil!, key_hex, tang_binary)
     else
@@ -307,10 +307,10 @@ module Beryl::CLI::Unlock
     end
 
     # Monte les enfants (/home, /opt, /usr/local/etc), maintenant déchiffrables.
-    log "H4   zfs mount -a -l (datasets zroot de #{enc_root})"
+    log "3 zfs mount -a -l (datasets zroot de #{enc_root})"
     mount = conn.exec("zfs mount -a -l", raise_on_error: false)
     unless mount.success?
-      log "H4   zfs mount -a -l a retourné exit=#{mount.exit_code} stderr=#{mount.stderr.strip.inspect[0, 200]}"
+      log "3 zfs mount -a -l a retourné exit=#{mount.exit_code} stderr=#{mount.stderr.strip.inspect[0, 200]}"
     end
 
     mounted = conn.exec(
@@ -319,14 +319,14 @@ module Beryl::CLI::Unlock
     )
     if mounted.success?
       mounted.stdout.each_line do |line|
-        log "H4     #{line.strip}"
+        log "3   #{line.strip}"
       end
     end
   end
 
   # Mode ssh_unlock — clé locale via stdin SSH (Option C historique).
   private def self.load_key_via_ssh_stdin(conn : SSH::Connection, pool_name : String, key_hex : String) : Nil
-    log "H4   zfs load-key #{pool_name} (mode ssh_unlock, clé via stdin SSH)"
+    log "2 zfs load-key #{pool_name} (mode ssh_unlock, clé via stdin SSH)"
     load = conn.exec("zfs load-key #{Process.quote(pool_name)}", stdin: key_hex, raise_on_error: false)
     unless load.success?
       raise "zfs load-key #{pool_name} a échoué : exit=#{load.exit_code} stderr=#{load.stderr.strip.inspect}"
@@ -341,7 +341,7 @@ module Beryl::CLI::Unlock
         return load_key_via_tang(conn, name, enc)
       rescue ex
         raise ex unless key_hex
-        log "H4   Tang en échec pour #{name} (#{ex.message}) → repli sur la clé du poste"
+        log "2 Tang en échec pour #{name} (#{ex.message}) → repli sur la clé du poste"
       end
     end
     load_key_via_ssh_stdin(conn, name, key_hex.not_nil!)
@@ -362,7 +362,7 @@ module Beryl::CLI::Unlock
                    else
                      "#{enc.tang_urls.size} Tangs, threshold #{enc.threshold}"
                    end
-    log "H4   #{TANG_BINARY} unlock --no-mount --dataset #{pool_name} (mode tang : #{urls_summary})"
+    log "2 #{TANG_BINARY} unlock --no-mount --dataset #{pool_name} (mode tang : #{urls_summary})"
     cmd = "#{Process.quote(TANG_BINARY)} unlock --no-mount --dataset #{Process.quote(pool_name)}"
     result = conn.exec(cmd, raise_on_error: false)
     unless result.success?
@@ -372,6 +372,6 @@ module Beryl::CLI::Unlock
   end
 
   private def self.log(message : String) : Nil
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl unlock] #{message}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl unlock] #{Beryl.format_step(message)}"
   end
 end

@@ -150,24 +150,24 @@ module Beryl::CLI::TangEnroll
       enc = p.encryption.not_nil!
       "#{p.name}(tang×#{enc.tang_urls.size}/#{enc.threshold})"
     end.join(", ")
-    log "TE tang-enroll #{target} : #{tang_pools.size} pool(s) à enrôler (#{summary})"
+    log "tang-enroll #{target} : #{tang_pools.size} pool(s) à enrôler (#{summary})"
 
     if dry_run
-      log "TE DRY-RUN : SSH root@#{host.ssh_host}:#{host.port}"
+      log "DRY-RUN : SSH root@#{host.ssh_host}:#{host.port}"
       tang_pools.each do |pool|
         enc = pool.encryption.not_nil!
         tang_args = enc.tang_urls.map { |u| "-t #{u}" }.join(" ")
-        log "TE DRY-RUN :   pré-check : pool #{pool.name} chiffré + clé chargée"
-        log "TE DRY-RUN :   pousser clé via stdin SSH → #{TMPFS_KEY_PREFIX}.<rand>"
-        log "TE DRY-RUN :   zfs set keylocation=file://#{TMPFS_KEY_PREFIX}.<rand> #{pool.name}"
-        log "TE DRY-RUN :   #{TANG_BINARY} bind --use-existing-key --dataset #{pool.name} #{tang_args}" \
+        log "DRY-RUN :   pré-check : pool #{pool.name} chiffré + clé chargée"
+        log "DRY-RUN :   pousser clé via stdin SSH → #{TMPFS_KEY_PREFIX}.<rand>"
+        log "DRY-RUN :   zfs set keylocation=file://#{TMPFS_KEY_PREFIX}.<rand> #{pool.name}"
+        log "DRY-RUN :   #{TANG_BINARY} bind --use-existing-key --dataset #{pool.name} #{tang_args}" \
             "#{enc.threshold > 1 ? " --threshold #{enc.threshold}" : ""}"
-        log "TE DRY-RUN :   rm #{TMPFS_KEY_PREFIX}.<rand>"
-        log "TE DRY-RUN :   zfs set keylocation=prompt #{pool.name}"
+        log "DRY-RUN :   rm #{TMPFS_KEY_PREFIX}.<rand>"
+        log "DRY-RUN :   zfs set keylocation=prompt #{pool.name}"
       end
       unless skip_rc_conf
-        log "TE DRY-RUN :   sysrc clevis_zfs_enable=YES"
-        log "TE DRY-RUN :   sysrc clevis_zfs_datasets=\"#{tang_pools.map(&.name).join(" ")}\""
+        log "DRY-RUN :   sysrc clevis_zfs_enable=YES"
+        log "DRY-RUN :   sysrc clevis_zfs_datasets=\"#{tang_pools.map(&.name).join(" ")}\""
       end
       return EXIT_OK
     end
@@ -175,7 +175,7 @@ module Beryl::CLI::TangEnroll
     conn = host.connection
 
     # Pre-flight côté serveur.
-    log "TE pré-check serveur"
+    log "1 pré-check serveur"
     probe = conn.exec("test -x #{Process.quote(TANG_BINARY)}", raise_on_error: false)
     unless probe.success?
       STDERR.puts "beryl : binaire #{TANG_BINARY} absent ou non exécutable sur #{target}"
@@ -191,12 +191,12 @@ module Beryl::CLI::TangEnroll
       enrolled_names << pool.name
     rescue ex : KeyNotLoaded
       STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl tang-enroll] " \
-                  "TE ÉCHEC pool #{pool.name} : #{ex.message}"
+                  "ÉCHEC pool #{pool.name} : #{ex.message}"
       STDERR.puts "        Lancez `beryl unlock #{host.account_name}/#{host.fqdn}` puis ré-essayez."
       failures += 1
     rescue ex
       STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl tang-enroll] " \
-                  "TE ÉCHEC pool #{pool.name} : #{ex.class}: #{ex.message}"
+                  "ÉCHEC pool #{pool.name} : #{ex.class}: #{ex.message}"
       failures += 1
     end
 
@@ -221,8 +221,8 @@ module Beryl::CLI::TangEnroll
       end
     end
 
-    log "TE tang-enroll #{target} : terminé (#{enrolled_names.size} pool(s) enrôlé(s) ; auto-unlock au boot activé)"
-    log "TE testez en : `beryl reboot #{host.account_name}/#{host.fqdn}` (puis `beryl status` pour vérifier)"
+    log "tang-enroll #{target} : terminé (#{enrolled_names.size} pool(s) enrôlé(s) ; auto-unlock au boot activé)"
+    log "testez en : `beryl reboot #{host.account_name}/#{host.fqdn}` (puis `beryl status` pour vérifier)"
     EXIT_OK
   rescue ex : Beryl::Config::Root::HostNotFound
     STDERR.puts "beryl : #{ex.message}"
@@ -277,14 +277,14 @@ module Beryl::CLI::TangEnroll
     # collisions et squat.
     suffix = Random::Secure.hex(8)
     tmpkey = "#{TMPFS_KEY_PREFIX}.#{suffix}"
-    log "TE   pousse clé locale dans tmpfs #{tmpkey}"
+    log "2 pousse clé locale dans tmpfs #{tmpkey}"
     push_key_to_tmpfs(conn, tmpkey, key_hex)
 
     begin
       # 3. Change la propriété keylocation (sans changer la clé !).
       # `zfs set keylocation=...` est différent de `zfs change-key` :
       # change-key génère une NOUVELLE clé (catastrophique ici).
-      log "TE   zfs set keylocation=file://#{tmpkey} #{pool_name}"
+      log "2 zfs set keylocation=file://#{tmpkey} #{pool_name}"
       result = conn.exec(
         "zfs set keylocation=file://#{tmpkey} #{Process.quote(pool_name)}",
         raise_on_error: false,
@@ -299,14 +299,14 @@ module Beryl::CLI::TangEnroll
       threshold_arg = enc.threshold > 1 ? "--threshold #{enc.threshold}" : ""
       bind_cmd = "#{Process.quote(TANG_BINARY)} bind --use-existing-key " \
                  "--dataset #{Process.quote(pool_name)} #{tang_args} #{threshold_arg}"
-      log "TE   #{TANG_BINARY} bind --use-existing-key --dataset #{pool_name} (#{enc.tang_urls.size} Tang, threshold #{enc.threshold})"
+      log "3 #{TANG_BINARY} bind --use-existing-key --dataset #{pool_name} (#{enc.tang_urls.size} Tang, threshold #{enc.threshold})"
       bind_result = conn.exec(bind_cmd, raise_on_error: false)
       unless bind_result.success?
         raise "clevis-zfs bind a échoué : " \
               "exit=#{bind_result.exit_code} stderr=#{bind_result.stderr.strip.inspect}"
       end
       stdout_strip = bind_result.stdout.strip
-      log "TE   #{stdout_strip}" unless stdout_strip.empty?
+      log "3 #{stdout_strip}" unless stdout_strip.empty?
     ensure
       # 5. Cleanup tmpfs INCONDITIONNEL (même si bind a planté).
       # La clé ne doit pas survivre à tang-enroll.
@@ -347,7 +347,7 @@ module Beryl::CLI::TangEnroll
   # nouveaux. Permet une montée en charge progressive sans écraser
   # un travail manuel précédent.
   private def self.update_rc_conf(conn : SSH::Connection, enrolled_names : Array(String)) : Nil
-    log "TE   sysrc clevis_zfs_enable=YES"
+    log "4 sysrc clevis_zfs_enable=YES"
     enable = conn.exec("sysrc clevis_zfs_enable=YES", raise_on_error: false)
     unless enable.success?
       raise "sysrc clevis_zfs_enable=YES a échoué : exit=#{enable.exit_code} stderr=#{enable.stderr.strip.inspect}"
@@ -362,7 +362,7 @@ module Beryl::CLI::TangEnroll
                end
     union = (existing + enrolled_names).uniq
     new_value = union.join(" ")
-    log "TE   sysrc clevis_zfs_datasets=#{new_value.inspect}"
+    log "4 sysrc clevis_zfs_datasets=#{new_value.inspect}"
     set = conn.exec(
       "sysrc clevis_zfs_datasets=#{Process.quote(new_value)}",
       raise_on_error: false,
@@ -373,6 +373,6 @@ module Beryl::CLI::TangEnroll
   end
 
   private def self.log(message : String) : Nil
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl tang-enroll] #{message}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl tang-enroll] #{Beryl.format_step(message)}"
   end
 end

@@ -9,6 +9,31 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Étapes du journal numérotées à partir de 1, par commande
+
+Les journaux reprenaient les numéros des spécifications : la première étape
+lue de `bootstrap` était la « 7 », celle de `rescue` la « 4.1 », de `scan`
+la « 5.1 », et `boot-hd`, `reboot`, `unlock`, `tang-enroll`… affichaient des
+codes bruts (« H2.1 », « H3.1 », « H4 », « TE »). Chaque commande numérote
+désormais SES étapes, dans l'ordre :
+
+* `bootstrap` : 1 préparation (image, vérification, plan, clés), 2.1 à 2.5
+  rescue (Linux, disques, QEMU, image, scripts), 3 installation dans QEMU,
+  4 redémarrage sur le disque (SSH, monitoring), 5 recettes ;
+* `rescue` : 1 hébergeur (préparation, redémarrage), 2 attente SSH, 3 root
+  (Scaleway, Dedibox) ;
+* `scan` : 1 disques, 2 fiche écrite, 3 DNS ;
+* `boot-hd` : 1 démarrage sur le disque, 2 attente SSH, 3 monitoring ;
+* `reboot` : 1 redémarrage demandé, 2 attente, 3 de retour, 4 unlock ;
+* `unlock` : par pool, 1 import, 2 clé, 3 montage ;
+* `tang-enroll` : 1 pré-check, puis par pool 2 clé posée, 3 enrôlement,
+  et 4 démarrage automatique ;
+* `scaleway-reinstall` : 1 réinstallation lancée.
+
+Les lignes d'essai à blanc et les messages généraux n'ont plus de numéro ;
+`wipe`, `status` et `follow-install` n'en affichent plus. `scan`, `reboot`,
+`unlock` et `tang-enroll` passent aussi au format « [Étape N] ».
+
 === `freebsd.users` : groupes exacts et groupe principal, aussi sur les comptes existants
 
 `user-sync` (lancé par chaque `beryl apply` pour chaque compte déclaré)

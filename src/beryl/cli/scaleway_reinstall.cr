@@ -104,7 +104,7 @@ module Beryl::CLI::ScalewayReinstall
         scaleway_factory: -> { Beryl::CLI::Credentials.scaleway_client },
       )
       if resolved
-        log "H1.0 id=#{host_name} → IP #{resolved[:ip]}" \
+        log "id=#{host_name} → IP #{resolved[:ip]}" \
             "#{resolved[:zone] ? " (zone #{resolved[:zone]})" : ""} (résolu via API)"
         host_name = resolved[:ip]
         server_id_from_shortcut = resolved[:server_id]
@@ -208,7 +208,7 @@ module Beryl::CLI::ScalewayReinstall
     STDERR.puts "ATTENTION : le disque va être entièrement ÉCRASÉ par l'install Scaleway."
 
     if dry_run
-      log "H1 DRY-RUN : aucun appel API effectué"
+      log "DRY-RUN : aucun appel API effectué"
       return EXIT_OK
     end
 
@@ -225,16 +225,16 @@ module Beryl::CLI::ScalewayReinstall
       ssh_key_ids: project_keys.map(&.id),
     )
 
-    log "H1.1 POST /servers/#{server.id}/install (zone #{resolved_zone})"
+    log "1 POST /servers/#{server.id}/install (zone #{resolved_zone})"
     updated = client.baremetal.servers.install(
       server_id: server.id,
       install: install,
       zone: resolved_zone,
     )
-    log "H1.1 install lancé, status=#{updated.status}"
-    log "H1 l'installation Scaleway prend typiquement 10-15 minutes avant que le rescue puisse être réactivé."
-    log "H1 prochaine étape : attendez 10-15 min que l'install Scaleway soit terminée, puis relancez :"
-    log "H1   beryl rescue #{suggest_path} --provider=scaleway"
+    log "1 install lancé, status=#{updated.status}"
+    log "l'installation Scaleway prend typiquement 10-15 minutes avant que le rescue puisse être réactivé."
+    log "prochaine étape : attendez 10-15 min que l'install Scaleway soit terminée, puis relancez :"
+    log "  beryl rescue #{suggest_path} --provider=scaleway"
 
     EXIT_OK
   rescue ex : Beryl::Config::Root::HostNotFound

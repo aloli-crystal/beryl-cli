@@ -92,19 +92,19 @@ module Beryl::CLI::Reboot
     encrypted_pools = host.data_zpools.select(&.encrypted?)
     has_encrypted = !encrypted_pools.empty?
 
-    log "H3 reboot #{target} mode=#{mode}#{has_encrypted ? " (#{encrypted_pools.size} pool(s) chiffré(s) à rouvrir)" : ""}"
+    log "reboot #{target} mode=#{mode}#{has_encrypted ? " (#{encrypted_pools.size} pool(s) chiffré(s) à rouvrir)" : ""}"
 
     if dry_run
       case mode
       when :soft
-        log "H3 DRY-RUN : ssh #{host.connect_user}@#{host.ssh_host} → #{host.connect_user == "root" ? "" : "sudo "}" \
+        log "DRY-RUN : ssh #{host.connect_user}@#{host.ssh_host} → #{host.connect_user == "root" ? "" : "sudo "}" \
             "shutdown -r now (FreeBSD) / systemctl reboot (Linux)"
       when :hard
-        log "H3 DRY-RUN : API #{host.provider || "?"} → power cycle (équivalent bouton physique)"
+        log "DRY-RUN : API #{host.provider || "?"} → power cycle (équivalent bouton physique)"
       end
-      log "H3 DRY-RUN : attente du redémarrage (preuve : l'identifiant de démarrage change), #{timeout.total_minutes.to_i} min au plus" if wait
+      log "DRY-RUN : attente du redémarrage (preuve : l'identifiant de démarrage change), #{timeout.total_minutes.to_i} min au plus" if wait
       if has_encrypted && !skip_unlock
-        log "H3 DRY-RUN : puis beryl unlock #{host.account_name}/#{host.fqdn}"
+        log "DRY-RUN : puis beryl unlock #{host.account_name}/#{host.fqdn}"
       end
       return EXIT_OK
     end
@@ -127,15 +127,15 @@ module Beryl::CLI::Reboot
 
     return EXIT_OK unless wait
 
-    log "H3.1 attente du redémarrage de #{target} (preuve : l'identifiant de démarrage change), #{timeout.total_minutes.to_i} min au plus — une ligne toutes les #{SSH_POLL_INTERVAL.total_seconds.to_i} s"
+    log "2 attente du redémarrage de #{target} (preuve : l'identifiant de démarrage change), #{timeout.total_minutes.to_i} min au plus — une ligne toutes les #{SSH_POLL_INTERVAL.total_seconds.to_i} s"
     unless wait_for_reboot(conn, before, timeout)
       STDERR.puts "beryl : #{target} n'a pas redémarré, ou ne répond plus, après #{timeout.total_minutes.to_i} min"
       return EXIT_SSH_FAILED
     end
-    log "H3.2 #{target} a redémarré et répond"
+    log "3 #{target} a redémarré et répond"
 
     if has_encrypted && !skip_unlock
-      log "H3.3 enchaînement avec beryl unlock pour les #{encrypted_pools.size} pool(s) chiffré(s)"
+      log "4 enchaînement avec beryl unlock pour les #{encrypted_pools.size} pool(s) chiffré(s)"
       # On ré-utilise la commande unlock comme une fonction.
       unlock_args = ["#{host.account_name}/#{host.fqdn}"]
       ec = Beryl::CLI::Unlock.run(config_root, unlock_args)
@@ -145,7 +145,7 @@ module Beryl::CLI::Reboot
       end
     end
 
-    log "H3 reboot #{target} terminé"
+    log "reboot #{target} terminé"
     EXIT_OK
   rescue ex : Beryl::Config::Root::HostNotFound
     STDERR.puts "beryl : #{ex.message}"
@@ -222,7 +222,7 @@ module Beryl::CLI::Reboot
       return false
     end
     command = reboot_command(uname.stdout.strip, root)
-    log "H3.0 SSH #{user}@#{host.ssh_host} → #{command}"
+    log "1 SSH #{user}@#{host.ssh_host} → #{command}"
     conn.exec(command, raise_on_error: false)
     true
   rescue ex
@@ -251,7 +251,7 @@ module Beryl::CLI::Reboot
     loop do
       after = boot_marker(conn)
       elapsed = (Time.instant - start).total_seconds.to_i
-      log "H3.1 #{elapsed // 60} min #{(elapsed % 60).to_s.rjust(2, '0')} s : #{poll_status(before, after)}"
+      log "2 #{elapsed // 60} min #{(elapsed % 60).to_s.rjust(2, '0')} s : #{poll_status(before, after)}"
       return true if rebooted?(before, after)
       return false if Time.instant >= deadline
       sleep SSH_POLL_INTERVAL
@@ -268,7 +268,7 @@ module Beryl::CLI::Reboot
         STDERR.puts "beryl : champ `ovh.service_name` manquant pour #{host.fqdn}"
         return false
       end
-      log "H3.0 OVH : boot_from_disk(#{service_name}) [équivalent power cycle hard]"
+      log "1 OVH : boot_from_disk(#{service_name}) [équivalent power cycle hard]"
       Beryl::CLI::Credentials.ovh_client.dedicated_servers.boot_from_disk(service_name)
       sleep REBOOT_GRACE_PERIOD
       true
@@ -279,7 +279,7 @@ module Beryl::CLI::Reboot
         return false
       end
       sid = sid_str.to_i? || (STDERR.puts("beryl : dedibox.server_id non entier : #{sid_str}"); return false)
-      log "H3.0 Dedibox : reboot_to_disk(#{sid})"
+      log "1 Dedibox : reboot_to_disk(#{sid})"
       Beryl::CLI::Credentials.dedibox_client.servers.reboot_to_disk(sid, reason: "beryl reboot --hard")
       sleep REBOOT_GRACE_PERIOD
       true
@@ -289,7 +289,7 @@ module Beryl::CLI::Reboot
         STDERR.puts "beryl : champ `scaleway.server_id` manquant pour #{host.fqdn}"
         return false
       end
-      log "H3.0 Scaleway : reboot(#{sid}, boot_type=Normal)"
+      log "1 Scaleway : reboot(#{sid}, boot_type=Normal)"
       Beryl::CLI::Credentials.scaleway_client.baremetal.servers.reboot(
         server_id: sid,
         zone: host.scaleway_zone,
@@ -304,6 +304,6 @@ module Beryl::CLI::Reboot
   end
 
   private def self.log(message : String) : Nil
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl reboot] #{message}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl reboot] #{Beryl.format_step(message)}"
   end
 end

@@ -350,11 +350,11 @@ module Beryl::Bootstrap
     end
 
     def run : SSH::Connection
-      log_step("7.1 vérifie que le rescue tourne bien sous Linux") { verify_linux_rescue }
-      log_step("7.1b NOGO si BSD déjà en place sur #{all_qemu_disks.join(", ")}") { check_target_disks_no_bsd }
-      log_step("7.2 installe qemu-system-x86, ovmf, sshpass et curl côté rescue") { install_packages }
-      log_step("7.3 télécharge l'image mfsBSD SE #{@mfsbsd_version} si nécessaire") { download_mfsbsd_if_needed }
-      log_step("7.4 dépose #{@install_type == "packages" ? "install-pkgbase.sh" : "installerconfig"} + driver shell sur le rescue") do
+      log_step("2.1 vérifie que le rescue tourne bien sous Linux") { verify_linux_rescue }
+      log_step("2.2 NOGO si BSD déjà en place sur #{all_qemu_disks.join(", ")}") { check_target_disks_no_bsd }
+      log_step("2.3 installe qemu-system-x86, ovmf, sshpass et curl côté rescue") { install_packages }
+      log_step("2.4 télécharge l'image mfsBSD SE #{@mfsbsd_version} si nécessaire") { download_mfsbsd_if_needed }
+      log_step("2.5 dépose #{@install_type == "packages" ? "install-pkgbase.sh" : "installerconfig"} + driver shell sur le rescue") do
         prepare_ovmf_vars
         if @install_type == "packages"
           upload_install_pkgbase
@@ -370,14 +370,14 @@ module Beryl::Bootstrap
       # terminal. À garder pour debug nouveau provider ou flow
       # FreeBSD inhabituel.
       install_label = @install_type == "packages" ? "pkgbase (FreeBSD-* via pkg --rootdir)" : "bsdinstall + tarballs"
-      log_step("7.5 QEMU + mfsBSD : install #{install_label} + post-install no-chroot (typiquement 1-3 min)") do
+      log_step("3 QEMU + mfsBSD : install #{install_label} + post-install no-chroot (typiquement 1-3 min)") do
         @rescue_conn.exec("bash #{Process.quote(RESCUE_RUN_VM_PATH)}")
       end
-      # Étape 6/6 : on sort du `log_step` animé car `wait_for_installed_ssh`
+      # Étape 4 : on sort du `log_step` animé car `wait_for_installed_ssh`
       # loggue ligne par ligne chaque tentative SSH (exit code / stderr /
       # exception). Même pattern que `default_wait_for_ssh` dans rescue.cr
       # — un ticker masque les vrais motifs d'échec.
-      log "7.6 reboot bare metal, attente SSH du FreeBSD installé (typiquement 3-7 min)"
+      log "4 reboot bare metal, attente SSH du FreeBSD installé (typiquement 3-7 min)"
       reboot_bare_metal
       wait_for_installed_ssh
     end
@@ -757,9 +757,9 @@ module Beryl::Bootstrap
 
     # Annonce + sleep de grâce (le serveur doit tomber avant qu'on polle,
     # sinon le 1er SSH réussit sur l'ancienne session). Visible, sinon
-    # ~30 s de silence après le header 7.6 → « où sont les lignes ? ».
+    # ~30 s de silence après l'en-tête de l'étape 4 → « où sont les lignes ? ».
     private def grace_sleep : Nil
-      log "7.6 reboot envoyé — attente #{REBOOT_GRACE_PERIOD.total_seconds.to_i}s que le serveur redémarre avant le polling SSH…"
+      log "4 reboot envoyé — attente #{REBOOT_GRACE_PERIOD.total_seconds.to_i}s que le serveur redémarre avant le polling SSH…"
       sleep REBOOT_GRACE_PERIOD
     end
 
@@ -787,7 +787,7 @@ module Beryl::Bootstrap
       # API ET déclenche le reboot. Sans cet appel, le serveur
       # redémarre mais Scaleway le réamorce en rescue (boot_type
       # encore `rescue` depuis `beryl rescue`). Constaté terrain
-      # chouquette 25 avril 2026 : sans cette branche, l'étape 6/6
+      # chouquette 25 avril 2026 : sans cette branche, l'étape 4
       # tournait indéfiniment en pollant un rescue Ubuntu qui
       # répondait `Linux` au lieu du FreeBSD attendu.
       if scw = @scaleway_client
@@ -814,7 +814,7 @@ module Beryl::Bootstrap
 
     # Attend que le FreeBSD fraîchement installé réponde en SSH. Pas
     # de log en propre ici : l'appelant enveloppe déjà cet appel dans
-    # un `log_step("6/6 — reboot bare metal … attente SSH")` qui porte
+    # un `log_step("4 — reboot bare metal … attente SSH")` qui porte
     # le compteur vivant `[NNNs]`. Double affichage = ligne mélangée,
     # observé sur loulou le 23 avril 2026.
     private def wait_for_installed_ssh : SSH::Connection
@@ -847,12 +847,12 @@ module Beryl::Bootstrap
         begin
           result = conn.exec("uname -s", raise_on_error: false)
           if result.success? && result.stdout.strip == "FreeBSD"
-            log "7.6 SSH #{@installed_user}@#{@rescue_conn.host} répond FreeBSD après #{elapsed}s (tentative #{attempt})"
+            log "4 SSH #{@installed_user}@#{@rescue_conn.host} répond FreeBSD après #{elapsed}s (tentative #{attempt})"
             return conn
           end
           # Exit != 0 ou stdout inattendu (ex: encore en rescue Linux)
           stderr_snippet = result.stderr.strip[0, 120]? || ""
-          log "7.6 tentative #{attempt} à #{elapsed}s : exit=#{result.exit_code} stdout=#{result.stdout.strip.inspect[0, 60]} stderr=#{stderr_snippet.inspect}"
+          log "4 tentative #{attempt} à #{elapsed}s : exit=#{result.exit_code} stdout=#{result.stdout.strip.inspect[0, 60]} stderr=#{stderr_snippet.inspect}"
           if result.stderr.includes?("Permission denied") && (Time.instant - start) >= RESCUE_SUSPECT_AFTER
             case self.class.denied_verdict(probe_rescue_os)
             when :rescue
@@ -861,7 +861,7 @@ module Beryl::Bootstrap
             when :freebsd
               rescue_hits = 0
               unless warned_denied
-                log "7.6 ⚠ FreeBSD répond (root) mais #{@installed_user} est refusé : sa clé SSH manque-t-elle dans authorized_keys ?"
+                log "4 ⚠ FreeBSD répond (root) mais #{@installed_user} est refusé : sa clé SSH manque-t-elle dans authorized_keys ?"
                 warned_denied = true
               end
             else
@@ -873,7 +873,7 @@ module Beryl::Bootstrap
         rescue ex
           # Typique : Connection refused (sshd pas encore up), timeout,
           # Permission denied (clé pas dans authorized_keys).
-          log "7.6 tentative #{attempt} à #{elapsed}s : #{ex.class.name}: #{ex.message.try(&.[0, 160])}"
+          log "4 tentative #{attempt} à #{elapsed}s : #{ex.class.name}: #{ex.message.try(&.[0, 160])}"
         end
         sleep SSH_POLL_INTERVAL
       end

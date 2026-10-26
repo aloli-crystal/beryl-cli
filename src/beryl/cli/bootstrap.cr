@@ -19,6 +19,16 @@ require "./scan"
 # Toute la config vient de l'inventaire mergé (`_default.yml` +
 # `<domaine>.yml` + éventuel `<groupe>.yml` + `<host>.yml`). Les seuls
 # flags CLI sont des overrides ponctuels.
+#
+# Étapes du journal, dans l'ordre (numérotation propre à la commande) :
+#
+#   1     préparation : image mfsBSD, version, vérification préalable,
+#         plan (disques, ashift, comptes), clés de chiffrement ;
+#   2.1-5 rescue : Linux vérifié, disques sans BSD, QEMU installé,
+#         image téléchargée, scripts déposés (QemuInRescue) ;
+#   3     installation de FreeBSD dans QEMU ;
+#   4     redémarrage sur le disque, attente SSH, monitoring OVH ;
+#   5     recettes (`beryl apply` enchaîné).
 module Beryl::CLI::Bootstrap
   EXIT_OK          =  0
   EXIT_USAGE       =  1
@@ -120,7 +130,7 @@ module Beryl::CLI::Bootstrap
         abi = info.abi
         resolved_iso_url ||= info.image_url
         origin = own_mfsbsd_url ? "image maison (mfsbsd_url)" : "détectée sur GitHub"
-        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 7.0] mfsBSD SE #{origin} : #{info.version} (#{info.image_url})"
+        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 1] mfsBSD SE #{origin} : #{info.version} (#{info.image_url})"
         latest_by_branch = begin
           Beryl::FreebsdRelease.latest_by_branch
         rescue
@@ -129,7 +139,7 @@ module Beryl::CLI::Bootstrap
         if pkgbase
           freebsd_version = forced || Beryl::Bootstrap.pkgbase_target(info.version, latest_by_branch)
           if freebsd_version != info.version
-            STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 7.0] pkgbase : installe FreeBSD #{freebsd_version} " \
+            STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 1] pkgbase : installe FreeBSD #{freebsd_version} " \
                         "(dépôt #{Beryl::Bootstrap.base_release_branch(freebsd_version)}) ; mfsBSD SE #{info.version} sert seulement d'outil d'installation."
           end
         else
@@ -173,7 +183,7 @@ module Beryl::CLI::Bootstrap
     Beryl::CLI::Precheck.report(host, precheck)
     unless precheck.ok
       if force
-        STDERR.puts "[beryl bootstrap] [Étape 7] --force : précheck ignoré. PROCÉDEZ AVEC PRUDENCE."
+        STDERR.puts "[beryl bootstrap] [Étape 1] --force : précheck ignoré. PROCÉDEZ AVEC PRUDENCE."
       else
         STDERR.puts
         STDERR.puts "beryl : précheck échoué. Corrigez la config ou utilisez --force."
@@ -213,7 +223,7 @@ module Beryl::CLI::Bootstrap
     all_pool_disks = disks + host.data_zpools.flat_map(&.disks)
     ashift_by_disk = detect_ashifts(rescue_conn, all_pool_disks)
     boot_ashift = disks.map { |d| ashift_by_disk[d]? || 12 }.max
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 7] ashift natif (blockdev) : " +
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 1] ashift natif (blockdev) : " +
                 ashift_by_disk.map { |d, a| "#{d}→#{a}" }.join(", ")
 
     # Pools data : créés post-install via `zpool create` dans la VM
@@ -248,18 +258,18 @@ module Beryl::CLI::Bootstrap
         if Beryl::Encryption.exists?(key_path)
           key_hex = Beryl::Encryption.read(key_path)
           STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] " \
-                      "7 clé existante réutilisée : #{key_path}"
+                      "[Étape 1] clé existante réutilisée : #{key_path}"
         else
           key_hex = Beryl::Encryption.write_new(key_path)
           STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] " \
-                      "7 clé générée et stockée : #{key_path} (chmod 0400, 256 bits hex)"
+                      "[Étape 1] clé générée et stockée : #{key_path} (chmod 0400, 256 bits hex)"
           STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] " \
-                      "7 ⚠ pensez à sauvegarder ce fichier (Time Machine + iCloud) — " \
+                      "[Étape 1] ⚠ pensez à sauvegarder ce fichier (Time Machine + iCloud) — " \
                       "perdre la clé = perdre les données du pool #{pool.name}"
         end
         if enc.tang?
           STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] " \
-                      "7 mode tang demandé pour #{pool.name} : pool créé en ssh_unlock pour le bootstrap. " \
+                      "[Étape 1] mode tang demandé pour #{pool.name} : pool créé en ssh_unlock pour le bootstrap. " \
                       "Lancez `beryl tang-enroll #{host.account_name}/#{host.fqdn}` " \
                       "après le 1er reboot et `beryl apply` (recette tang-client) pour basculer vers Tang."
         end
@@ -289,7 +299,7 @@ module Beryl::CLI::Bootstrap
       system_key_hex = Beryl::Encryption.exists?(key_path) ? Beryl::Encryption.read(key_path) : Beryl::Encryption.write_new(key_path)
       enc_count = system_datasets.count(&.encrypted)
       STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] " \
-                  "7 profil C+ : #{system_datasets.size} dataset(s) système (#{enc_count} chiffré(s) sous #{encryption_root}), clé #{key_path}"
+                  "[Étape 1] profil C+ : #{system_datasets.size} dataset(s) système (#{enc_count} chiffré(s) sous #{encryption_root}), clé #{key_path}"
     end
 
     timezone = host.freebsd_string("timezone") || "Europe/Paris"
@@ -316,8 +326,8 @@ module Beryl::CLI::Bootstrap
     end
 
     all_disks = disks + data_pools.flat_map(&.disks)
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 7] cible : #{Beryl.format_ssh_target(host)} disques : #{all_disks.join(", ")}"
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 7] FreeBSD #{freebsd_version} — users : #{users.map(&.name).join(", ")} — pools data : #{data_pools.size}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 1] cible : #{Beryl.format_ssh_target(host)} disques : #{all_disks.join(", ")}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 1] FreeBSD #{freebsd_version} — users : #{users.map(&.name).join(", ")} — pools data : #{data_pools.size}"
 
     if dry_run
       STDERR.puts
@@ -368,7 +378,7 @@ module Beryl::CLI::Bootstrap
     # reboot_to_disk Dedibox, reboot Normal Scaleway). Sans l'identifiant
     # nécessaire, `reboot_bare_metal` retombe sur `reboot -f` côté rescue →
     # le netboot reste sur RESCUE → le serveur REVIENT EN RESCUE au lieu du
-    # FreeBSD installé, et le polling 7.6 tourne dans le vide. On ÉCHOUE TÔT.
+    # FreeBSD installé, et le polling de l'étape 4 tourne dans le vide. On ÉCHOUE TÔT.
     id_field = case effective_provider
                when "ovh"      then host.ovh_service_name ? nil : "ovh.service_name"
                when "dedibox"  then host.dedibox_server_id ? nil : "dedibox.server_id"
@@ -448,7 +458,7 @@ module Beryl::CLI::Bootstrap
     )
     bootstrap.run
 
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 7] terminé pour #{host.fqdn}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 4] terminé pour #{host.fqdn}"
     # Le FreeBSD installé a de nouvelles clés d'hôte (le rescue aussi).
     Beryl::CLI::HostKeys.forget(host, "bootstrap")
     mark_installed(host)
@@ -457,18 +467,18 @@ module Beryl::CLI::Bootstrap
     if (client = ovh_client) && (sn = host.ovh_service_name)
       begin
         msg = monitoring ? Beryl::CLI::OvhMonitoring.resume(client, sn) : "monitoring OVH laissé coupé (--no-monitoring)"
-        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 7] OVH : #{msg}"
+        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 4] OVH : #{msg}"
       rescue ex : OvhApi::Error
-        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 7] OVH : ⚠ monitoring OVH non rétabli (#{ex.message}) — à réactiver dans l'espace client OVH"
+        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 4] OVH : ⚠ monitoring OVH non rétabli (#{ex.message}) — à réactiver dans l'espace client OVH"
       end
     end
     return EXIT_OK unless chain_apply
 
-    # Étape 8 : le serveur est installé et répond → on pose tout de suite ses
+    # Étape 5 : le serveur est installé et répond → on pose tout de suite ses
     # recettes (celles par défaut de la société : relais SMTP, supervision…),
     # pour qu'aucun serveur ne reste « nu », sans courrier ni alertes.
     ref = Beryl::CLI::AccountUtils.host_ref(host)
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 8] enchaîne `beryl apply #{ref} --apply`"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 5] enchaîne `beryl apply #{ref} --apply`"
     code = Beryl::CLI::Apply.run(config_root, ["#{host.account_name}/#{host.domain_name}/#{host.short_name}", "--apply"])
     unless code == Beryl::CLI::Apply::EXIT_OK
       STDERR.puts "beryl : FreeBSD est installé, mais `apply` a échoué (code #{code}). Corrigez puis relancez : beryl apply #{ref} --apply"
@@ -572,7 +582,7 @@ module Beryl::CLI::Bootstrap
   # un autre aurait pu l'accompagner.
   private def self.log_mirrors(pool : String, paths : Array(String), known : Hash(String, Beryl::CLI::Scan::Disk)) : Nil
     pairs = paths.each_slice(2).map { |m| m.map { |p| "#{File.basename(p)} (#{known[p]?.try(&.model) || "?"})" }.join(" + ") }
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 7] #{pool} RAID 10, miroirs : #{pairs.join(" ; ")}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 1] #{pool} RAID 10, miroirs : #{pairs.join(" ; ")}"
     found = paths.compact_map { |p| known[p]? }
     Beryl::CLI::Scan.mirror_warnings(pool, found, 10, known.values).each { |w| STDERR.puts w } if found.size == paths.size
   end

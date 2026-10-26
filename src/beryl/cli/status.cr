@@ -59,7 +59,7 @@ module Beryl::CLI::Status
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
 
     target = Beryl.format_ssh_target(host)
-    log "H5 status #{target}"
+    log "status #{target}"
 
     services = DEFAULT_SERVICES + extra_services
     declared_pools = host.zpools
