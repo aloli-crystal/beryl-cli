@@ -458,10 +458,54 @@ module Beryl::CLI::OsUpgrade
   private def self.after_base_upgrade(shell, host) : Nil
     reconfigure_base_services(shell, host)
     remove_base_orphans(shell, host, apply: true)
+    refresh_setuid_baseline(shell, host)
     if shell.exec("test -d /jails/.base", raise_on_error: false).success?
       log "#{host.fqdn} : des thin jails partagent /jails/.base → rafraîchissez-le " \
           "(`beryl apply #{host.short_name} jail-base`) puis redémarrez les jails (`service jail restart`)."
     end
+  end
+
+  # Contrôle setuid du rapport de sécurité quotidien (`100.chksetuid`) : il
+  # compare la liste des programmes setuid à `/var/log/setuid.today` et
+  # signale chaque écart par courriel. Une mise à jour du base remplace ces
+  # programmes (nouvel inode, nouvelle date) → le lendemain, un écart sans
+  # action à faire. On lance donc le script de FreeBSD lui-même juste après
+  # la mise à jour : il écrit l'écart ici et remet sa référence à jour.
+  # `PERIODIC` sélectionne la période, comme `periodic security` le fait.
+  SETUID_CHECK = "PERIODIC='security daily' /etc/periodic/security/100.chksetuid"
+
+  private def self.refresh_setuid_baseline(shell, host) : Nil
+    res = shell.exec(SETUID_CHECK, raise_on_error: false)
+    # 0 = rien de changé, 1 = écart affiché (référence mise à jour), 3 = erreur.
+    unless res.exit_code.in?(0, 1)
+      log "#{host.fqdn} : ⚠ contrôle setuid en échec (#{res.stderr.strip.lines.last?}) — le rapport de sécurité de demain signalera les programmes remplacés."
+      return
+    end
+    changes = setuid_changes(res.stdout)
+    unless changes[:replaced].empty?
+      log "#{host.fqdn} : référence setuid mise à jour (#{changes[:replaced].size} programmes remplacés par la mise à jour)."
+    end
+    unless changes[:removed].empty?
+      log "#{host.fqdn} : programmes setuid disparus : #{changes[:removed].join(", ")}."
+    end
+    unless changes[:added].empty?
+      log "#{host.fqdn} : ⚠ NOUVEAUX programmes setuid : #{changes[:added].join(", ")} — vérifiez qu'ils viennent bien de la mise à jour."
+    end
+  end
+
+  # Écart unifié de `100.chksetuid` (lignes `-`/`+` de `ls -lid`, chemin en
+  # dernier champ) → chemins remplacés (des deux côtés), ajoutés, retirés. Pur.
+  def self.setuid_changes(output : String) : NamedTuple(replaced: Array(String), added: Array(String), removed: Array(String))
+    before = [] of String
+    after = [] of String
+    output.each_line do |line|
+      next if line.starts_with?("---") || line.starts_with?("+++")
+      path = line.split.last?
+      next unless path
+      before << path if line.starts_with?('-')
+      after << path if line.starts_with?('+')
+    end
+    {replaced: (before & after).sort, added: (after - before).sort, removed: (before - after).sort}
   end
 
   # Paquets du système de base devenus inutiles : `FreeBSD-*` installés comme

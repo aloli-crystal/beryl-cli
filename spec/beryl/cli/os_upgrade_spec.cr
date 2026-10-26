@@ -102,6 +102,39 @@ describe Beryl::CLI::OsUpgrade do
     end
   end
 
+  describe ".setuid_changes" do
+    # Extrait réel du rapport de sécurité de pkg, 24 oct. 2026 (+ un ajout, un retrait).
+    report = <<-TXT
+
+      Checking setuid files and devices:
+
+      pkg setuid diffs:
+      --- /var/log/setuid.today       2026-10-15 03:01:03.408439000 +0200
+      +++ /tmp/security.DMrjvh8BDp    2026-10-24 03:01:03.544984000 +0200
+      @@ -2,4 +2,4 @@
+      -536276 -r-sr-xr-x  2 root wheel     61496 2026-10-13T23:19:41 /sbin/ping
+      -536277 -r-sr-xr--  2 root operator  16152 2026-10-13T23:19:41 /sbin/shutdown
+      -536300 -r-sr-xr-x  1 root wheel     12000 2026-10-13T23:19:41 /usr/bin/old
+      +234874 -r-sr-xr-x  2 root wheel     61496 2026-10-21T01:29:26 /sbin/ping
+      +234875 -r-sr-xr--  2 root operator  16152 2026-10-21T01:29:26 /sbin/shutdown
+      +234999 -rwsr-xr-x  1 root wheel      9000 2026-10-23T02:00:00 /tmp/x
+      TXT
+
+    it "sépare remplacés, ajoutés et retirés" do
+      changes = Beryl::CLI::OsUpgrade.setuid_changes(report)
+      changes[:replaced].should eq(%w[/sbin/ping /sbin/shutdown])
+      changes[:added].should eq(%w[/tmp/x])
+      changes[:removed].should eq(%w[/usr/bin/old])
+    end
+
+    it "rien quand la référence est déjà à jour" do
+      changes = Beryl::CLI::OsUpgrade.setuid_changes("\nChecking setuid files and devices:\n")
+      changes[:replaced].should be_empty
+      changes[:added].should be_empty
+      changes[:removed].should be_empty
+    end
+  end
+
   describe ".base_orphans" do
     it "garde les paquets FreeBSD-* devenus inutiles" do
       listing = "FreeBSD-clibs-lib32\nFreeBSD-lib9p\n"

@@ -18,6 +18,14 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
   affichaient le numéro brut (« 4 SSH … répond ») ; elles passent au format
   « [Étape 4] » comme les autres.
 
+=== `beryl os-upgrade --apply` : référence setuid remise à jour
+
+Après la mise à jour du système de base, beryl lance le contrôle setuid du
+rapport de sécurité quotidien (`/etc/periodic/security/100.chksetuid`) : sa
+référence (`/var/log/setuid.today`) est remise à jour, et les programmes
+remplacés par la mise à jour ne sont plus signalés le lendemain par
+courriel. Un programme setuid NOUVEAU est signalé dans la sortie de beryl.
+
 === `beryl scan` : ligne vide avant la question du DNS
 
 La question « Voulez-vous lancer le DNS de … ? » suivait directement la
