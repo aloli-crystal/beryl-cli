@@ -9,6 +9,14 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl vrack --attach` : essai à blanc par défaut, `--apply` pour rattacher
+
+`--attach` rattachait le serveur au vRack sans attendre de `--apply`,
+contrairement aux autres commandes qui agissent. Il annonce désormais ce
+qu'il ferait (« rattacherait … au vRack pn-… ») et ne rattache qu'avec
+`--apply` : `beryl vrack production --attach --apply`. Le journal suit
+(`vrack-dry-run` sans `--apply`).
+
 === `unlock`, `tang-enroll`, `lock`, `status` : commandes ZFS en root via sudo
 
 Ces commandes envoyaient `zpool`/`zfs` avec le compte de connexion ; depuis

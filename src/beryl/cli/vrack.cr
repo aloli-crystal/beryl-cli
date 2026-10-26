@@ -11,8 +11,9 @@ module Beryl::CLI
   # serveur d'un host est dans un vRack, et le rattache avec `--attach`.
   #
   #   beryl vrack han.example.net              # statut seulement
-  #   beryl vrack han.example.net --attach     # rattache (task async + suivi)
-  #   beryl vrack han.example.net --attach --vrack pn-12345
+  #   beryl vrack han.example.net --attach              # essai à blanc
+  #   beryl vrack han.example.net --attach --apply      # rattache (task async + suivi)
+  #   beryl vrack han.example.net --attach --vrack pn-12345 --apply
   #   beryl vrack han.example.net --via=zgra [--apply]  # rôle d'accès SSH imposé
   #   beryl vrack han.example.net --public | --bastion [--apply]
   module Vrack
@@ -35,14 +36,14 @@ module Beryl::CLI
       positional = [] of String
 
       parser = OptionParser.new do |p|
-        p.banner = "USAGE : beryl vrack <host> [--attach] [--vrack pn-XXXX]\n" \
+        p.banner = "USAGE : beryl vrack <host> [--attach [--vrack pn-XXXX]] [--apply]   (rattachement : DRY-RUN par défaut)\n" \
                    "        beryl vrack <host> --via=BASTION | --public | --bastion [--apply]   (rôle d'accès SSH imposé, DRY-RUN par défaut)"
-        p.on("--attach", "Rattache le serveur au vRack s'il ne l'est pas (task async)") { attach = true }
+        p.on("--attach", "Rattache le serveur au vRack s'il ne l'est pas (task async ; avec --apply, sinon essai à blanc)") { attach = true }
         p.on("--vrack NAME", "Forcer le vRack cible si le compte en a plusieurs") { |v| forced_vrack = v }
         p.on("--via=BASTION", "Rôle : joindre par ce bastion (vrack.proxy_jump, chemin vérifié) — remplace le rôle de la fiche") { |v| roles << "via"; via = v }
         p.on("--public", "Rôle : SSH direct, pas de bastion (vrack.bastion: false) — remplace le rôle de la fiche") { roles << "public" }
         p.on("--bastion", "Rôle : ce serveur EST un bastion (vrack.bastion: true) — remplace le rôle de la fiche") { roles << "bastion" }
-        p.on("--apply", "Avec --via/--public/--bastion : écrit le rôle (sinon : dry-run)") { apply = true }
+        p.on("--apply", "Applique : --attach rattache, --via/--public/--bastion écrit le rôle (sinon : dry-run)") { apply = true }
         p.on("-a NAME", "--account=NAME", "Forcer la société") { |v| account_hint = v }
         p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
         p.on("-h", "--help", "Aide") { puts p; exit 0 }
@@ -115,7 +116,7 @@ module Beryl::CLI
 
       unless attach
         hint = vracks.size > 1 ? " --vrack <pn-...>" : ""
-        log "pour rattacher : beryl vrack #{raw} --attach#{hint}"
+        log "pour rattacher : beryl vrack #{raw} --attach#{hint} --apply"
         return EXIT_OK
       end
 
@@ -125,6 +126,10 @@ module Beryl::CLI
         return EXIT_USAGE
       end
 
+      unless apply
+        log "rattacherait #{service} au vRack #{target} (dry-run ; --apply pour rattacher)"
+        return EXIT_OK
+      end
       log "rattachement de #{service} au vRack #{target}…"
       task_id = provider.attach_dedicated_server(target, service)
       if task_id.empty?

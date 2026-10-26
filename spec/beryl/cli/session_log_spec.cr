@@ -97,7 +97,8 @@ describe Beryl::CLI::SessionLog do
 
     it "vrack : dry-run seulement pour un rôle imposé sans --apply" do
       Beryl::CLI::SessionLog.label("vrack", ["be"]).should eq("vrack")
-      Beryl::CLI::SessionLog.label("vrack", ["be", "--attach"]).should eq("vrack")
+      Beryl::CLI::SessionLog.label("vrack", ["be", "--attach"]).should eq("vrack-dry-run")
+      Beryl::CLI::SessionLog.label("vrack", ["be", "--attach", "--apply"]).should eq("vrack")
       Beryl::CLI::SessionLog.label("vrack", ["be", "--via=zgra"]).should eq("vrack-dry-run")
       Beryl::CLI::SessionLog.label("vrack", ["be", "--public", "--apply"]).should eq("vrack")
     end
