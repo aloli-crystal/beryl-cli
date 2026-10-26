@@ -9,6 +9,15 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Test : toutes les recettes de `beryl-recipes` se chargent
+
+Quand le dépôt `beryl-recipes` est cloné à côté de beryl-cli, un test
+charge chacune de ses recettes avec le chargeur de `beryl sync` (YAML
+compris), vérifie que chaque étape appelle une primitive connue et que
+chaque `requires:` existe dans le dépôt. Il aurait attrapé le YAML invalide
+de `sshd-vrack-only` (recettes 0.0.56 à 0.0.58). Dépôt absent : test
+en attente.
+
 === `beryl ssh-config` : un seul bloc par serveur
 
 Le nom court avait un second bloc (`Host ke` : user et clé), le FQDN
