@@ -2,6 +2,7 @@ require "option_parser"
 require "./scope"
 require "./option_errors"
 require "./fmt"
+require "./config_git"
 require "../apply"
 require "../freebsd_release" # RELEASE FreeBSD disponibles en amont (--freebsd)
 require "./apply"            # Beryl::CLI::Apply.recipes_search_path (paquets gérés par recettes)
@@ -25,6 +26,7 @@ module Beryl::CLI
       system_ssh = false
       refresh = false
       ovh_network = false
+      no_commit = false
       adoc = false
       html = false
       versions = false
@@ -61,7 +63,8 @@ module Beryl::CLI
         p.on("--adoc", "Document AsciiDoc sur stdout ; `--adoc=NOM` → écrit NOM.adoc, le convertit en PDF (crystal-asciidoctor-pdf) et l'ouvre") { adoc = true }
         p.on("--html", "Génère un site HTML triable dans <config>/<scope>/info/ (index + 1 page par serveur)") { html = true }
         p.on("--ovh-network", "Réponses BRUTES de l'API OVH (IP/blocs + specifications/network, dont routing.ipv6) — lecture seule, pour un ticket") { ovh_network = true }
-        p.on("--refresh", "Rafraîchit gamme + specs + prix via l'API OVH (écrit les host.yml, SANS SSH)") { refresh = true }
+        p.on("--refresh", "Rafraîchit gamme + specs + prix via l'API OVH (écrit les host.yml et les commite, SANS SSH)") { refresh = true }
+        p.on("--no-commit", "Avec --refresh : n'auto-commite pas les host.yml dans le dépôt git de config") { no_commit = true }
         p.on("--versions", "Tableau LIVE des versions de paquets (serveurs en colonnes, paquets en lignes)") { versions = true }
         p.on("--updates", "Pour les paquets des recettes : version DISPONIBLE au dépôt vs installée (retards)") { updates = true }
         p.on("--all-pkgs", "Avec --versions : TOUS les paquets installés (défaut : seulement ceux des recettes)") { all_pkgs = true }
@@ -78,7 +81,7 @@ module Beryl::CLI
       return render_freebsd_releases if freebsd_releases # réseau seul, pas de config requise
 
       root = Beryl::Config::Root.load(config_root)
-      return refresh_metadata(root, positional.first?) if refresh
+      return refresh_metadata(root, positional.first?, no_commit) if refresh
       return render_ovh_network(root, positional.first?) if ovh_network
       if versions
         return render_pkg_versions(config_root, root, positional.first?, all_pkgs, system_ssh)
@@ -692,7 +695,7 @@ module Beryl::CLI
       EXIT_OK
     end
 
-    private def self.refresh_metadata(root : Beryl::Config::Root, scope : String?) : Int32
+    private def self.refresh_metadata(root : Beryl::Config::Root, scope : String?, no_commit : Bool = false) : Int32
       ovh_targets = scoped_hosts(root, scope).reject(&.virtual).select { |h| h.provider == "ovh" }
       vps, ovh_targets = ovh_targets.partition(&.vps?)
       vps.each { |h| puts "  ⚠ #{h.short_name} : VPS (kind: vps) — métadonnées « serveur dédié » non applicables, ignoré." }
@@ -711,6 +714,7 @@ module Beryl::CLI
         end
         puts "société #{account} : index des serveurs OVH (API)…"
         index = ovh.ip_to_service_index
+        changed = [] of {String, String} # {chemin, nom court} des fiches modifiées
         hosts.each do |h|
           sn = h.ovh_service_name
           if sn.nil?
@@ -731,15 +735,23 @@ module Beryl::CLI
           ipv6 = ipv6_block.try { |b| Beryl::Providers::Ovh.host_ipv6(b) }
           ipv6_gateway = ovh.ipv6_gateway(sn)
           path = h.node.source_path
-          content = File.read(path)
+          before = File.read(path)
+          content = before
           content = upsert_block(content, "ovh",
             ovh_block(sn, detail[:commercial], detail[:rack], detail[:ipv4], ipv6, price, ipv6_gateway, detail[:datacenter], ipv6_block))
           content = upsert_block(content, "hardware", hardware_block(hw)) if hw
           Beryl::CLI::Fmt.write(path, content)
+          changed << {path, h.short_name} if File.read(path) != before
           ok += 1
           puts "  ✓ #{h.short_name} : #{detail[:commercial] || "gamme ?"}" \
                "#{detail[:rack] ? " [#{detail[:rack]}]" : ""}#{price ? " — #{price} €/mois" : ""} — " \
                "#{hw ? "#{hw.cores}c/#{hw.threads}t, #{hw.ram_gb} Go, #{hw.disks.size} grp disque(s)" : "specs indisponibles"}"
+        end
+        # Fiches réellement modifiées, commitées ensemble (seulement elles :
+        # le reste du dépôt de config n'est pas touché).
+        unless changed.empty?
+          Beryl::CLI::ConfigGit.commit(changed.map(&.[0]),
+            "info --refresh : #{changed.size} fiche(s) mise(s) à jour par l'API OVH (#{changed.map(&.[1]).join(", ")})", no_commit)
         end
       end
       puts

@@ -9,6 +9,13 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl info --refresh` commite les fiches qu'il met à jour
+
+Comme `scan`, `bootstrap` ou `env`, `info --refresh` commite désormais dans
+le dépôt git de config les fiches qu'il a réellement modifiées, et elles
+seules (un commit par société : « info --refresh : N fiche(s) mise(s) à jour
+par l'API OVH (ke, no…) »). `--no-commit` pour s'en passer.
+
 === `netif6` : seules restent les adresses de la fiche
 
 `netif6` (recette `netif-ipv6`) ajoutait l'adresse de la fiche en alias sans
