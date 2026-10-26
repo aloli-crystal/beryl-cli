@@ -16,20 +16,53 @@ describe Beryl::Apply::UserSync do
   it "skip si déjà membre des groupes voulus" do
     shell = FakeShell.new
     shell.stub(/getent passwd deploy/, stdout: "deploy:*:1001:1001::/home/deploy:/bin/csh")
-    shell.stub(/id -Gn deploy/, stdout: "deploy wheel www") # déjà dans wheel
+    shell.stub(/id -Gn deploy/, stdout: "deploy wheel") # déjà dans wheel, rien d'autre
     result = prim("user-sync").apply(
       shell, apply_params("{name: deploy, secondary_groups: [wheel]}"), dry_run: false, context: ctx)
     result.outcome.should eq(Beryl::Apply::Outcome::Skipped)
     shell.ran?(/pw groupmod/).should be_false
   end
 
-  it "ne retire JAMAIS d'un groupe non listé" do
+  it "groupes déclarés EXACTS : retire des groupes secondaires non listés (compte existant)" do
+    shell = FakeShell.new
+    shell.stub(/getent passwd deploy/, stdout: "deploy:*:1001:80::/home/deploy:/bin/csh")
+    shell.stub(/id -Gn deploy/, stdout: "www wheel operator") # principal www
+    result = prim("user-sync").apply(
+      shell, apply_params("{name: deploy, primary_group: www, secondary_groups: []}"), dry_run: false, context: ctx)
+    result.message.should contain "-wheel"
+    shell.ran?(/pw groupmod wheel -d deploy/).should be_true
+    shell.ran?(/pw groupmod operator -d deploy/).should be_true
+    shell.ran?(/groupmod www -d/).should be_false # jamais le groupe principal
+  end
+
+  it "groupes NON déclarés : laissés tels quels" do
+    shell = FakeShell.new
+    shell.stub(/getent passwd deploy/, stdout: "deploy:*:1001:80::/home/deploy:/bin/csh")
+    shell.stub(/id -Gn deploy/, stdout: "www wheel")
+    prim("user-sync").apply(shell, apply_params("{name: deploy}"), dry_run: false, context: ctx)
+    shell.ran?(/pw groupmod/).should be_false
+  end
+
+  it "ne retire jamais wheel du compte par lequel beryl se connecte" do
+    shell = FakeShell.new
+    shell.stub(/getent passwd admin/, stdout: "admin:*:1001:80::/home/admin:/bin/sh")
+    shell.stub(/id -Gn admin/, stdout: "www wheel")
+    context = Beryl::Apply::Context.new(vars: {"connect_user" => "admin"})
+    result = prim("user-sync").apply(
+      shell, apply_params("{name: admin, secondary_groups: []}"), dry_run: false, context: context)
+    result.outcome.should eq(Beryl::Apply::Outcome::Skipped)
+    result.message.should contain "wheel conservé"
+    shell.ran?(/groupmod wheel -d/).should be_false
+  end
+
+  it "groupe principal déclaré : posé aussi sur un compte existant" do
     shell = FakeShell.new
     shell.stub(/getent passwd deploy/, stdout: "deploy:*:1001:1001::/home/deploy:/bin/csh")
-    shell.stub(/id -Gn deploy/, stdout: "deploy www") # www non listé → on n'y touche pas
+    shell.stub(/id -Gn deploy/, stdout: "deploy wheel")
     prim("user-sync").apply(
-      shell, apply_params("{name: deploy, secondary_groups: [wheel]}"), dry_run: false, context: ctx)
-    shell.ran?(/groupmod www/).should be_false
+      shell, apply_params("{name: deploy, primary_group: www, secondary_groups: [wheel]}"), dry_run: false, context: ctx)
+    shell.ran?(/pw usermod deploy -g www/).should be_true
+    shell.ran?(/groupmod deploy -d/).should be_false # l'ancien principal n'est pas un groupe secondaire à retirer
   end
 
   it "accepte l'alias `groups` (= secondary_groups)" do

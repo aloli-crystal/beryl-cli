@@ -9,6 +9,19 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `freebsd.users` : groupes exacts et groupe principal, aussi sur les comptes existants
+
+`user-sync` (lancé par chaque `beryl apply` pour chaque compte déclaré)
+n'ajoutait que des groupes et ne posait le groupe principal qu'à la
+création. Quand des groupes sont déclarés (`secondary_groups`, ou l'alias
+`groups`, même vide), ils sont désormais EXACTS : ajout des manquants,
+retrait des autres groupes secondaires (ex. `deploy` sorti de `wheel`). Un
+`primary_group` déclaré est posé aussi sur un compte existant. Jamais
+retirés : le groupe principal, ni `wheel` du compte par lequel beryl se
+connecte. Groupes non déclarés : inchangés. Le shell, lui, était déjà
+réconcilié à chaque apply (`user-shell` pour un chemin, la recette pour
+`oh-my-zsh`).
+
 === Bootstrap : shell par défaut `/bin/sh` (celui de FreeBSD), plus `/bin/csh`
 
 Un user sans `shell:` en chemin (ou avec une recette, ex. `oh-my-zsh`, posée

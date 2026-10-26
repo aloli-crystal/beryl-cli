@@ -8,15 +8,19 @@ module Beryl::Apply
   #         name: deploy
   #         secondary_groups: [www, wheel]
   #         shell: /usr/local/bin/zsh   # optionnel
-  #         primary_group: www          # optionnel (création seule)
+  #         primary_group: www          # optionnel
   #         state: present              # ou `absent` → pw userdel
   #
-  # Groupes ADDITIFS (`secondary_groups` ou alias `groups`) : on ajoute le
-  # user aux groupes listés (s'il n'y est pas), on n'en retire JAMAIS —
-  # modèle « héritage » (on ajoute ce dont on a besoin). Le `shell` n'est
-  # posé qu'à la CRÉATION : sur un user existant, le changement de shell
-  # passe par une recette (oh-my-zsh / user-shell) — sinon il entrerait en
-  # conflit avec ces recettes (flap csh↔zsh à chaque apply). La suppression
+  # Groupes EXACTS quand ils sont déclarés (`secondary_groups` ou alias
+  # `groups`, même vide) : le user est ajouté aux groupes listés et RETIRÉ des
+  # autres groupes secondaires — la fiche fait foi, aussi sur un compte déjà
+  # créé (ex. `deploy` sorti de `wheel`). Rien de déclaré : groupes laissés tels
+  # quels. Jamais retiré : son groupe principal, ni `wheel` du compte par
+  # lequel beryl se connecte (`connect_user` : il se couperait son sudo).
+  # `primary_group` déclaré : posé aussi sur un compte existant. Le `shell`
+  # n'est posé ici qu'à la CRÉATION : sur un user existant, le changement de
+  # shell passe par `user-shell` (chemin déclaré) ou par sa recette
+  # (`oh-my-zsh`) — sinon les deux se contrediraient (flap csh↔zsh). La suppression
   # exige `state: absent` EXPLICITE (jamais par absence) et garde le /home.
   class UserSync < Primitive
     def name : String
@@ -51,21 +55,46 @@ module Beryl::Apply
         return StepResult.applied("#{user} : créé")
       end
 
-      # Compte existant → réconciliation ADDITIVE.
+      # Compte existant → réconciliation (groupes exacts s'ils sont déclarés).
       changes = [] of String
       current_groups = shell.exec("id -Gn #{Process.quote(user)} 2>/dev/null", raise_on_error: false).stdout.split
+      # `id -Gn` : le groupe principal d'abord.
+      current_primary = current_groups.first?
+      if primary && current_primary && primary != current_primary
+        shell.exec("pw usermod #{Process.quote(user)} -g #{Process.quote(primary)}") unless dry_run
+        changes << "groupe principal #{current_primary} → #{primary}"
+        current_primary = primary
+      end
       groups.each do |g|
         next if current_groups.includes?(g)
         shell.exec("pw groupmod #{Process.quote(g)} -m #{Process.quote(user)}") unless dry_run
         changes << "+#{g}"
       end
+      kept = nil
+      if declares_groups?(params)
+        # Groupes principaux (actuel, déclaré, et l'ancien s'il vient de changer) :
+        # jamais retirés, ce ne sont pas des appartenances secondaires.
+        (current_groups - groups - [current_groups.first?, current_primary, primary].compact).each do |g|
+          if g == "wheel" && user == context.vars["connect_user"]?
+            kept = "wheel conservé : compte de connexion de beryl"
+            next
+          end
+          shell.exec("pw groupmod #{Process.quote(g)} -d #{Process.quote(user)}") unless dry_run
+          changes << "-#{g}"
+        end
+      end
 
       # Le shell d'un user EXISTANT n'est pas touché ici (cf. en-tête) :
       # une recette s'en charge (oh-my-zsh / user-shell), sans flap.
 
-      return StepResult.skipped("#{user} : conforme") if changes.empty?
-      msg = "#{user} : #{changes.join(", ")}"
+      return StepResult.skipped("#{user} : conforme#{kept ? " (#{kept})" : ""}") if changes.empty?
+      msg = "#{user} : #{(changes + [kept].compact).join(", ")}"
       StepResult.applied(dry_run ? "#{msg} (dry-run)" : msg)
+    end
+
+    # Groupes secondaires déclarés (clé présente, même liste vide) ? Pur.
+    def declares_groups?(params : Hash(String, YAML::Any)) : Bool
+      params.has_key?("secondary_groups") || params.has_key?("groups")
     end
   end
 
