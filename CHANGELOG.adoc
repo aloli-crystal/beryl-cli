@@ -9,6 +9,16 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl info --usage` : espace libre = celui de `df -h`
+
+Le libre d'un pool venait de la colonne FREE de `zpool list`, qui compte
+encore la réserve de sécurité de ZFS (1/32 du pool), la parité RAIDZ et
+les réservations : sur zora, 50,8 Go « libres » pour 21,5 Go réellement
+écrivables. Désormais AVAIL de la racine de chaque pool (`zfs list -Hp -d
+0`) : le même chiffre que `df -h`, celui qui tombe à zéro quand les
+écritures échouent. Taille = utilisé + libre (comme `df`), % libre
+recalculé dessus.
+
 === `beryl upgrade` : la relance d'un service ne le tue plus
 
 La relance bornée à 120 s (0.6.106) passait par `timeout 120 service …

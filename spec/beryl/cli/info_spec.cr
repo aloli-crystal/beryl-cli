@@ -243,13 +243,28 @@ describe Beryl::CLI::Info do
     end
   end
 
-  describe ".parse_zpool" do
-    it "une ligne par pool, colonne % = LIBRE (100 − cap)" do
-      txt = "zroot\t460G\t12G\t448G\t3%\nzdata\t14T\t5T\t9T\t36%"
-      rows = Beryl::CLI::Info.parse_zpool(txt)
+  describe ".parse_zfs_roots" do
+    it "une ligne par pool, libre = AVAIL de ZFS (cas réel zora), colonne % = LIBRE" do
+      txt = "zroot\t958817615872\t23085449216\nzdata\t5497558138880\t9895604649984"
+      rows = Beryl::CLI::Info.parse_zfs_roots(txt)
       rows.map(&.label).should eq(["zroot", "zdata"])
-      rows[0].pct.should eq("97%") # 3% utilisé → 97% libre
-      rows[1].pct.should eq("64%") # 36% utilisé → 64% libre
+      rows[0].size.should eq("914G")
+      rows[0].used.should eq("893G")
+      rows[0].free.should eq("21.5G")
+      rows[0].pct.should eq("2%")
+      rows[1].pct.should eq("64%")
+    end
+
+    it "ligne illisible ignorée" do
+      Beryl::CLI::Info.parse_zfs_roots("zroot\t-\t12").should be_empty
+    end
+  end
+
+  describe ".zfs_size" do
+    it "forme de zfs list -h" do
+      Beryl::CLI::Info.zfs_size(512_i64).should eq("512B")
+      Beryl::CLI::Info.zfs_size(2_523_293_286_i64).should eq("2.35G")
+      Beryl::CLI::Info.zfs_size(1_099_511_627_776_i64).should eq("1.00T")
     end
   end
 

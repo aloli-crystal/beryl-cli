@@ -263,7 +263,8 @@ module Beryl::CLI
     end
 
     # Récupère l'utilisation disque EN LIVE (best-effort). Tente chaque
-    # `{user, cible}` ; `zpool list` sinon `df -h` (sans sudo). Garde la raison
+    # `{user, cible}` ; `zfs list` des racines de pool sinon `df -h` (sans
+    # sudo). Garde la raison
     # d'échec de chaque tentative qui n'a pas répondu.
     #
     # PAS de `2>/dev/null` : le shell de login distant peut être csh (défaut
@@ -282,8 +283,8 @@ module Beryl::CLI
           next
         end
         os = pr.stdout.strip
-        zp = remote(host, user, target, "zpool list -H -o name,size,alloc,free,cap", system_ssh).stdout.strip
-        rows = zp.empty? ? parse_df(remote(host, user, target, "df -h", system_ssh).stdout) : parse_zpool(zp)
+        zp = remote(host, user, target, "zfs list -Hp -d 0 -o name,used,avail", system_ssh).stdout.strip
+        rows = zp.empty? ? parse_df(remote(host, user, target, "df -h", system_ssh).stdout) : parse_zfs_roots(zp)
         return UsageResult.new(sort_volumes(rows), dest, notes, os)
       end
       UsageResult.new(nil, nil, notes)
@@ -565,13 +566,35 @@ module Beryl::CLI
       rows.sort_by { |r| {r.label == "zroot" ? 0 : 1, r.label} }
     end
 
-    # Parse `zpool list -H -o name,size,alloc,free,cap` → une ligne par pool.
-    # La colonne `%` retournée est le LIBRE (cap = utilisé → 100 − cap).
-    def self.parse_zpool(output : String) : Array(UsageRow)
+    # Parse `zfs list -Hp -d 0 -o name,used,avail` (racine de chaque pool, en
+    # octets) → une ligne par pool. Libre = AVAIL de ZFS, comme `df -h` : ce
+    # qu'on peut encore écrire, réserve de sécurité (1/32 du pool), parité
+    # RAIDZ et réservations déduites. (FREE de `zpool list` les compte encore :
+    # zora, 27 oct. 2026, 50,8 Go « libres » pour 21,5 Go écrivables.) Taille =
+    # utilisé + libre, comme `df`. Colonne % = le LIBRE.
+    def self.parse_zfs_roots(output : String) : Array(UsageRow)
       output.each_line.compact_map do |l|
         f = l.split
-        f.size >= 5 ? UsageRow.new(f[0], f[1], f[2], f[3], free_pct(f[4])) : nil
+        next unless f.size >= 3 && (used = f[1].to_i64?) && (avail = f[2].to_i64?)
+        total = used + avail
+        pct = total > 0 ? "#{(avail * 100 / total).round.to_i}%" : "0%"
+        UsageRow.new(f[0], zfs_size(total), zfs_size(used), zfs_size(avail), pct)
       end.to_a
+    end
+
+    # Octets → forme de `zfs list -h` (puissances de 1024, 3 chiffres
+    # significatifs : `944G`, `21.5G`, `2.35G`). Pur.
+    def self.zfs_size(bytes : Int64) : String
+      units = {"B", "K", "M", "G", "T", "P"}
+      v = bytes.to_f
+      i = 0
+      while v >= 1024 && i < units.size - 1
+        v /= 1024
+        i += 1
+      end
+      return "#{bytes}B" if i == 0
+      fmt = v >= 100 ? "%.0f" : (v >= 10 ? "%.1f" : "%.2f")
+      "#{fmt % v}#{units[i]}"
     end
 
     # Parse `df -h` → utilisation par POOL : un dataset ZFS (`zroot/...`, `zdata`)
