@@ -24,6 +24,9 @@ Un paquet absent de son dépôt d'origine mais disponible ailleurs passe
 par `pkg upgrade` sans `-r`, comme avant. Le mode `--recipes` suit la
 même règle (paquets des recettes installés seulement).
 
+La primitive `pkg-upgrade` des recettes (`beryl sync`) aussi (0.6.134) :
+un `pkg upgrade -r <dépôt> -y` par dépôt d'origine des paquets en retard.
+
 === `beryl upgrade` (essai à blanc) : pourquoi un nouveau paquet arrive
 
 Quand le plan annonce des « New packages to be INSTALLED », l'essai à

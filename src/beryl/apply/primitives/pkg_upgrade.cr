@@ -29,12 +29,22 @@ module Beryl::Apply
   #
   # Rien à mettre à jour → Skipped. Sinon, en dry-run : plan (paquets
   # de → vers, services qui seraient relancés). En `--apply` :
-  # `pkg upgrade -y <paquets en retard>` (pkg peut entraîner des
-  # dépendances : c'est normal), puis `service <svc> restart` pour chaque
+  # `pkg upgrade -r <dépôt> -y <paquets en retard>`, un par dépôt d'origine
+  # (`%R`) des paquets (pkg peut entraîner des dépendances : c'est normal),
+  # puis `service <svc> restart` pour chaque
   # service de `restart` ACTIVÉ (`sysrc -n <svc>_enable` = YES, casse
   # ignorée) ; un service non activé est sauté et rapporté. Échec du
   # `pkg upgrade` ou d'un redémarrage → Failed (les autres services sont
   # tout de même tentés, pour ne pas laisser la moitié du parc arrêtée).
+  #
+  # Pourquoi `-r` : un paquet offert par deux dépôts (gmp, mpfr… republiés
+  # par poudriere dans le dépôt maison, copies de FreeBSD-ports) échappe
+  # sinon à la règle « ne pas installer ce qui n'est pas installé » du
+  # solveur de pkg (posée seulement quand il n'en existe qu'UNE variante,
+  # libpkg/pkg_solve.c) : pkg l'installait sans que rien ne le réclame
+  # (loulou, quantas, 27 oct. 2026 ; même remède que `beryl upgrade`). Un
+  # paquet absent de son dépôt d'origine mais disponible ailleurs : sans
+  # `-r`.
   class PkgUpgrade < Primitive
     # Paquet en retard : nom, version installée, version disponible.
     record Outdated, name : String, from : String, to : String
@@ -61,6 +71,24 @@ module Beryl::Apply
         result << Outdated.new(pkg, namever[(idx + 1)..], to)
       end
       result
+    end
+
+    # Groupes `{dépôt, paquets}` pour `pkg upgrade` : dépôt d'origine de
+    # chaque paquet (`pkg query '%n %R'`) s'il l'offre encore (`pkg rquery -a
+    # '%n %R'`), sinon nil (`pkg upgrade` sans `-r`). Ordre de `names`. Pur.
+    def self.upgrade_groups(names : Array(String), installed : String, remote : String) : Array({String?, Array(String)})
+      origin = installed.lines.compact_map { |l| a = l.split; {a[0], a[1]} if a.size >= 2 }.to_h
+      offered = remote.lines.compact_map { |l| a = l.split; {a[0], a[1]} if a.size >= 2 }.to_set
+      groups = [] of {String?, Array(String)}
+      names.each do |n|
+        repo = origin[n]?.try { |r| r if offered.includes?({n, r}) }
+        if g = groups.find { |(r, _)| r == repo }
+          g[1] << n
+        else
+          groups << {repo, [n]}
+        end
+      end
+      groups
     end
 
     def apply(shell : Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Context) : StepResult
@@ -95,9 +123,16 @@ module Beryl::Apply
 
       return StepResult.applied("mettrait à jour #{plan}#{svc_note.call("relancerait")}#{absent_note} (dry-run)") if dry_run
 
-      res = shell.exec("pkg upgrade -y #{outdated.map { |o| Process.quote(o.name) }.join(" ")}", raise_on_error: false)
-      unless res.success?
-        return StepResult.failed("pkg upgrade a échoué (code #{res.exit_code}) pour #{outdated.map(&.name).join(", ")} : #{first_line(res)} — aucun service relancé")
+      names = outdated.map(&.name)
+      quoted = names.map { |n| Process.quote(n) }.join(" ")
+      installed_repos = Primitive.read_probe(shell, "pkg query '%n %R' #{quoted}").stdout
+      remote_repos = Primitive.read_probe(shell, "pkg rquery -a '%n %R' #{quoted}").stdout
+      self.class.upgrade_groups(names, installed_repos, remote_repos).each do |repo, group|
+        from = repo ? "-r #{Process.quote(repo)} " : ""
+        res = shell.exec("pkg upgrade #{from}-y #{group.map { |n| Process.quote(n) }.join(" ")}", raise_on_error: false)
+        unless res.success?
+          return StepResult.failed("pkg upgrade a échoué (code #{res.exit_code}) pour #{group.join(", ")} : #{first_line(res)} — aucun service relancé")
+        end
       end
 
       failures = [] of String

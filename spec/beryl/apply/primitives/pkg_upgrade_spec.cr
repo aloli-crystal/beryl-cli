@@ -56,6 +56,27 @@ describe Beryl::Apply::PkgUpgrade do
     end
   end
 
+  describe ".upgrade_groups" do
+    it "un groupe par dépôt d'origine, sans -r si ce dépôt ne l'offre plus" do
+      installed = "partiduo-app aloli\npartiduo-agent aloli\nmonit FreeBSD-ports\ncurl FreeBSD-ports\n"
+      remote = "partiduo-app aloli\npartiduo-agent aloli\nmonit FreeBSD-ports\ncurl aloli\n"
+      Beryl::Apply::PkgUpgrade.upgrade_groups(%w[partiduo-app monit partiduo-agent curl], installed, remote).should eq([
+        {"aloli", %w[partiduo-app partiduo-agent]},
+        {"FreeBSD-ports", %w[monit]},
+        {nil, %w[curl]},
+      ])
+    end
+  end
+
+  it "pkg upgrade -r <dépôt d'origine> quand ce dépôt offre le paquet" do
+    sh = outdated_shell
+    sh.stub(/pkg query '%n %R'/, stdout: "partiduo-app aloli\n")
+    sh.stub(/pkg rquery -a '%n %R'/, stdout: "partiduo-app aloli\npartiduo-app FreeBSD-ports\n")
+    r = pkg_upgrade.apply(sh, params(PARAMS), dry_run: false, context: ctx)
+    r.outcome.should eq(Beryl::Apply::Outcome::Applied)
+    sh.ran?(/pkg upgrade -r aloli -y partiduo-app$/).should be_true
+  end
+
   it "skip si les paquets installés sont à jour (et ne relance rien)" do
     sh = FakeShell.new
     sh.stub(/pkg info -e/, exit_code: 0)
