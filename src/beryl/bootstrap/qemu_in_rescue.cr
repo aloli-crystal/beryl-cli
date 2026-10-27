@@ -66,7 +66,7 @@ module Beryl::Bootstrap
     # ashift ZFS du pool = log2(taille de bloc physique des disques),
     # détecté côté rescue par beryl (`blockdev --getpbsz`). Défaut 12 (4 K,
     # sûr) si non fourni. JAMAIS arbitraire en prod : bootstrap.cr passe la
-    # valeur native de CES disques (HDD 4K → 12, NVMe 512 → 9, etc.).
+    # valeur de CES disques, plancher 12 (HDD 4K → 12, NVMe 512 → 12, 8K → 13).
     ashift : Int32 = 12 do
     def validate! : Nil
       raise ArgumentError.new("pool data : name vide") if name.empty?

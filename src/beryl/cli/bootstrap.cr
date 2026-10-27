@@ -225,13 +225,14 @@ module Beryl::CLI::Bootstrap
 
     # Taille de bloc PHYSIQUE de chaque disque, détectée côté rescue Linux
     # (qui voit le vrai matériel ; la VM QEMU ne voit que du 512 via virtio).
-    # On en déduit l'ashift NATIF par pool (log2) → zpool create -o ashift=N
-    # de SES disques (HDD 4K → 12, NVMe 512 → 9), jamais une valeur en dur.
-    # Cf. warning ZFS « non-native block size » constaté sur qrbx.
+    # On en déduit l'ashift par pool (log2) → zpool create -o ashift=N de
+    # SES disques, jamais en dessous de `MIN_ASHIFT` (4 K) : HDD 4K → 12,
+    # NVMe qui annonce 512 → 12 aussi, 8K → 13. Cf. warning ZFS « non-native
+    # block size » constaté sur qrbx (ashift sous la taille native).
     all_pool_disks = disks + host.data_zpools.flat_map(&.disks)
     ashift_by_disk = detect_ashifts(rescue_conn, all_pool_disks)
     boot_ashift = disks.map { |d| ashift_by_disk[d]? || 12 }.max
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 1] ashift natif (blockdev) : " +
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 1] ashift (bloc physique, plancher #{MIN_ASHIFT}) : " +
                 ashift_by_disk.map { |d, a| "#{d}→#{a}" }.join(", ")
 
     # Pools data : créés post-install via `zpool create` dans la VM
@@ -614,15 +615,22 @@ module Beryl::CLI::Bootstrap
     result
   end
 
-  # ashift = log2(block_size). block_size est une puissance de 2 (512,
-  # 4096, 8192…). 512→9, 4096→12, 8192→13.
-  private def self.ashift_for(block_size : Int32) : Int32
+  # Plancher de l'ashift : 12 (4 K), comme bsdinstall. Un NVMe qui annonce
+  # 512 o écrit en interne par pages de 4 K ou plus : en ashift 9, chaque
+  # petite écriture y coûte une lecture-modification-réécriture ; et un
+  # disque de remplacement à secteurs natifs de 4 K ne pourrait plus
+  # rejoindre le miroir (shingouz, 27 oct. 2026).
+  MIN_ASHIFT = 12
+
+  # ashift = log2(block_size), jamais sous `MIN_ASHIFT`. block_size est une
+  # puissance de 2 (512, 4096, 8192…) : 512→12, 4096→12, 8192→13.
+  def self.ashift_for(block_size : Int32) : Int32
     a = 9
     bs = block_size < 512 ? 512 : block_size
     while bs > 512
       bs //= 2
       a += 1
     end
-    a
+    Math.max(a, MIN_ASHIFT)
   end
 end

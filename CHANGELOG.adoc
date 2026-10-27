@@ -9,6 +9,15 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl bootstrap` : ashift 12 au minimum
+
+L'ashift des pools reprenait la taille de bloc PHYSIQUE annoncée par le
+disque : 9 (512 o) pour les NVMe qui annoncent 512 o (shingouz, 27 oct.
+2026). Leur mémoire flash écrit pourtant par pages de 4 K ou plus, et un
+disque de remplacement à secteurs natifs de 4 K ne pourrait plus
+rejoindre un vdev en ashift 9. Plancher désormais à 12 (4 K), comme
+bsdinstall ; un disque à blocs de 8 K garde 13.
+
 === `beryl upgrade` : plus de bibliothèques installées pour rien
 
 `pkg upgrade` installait des paquets que rien ne réclame (gmp, mpfr,

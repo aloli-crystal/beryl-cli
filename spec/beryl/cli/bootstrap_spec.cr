@@ -2,6 +2,15 @@ require "../../spec_helper"
 require "../../../src/beryl/cli/bootstrap"
 
 describe Beryl::CLI::Bootstrap do
+  describe ".ashift_for" do
+    it "log2 de la taille de bloc, jamais sous le plancher de 12 (4 K)" do
+      Beryl::CLI::Bootstrap.ashift_for(512).should eq(12)
+      Beryl::CLI::Bootstrap.ashift_for(4096).should eq(12)
+      Beryl::CLI::Bootstrap.ashift_for(8192).should eq(13)
+      Beryl::CLI::Bootstrap.ashift_for(0).should eq(Beryl::CLI::Bootstrap::MIN_ASHIFT)
+    end
+  end
+
   describe ".drop_installed_false" do
     it "retire la ligne (avec son commentaire de fin) et rien d'autre" do
       input = "# tika.initech.example\n\ninstalled: false # retiré par `beryl bootstrap`\nprovider: ovh\nfreebsd:\n  hostname: tika\n"
