@@ -9,6 +9,15 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl ssh-config <société>…`
+
+`beryl ssh-config aloli --apply` écrivait aussi le fichier de quimeo :
+la commande ne prenait aucune portée et ignorait l'argument sans message.
+Les sociétés nommées limitent désormais l'écriture à leurs fichiers
+(toujours calculés sur tout le parc, un bastion pouvant servir plusieurs
+sociétés) ; sans argument, toutes. Un argument qui n'est pas une société
+connue est refusé.
+
 === `beryl bootstrap` : ashift 12 au minimum
 
 L'ashift des pools reprenait la taille de bloc PHYSIQUE annoncée par le

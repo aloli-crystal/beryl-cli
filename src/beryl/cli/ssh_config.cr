@@ -6,8 +6,12 @@ require "../ssh_config"
 # Sous-commande `beryl ssh-config` : écrit un fichier par société,
 # `~/.ssh/beryl--<société>.conf`, avec TOUS ses hosts (FQDN et nom court ;
 # hosts cachés derrière le vRack par leurs bastions, avec replis — voir
-# `Beryl::SshConfig`), et les inclut en tête de `~/.ssh/config`. Toujours
-# tout le parc : chaque fichier est regénéré en entier. L'ancien fichier
+# `Beryl::SshConfig`), et les inclut en tête de `~/.ssh/config`. Sans
+# argument, toutes les sociétés ; `beryl ssh-config <société>…` limite
+# l'écriture à leurs fichiers (calculés sur tout le parc, un bastion pouvant
+# servir plusieurs sociétés). Un argument qui n'est pas une société connue
+# est refusé : auparavant ignoré sans message (27 oct. 2026), il laissait
+# croire à une écriture limitée. Chaque fichier est regénéré en entier. L'ancien fichier
 # unique `~/.ssh/beryl.conf` (0.6.124) est retiré. Essai à blanc par défaut
 # (contenu affiché) ; `--apply` écrit.
 module Beryl::CLI::SshConfig
@@ -19,8 +23,9 @@ module Beryl::CLI::SshConfig
     ssh_dir = File.join(Path.home.to_s, ".ssh")
 
     parser = OptionParser.new do |p|
-      p.banner = "USAGE : beryl ssh-config [--apply]\n\n" \
-                 "Écrit ~/.ssh/#{Beryl::SshConfig::FILE_PREFIX}<société>.conf : tous les hosts gérés par beryl, par leur\n" \
+      p.banner = "USAGE : beryl ssh-config [société…] [--apply]\n\n" \
+                 "Écrit ~/.ssh/#{Beryl::SshConfig::FILE_PREFIX}<société>.conf (toutes les sociétés, ou celles nommées) :\n" \
+                 "tous les hosts gérés par beryl, par leur\n" \
                  "FQDN et leur nom court ; un host caché derrière le vRack passe par son bastion préféré, puis\n" \
                  "les autres. Les inclut en tête de ~/.ssh/config (« #{Beryl::SshConfig::INCLUDE_LINE} »).\n" \
                  "Un host (ou un groupe, dans son _defaults.yml) en `ssh_config: false` est écarté.\n"
@@ -31,12 +36,17 @@ module Beryl::CLI::SshConfig
     Beryl::CLI.handle_option_errors(parser).parse(args)
 
     root = Beryl::Config::Root.load(config_root)
+    if (unknown = args - root.account_names).present?
+      STDERR.puts "[beryl ssh-config] société inconnue : #{unknown.join(", ")}. Connues : #{root.account_names.join(", ")}"
+      return EXIT_USAGE
+    end
     hosts = root.all_hosts_by_fqdn.keys.compact_map do |fqdn|
       root.resolve(fqdn)
     rescue
       nil
     end
     files = Beryl::SshConfig.render(hosts)
+    files = files.select { |account, _| args.includes?(account) } unless args.empty?
     counts = hosts.select(&.ssh_config?).group_by(&.account_name).transform_values(&.size)
     skipped = hosts.reject(&.ssh_config?).group_by(&.account_name).transform_values(&.size)
     main = File.join(ssh_dir, "config")
