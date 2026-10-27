@@ -9,6 +9,21 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl upgrade` : plus de bibliothèques installées pour rien
+
+`pkg upgrade` installait des paquets que rien ne réclame (gmp, mpfr,
+libffi, mpdecimal, readline), que `pkg-autoremove` retirait une minute
+plus tard (loulou, quantas, 27 oct. 2026). Cause, trouvée grâce à la
+trace du solveur : poudriere republie dans le dépôt maison les
+dépendances qu'il construit, copies de FreeBSD-ports ; un paquet offert
+par deux dépôts échappe à la règle « ne pas installer ce qui n'est pas
+installé » du solveur de pkg, posée seulement quand il n'en existe qu'une
+variante (libpkg/pkg_solve.c). Désormais un `pkg upgrade -r <dépôt>` par
+dépôt d'origine des paquets installés : chacun n'a plus qu'une variante.
+Un paquet absent de son dépôt d'origine mais disponible ailleurs passe
+par `pkg upgrade` sans `-r`, comme avant. Le mode `--recipes` suit la
+même règle (paquets des recettes installés seulement).
+
 === `beryl upgrade` (essai à blanc) : pourquoi un nouveau paquet arrive
 
 Quand le plan annonce des « New packages to be INSTALLED », l'essai à

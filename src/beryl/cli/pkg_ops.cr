@@ -152,29 +152,48 @@ module Beryl::CLI
     # Dépôt du SYSTÈME de base (pkgbase) : réservé à `beryl os-upgrade`.
     BASE_REPO = "FreeBSD-base"
 
-    # `pkg upgrade` des seuls paquets LOGICIELS : `pkgs` (liste fermée, mode
-    # --recipes) ou, sinon, les paquets installés HORS du dépôt de base et
-    # disponibles dans un dépôt (`pkg upgrade` sans nom toucherait aussi le
-    # noyau). Les règles de pkg s'appliquent tel quel à cette liste (versions,
-    # options changées, nouvelles dépendances). Lecture seule en dry-run :
-    # aucun verrou posé. Aucun paquet logiciel → rien, jamais `pkg upgrade` nu.
+    # `pkg upgrade` des seuls paquets LOGICIELS : les paquets installés HORS du
+    # dépôt de base et disponibles dans un dépôt (`pkg upgrade` sans nom
+    # toucherait aussi le noyau), restreints à `pkgs` si donné (mode
+    # --recipes). Les règles de pkg s'appliquent tel quel à cette liste
+    # (versions, options changées, nouvelles dépendances). Lecture seule en
+    # dry-run : aucun verrou posé. Aucun paquet logiciel → rien, jamais `pkg
+    # upgrade` nu.
+    #
+    # Un `pkg upgrade -r <dépôt>` PAR DÉPÔT D'ORIGINE (`%R`) : un paquet offert
+    # par deux dépôts (gmp, mpfr, libffi… republiés par poudriere dans le
+    # dépôt maison, copies de FreeBSD-ports) échappe sinon à la règle « ne pas
+    # installer ce qui n'est pas installé » du solveur (posée seulement quand
+    # il n'existe qu'UNE variante, libpkg/pkg_solve.c) : pkg l'installait sans
+    # que rien ne le réclame, et pkg-autoremove le retirait aussitôt
+    # (loulou, quantas, 27 oct. 2026). Un paquet absent de son dépôt d'origine
+    # mais présent ailleurs : `pkg upgrade` sans `-r` (« - »), comme avant.
     #
     # `trace` (dry-run seulement) : même plan, avec la trace du solveur
     # (`SOLVER_DEBUG`) sur la sortie d'erreur.
     def self.software_cmd(apply : Bool, pkgs : Array(String)? = nil, trace : Bool = false) : String
       flag = apply ? "-y" : "-n"
       upgrade = trace && !apply ? "pkg #{SOLVER_DEBUG} upgrade" : "pkg upgrade"
-      if pkgs && !pkgs.empty?
-        return "#{upgrade} #{flag} #{pkgs.map { |p| Process.quote(p) }.join(" ")}"
-      end
+      want = Process.quote((pkgs || [] of String).join(" "))
       <<-SH
         pkg update -q || exit $?
-        set -- $({ pkg rquery -a '%n'; echo --; pkg query '%n %R'; } | awk '
+        plan=$({ pkg rquery -a '%n %R'; echo --; pkg query '%n %R'; } | awk -v want=#{want} '
+          BEGIN { n = split(want, w, " "); for (i = 1; i <= n; i++) keep[w[i]] = 1 }
           !sep && $0 == "--" { sep = 1; next }
-          !sep { remote[$1] = 1; next }
-          $2 != "#{BASE_REPO}" && ($1 in remote) { print $1 }')
-        [ $# -gt 0 ] || { echo "aucun paquet logiciel à examiner"; exit 0; }
-        #{upgrade} #{flag} "$@"
+          !sep { remote[$1 " " $2] = 1; any[$1] = 1; next }
+          $2 != "#{BASE_REPO}" && ($1 in any) && (n == 0 || ($1 in keep)) {
+            print ((($1 " " $2) in remote) ? $2 : "-"), $1 }' | sort)
+        [ -n "$plan" ] || { echo "aucun paquet logiciel à examiner"; exit 0; }
+        rc=0
+        for repo in $(echo "$plan" | cut -d' ' -f1 | uniq); do
+          set -- $(echo "$plan" | awk -v r="$repo" '$1 == r { print $2 }')
+          if [ "$repo" = - ]; then
+            #{upgrade} #{flag} "$@" || rc=$?
+          else
+            #{upgrade} -r "$repo" #{flag} "$@" || rc=$?
+          fi
+        done
+        exit $rc
         SH
     end
 

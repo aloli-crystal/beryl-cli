@@ -4,7 +4,7 @@ require "../../../src/beryl/cli/pkg_ops"
 
 # Joue `script` avec sh et un faux `pkg` en tête du PATH : `pkg rquery -a`
 # rend `remote`, `pkg query '%n %R'` rend `installed` (« nom dépôt »), et
-# `pkg upgrade` affiche ses arguments. Renvoie la sortie.
+# `pkg upgrade` affiche ses arguments. `remote` : « nom dépôt ». Renvoie la sortie.
 private def run_with_fake_pkg(script : String, remote : Array(String), installed : Array(String)) : String
   dir = File.tempname("beryl-fake-pkg")
   Dir.mkdir_p(dir)
@@ -30,36 +30,46 @@ end
 
 describe Beryl::CLI::Upgrade do
   describe ".software_cmd" do
-    it "n'envoie à pkg upgrade que les paquets hors du dépôt de base, disponibles dans un dépôt" do
+    it "un pkg upgrade -r par dépôt d'origine, hors dépôt de base, paquets disponibles seulement" do
       res = run_with_fake_pkg(Beryl::CLI::Upgrade.software_cmd(false),
-        remote: %w[FreeBSD-kernel-generic FreeBSD-runtime expat nginx-lite partiduo-app],
+        remote: ["FreeBSD-kernel-generic FreeBSD-base", "FreeBSD-runtime FreeBSD-base", "expat FreeBSD-ports",
+                 "gmp FreeBSD-ports", "gmp aloli", "nginx-lite quimeo", "partiduo-app aloli"],
         installed: ["FreeBSD-kernel-generic FreeBSD-base", "FreeBSD-runtime FreeBSD-base",
-                    "expat FreeBSD-ports", "nginx-lite quimeo", "partiduo-app aloli",
+                    "expat FreeBSD-ports", "gmp aloli", "nginx-lite quimeo", "partiduo-app aloli",
                     "outil-local unknown-repository"])
-      res.should eq("UPGRADE -n expat nginx-lite partiduo-app\n")
+      res.should eq("UPGRADE -r FreeBSD-ports -n expat\nUPGRADE -r aloli -n gmp partiduo-app\nUPGRADE -r quimeo -n nginx-lite\n")
     end
 
-    it "en --apply, même liste avec -y" do
+    it "absent de son dépôt d'origine mais présent ailleurs : sans -r" do
+      res = run_with_fake_pkg(Beryl::CLI::Upgrade.software_cmd(false),
+        remote: ["curl aloli", "expat FreeBSD-ports"], installed: ["curl FreeBSD-ports", "expat FreeBSD-ports"])
+      res.should eq("UPGRADE -n curl\nUPGRADE -r FreeBSD-ports -n expat\n")
+    end
+
+    it "en --apply, mêmes listes avec -y" do
       res = run_with_fake_pkg(Beryl::CLI::Upgrade.software_cmd(true),
-        remote: %w[FreeBSD-runtime expat], installed: ["FreeBSD-runtime FreeBSD-base", "expat FreeBSD-ports"])
-      res.should eq("UPGRADE -y expat\n")
+        remote: ["FreeBSD-runtime FreeBSD-base", "expat FreeBSD-ports"],
+        installed: ["FreeBSD-runtime FreeBSD-base", "expat FreeBSD-ports"])
+      res.should eq("UPGRADE -r FreeBSD-ports -y expat\n")
     end
 
     it "jamais de `pkg upgrade` nu (qui toucherait le noyau) quand aucun paquet logiciel" do
       res = run_with_fake_pkg(Beryl::CLI::Upgrade.software_cmd(false),
-        remote: %w[FreeBSD-runtime], installed: ["FreeBSD-runtime FreeBSD-base"])
+        remote: ["FreeBSD-runtime FreeBSD-base"], installed: ["FreeBSD-runtime FreeBSD-base"])
       res.should_not contain("UPGRADE")
       res.should contain("aucun paquet logiciel")
     end
 
-    it "liste fermée (--recipes) : ces paquets seulement" do
-      Beryl::CLI::Upgrade.software_cmd(false, ["nginx-lite", "monit"]).should eq("pkg upgrade -n nginx-lite monit")
+    it "liste fermée (--recipes) : ces paquets seulement, installés, par dépôt" do
+      res = run_with_fake_pkg(Beryl::CLI::Upgrade.software_cmd(false, ["nginx-lite", "monit", "absent"]),
+        remote: ["expat FreeBSD-ports", "monit FreeBSD-ports", "nginx-lite quimeo", "absent FreeBSD-ports"],
+        installed: ["expat FreeBSD-ports", "monit FreeBSD-ports", "nginx-lite quimeo"])
+      res.should eq("UPGRADE -r FreeBSD-ports -n monit\nUPGRADE -r quimeo -n nginx-lite\n")
     end
 
     it "trace : même plan, avec la trace du solveur (dry-run seulement)" do
-      Beryl::CLI::Upgrade.software_cmd(false, ["monit"], trace: true).should eq("pkg -dddd upgrade -n monit")
-      Beryl::CLI::Upgrade.software_cmd(true, ["monit"], trace: true).should eq("pkg upgrade -y monit")
-      Beryl::CLI::Upgrade.software_cmd(false, trace: true).should contain(%(pkg -dddd upgrade -n "$@"))
+      Beryl::CLI::Upgrade.software_cmd(false, trace: true).should contain(%(pkg -dddd upgrade -r "$repo" -n "$@"))
+      Beryl::CLI::Upgrade.software_cmd(true, trace: true).should_not contain("-dddd")
     end
   end
 
