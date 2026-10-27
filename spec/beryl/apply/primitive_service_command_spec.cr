@@ -19,7 +19,7 @@ end
 describe "Beryl::Apply::Primitive.service_command (délai et démon)" do
   it "borne l'action par timeout(1) quand un délai est donné" do
     cmd = Beryl::Apply::Primitive.service_command("strongswan", "restart", timeout: 120)
-    cmd.should contain("timeout 120 service strongswan restart </dev/null >\"$out\" 2>&1")
+    cmd.should contain("timeout --foreground -k 10 120 service strongswan restart </dev/null >\"$out\" 2>&1")
   end
 
   it "rend la main malgré un démon resté en arrière-plan (exécution locale)" do

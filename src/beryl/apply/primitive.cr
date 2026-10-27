@@ -189,8 +189,15 @@ module Beryl::Apply
     # fichier temporaire, relu ensuite : la sortie et le code de retour de
     # `service` sont conservés. `timeout` (secondes) borne une action qui ne
     # rend pas la main : `timeout(1)` du système de base sort alors en 124.
+    # `--foreground` : sans lui, timeout(1) de FreeBSD se fait « reaper » —
+    # le démon lancé par le rc.d reste son descendant, timeout attend sa
+    # fin (jamais) puis le TUE au bout du délai (loulou, 27 oct. 2026 :
+    # partiduo, partiduo_admin arrêtés par la relance censée les
+    # redémarrer). `-k 10` : KILL si le rc.d ignore le TERM.
+    KILL_AFTER = 10
+
     def self.service_command(svc : String, action : String, timeout : Int32? = nil) : String
-      limit = timeout ? "timeout #{timeout} " : ""
+      limit = timeout ? "timeout --foreground -k #{KILL_AFTER} #{timeout} " : ""
       "out=$(mktemp \"${TMPDIR:-/tmp}/beryl-service.XXXXXX\") && " \
       "{ #{limit}service #{Process.quote(svc)} #{action} </dev/null >\"$out\" 2>&1; rc=$?; " \
       "cat \"$out\"; rm -f \"$out\"; exit $rc; }"

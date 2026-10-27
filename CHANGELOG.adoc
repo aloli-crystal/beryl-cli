@@ -9,6 +9,17 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl upgrade` : la relance d'un service ne le tue plus
+
+La relance bornée à 120 s (0.6.106) passait par `timeout 120 service …
+restart`. Sur FreeBSD, timeout(1) se fait « reaper » : le démon lancé par
+le rc.d restait son descendant, timeout attendait sa fin (jamais), puis lui
+envoyait TERM au bout du délai. Sur loulou (27 oct. 2026), `partiduo` et
+`partiduo_admin` ont ainsi été arrêtés par la relance censée les
+redémarrer. Désormais `timeout --foreground -k 10 120` : seul `service`
+est borné (KILL 10 s après le TERM s'il l'ignore), le démon relancé n'est
+ni attendu ni tué.
+
 === Test : toutes les recettes de `beryl-recipes` se chargent
 
 Quand le dépôt `beryl-recipes` est cloné à côté de beryl-cli, un test
