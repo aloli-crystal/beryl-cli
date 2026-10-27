@@ -50,6 +50,10 @@ shingouz (27 oct. 2026), `pkg install smartmontools` installait aussi gmp
 et mpfr. Le dépôt de chaque paquet est celui que pkg choisit dans son plan
 (`pkg install -n`), puis un `pkg install -r <dépôt> -y` par dépôt.
 
+Et `beryl pg-upgrade` (0.6.138) : nouveaux paquets PostgreSQL depuis le
+dépôt du plan de pkg, dépendants réinstallés (`pkg install -f`) depuis
+leur dépôt d'origine.
+
 === `beryl upgrade` (essai à blanc) : pourquoi un nouveau paquet arrive
 
 Quand le plan annonce des « New packages to be INSTALLED », l'essai à

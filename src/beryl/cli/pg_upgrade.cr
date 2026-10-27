@@ -536,10 +536,10 @@ module Beryl::CLI::PgUpgrade
         log "#{@label} : remplacement des paquets #{p.old_major} → #{p.new_major}"
         @old_removed = true
         step("pkg delete -f -y #{p.family.join(" ")}", "pkg delete")
-        step("pkg install -y #{p.new_family.join(" ")}", "pkg install #{p.new_family.join(" ")}")
+        step(install_cmd(p.new_family), "pkg install #{p.new_family.join(" ")}")
         unless p.dependents.empty?
           @deps_touched = true
-          step("pkg install -f -y #{p.dependents.join(" ")}", "réinstallation des dépendants")
+          step(reinstall_cmd(p.dependents), "réinstallation des dépendants")
         end
 
         log "#{@label} : initdb #{p.new_data}"
@@ -766,6 +766,30 @@ module Beryl::CLI::PgUpgrade
       msg = "#{what} (code #{res.exit_code})#{detail.empty? ? "" : " : #{detail}"}"
       raise StepFailed.new(msg) if rollback
       raise Refused.new("#{msg} — rien n'a été modifié.")
+    end
+
+    # `pkg install -y` des nouveaux paquets, un `-r <dépôt>` par dépôt choisi
+    # par pkg dans son plan (`pkg install -n`) : sans `-r`, un paquet offert
+    # par deux dépôts (gmp, mpfr… copies de FreeBSD-ports republiées dans le
+    # dépôt maison) est installé sans que rien ne le réclame (shingouz, 27
+    # oct. 2026 ; cf. `Primitive.pkg_install`).
+    private def install_cmd(names : Array(String)) : String
+      plan = @shell.exec("pkg install -n #{names.join(" ")}", raise_on_error: false).stdout
+      repo_cmds(names, Beryl::Apply::Primitive.planned_repos(plan), "pkg install")
+    end
+
+    # `pkg install -f -y` des dépendants (réinstallés contre la nouvelle
+    # libpq), chacun depuis son dépôt d'origine (`%R`).
+    private def reinstall_cmd(names : Array(String)) : String
+      out = @shell.exec("pkg query '%n %R' #{names.join(" ")}", raise_on_error: false).stdout
+      origin = out.lines.compact_map { |l| a = l.split; {a[0], a[1]} if a.size >= 2 }.to_h
+      repo_cmds(names, origin, "pkg install -f")
+    end
+
+    private def repo_cmds(names : Array(String), repo_of : Hash(String, String), pkg : String) : String
+      Beryl::Apply::Primitive.repo_groups(names, repo_of).map do |repo, group|
+        "#{pkg} #{repo ? "-r #{Process.quote(repo)} " : ""}-y #{group.join(" ")}"
+      end.join(" && ")
     end
 
     private def ok?(cmd : String) : Bool

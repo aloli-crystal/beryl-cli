@@ -290,6 +290,21 @@ describe Beryl::CLI::PgUpgrade do
       buf.to_s.should contain("--cleanup")
     end
 
+    it "pkg install -r : dépôt du plan de pkg (nouveaux), dépôt d'origine (dépendants)" do
+      shell = happy_shell
+      shell.stub_seq(/^pkg query '%n'$/, [OLD_FAMILY])
+      shell.stub(/^pkg install -n /, stdout: "New packages to be INSTALLED:\n" \
+                                             "\tgmp: 6.3.0 [aloli]\n" \
+                                             "\tpostgresql19-client: 19.1 [FreeBSD-ports]\n" \
+                                             "\tpostgresql19-contrib: 19.1 [FreeBSD-ports]\n" \
+                                             "\tpostgresql19-server: 19.1 [aloli]\n")
+      shell.stub(/^pkg query '%n %R' /, stdout: "rubygem-pg FreeBSD-ports\n")
+      migration(shell, apply: true).run.should eq(PgU::EXIT_OK)
+      shell.ran?(/^pkg install -r FreeBSD-ports -y postgresql19-client postgresql19-contrib && pkg install -r aloli -y postgresql19-server$/).should be_true
+      shell.ran?(/^pkg install -f -r FreeBSD-ports -y rubygem-pg$/).should be_true
+      shell.ran?(/install .*gmp/).should be_false
+    end
+
     it "--no-dump : pas de pg_dumpall" do
       shell = happy_shell
       migration(shell, apply: true, dump: false).run.should eq(PgU::EXIT_OK)
