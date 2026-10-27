@@ -17,11 +17,11 @@ end
 
 private PARAMS = <<-YAML
   packages: [partiduo-app, partiduo-app-devel]
-  restart: [partiduo, partiduo_devel]
+  restart: [partiduo_app, partiduo_connect]
   YAML
 
-# Les deux paquets installés, partiduo-app en retard ; partiduo activé,
-# partiduo_devel non activé.
+# Les deux paquets installés, partiduo-app en retard ; partiduo_app activé,
+# partiduo_connect non activé.
 private def outdated_shell : FakeShell
   sh = FakeShell.new
   sh.stub(/pkg info -e/, exit_code: 0)
@@ -29,8 +29,8 @@ private def outdated_shell : FakeShell
     curl-8.9.0                         <   needs updating (remote has 8.10.1)
     partiduo-app-1.2.3                 <   needs updating (remote has 1.2.4)
     OUT
-  sh.stub(/sysrc -n partiduo_enable/, stdout: "yes\n")
-  sh.stub(/sysrc -n partiduo_devel_enable/, stdout: "NO\n")
+  sh.stub(/sysrc -n partiduo_app_enable/, stdout: "yes\n")
+  sh.stub(/sysrc -n partiduo_connect_enable/, stdout: "NO\n")
   sh
 end
 
@@ -90,16 +90,16 @@ describe Beryl::Apply::PkgUpgrade do
     r = pkg_upgrade.apply(sh, params(PARAMS), dry_run: false, context: ctx)
     r.outcome.should eq(Beryl::Apply::Outcome::Applied)
     r.message.should contain("partiduo-app 1.2.3 → 1.2.4")
-    r.message.should contain("relancé(s) : partiduo ;")
-    r.message.should contain("non relancé(s) : partiduo_devel")
+    r.message.should contain("relancé(s) : partiduo_app ;")
+    r.message.should contain("non relancé(s) : partiduo_connect")
     # curl est en retard aussi mais n'est pas dans la liste : pas demandé.
     sh.ran?(/pkg upgrade -y partiduo-app$/).should be_true
     sh.ran?(/curl/).should be_false
-    sh.ran?(/service partiduo restart/).should be_true
-    sh.ran?(/service partiduo_devel restart/).should be_false
+    sh.ran?(/service partiduo_app restart/).should be_true
+    sh.ran?(/service partiduo_connect restart/).should be_false
     # Ordre : upgrade AVANT restart.
     up = sh.commands.index!(&.starts_with?("pkg upgrade"))
-    rs = sh.commands.index!(&.includes?("service partiduo restart"))
+    rs = sh.commands.index!(&.includes?("service partiduo_app restart"))
     (up < rs).should be_true
   end
 
@@ -117,7 +117,7 @@ describe Beryl::Apply::PkgUpgrade do
     r.outcome.should eq(Beryl::Apply::Outcome::Applied)
     r.message.should contain("dry-run")
     r.message.should contain("partiduo-app 1.2.3 → 1.2.4")
-    r.message.should contain("relancerait : partiduo")
+    r.message.should contain("relancerait : partiduo_app")
     sh.ran?(/pkg upgrade/).should be_false
     sh.ran?(/service .* restart/).should be_false
   end
@@ -133,14 +133,14 @@ describe Beryl::Apply::PkgUpgrade do
 
   it "échec d'un restart → Failed, message renvoyant au journal" do
     sh = outdated_shell
-    sh.stub(/sysrc -n partiduo_devel_enable/, stdout: "YES\n")
-    sh.stub(/service partiduo restart/, exit_code: 1, stderr: "partiduo: migration impossible\n")
+    sh.stub(/sysrc -n partiduo_connect_enable/, stdout: "YES\n")
+    sh.stub(/service partiduo_app restart/, exit_code: 1, stderr: "partiduo_app: migration impossible\n")
     r = pkg_upgrade.apply(sh, params(PARAMS), dry_run: false, context: ctx)
     r.outcome.should eq(Beryl::Apply::Outcome::Failed)
-    r.message.should contain("partiduo (code 1 : partiduo: migration impossible)")
+    r.message.should contain("partiduo_app (code 1 : partiduo_app: migration impossible)")
     r.message.should contain("journal")
     # L'autre service activé est tout de même tenté.
-    sh.ran?(/service partiduo_devel restart/).should be_true
+    sh.ran?(/service partiduo_connect restart/).should be_true
   end
 
   it "échec du pkg update → Failed" do
@@ -153,7 +153,7 @@ describe Beryl::Apply::PkgUpgrade do
 
   it "`packages` obligatoire et non vide" do
     expect_raises(Beryl::Apply::Primitive::MissingParam, /packages/) do
-      pkg_upgrade.apply(FakeShell.new, params("restart: [partiduo]"), dry_run: true, context: ctx)
+      pkg_upgrade.apply(FakeShell.new, params("restart: [partiduo_app]"), dry_run: true, context: ctx)
     end
     expect_raises(Beryl::Apply::Primitive::MissingParam, /packages/) do
       pkg_upgrade.apply(FakeShell.new, params("packages: []"), dry_run: true, context: ctx)
