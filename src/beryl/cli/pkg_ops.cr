@@ -158,10 +158,14 @@ module Beryl::CLI
     # noyau). Les règles de pkg s'appliquent tel quel à cette liste (versions,
     # options changées, nouvelles dépendances). Lecture seule en dry-run :
     # aucun verrou posé. Aucun paquet logiciel → rien, jamais `pkg upgrade` nu.
-    def self.software_cmd(apply : Bool, pkgs : Array(String)? = nil) : String
+    #
+    # `trace` (dry-run seulement) : même plan, avec la trace du solveur
+    # (`SOLVER_DEBUG`) sur la sortie d'erreur.
+    def self.software_cmd(apply : Bool, pkgs : Array(String)? = nil, trace : Bool = false) : String
       flag = apply ? "-y" : "-n"
+      upgrade = trace && !apply ? "pkg #{SOLVER_DEBUG} upgrade" : "pkg upgrade"
       if pkgs && !pkgs.empty?
-        return "pkg upgrade #{flag} #{pkgs.map { |p| Process.quote(p) }.join(" ")}"
+        return "#{upgrade} #{flag} #{pkgs.map { |p| Process.quote(p) }.join(" ")}"
       end
       <<-SH
         pkg update -q || exit $?
@@ -170,8 +174,56 @@ module Beryl::CLI
           !sep { remote[$1] = 1; next }
           $2 != "#{BASE_REPO}" && ($1 in remote) { print $1 }')
         [ $# -gt 0 ] || { echo "aucun paquet logiciel à examiner"; exit 0; }
-        pkg upgrade #{flag} "$@"
+        #{upgrade} #{flag} "$@"
         SH
+    end
+
+    # Niveau 4 de la trace de pkg : règles « X wants Y » et fournisseurs
+    # trouvés pour chaque bibliothèque requise (libpkg/pkg_solve.c,
+    # pkg_jobs_universe.c). Assez pour savoir QUI tire un nouveau paquet.
+    SOLVER_DEBUG = "-dddd"
+    TRACE_MAX    = 40
+
+    # NOUVEAUX paquets annoncés par `pkg upgrade` (section « New packages to
+    # be INSTALLED: », `\tnom: version [dépôt]`). Pur.
+    def self.new_packages(output : String) : Array(String)
+      names = [] of String
+      section = false
+      output.each_line do |line|
+        if line.starts_with?("New packages to be INSTALLED:")
+          section = true
+        elsif !line.starts_with?('\t') && !line.starts_with?("  ")
+          section = false
+        elsif section && (item = line.strip.split(':', 2).first?) && !item.empty?
+          names << item
+        end
+      end
+      names.uniq
+    end
+
+    # Lignes de la trace du solveur (`DBG(n)[pid]> …`) qui nomment l'un des
+    # `names`, préfixe retiré, sans doublon, au plus `TRACE_MAX` (+ décompte
+    # du reste). Un nouveau paquet sans dépendant déclaré (mpfr sur loulou, 27
+    # oct. 2026, retiré une minute plus tard par pkg-autoremove) y montre la
+    # règle qui l'a tiré. Pur.
+    def self.solver_trace(output : String, names : Array(String)) : Array(String)
+      return [] of String if names.empty?
+      re = Regex.new("(?<![\\w.+-])(?:#{names.map { |n| Regex.escape(n) }.join("|")})(?![\\w+])")
+      lines = output.each_line.compact_map do |line|
+        next unless line.starts_with?("DBG")
+        msg = line.sub(/^DBG\(\d+\)\[\d+\]>\s*/, "").strip
+        msg if msg.matches?(re)
+      end.to_a.uniq
+      return lines if lines.size <= TRACE_MAX
+      lines.first(TRACE_MAX) << "… #{lines.size - TRACE_MAX} ligne(s) de plus"
+    end
+
+    # Trace du solveur pour les nouveaux paquets de `output` (plan d'un
+    # dry-run), relancée en lecture seule ; vide s'il n'y en a pas.
+    def self.new_packages_trace(shell : Beryl::Apply::SudoShell, output : String, pkgs : Array(String)?) : Array(String)
+      names = new_packages(output)
+      return [] of String if names.empty?
+      solver_trace(PkgOps.run_pkg(shell, software_cmd(false, pkgs, trace: true))[1], names)
     end
 
     # Nombre de paquets du système de base en attente (lecture seule), nil si
@@ -283,7 +335,8 @@ module Beryl::CLI
     # État d'un host pour la sortie de flotte (dry-run) : `note` (une ligne)
     # quand il n'y a rien à lister, sinon `lines` = mises à jour en attente.
     record HostState, fqdn : String, ok : Bool, note : String,
-      lines : Array(String) = [] of String, vulns : Array(String)? = [] of String
+      lines : Array(String) = [] of String, vulns : Array(String)? = [] of String,
+      trace : Array(String) = [] of String
 
     # Lignes de mise à jour de `pkg upgrade -n`, au format de pkg
     # (« nom: a -> b [dépôt] »), toutes sections « … to be X: ». Pur.
@@ -324,6 +377,10 @@ module Beryl::CLI
         body << "#{v} #{VULN_MARK} — pas de mise à jour disponible" unless listed.includes?(package_name(v))
       end
       body << "pkg audit impossible" if st.ok && st.vulns.nil?
+      unless st.trace.empty?
+        body << "trace du solveur (nouveaux paquets) :"
+        body.concat(st.trace.map { |l| "\t#{l}" })
+      end
       return "#{st.fqdn} : #{st.note}" if body.empty?
       ([st.fqdn] + body.map { |l| "\t#{l}" }).join("\n")
     end
@@ -502,6 +559,12 @@ module Beryl::CLI
       puts "───── #{h.short_name} ─────"
       puts output.strip.empty? ? "(rien à mettre à jour)" : output.strip
       puts
+      trace = apply ? [] of String : new_packages_trace(shell, output, pkgs)
+      unless trace.empty?
+        puts "───── #{h.short_name} : trace du solveur (nouveaux paquets : #{new_packages(output).join(", ")}) ─────"
+        trace.each { |l| puts l }
+        puts
+      end
       if apply && !ok
         FJ.report(FJ::FAILED, "pkg upgrade : #{output.strip.lines.last?}")
         return :failed
@@ -563,7 +626,8 @@ module Beryl::CLI
       shell = Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(h.connection(user)))
       pkgs = recipes_only ? Beryl::CLI::Info.recipe_packages(config_root, [h]) : nil
       output = pkgs && pkgs.empty? ? "" : PkgOps.run_pkg(shell, software_cmd(false, pkgs))[1]
-      HostState.new(h.fqdn, true, NOTE_OK, pending_lines(output), audit(shell, !h.protected?))
+      trace = output.empty? ? [] of String : new_packages_trace(shell, output, pkgs)
+      HostState.new(h.fqdn, true, NOTE_OK, pending_lines(output), audit(shell, !h.protected?), trace)
     rescue ex
       HostState.new(h.fqdn, false, "erreur : #{ex.message}", vulns: nil)
     end

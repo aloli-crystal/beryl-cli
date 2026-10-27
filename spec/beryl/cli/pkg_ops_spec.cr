@@ -55,6 +55,63 @@ describe Beryl::CLI::Upgrade do
     it "liste fermée (--recipes) : ces paquets seulement" do
       Beryl::CLI::Upgrade.software_cmd(false, ["nginx-lite", "monit"]).should eq("pkg upgrade -n nginx-lite monit")
     end
+
+    it "trace : même plan, avec la trace du solveur (dry-run seulement)" do
+      Beryl::CLI::Upgrade.software_cmd(false, ["monit"], trace: true).should eq("pkg -dddd upgrade -n monit")
+      Beryl::CLI::Upgrade.software_cmd(true, ["monit"], trace: true).should eq("pkg upgrade -y monit")
+      Beryl::CLI::Upgrade.software_cmd(false, trace: true).should contain(%(pkg -dddd upgrade -n "$@"))
+    end
+  end
+
+  describe ".new_packages" do
+    it "seulement la section des nouveaux paquets" do
+      output = <<-OUT
+        New packages to be INSTALLED:
+        \tmpfr: 4.2.2,1 [aloli]
+
+        Installed packages to be UPGRADED:
+        \tpartiduo-app-devel: 0.1.28_4 -> 0.1.28_5 [aloli]
+
+        Number of packages to be installed: 1
+        OUT
+      Beryl::CLI::Upgrade.new_packages(output).should eq(["mpfr"])
+      Beryl::CLI::Upgrade.new_packages("Your packages are up to date.\n").should be_empty
+    end
+  end
+
+  describe ".solver_trace" do
+    it "les lignes DBG qui nomment un nouveau paquet, préfixe retiré, sans doublon" do
+      output = <<-OUT
+        DBG(1)[45816]> (config) pkg initialized
+        DBG(4)[45816]> (universe) add new provide mpfr-4.2.2,1(r) for require libmpfr.so.6
+        DBG(4)[45816]> (solver) Add require rule: partiduo-app-devel-0.1.28_5(r) wants mpfr
+        DBG(4)[45816]> (solver) Add require rule: partiduo-app-devel-0.1.28_5(r) wants mpfr
+        DBG(4)[45816]> (universe) Processing deps for py312-gmpy2-mpfr
+        DBG(4)[45816]> (universe) process_shlibs: looking for providers of libmpfr.so.6 for x
+        Checking integrity... done (0 conflicting)
+        OUT
+      Beryl::CLI::Upgrade.solver_trace(output, ["mpfr"]).should eq([
+        "(universe) add new provide mpfr-4.2.2,1(r) for require libmpfr.so.6",
+        "(solver) Add require rule: partiduo-app-devel-0.1.28_5(r) wants mpfr",
+      ])
+      Beryl::CLI::Upgrade.solver_trace(output, [] of String).should be_empty
+    end
+
+    it "au plus TRACE_MAX lignes, puis le décompte du reste" do
+      output = (1..45).map { |i| "DBG(4)[1]> rule #{i}: x wants mpfr" }.join("\n")
+      lines = Beryl::CLI::Upgrade.solver_trace(output, ["mpfr"])
+      lines.size.should eq(Beryl::CLI::Upgrade::TRACE_MAX + 1)
+      lines.last.should eq("… 5 ligne(s) de plus")
+    end
+  end
+
+  describe ".fleet_block (trace)" do
+    it "trace du solveur sous les mises à jour" do
+      st = Beryl::CLI::Upgrade::HostState.new("a.example.net", true, "à jour", ["mpfr: 4.2.2,1 [aloli]"],
+        trace: ["(solver) Add require rule: x(r) wants mpfr"])
+      Beryl::CLI::Upgrade.fleet_block(st).should eq(
+        "a.example.net\n\tmpfr: 4.2.2,1 [aloli]\n\ttrace du solveur (nouveaux paquets) :\n\t\t(solver) Add require rule: x(r) wants mpfr")
+    end
   end
 
   describe ".pending_count" do

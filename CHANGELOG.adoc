@@ -9,6 +9,17 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl upgrade` (essai à blanc) : pourquoi un nouveau paquet arrive
+
+Quand le plan annonce des « New packages to be INSTALLED », l'essai à
+blanc rejoue le même plan avec la trace du solveur (`pkg -dddd upgrade
+-n`, lecture seule) et affiche les lignes qui nomment ces paquets : la
+règle qui les tire (« X wants Y ») et la bibliothèque qu'ils fournissent.
+Sur loulou (27 oct. 2026), `mpfr` était installé avec les paquets
+Partiduo puis retiré une minute plus tard par `pkg-autoremove`, sans
+qu'aucun paquet ne le déclare. Au plus 40 lignes par serveur ; en
+flotte, sous les mises à jour du serveur.
+
 === `beryl info --usage` : espace libre = celui de `df -h`
 
 Le libre d'un pool venait de la colonne FREE de `zpool list`, qui compte
