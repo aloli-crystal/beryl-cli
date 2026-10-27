@@ -80,10 +80,11 @@ describe Beryl::CLI::Upgrade do
   end
 
   describe ".solver_trace" do
-    it "les lignes DBG qui nomment un nouveau paquet, préfixe retiré, sans doublon" do
+    it "les lignes DBG qui nomment un nouveau paquet : solveur d'abord, sans SQL ni doublon" do
       output = <<-OUT
         DBG(1)[45816]> (config) pkg initialized
         DBG(4)[45816]> (universe) add new provide mpfr-4.2.2,1(r) for require libmpfr.so.6
+        DBG(4)[45816]> (db) running: 'SELECT origin FROM packages WHERE p.name = 'mpfr''
         DBG(4)[45816]> (solver) Add require rule: partiduo-app-devel-0.1.28_5(r) wants mpfr
         DBG(4)[45816]> (solver) Add require rule: partiduo-app-devel-0.1.28_5(r) wants mpfr
         DBG(4)[45816]> (universe) Processing deps for py312-gmpy2-mpfr
@@ -91,8 +92,8 @@ describe Beryl::CLI::Upgrade do
         Checking integrity... done (0 conflicting)
         OUT
       Beryl::CLI::Upgrade.solver_trace(output, ["mpfr"]).should eq([
-        "(universe) add new provide mpfr-4.2.2,1(r) for require libmpfr.so.6",
         "(solver) Add require rule: partiduo-app-devel-0.1.28_5(r) wants mpfr",
+        "(universe) add new provide mpfr-4.2.2,1(r) for require libmpfr.so.6",
       ])
       Beryl::CLI::Upgrade.solver_trace(output, [] of String).should be_empty
     end

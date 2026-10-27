@@ -202,8 +202,10 @@ module Beryl::CLI
     end
 
     # Lignes de la trace du solveur (`DBG(n)[pid]> …`) qui nomment l'un des
-    # `names`, préfixe retiré, sans doublon, au plus `TRACE_MAX` (+ décompte
-    # du reste). Un nouveau paquet sans dépendant déclaré (mpfr sur loulou, 27
+    # `names`, préfixe retiré, sans doublon : celles du solveur d'abord (les
+    # règles « X wants Y »), puis les autres, sans les requêtes SQL internes
+    # de pkg (`(db) running: …`, quantas, 27 oct. 2026) ; au plus `TRACE_MAX`
+    # (+ décompte du reste). Un nouveau paquet sans dépendant déclaré (mpfr sur loulou, 27
     # oct. 2026, retiré une minute plus tard par pkg-autoremove) y montre la
     # règle qui l'a tiré. Pur.
     def self.solver_trace(output : String, names : Array(String)) : Array(String)
@@ -212,8 +214,10 @@ module Beryl::CLI
       lines = output.each_line.compact_map do |line|
         next unless line.starts_with?("DBG")
         msg = line.sub(/^DBG\(\d+\)\[\d+\]>\s*/, "").strip
-        msg if msg.matches?(re)
+        msg if msg.matches?(re) && !msg.starts_with?("(db)")
       end.to_a.uniq
+      solver, other = lines.partition(&.starts_with?("(solver)"))
+      lines = solver + other
       return lines if lines.size <= TRACE_MAX
       lines.first(TRACE_MAX) << "… #{lines.size - TRACE_MAX} ligne(s) de plus"
     end

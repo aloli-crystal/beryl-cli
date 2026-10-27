@@ -17,8 +17,10 @@ blanc rejoue le même plan avec la trace du solveur (`pkg -dddd upgrade
 règle qui les tire (« X wants Y ») et la bibliothèque qu'ils fournissent.
 Sur loulou (27 oct. 2026), `mpfr` était installé avec les paquets
 Partiduo puis retiré une minute plus tard par `pkg-autoremove`, sans
-qu'aucun paquet ne le déclare. Au plus 40 lignes par serveur ; en
-flotte, sous les mises à jour du serveur.
+qu'aucun paquet ne le déclare. Au plus 40 lignes par serveur, celles du
+solveur d'abord, sans les requêtes SQL internes de pkg (0.6.132 : sur
+quantas, elles occupaient la moitié de la trace) ; en flotte, sous les
+mises à jour du serveur.
 
 === `beryl info --usage` : espace libre = celui de `df -h`
 
