@@ -79,16 +79,7 @@ module Beryl::Apply
     def self.upgrade_groups(names : Array(String), installed : String, remote : String) : Array({String?, Array(String)})
       origin = installed.lines.compact_map { |l| a = l.split; {a[0], a[1]} if a.size >= 2 }.to_h
       offered = remote.lines.compact_map { |l| a = l.split; {a[0], a[1]} if a.size >= 2 }.to_set
-      groups = [] of {String?, Array(String)}
-      names.each do |n|
-        repo = origin[n]?.try { |r| r if offered.includes?({n, r}) }
-        if g = groups.find { |(r, _)| r == repo }
-          g[1] << n
-        else
-          groups << {repo, [n]}
-        end
-      end
-      groups
+      Primitive.repo_groups(names, origin.select { |n, r| offered.includes?({n, r}) })
     end
 
     def apply(shell : Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Context) : StepResult

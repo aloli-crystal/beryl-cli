@@ -36,6 +36,11 @@ même règle (paquets des recettes installés seulement).
 La primitive `pkg-upgrade` des recettes (`beryl sync`) aussi (0.6.134) :
 un `pkg upgrade -r <dépôt> -y` par dépôt d'origine des paquets en retard.
 
+Et les primitives `pkg-install` et `pkg-versioned` (0.6.136) : sur
+shingouz (27 oct. 2026), `pkg install smartmontools` installait aussi gmp
+et mpfr. Le dépôt de chaque paquet est celui que pkg choisit dans son plan
+(`pkg install -n`), puis un `pkg install -r <dépôt> -y` par dépôt.
+
 === `beryl upgrade` (essai à blanc) : pourquoi un nouveau paquet arrive
 
 Quand le plan annonce des « New packages to be INSTALLED », l'essai à

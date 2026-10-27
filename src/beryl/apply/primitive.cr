@@ -241,6 +241,44 @@ module Beryl::Apply
       read_probe(shell, command).success?
     end
 
+    # `pkg install -y` des `packages`, avec `-r <dépôt>` : le dépôt que pkg
+    # choisit lui-même pour chacun (plan `pkg install -n`, lignes
+    # « \tnom: version [dépôt] »), un appel par dépôt. Sans `-r`, un paquet
+    # offert par deux dépôts (gmp, mpfr… republiés par poudriere dans le
+    # dépôt maison, copies de FreeBSD-ports) échappe à la règle « ne pas
+    # installer ce qui n'est pas installé » du solveur de pkg (posée
+    # seulement quand il n'en existe qu'UNE variante, libpkg/pkg_solve.c) :
+    # `pkg install smartmontools` installait aussi gmp et mpfr, que rien ne
+    # réclame (shingouz, 27 oct. 2026). Un paquet absent du plan : sans `-r`.
+    def self.pkg_install(shell : Shell, packages : Array(String)) : Nil
+      plan = shell.exec("pkg install -n #{packages.map { |p| Process.quote(p) }.join(" ")}", raise_on_error: false).stdout
+      repo_groups(packages, planned_repos(plan)).each do |repo, group|
+        from = repo ? "-r #{Process.quote(repo)} " : ""
+        shell.exec("pkg install #{from}-y #{group.map { |p| Process.quote(p) }.join(" ")}")
+      end
+    end
+
+    # Dépôt de chaque paquet d'un plan `pkg install -n` / `pkg upgrade -n`
+    # (« \tnom: version [dépôt] » ou « \tnom: a -> b [dépôt] »). Pur.
+    def self.planned_repos(plan : String) : Hash(String, String)
+      plan.each_line.compact_map { |l| l.match(/^\s+(\S+): .*\[([^\]\s]+)\]\s*$/).try { |m| {m[1], m[2]} } }.to_h
+    end
+
+    # Groupes `{dépôt, paquets}` dans l'ordre de `names` ; nil = dépôt
+    # inconnu (`pkg` sans `-r`). Pur.
+    def self.repo_groups(names : Array(String), repo_of : Hash(String, String)) : Array({String?, Array(String)})
+      groups = [] of {String?, Array(String)}
+      names.each do |n|
+        repo = repo_of[n]?
+        if g = groups.find { |(r, _)| r == repo }
+          g[1] << n
+        else
+          groups << {repo, [n]}
+        end
+      end
+      groups
+    end
+
     # Comme `string` mais lève `MissingParam` si absent — pour les
     # paramètres obligatoires (`name`, `path`, `key`, …).
     protected def required_string(params : Hash(String, YAML::Any), key : String) : String

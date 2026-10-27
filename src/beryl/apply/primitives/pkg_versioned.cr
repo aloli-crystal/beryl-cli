@@ -74,7 +74,7 @@ module Beryl::Apply
       return StepResult.skipped("#{packages.join(", ")} déjà installé(s)") if missing.empty?
       return StepResult.applied("installerait #{missing.join(", ")} (dry-run)") if dry_run
 
-      shell.exec("pkg install -y #{missing.map { |p| Process.quote(p) }.join(" ")}")
+      Primitive.pkg_install(shell, missing)
       StepResult.applied("installé : #{missing.join(", ")}")
     end
 

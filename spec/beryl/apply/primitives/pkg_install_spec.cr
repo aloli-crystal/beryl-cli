@@ -53,4 +53,24 @@ describe Beryl::Apply::PkgInstall do
     result.outcome.should eq(Beryl::Apply::Outcome::Applied)
     shell.ran?(/pkg install -y htop/).should be_true
   end
+
+  it "FreeBSD : un pkg install -r par dépôt, celui que pkg choisit dans son plan" do
+    shell = FakeShell.new
+    shell.stub(/pkg info -q/, stdout: "")
+    shell.stub(/pkg install -n/, stdout: <<-OUT)
+    New packages to be INSTALLED:
+    \tgmp: 6.3.0 [aloli]
+    \tmpfr: 4.2.2,1 [aloli]
+    \tnginx-lite-aloli: 1.28.0 [aloli]
+    \tsmartmontools: 7.5_2 [FreeBSD-ports]
+    OUT
+    r = Beryl::Apply::Primitive["pkg-install"]?.not_nil!.apply(shell,
+      {"packages" => YAML.parse("[smartmontools, nginx-lite-aloli, outil]")}, dry_run: false,
+      context: Beryl::Apply::Context.new)
+    r.outcome.should eq(Beryl::Apply::Outcome::Applied)
+    shell.ran?(/^pkg install -r FreeBSD-ports -y smartmontools$/).should be_true
+    shell.ran?(/^pkg install -r aloli -y nginx-lite-aloli$/).should be_true
+    shell.ran?(/^pkg install -y outil$/).should be_true
+    shell.ran?(/gmp|mpfr/).should be_false
+  end
 end

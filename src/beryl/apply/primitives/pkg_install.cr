@@ -2,7 +2,8 @@ require "../primitive"
 
 module Beryl::Apply
   # Primitive `pkg-install` : garantit que les packages listés sont
-  # installés via `pkg install -y`.
+  # installés via `pkg install -y` (FreeBSD : `-r <dépôt>` choisi par pkg,
+  # cf. `Primitive.pkg_install`).
   #
   # Idempotence : lecture de l'état réel (`pkg info`) avant action,
   # seul le delta manquant est installé. Si tout est déjà présent →
@@ -45,7 +46,7 @@ module Beryl::Apply
         end
         shell.exec("zypper --non-interactive install --no-recommends #{list}")
       else
-        shell.exec("pkg install -y #{list}")
+        Primitive.pkg_install(shell, missing)
       end
       StepResult.applied(msg)
     end
