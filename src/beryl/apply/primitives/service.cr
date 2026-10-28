@@ -100,8 +100,24 @@ module Beryl::Apply
           shell.exec("sysrc #{Process.quote("#{enable_var}=YES")}")
         end
       end
-      shell.exec(action_command(svc, "start", os)) if need_start
+      if need_start
+        shell.exec(action_command(svc, "start", os))
+        # Unité `Type=simple` : `systemctl start` réussit même si le démon
+        # meurt aussitôt (conf refusée, pidfile impossible). On relit son
+        # état un instant après pour ne pas annoncer un service mort.
+        if os == LINUX && (died = died_after_start(shell, svc))
+          return StepResult.failed("#{svc} : arrêté juste après son démarrage — #{died}")
+        end
+      end
       StepResult.applied(msg)
+    end
+
+    private def died_after_start(shell : Shell, svc : String) : String?
+      q = Process.quote(svc)
+      state = shell.exec("sleep 2; systemctl show -p ActiveState --value #{q}", raise_on_error: false).stdout.strip
+      return if state == "active" || state == "activating"
+      log = shell.exec("journalctl -u #{q} -n 5 --no-pager -o cat 2>/dev/null", raise_on_error: false).stdout.strip
+      log.empty? ? "état #{state}" : log.lines.join(" ; ")
     end
   end
 

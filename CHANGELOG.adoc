@@ -9,6 +9,14 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `service-enable` sous Linux : un service mort au démarrage fait échouer l'étape
+
+Une unité systemd `Type=simple` fait réussir `systemctl start` même si le
+démon meurt aussitôt : monit sur quimeo-twin (28 oct. 2026) était annoncé
+« enable + start » alors qu'il venait de mourir (pidfile impossible). beryl
+relit l'état de l'unité deux secondes après le démarrage ; si elle ne
+tourne plus, l'étape échoue avec les dernières lignes de son journal.
+
 === Coffre : variables par serveur `<SERVEUR>__<NOM>` ; recettes : `if_secret:` / `unless_secret:` et `{{ pkg_etc }}`
 
 * Les variables du coffre propres à un serveur prennent le nom du serveur

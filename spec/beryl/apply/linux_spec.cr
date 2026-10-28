@@ -84,11 +84,23 @@ describe "beryl sync sous Linux" do
       shell = FakeShell.new
       shell.stub(/systemctl is-enabled/, stdout: "disabled\n", exit_code: 1)
       shell.stub(/systemctl is-active/, exit_code: 3)
+      shell.stub(/ActiveState/, stdout: "active\n")
       result = prim("service-enable").apply(shell, apply_params("name: podman"), dry_run: false, context: linux_ctx)
       result.outcome.should eq Beryl::Apply::Outcome::Applied
       shell.ran?(/^systemctl enable podman$/).should be_true
       shell.ran?(/^systemctl start podman$/).should be_true
       shell.ran?(/sysrc/).should be_false
+    end
+
+    it "échoue si l'unité meurt juste après son démarrage, avec la cause" do
+      shell = FakeShell.new
+      shell.stub(/systemctl is-enabled/, stdout: "disabled\n", exit_code: 1)
+      shell.stub(/systemctl is-active/, exit_code: 3)
+      shell.stub(/ActiveState/, stdout: "failed\n")
+      shell.stub(/journalctl/, stdout: "Error opening pidfile\nMonit daemon died\n")
+      result = prim("service-enable").apply(shell, apply_params("name: monit"), dry_run: false, context: linux_ctx)
+      result.outcome.should eq Beryl::Apply::Outcome::Failed
+      result.message.should contain("Monit daemon died")
     end
 
     it "saute une unité déjà activée et démarrée" do
