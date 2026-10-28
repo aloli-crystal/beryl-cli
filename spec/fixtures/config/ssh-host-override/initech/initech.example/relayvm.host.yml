@@ -1,0 +1,5 @@
+provider: local
+ssh_host: 10.0.0.5
+user: admin
+os: linux
+proxy_command: ssh relay.example.net nc -w 15 -s 10.255.255.1 %h %p

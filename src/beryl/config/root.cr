@@ -1212,6 +1212,9 @@ module Beryl::Config
     end
 
     # Construit une `SSH::Connection` prête à l'emploi.
+    # Intervalle des keepalive SSH (s) d'une connexion par `proxy_command`.
+    SERVER_ALIVE_INTERVAL = "5"
+
     def connection(user_override : String? = nil) : SSH::Connection
       warn_ssh_key_once
       # Défaut = `connect_user` (user sudo-capable déclaré, ex. admin), PAS
@@ -1226,6 +1229,11 @@ module Beryl::Config
       jumps = [] of String
       if pc = proxy_command
         opts["ProxyCommand"] = pc
+        # Keepalive toutes les 5 s : un rebond `nc -w <n>` ferme le tunnel
+        # après n s sans trafic, ce qui coupait une commande muette plus
+        # longue (zypper install de ~19 s sous `nc -w 15`, quimeo-twin,
+        # 28 oct. 2026 → exit 255).
+        opts["ServerAliveInterval"] = SERVER_ALIVE_INTERVAL
       elsif !(jumps = proxy_jumps(eff_user)).empty?
         opts["ProxyJump"] = jumps.first
       end

@@ -109,12 +109,17 @@ module Beryl::Apply
             rescue ex : Template::UnknownVariable
               raise MissingVariable.new(recipe.name, ex.name, ex.known)
             end
+            if self.class.skip_other_system?(params, @context.os)
+              record(report, recipe.name, step.name,
+                StepResult.skipped("étape pour #{self.class.step_systems(params).join(", ")} seulement (hôte #{@context.os})"))
+              next
+            end
             if self.class.skip_unchanged?(params, changed)
               record(report, recipe.name, step.name,
                 StepResult.skipped("rien n'a changé dans la recette — #{step.name} inutile (if_changed)"))
               next
             end
-            clean = params.reject(IF_CHANGED, DEFERRED)
+            clean = params.reject(IF_CHANGED, DEFERRED, SYSTEMS)
             if params[DEFERRED]?.try(&.as_bool?) == true
               # Reporté en fin d'apply, une seule fois par (primitive, params).
               unless deferred.any? { |d| d.step == step.name && d.params == clean }
@@ -190,6 +195,26 @@ module Beryl::Apply
 
     def self.skip_unchanged?(params : Hash(String, YAML::Any), changed : Bool) : Bool
       params[IF_CHANGED]?.try(&.as_bool?) == true && !changed
+    end
+
+    # Option d'étape `systems:` (valable pour TOUTE primitive) : l'étape n'est
+    # jouée que sur les systèmes listés (`freebsd`, `linux`, ou une liste).
+    # Sert aux recettes portables dont UNE étape diffère d'un système à
+    # l'autre (chemin du shell, nom du paquet) ; les autres restent communes.
+    #
+    #     - user-shell: { user: deploy, shell: /usr/local/bin/zsh, systems: freebsd }
+    #     - user-shell: { user: deploy, shell: /usr/bin/zsh, systems: linux }
+    SYSTEMS = "systems"
+
+    def self.step_systems(params : Hash(String, YAML::Any)) : Array(String)
+      raw = params[SYSTEMS]?
+      return [] of String unless raw
+      raw.as_a?.try(&.compact_map(&.as_s?)) || [raw.as_s? || ""]
+    end
+
+    def self.skip_other_system?(params : Hash(String, YAML::Any), os : String) : Bool
+      wanted = step_systems(params)
+      !wanted.empty? && !wanted.includes?(os)
     end
 
     # Arguments imposés par les `requires:` en forme map (ex. monappli-base →

@@ -18,6 +18,11 @@ module Beryl::Apply
       "git-clone"
     end
 
+    # Portable : FreeBSD et Linux (`git` et `sudo -u` partout).
+    def systems : Array(String)
+      [FREEBSD, LINUX]
+    end
+
     def apply(shell : Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Context) : StepResult
       repo = required_string(params, "repo")
       dest = required_string(params, "dest")

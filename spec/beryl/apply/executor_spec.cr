@@ -215,6 +215,19 @@ describe Beryl::Apply::Executor do
     end
   end
 
+  describe "option d'étape systems" do
+    it "saute une étape prévue pour un autre système" do
+      r = recipe_from("recipe: t\ndescription: t\nsystems: [freebsd, linux]\nsteps:\n  - test-record: { a: \"bsd\", systems: freebsd }\n  - test-record: { a: \"linux\", systems: [linux] }\n")
+      TestRecorder.calls = 0
+      report = Beryl::Apply::Executor.new(FakeShell.new).run([r]) # contexte par défaut : FreeBSD
+      report.applied.should eq(1)
+      report.skipped.should eq(1)
+      TestRecorder.calls.should eq(1)
+      TestRecorder.last_params["a"].as_s.should eq("bsd")
+      TestRecorder.last_params.has_key?("systems").should be_false # option retirée avant la primitive
+    end
+  end
+
   it "lève UnknownPrimitive pour un step inconnu" do
     shell = FakeShell.new
     recipe = Beryl::Apply::Recipe.new(

@@ -19,7 +19,7 @@ describe "beryl sync sous Linux" do
   it "déclare Linux pour les primitives portées seulement" do
     %w[command cron-entry directory file-write file-template secret-file file-absent line-in-file symlink
       user-update-keys user-create pkg-install service-enable service-disable service-reload service-restart
-      assert-env-var].each do |name|
+      assert-env-var user-shell git-clone].each do |name|
       prim(name).systems.should contain Beryl::Apply::LINUX
     end
     %w[sysrc-set pkg-remove zfs-dataset pf-rule netif jail-create].each do |name|
@@ -43,6 +43,18 @@ describe "beryl sync sous Linux" do
       shell.stub(/getent passwd/, exit_code: 0)
       prim("user-create").apply(shell, apply_params("name: deploy"), dry_run: false, context: linux_ctx)
         .outcome.should eq Beryl::Apply::Outcome::Skipped
+    end
+  end
+
+  describe "user-shell" do
+    it "pose le shell avec usermod" do
+      shell = FakeShell.new
+      shell.stub(/getent passwd/, stdout: "admin:x:1001:100::/home/admin:/bin/bash\n")
+      result = prim("user-shell").apply(shell, apply_params("{user: admin, shell: /usr/bin/zsh}"),
+        dry_run: false, context: linux_ctx)
+      result.outcome.should eq Beryl::Apply::Outcome::Applied
+      shell.ran?(/^usermod admin -s \/usr\/bin\/zsh$/).should be_true
+      shell.ran?(/pw /).should be_false
     end
   end
 

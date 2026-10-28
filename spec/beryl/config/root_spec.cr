@@ -346,6 +346,18 @@ describe Beryl::Config::ResolvedHost do
     joined.should contain("-W %h:%p deploy@bastion.example.net")
   end
 
+  it "`proxy_command:` → ProxyCommand tel quel + keepalive (rebond `nc -w`)" do
+    rh = Beryl::Config::Root.load(fixture("ssh-host-override")).resolve("relayvm")
+    args = rh.connection.ssh_args("true")
+    args.should contain("ProxyCommand=ssh relay.example.net nc -w 15 -s 10.255.255.1 %h %p")
+    args.should contain("ServerAliveInterval=5")
+  end
+
+  it "sans `proxy_command:`, pas de keepalive" do
+    rh = Beryl::Config::Root.load(fixture("ssh-host-override")).resolve("clientvm")
+    rh.connection.ssh_args("true").join(" ").should_not contain("ServerAliveInterval")
+  end
+
   it "expose les accesseurs freebsd (hostname, disks, timezone)" do
     rh = Beryl::Config::Root.load(fixture("with-defaults-and-env")).resolve(
       "quelconque", domain_hint: "initech.example")
