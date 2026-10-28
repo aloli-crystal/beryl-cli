@@ -71,22 +71,40 @@ module Beryl::Apply
     dns : DnsHook? = nil,
     os : String = FREEBSD
 
-  # Variable du coffre PROPRE À UN SERVEUR : `<NOM>__<HÔTE>` (nom court en
-  # majuscules, tout caractère hors [A-Z0-9] → `_`). Ex. sur loulou :
-  # `APP_AGENT_TOKEN__WEB1`.
+  # Variable du coffre PROPRE À UN SERVEUR : `<HÔTE>__<NOM>` (nom court en
+  # majuscules, tout caractère hors [A-Z0-9] → `_`). Serveur en tête : dans
+  # le coffre trié, tous les secrets d'un serveur se suivent. Ex. sur web1 :
+  # `WEB1__APP_AGENT_TOKEN`.
   def self.host_secret_name(name : String, hostname : String) : String
-    "#{name}__#{hostname.upcase.gsub(/[^A-Z0-9]/, "_")}"
+    "#{host_secret_prefix(hostname)}__#{name}"
+  end
+
+  # Ancienne forme `<NOM>__<HÔTE>` (jusqu'à 0.6.140), encore lue en repli
+  # le temps de renommer les secrets existants du coffre.
+  def self.legacy_host_secret_name(name : String, hostname : String) : String
+    "#{name}__#{host_secret_prefix(hostname)}"
+  end
+
+  private def self.host_secret_prefix(hostname : String) : String
+    hostname.upcase.gsub(/[^A-Z0-9]/, "_")
   end
 
   # Valeur d'un secret du coffre (injecté dans ENV) pour ce serveur : la
-  # variante propre au serveur d'abord, puis, sauf `per_host`, la variable
-  # commune à la société. nil si absente ou vide. Un secret qui doit être
-  # distinct par serveur (jeton, clé) demande `per_host: true` : la valeur
-  # commune est alors refusée, plutôt que de réutiliser celle d'un autre.
+  # variante propre au serveur d'abord (`<HÔTE>__<NOM>`, puis l'ancienne
+  # forme `<NOM>__<HÔTE>`), puis, sauf `per_host`, la variable commune à la
+  # société. nil si absente ou vide. Un secret qui doit être distinct par
+  # serveur (jeton, clé) demande `per_host: true` : la valeur commune est
+  # alors refusée, plutôt que de réutiliser celle d'un autre.
+  # Une variante du serveur DÉCLARÉE VIDE (`SERVEUR__NOM = ''`) écarte la
+  # valeur commune : « pas de valeur pour ce serveur » (ex. relais de mail
+  # sans mot de passe sur un serveur, avec sur les autres).
   def self.secret(name : String, context : Context, per_host : Bool = false) : String?
     if (host = context.vars["hostname"]?) && !host.empty?
-      v = ENV[host_secret_name(name, host)]?
-      return v if v && !v.empty?
+      {host_secret_name(name, host), legacy_host_secret_name(name, host)}.each do |key|
+        if v = ENV[key]?
+          return v.empty? ? nil : v
+        end
+      end
     end
     return if per_host
     v = ENV[name]?

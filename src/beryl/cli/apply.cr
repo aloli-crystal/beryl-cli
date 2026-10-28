@@ -456,6 +456,10 @@ module Beryl::CLI::Apply
     end
     vars["root_ssh_login"] = root_ssh_login(host)
     vars["os"] = os
+    # Dossier de configuration des paquets → `{{ pkg_etc }}` : /usr/local/etc
+    # sous FreeBSD (ports), /etc sous Linux (paquets de la distribution). Une
+    # recette portable y écrit sans dupliquer ses étapes (monitrc, monit.d…).
+    vars["pkg_etc"] = os == Beryl::Apply::LINUX ? "/etc" : "/usr/local/etc"
     # Compte par lequel beryl se connecte : une recette qui restreint l'accès
     # SSH (`sshd-allow-users`) s'en sert pour ne jamais fermer sa propre porte.
     vars["connect_user"] = ssh_user

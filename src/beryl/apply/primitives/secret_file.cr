@@ -31,7 +31,8 @@ module Beryl::Apply
   # variable (secret d'une fonction qu'un serveur n'active pas encore).
   #
   # Variables PAR SERVEUR : pour chaque nom, beryl cherche d'abord
-  # `<NOM>__<HÔTE>` (ex. `APP_AGENT_TOKEN__WEB1`), puis `<NOM>`. Avec
+  # `<HÔTE>__<NOM>` (ex. `WEB1__APP_AGENT_TOKEN` ; ancienne forme
+  # `<NOM>__<HÔTE>` encore lue), puis `<NOM>`. Avec
   # `per_host: true`, seule la variante du serveur est acceptée : un jeton ou
   # une clé propre à chaque serveur n'est jamais pris dans la valeur commune.
   #

@@ -9,6 +9,28 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Coffre : variables par serveur `<SERVEUR>__<NOM>` ; recettes : `if_secret:` / `unless_secret:` et `{{ pkg_etc }}`
+
+* Les variables du coffre propres à un serveur prennent le nom du serveur
+  EN TÊTE : `QUIMEO_TWIN__SMTP_RELAY_USER` (et non plus
+  `SMTP_RELAY_USER__QUIMEO_TWIN`). Dans le coffre trié, tous les secrets
+  d'un serveur se suivent. L'ancienne forme `<NOM>__<SERVEUR>` reste lue
+  en repli (la nouvelle l'emporte) : les secrets existants se renomment à
+  son rythme (`IPSEC_PSK__PKG` → `PKG__IPSEC_PSK`,
+  `PARTIDUO_AGENT_TOKEN__LOULOU` → `LOULOU__PARTIDUO_AGENT_TOKEN`…).
+  Messages d'erreur et documentation ne citent plus que la nouvelle forme.
+* Options d'étape `if_secret: VAR` / `unless_secret: VAR` (toute
+  primitive) : l'étape n'est jouée que si la variable du coffre existe /
+  n'existe pas pour ce serveur (variante `SERVEUR__VAR` d'abord). Sert aux
+  variantes d'un même fichier : relais de mail avec ou sans mot de passe
+  (recette `monit`).
+* Une variante du coffre propre au serveur déclarée VIDE
+  (`QUIMEO_TWIN__SMTP_RELAY_PASSWORD = ''`) écarte désormais la valeur
+  commune à la société : « pas de valeur pour ce serveur ».
+* Variable `{{ pkg_etc }}` : dossier de configuration des paquets,
+  `/usr/local/etc` sous FreeBSD, `/etc` sous Linux — une recette portable
+  y écrit sans dupliquer ses étapes.
+
 === `beryl sync` sous Linux : shell `oh-my-zsh`, option d'étape `systems:`
 
 Le shell `oh-my-zsh` d'un compte (`freebsd.users`) était écarté sur une VM

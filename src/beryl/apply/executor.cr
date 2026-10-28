@@ -114,12 +114,16 @@ module Beryl::Apply
                 StepResult.skipped("étape pour #{self.class.step_systems(params).join(", ")} seulement (hôte #{@context.os})"))
               next
             end
+            if why = self.class.skip_by_secret(params, @context)
+              record(report, recipe.name, step.name, StepResult.skipped(why))
+              next
+            end
             if self.class.skip_unchanged?(params, changed)
               record(report, recipe.name, step.name,
                 StepResult.skipped("rien n'a changé dans la recette — #{step.name} inutile (if_changed)"))
               next
             end
-            clean = params.reject(IF_CHANGED, DEFERRED, SYSTEMS)
+            clean = params.reject(IF_CHANGED, DEFERRED, SYSTEMS, IF_SECRET, UNLESS_SECRET)
             if params[DEFERRED]?.try(&.as_bool?) == true
               # Reporté en fin d'apply, une seule fois par (primitive, params).
               unless deferred.any? { |d| d.step == step.name && d.params == clean }
@@ -215,6 +219,28 @@ module Beryl::Apply
     def self.skip_other_system?(params : Hash(String, YAML::Any), os : String) : Bool
       wanted = step_systems(params)
       !wanted.empty? && !wanted.includes?(os)
+    end
+
+    # Options d'étape `if_secret: VAR` / `unless_secret: VAR` (valables pour
+    # TOUTE primitive) : l'étape n'est jouée que si la variable du coffre
+    # existe / n'existe pas pour ce serveur (variante `VAR__HÔTE` d'abord,
+    # cf. `Apply.secret`). Sert aux variantes d'un même fichier selon ce que
+    # le coffre contient : relais de mail avec ou sans authentification.
+    #
+    #     - secret-file: { path: …, env: { … }, if_secret: SMTP_RELAY_PASSWORD }
+    #     - file-write: { path: …, content: …, unless_secret: SMTP_RELAY_PASSWORD }
+    IF_SECRET     = "if_secret"
+    UNLESS_SECRET = "unless_secret"
+
+    # Raison du saut, ou nil si l'étape doit être jouée.
+    def self.skip_by_secret(params : Hash(String, YAML::Any), context : Context) : String?
+      if (name = params[IF_SECRET]?.try(&.as_s?)) && Apply.secret(name, context).nil?
+        return "variable #{name} absente du coffre (if_secret)"
+      end
+      if (name = params[UNLESS_SECRET]?.try(&.as_s?)) && Apply.secret(name, context)
+        return "variable #{name} présente dans le coffre (unless_secret)"
+      end
+      nil
     end
 
     # Arguments imposés par les `requires:` en forme map (ex. monappli-base →

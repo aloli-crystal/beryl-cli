@@ -119,14 +119,25 @@ end
 describe "Beryl::Apply::SecretFile — variables par serveur" do
   it "préfère la variante du serveur à la valeur commune" do
     ENV["T_TOKEN"] = "commun"
-    ENV["T_TOKEN__LOULOU"] = "loulou"
+    ENV["LOULOU__T_TOKEN"] = "loulou"
     shell = FakeShell.new
     shell.stub(/sha256 -q/, stdout: "")
     prim("secret-file").apply(shell, tok_params(false), dry_run: false, context: host_ctx("loulou"))
     shell.writes.first.content.should eq("loulou\n")
   ensure
     ENV.delete("T_TOKEN")
+    ENV.delete("LOULOU__T_TOKEN")
+  end
+
+  it "lit encore l'ancienne forme <NOM>__<HÔTE>, la nouvelle l'emportant" do
+    ENV["T_TOKEN__LOULOU"] = "ancienne"
+    ctx = host_ctx("loulou")
+    Beryl::Apply.secret("T_TOKEN", ctx).should eq("ancienne")
+    ENV["LOULOU__T_TOKEN"] = "nouvelle"
+    Beryl::Apply.secret("T_TOKEN", ctx).should eq("nouvelle")
+  ensure
     ENV.delete("T_TOKEN__LOULOU")
+    ENV.delete("LOULOU__T_TOKEN")
   end
 
   it "se replie sur la valeur commune sans variante" do
@@ -143,7 +154,7 @@ describe "Beryl::Apply::SecretFile — variables par serveur" do
     ENV["T_TOKEN"] = "commun"
     r = prim("secret-file").apply(FakeShell.new, tok_params(true), dry_run: false, context: host_ctx("bibou"))
     r.outcome.should eq(Beryl::Apply::Outcome::Failed)
-    r.message.should contain("T_TOKEN__BIBOU")
+    r.message.should contain("BIBOU__T_TOKEN")
   ensure
     ENV.delete("T_TOKEN")
   end
@@ -187,6 +198,6 @@ describe "Beryl::Apply::SecretFile — variables par serveur" do
   end
 
   it "nom du serveur normalisé (majuscules, tirets → _)" do
-    Beryl::Apply.host_secret_name("X", "pkg-01").should eq("X__PKG_01")
+    Beryl::Apply.host_secret_name("X", "pkg-01").should eq("PKG_01__X")
   end
 end
