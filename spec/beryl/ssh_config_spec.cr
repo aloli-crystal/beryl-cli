@@ -62,6 +62,12 @@ describe Beryl::SshConfig do
     FileUtils.rm_rf(dir) if dir
   end
 
+  it "render : `proxy_command:` → ProxyCommand tel quel + keepalive" do
+    root = Beryl::Config::Root.load(File.expand_path(File.join(__DIR__, "..", "fixtures", "config", "ssh-host-override")))
+    out = Beryl::SshConfig.render([root.resolve("relayvm")])["initech"]
+    out.should contain("  ProxyCommand ssh relay.example.net nc -w 15 -s 10.255.255.1 %h %p\n  ServerAliveInterval 5\n")
+  end
+
   it "render : un fichier par société, TOUS les hosts, FQDN et nom court" do
     files = Beryl::SshConfig.render(fallback_hosts)
     files.keys.should eq ["initech"]

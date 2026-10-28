@@ -26,6 +26,12 @@ commande muette plus longue (zypper install de ~19 s) se terminait en
 exit 255. beryl envoie désormais un keepalive toutes les 5 s
 (`ServerAliveInterval=5`) quand l'hôte a un `proxy_command`.
 
+=== `beryl ssh-config` : keepalive pour les hôtes à `proxy_command`
+
+Même cause côté interactif : `ssh quimeo-twin` se fermait après 10 à 20 s
+d'inactivité. Le bloc généré porte désormais `ServerAliveInterval 5` sous
+le `ProxyCommand` de ces hôtes.
+
 === `beryl ssh-config <société>…`
 
 `beryl ssh-config aloli --apply` écrivait aussi le fichier de quimeo :

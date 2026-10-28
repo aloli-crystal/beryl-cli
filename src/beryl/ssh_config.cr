@@ -105,6 +105,9 @@ module Beryl::SshConfig
     end
     if pc = h.proxy_command
       io << "  ProxyCommand " << pc << "\n"
+      # Même keepalive que la connexion de beryl : un rebond `nc -w <n>`
+      # fermerait une session interactive inactive au bout de n s.
+      io << "  ServerAliveInterval " << Beryl::Config::ResolvedHost::SERVER_ALIVE_INTERVAL << "\n"
     elsif jumps.size == 1
       io << "  ProxyJump " << jumps.first << "\n"
     elsif jumps.size > 1
