@@ -10,6 +10,7 @@ require "./precheck"
 require "./machine_kind"
 require "./apply"
 require "./config_git"
+require "./key_store"
 require "./host_keys"
 require "./ovh_monitoring"
 require "./scan"
@@ -245,6 +246,9 @@ module Beryl::CLI::Bootstrap
     # existe déjà à ce chemin, on la réutilise (cas d'un re-bootstrap
     # explicite après wipe — mais ATTENTION, les datasets de l'ancien
     # pool deviennent illisibles si la clé a été régénérée entre-temps).
+    # Une seule clé par serveur (pools data + datasets zroot), obtenue au
+    # premier besoin : `bootstrap_key`.
+    host_key : String? = nil
     data_pools = host.data_zpools.map do |pool|
       mp = pool.mountpoint
       if mp.nil? || mp.empty?
@@ -261,21 +265,7 @@ module Beryl::CLI::Bootstrap
         # l'opérateur basculera vers `tang` plus tard via `beryl
         # tang-enroll <host>` (après la recette `tang-client`) qui appelle
         # `clevis-zfs bind --use-existing-key` côté serveur.
-        key_path = Beryl::Encryption.key_path(
-          config_root, host.account_name, host.domain_name, host.short_name
-        )
-        if Beryl::Encryption.exists?(key_path)
-          key_hex = Beryl::Encryption.read(key_path)
-          STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] " \
-                      "[Étape 1] clé existante réutilisée : #{key_path}"
-        else
-          key_hex = Beryl::Encryption.write_new(key_path)
-          STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] " \
-                      "[Étape 1] clé générée et stockée : #{key_path} (chmod 0400, 256 bits hex)"
-          STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] " \
-                      "[Étape 1] ⚠ pensez à sauvegarder ce fichier (Time Machine + iCloud) — " \
-                      "perdre la clé = perdre les données du pool #{pool.name}"
-        end
+        key_hex = host_key ||= bootstrap_key(config_root, host, dry_run)
         if enc.tang?
           STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] " \
                       "[Étape 1] mode tang demandé pour #{pool.name} : pool créé en ssh_unlock pour le bootstrap. " \
@@ -302,13 +292,10 @@ module Beryl::CLI::Bootstrap
     encryption_root = boot_pool.encryption_root
     system_key_hex : String? = nil
     unless system_datasets.empty?
-      key_path = Beryl::Encryption.key_path(
-        config_root, host.account_name, host.domain_name, host.short_name
-      )
-      system_key_hex = Beryl::Encryption.exists?(key_path) ? Beryl::Encryption.read(key_path) : Beryl::Encryption.write_new(key_path)
+      system_key_hex = host_key ||= bootstrap_key(config_root, host, dry_run)
       enc_count = system_datasets.count(&.encrypted)
       STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] " \
-                  "[Étape 1] profil C+ : #{system_datasets.size} dataset(s) système (#{enc_count} chiffré(s) sous #{encryption_root}), clé #{key_path}"
+                  "[Étape 1] profil C+ : #{system_datasets.size} dataset(s) système (#{enc_count} chiffré(s) sous #{encryption_root}), clé du serveur"
     end
 
     timezone = host.freebsd_string("timezone") || "Europe/Paris"
@@ -517,9 +504,36 @@ module Beryl::CLI::Bootstrap
   rescue ex : Beryl::Bootstrap::QemuInRescue::PkgbaseNotYetImplemented
     STDERR.puts "beryl : #{ex.message}"
     EXIT_PKGBASE_NYI
+  rescue ex : Beryl::Encryption::Error
+    STDERR.puts "beryl : #{ex.message}"
+    EXIT_USAGE
   rescue ex
     STDERR.puts "beryl : erreur inattendue — #{ex.class}: #{ex.message}"
     EXIT_UNEXPECTED
+  end
+
+  # Clé ZFS du serveur pour l'installation : celle du coffre ou du fichier du
+  # poste si elle existe (re-bootstrap après wipe — ATTENTION, une clé
+  # régénérée entre-temps rend illisibles les datasets de l'ancien pool),
+  # sinon une neuve dans le fichier (0400). Hors essai à blanc, rangée dans
+  # le coffre `[tang]` de la société AVANT l'installation : le poste n'est
+  # plus le seul exemplaire.
+  private def self.bootstrap_key(config_root : String, host : Beryl::Config::ResolvedHost, dry_run : Bool) : String
+    hex, created = Beryl::CLI::KeyStore.obtain_or_create(config_root, host)
+    stamp = "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 1]"
+    if created
+      STDERR.puts "#{stamp} clé générée et stockée : #{Beryl::CLI::KeyStore.file_path(config_root, host)} (chmod 0400, 256 bits hex)"
+      STDERR.puts "#{stamp} ⚠ mettez-la sous séquestre papier (`beryl keys paper #{host.account_name}/#{host.fqdn}`) — " \
+                  "perdre la clé = perdre les données chiffrées"
+    else
+      STDERR.puts "#{stamp} clé existante réutilisée (empreinte #{Beryl::ZfsKeys.fingerprint(hex)})"
+    end
+    if dry_run
+      STDERR.puts "#{stamp} DRY-RUN : clé à ranger dans le coffre #{host.account_name} [#{Beryl::ZfsKeys::SECTION}] #{Beryl::CLI::KeyStore.var(host)}"
+    else
+      Beryl::CLI::KeyStore.ensure_in_vault(host, hex) { |m| STDERR.puts "#{stamp} #{m}" }
+    end
+    hex
   end
 
   # FreeBSD installé → retire `installed: false` du host.yml (les commandes de

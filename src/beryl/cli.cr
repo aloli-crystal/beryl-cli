@@ -28,6 +28,7 @@ require "./cli/status"
 require "./cli/tang_enroll"
 require "./cli/zpool_create"
 require "./cli/env"
+require "./cli/keys"
 require "./cli/headscale_authkey"
 require "./cli/ssh_config"
 require "./cli/pkg_ops"
@@ -171,6 +172,7 @@ module Beryl::CLI
     when "tang-enroll"        then Beryl::CLI::TangEnroll.run(config_root, sub_args)
     when "zpool-create"       then Beryl::CLI::ZpoolCreate.run(config_root, sub_args)
     when "env"                then Beryl::CLI::Env.run(config_root, sub_args)
+    when "keys"               then Beryl::CLI::Keys.run(config_root, sub_args)
     when "headscale-authkey"  then Beryl::CLI::HeadscaleAuthkey.run(config_root, sub_args)
     when "update"             then Beryl::CLI::Update.run(config_root, sub_args)
     when "upgrade"            then Beryl::CLI::Upgrade.run(config_root, sub_args)
@@ -205,6 +207,7 @@ module Beryl::CLI
     {"help", "h", "Aide globale ou d'une sous-commande précise"},
     {"info", "nf", "Inventaire serveurs (gamme/CPU/RAM/disques ; --usage = live ; --refresh = MAJ via API OVH)"},
     {"init", "i", "Initialise ~/.config/beryl/<société>/ + providers/domaines"},
+    {"keys", "k", "Clés ZFS des serveurs : import dans le coffre [tang], séquestre papier PDF — DRY-RUN par défaut"},
     {"list-hosts", "ls", "Liste les hôtes de toutes les sociétés"},
     {"lock", "l", "Verrouille les pools chiffrés (unload-key + export) — inverse d'unlock"},
     {"monitoring", "mo", "Monitoring OVH des serveurs (état ; on/off — DRY-RUN par défaut, --apply pour exécuter)"},
@@ -223,7 +226,7 @@ module Beryl::CLI
     {"tang-enroll", "te", "Enrôle les pools chiffrés via Tang"},
     {"update", "", "pkg update (rafraîchit le catalogue) sur une portée"},
     {"upgrade", "", "pkg upgrade sur une portée — DRY-RUN par défaut, --apply pour exécuter"},
-    {"unlock", "u", "Déverrouille les pools chiffrés (clé locale → SSH)"},
+    {"unlock", "u", "Déverrouille les pools chiffrés (clé du coffre ou du poste → SSH ; --key-file pour le séquestre)"},
     {"version", "v", "Affiche la version"},
     {"vrack", "", "Gère le vRack OVH (statut / rattachement)"},
     {"wipe", "w", "Efface un disque sur un hôte en rescue"},
@@ -301,6 +304,7 @@ module Beryl::CLI
     when "tang-enroll"    then Beryl::CLI::TangEnroll.run(config_root, ["--help"])
     when "zpool-create"   then Beryl::CLI::ZpoolCreate.run(config_root, ["--help"])
     when "env"            then Beryl::CLI::Env.run(config_root, ["--help"])
+    when "keys"           then Beryl::CLI::Keys.run(config_root, ["--help"])
     when "os-upgrade"     then Beryl::CLI::OsUpgrade.run(config_root, ["--help"])
     when "pg-upgrade"     then Beryl::CLI::PgUpgrade.run(config_root, ["--help"])
     when "version"

@@ -6,6 +6,7 @@ require "./root_conn"
 require "../config"
 require "../encryption"
 require "./account_utils"
+require "./key_store"
 
 # Sous-commande `beryl unlock <host>` (étape H4 du chiffrement) :
 # importe et déchiffre les pools data chiffrés d'un host après un
@@ -13,9 +14,10 @@ require "./account_utils"
 #
 # Routage par mode (depuis T3 — 28 avril 2026) :
 #
-# * *mode ssh_unlock* (Option C, défaut historique) — la clé locale
-#   `~/.config/beryl/<société>/<domaine>/<host>.key` voyage via stdin SSH
-#   jusqu'à `zfs load-key`. Aucune dépendance Tang.
+# * *mode ssh_unlock* (Option C, défaut historique) — la clé du serveur
+#   (coffre `[tang]` de la société, sinon
+#   `~/.config/beryl/<société>/<domaine>/<host>.key`, sinon `--key-file`)
+#   voyage via stdin SSH jusqu'à `zfs load-key`. Aucune dépendance Tang.
 #
 # * *mode tang* (Option D) — délègue à `clevis-zfs unlock`
 #   sur le serveur. Le binaire interroge Tang en interne, dérive la
@@ -57,12 +59,14 @@ module Beryl::CLI::Unlock
     account_hint : String? = nil
     domain_hint : String? = nil
     dry_run = true
+    key_file : String? = nil
     positional = [] of String
 
     parser = OptionParser.new do |p|
       p.banner = "USAGE : beryl unlock <host> [options]"
       p.on("-a NAME", "--account=NAME", "Forcer la société (si ambiguë)") { |v| account_hint = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
+      p.on("-k PATH", "--key-file=PATH", "Clé fournie à part (séquestre papier recopié, autre poste) au lieu du coffre/fichier ; `-` = lue sur un tube. Un seul serveur ; jamais journalisé") { |v| key_file = v }
       p.on("--apply", "Applique réellement les changements (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
       p.unknown_args { |rest, _| positional = rest }
@@ -71,6 +75,12 @@ module Beryl::CLI::Unlock
     # (`--apply`…), que le rejeu par serveur doit garder.
     all_args = args.dup
     Beryl::CLI.handle_option_errors(parser).parse(args)
+    # Une clé fournie à part est celle d'UN serveur : jamais rejouée sur une
+    # portée (chaque serveur a sa clé).
+    if key_file && Beryl::CLI::Scope.fanning?
+      STDERR.puts "beryl : --key-file vaut pour UN serveur, pas pour une portée."
+      return EXIT_USAGE
+    end
     # Plusieurs serveurs (liste, groupe, domaine, société) : rejouée pour chacun.
     if code = Beryl::CLI::Scope.fan_out("unlock", config_root, all_args, positional) { |a| run(config_root, a) }
       return code
@@ -106,26 +116,36 @@ module Beryl::CLI::Unlock
       return EXIT_NO_DATA_POOLS
     end
 
-    # Clé locale OBLIGATOIRE si au moins une unité est en mode ssh_unlock.
-    # En mode tang seul, elle n'est que le repli de Tang : lue si présente.
+    # Clé OBLIGATOIRE si au moins une unité est en mode ssh_unlock. En mode
+    # tang seul, elle n'est que le repli de Tang : lue si présente. Source :
+    # `--key-file` si donné (séquestre papier recopié, autre poste), sinon le
+    # coffre `[tang]` de la société puis le fichier du poste — deux
+    # exemplaires différents = erreur, beryl ne choisit pas.
     needs_local_key = encrypted_pools.any? { |p| p.encryption.not_nil!.ssh_unlock? } || enc_root_ssh
     key_hex : String? = nil
-    key_path = Beryl::Encryption.key_path(
-      config_root, host.account_name, host.domain_name, host.short_name
-    )
-    if needs_local_key || Beryl::Encryption.exists?(key_path)
-      unless Beryl::Encryption.exists?(key_path)
-        STDERR.puts "beryl : clé absente : #{key_path}"
-        STDERR.puts "        Cette clé doit avoir été générée par `beryl bootstrap` ou `beryl zpool-create`."
-        STDERR.puts "        Si vous l'avez perdue, les datasets chiffrés sont définitivement illisibles."
-        return EXIT_KEY_MISSING
+    key_origin = ""
+    begin
+      if kf = key_file
+        key_hex = read_key_option(kf)
+        key_origin = kf == "-" ? "entrée standard" : "--key-file #{kf}"
+      elsif found = Beryl::CLI::KeyStore.resolve(config_root, host)
+        key_hex = found.hex
+        key_origin = found.origin
       end
-      begin
-        key_hex = Beryl::Encryption.read(key_path)
-      rescue ex : Beryl::Encryption::InvalidKey
-        STDERR.puts "beryl : #{ex.message}"
-        return EXIT_KEY_MISSING
-      end
+    rescue ex : Beryl::Encryption::Error
+      STDERR.puts "beryl : #{ex.message}"
+      return EXIT_KEY_MISSING
+    end
+    if needs_local_key && key_hex.nil?
+      STDERR.puts "beryl : clé absente : ni dans le coffre #{host.account_name} [#{Beryl::ZfsKeys::SECTION}] " \
+                  "#{Beryl::CLI::KeyStore.var(host)}, ni dans #{Beryl::CLI::KeyStore.file_path(config_root, host)}"
+      STDERR.puts "        Cette clé doit avoir été générée par `beryl bootstrap` ou `beryl zpool-create`."
+      STDERR.puts "        Séquestre papier : `beryl unlock #{raw} --key-file <fichier> --apply` (ou `--key-file -`, clé sur un tube)."
+      STDERR.puts "        Sans aucun exemplaire, les datasets chiffrés sont définitivement illisibles."
+      return EXIT_KEY_MISSING
+    end
+    if kh = key_hex
+      log "clé : #{key_origin} (empreinte #{Beryl::ZfsKeys.fingerprint(kh)})"
     end
 
     target = Beryl.format_ssh_target(host)
@@ -219,6 +239,25 @@ module Beryl::CLI::Unlock
   rescue ex
     STDERR.puts "beryl : erreur inattendue — #{ex.class}: #{ex.message}"
     EXIT_UNEXPECTED
+  end
+
+  # Clé de `--key-file` : un fichier, ou `-` pour un tube (jamais au
+  # clavier : la clé s'afficherait à l'écran). Blancs et majuscules tolérés
+  # (clé recopiée du papier par groupes de 4). Un fichier lisible par
+  # d'autres est accepté (clé de secours recopiée à la hâte) mais signalé.
+  def self.read_key_option(source : String, stdin : IO = STDIN) : String
+    if source == "-"
+      if stdin.responds_to?(:tty?) && stdin.tty?
+        raise Beryl::Encryption::InvalidKey.new(
+          "--key-file - : la clé se passe par un TUBE (`… | beryl unlock <host> --key-file - --apply`), pas au clavier"
+        )
+      end
+      return Beryl::Encryption.parse_hex(stdin.gets_to_end, "clé lue sur l'entrée standard")
+    end
+    raise Beryl::Encryption::InvalidKey.new("--key-file : #{source} introuvable") unless File.file?(source)
+    mode = File.info(source).permissions.value & 0o777
+    log "⚠ #{source} lisible par d'autres comptes (0#{mode.to_s(8)}) : chmod 0400, puis détruisez-le après usage" if mode & 0o077 != 0
+    Beryl::Encryption.parse_hex(File.read(source), "clé #{source}")
   end
 
   # Étiquette compacte du mode pour les logs.

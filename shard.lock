@@ -28,6 +28,10 @@ shards:
     git: https://github.com/aloli-crystal/load-env.git
     version: 0.2.1+git.commit.c1904589ee6a8bbe872e497cf7567f6090958579
 
+  qr-code:
+    git: https://github.com/spider-gazelle/qr-code.git
+    version: 1.0.3
+
   secrets:
     git: https://github.com/aloli-crystal/secrets.git
     version: 0.5.3+git.commit.3e15d6964d51f87cd509003778119f63964ea95c

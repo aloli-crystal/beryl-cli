@@ -5,6 +5,7 @@ require "./root_conn"
 require "./account_utils"
 require "../config"
 require "../encryption"
+require "./key_store"
 
 # Sous-commande `beryl zpool-create <host>` : crée les pools data déclarés
 # (`freebsd.zfs.<nom>`) qui n'existent pas encore sur un serveur DÉJÀ
@@ -15,7 +16,8 @@ require "../encryption"
 # Mêmes règles que bootstrap : une partition GPT alignée 1 Mio par disque,
 # labellisée `<pool><i>` (pool sur /dev/gpt/…), ashift 12, chiffrement ZFS
 # natif avec la clé 256 bits du poste (`~/.config/beryl/<société>/<domaine>/
-# <host>.key`, générée si absente). La clé voyage sur stdin, jamais en
+# <host>.key`, générée si absente, et rangée dans le coffre `[tang]` de la
+# société, cf. `Beryl::ZfsKeys`). La clé voyage sur stdin, jamais en
 # argument ni sur le disque du serveur. Pool chiffré exclu du cache : au
 # démarrage, il attend `beryl unlock` ou clevis-zfs (mode tang, après
 # `beryl tang-enroll`).
@@ -40,6 +42,7 @@ module Beryl::CLI::ZpoolCreate
     account_hint : String? = nil
     domain_hint : String? = nil
     dry_run = true
+    no_commit = false
     positional = [] of String
 
     parser = OptionParser.new do |p|
@@ -47,6 +50,7 @@ module Beryl::CLI::ZpoolCreate
       p.on("-a NAME", "--account=NAME", "Forcer la société (si ambiguë)") { |v| account_hint = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
       p.on("--apply", "Crée réellement les pools (sinon : dry-run, sondes en lecture seule)") { dry_run = false }
+      p.on("--no-commit", "Ne commite pas le coffre de la société après y avoir rangé la clé") { no_commit = true }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
       p.unknown_args { |rest, _| positional = rest }
     end
@@ -108,13 +112,14 @@ module Beryl::CLI::ZpoolCreate
 
       key_hex = nil
       if pool.encrypted?
-        if Beryl::Encryption.exists?(key_path)
-          key_hex = Beryl::Encryption.read(key_path)
-          log "#{pool.name} : clé existante réutilisée (#{key_path})"
+        key_hex, created = Beryl::CLI::KeyStore.obtain_or_create(config_root, host)
+        if created
+          log "#{pool.name} : clé générée (#{key_path}, 0400) — à mettre sous séquestre (`beryl keys paper`) : la perdre = perdre les données"
         else
-          key_hex = Beryl::Encryption.write_new(key_path)
-          log "#{pool.name} : clé générée (#{key_path}, 0400) — à SAUVEGARDER et à mettre sous séquestre : la perdre = perdre les données"
+          log "#{pool.name} : clé existante réutilisée"
         end
+        # Rangée dans le coffre AVANT de chiffrer quoi que ce soit avec.
+        Beryl::CLI::KeyStore.ensure_in_vault(host, key_hex, no_commit) { |m| log m }
       end
       result = conn.exec(script, stdin: key_hex, raise_on_error: false)
       unless result.success?
@@ -129,6 +134,9 @@ module Beryl::CLI::ZpoolCreate
   rescue ex : Beryl::Config::Root::HostNotFound | Beryl::Config::Root::AmbiguousHost | Beryl::Config::Root::UnknownDomain
     STDERR.puts "beryl : #{ex.message}"
     EXIT_USAGE
+  rescue ex : Beryl::Encryption::Error
+    STDERR.puts "beryl : #{ex.message}"
+    EXIT_UNEXPECTED
   rescue ex : SSH::CommandFailed
     STDERR.puts "beryl : SSH a échoué — #{ex.message}"
     EXIT_SSH_FAILED

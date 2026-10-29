@@ -95,12 +95,21 @@ module Beryl::Config
       @data[account]?.try(&.[provider]?) || {} of String => String
     end
 
+    # Sections du coffre JAMAIS injectées dans `ENV` : `[tang]` range les
+    # clés de chiffrement ZFS des serveurs (une par serveur, cf.
+    # `Beryl::ZfsKeys`). Elles ne doivent se retrouver ni dans
+    # l'environnement d'un `beryl sync` ni dans celui des processus fils
+    # (ssh, recettes) ; seules les commandes de clés les lisent, par
+    # `for_account_provider`.
+    ENV_EXCLUDED_SECTIONS = {"tang"}
+
     # Injecte les variables d'un (société, fournisseur) dans `ENV`.
     # Par défaut, n'écrase pas les variables déjà définies dans le
     # shell (convention `LoadEnv` : ce que l'utilisateur a explicitement
     # exporté l'emporte). Retourne le nombre de variables réellement
     # posées.
     def apply_to_env(account : String, provider : String, overwrite : Bool = false) : Int32
+      return 0 if ENV_EXCLUDED_SECTIONS.includes?(provider)
       count = 0
       for_account_provider(account, provider).each do |k, v|
         next if !overwrite && ENV.has_key?(k)
@@ -113,10 +122,12 @@ module Beryl::Config
     # Injecte TOUTES les variables d'une société (tous fournisseurs
     # confondus) dans `ENV`. Utile en début de CLI quand on ne sait
     # pas encore précisément quel(s) provider(s) seront appelés.
+    # Sauf les sections de `ENV_EXCLUDED_SECTIONS` (clés ZFS).
     # Retourne le nombre de variables posées.
     def apply_all_to_env(account : String, overwrite : Bool = false) : Int32
       count = 0
-      for_account(account).each do |_, vars|
+      for_account(account).each do |section, vars|
+        next if ENV_EXCLUDED_SECTIONS.includes?(section)
         vars.each do |k, v|
           next if !overwrite && ENV.has_key?(k)
           ENV[k] = v

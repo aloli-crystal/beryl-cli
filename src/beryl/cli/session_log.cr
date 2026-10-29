@@ -28,7 +28,7 @@ module Beryl::CLI::SessionLog
   KEEP_DAYS  = 90
 
   # Sous-commandes (noms longs) jamais journalisées.
-  SKIP = {"add-domain", "add-provider", "env", "fmt", "help", "init", "list-hosts", "show", "version"}
+  SKIP = {"add-domain", "add-provider", "env", "fmt", "help", "init", "keys", "list-hosts", "show", "version"}
 
   # Retire `--no-log` d'argv (où qu'il soit). Renvoie {argv nettoyé, journal
   # refusé ?}. Pur.
@@ -41,6 +41,9 @@ module Beryl::CLI::SessionLog
   def wanted?(subcommand : String?, sub_args : Array(String), no_log : Bool, active : Bool) : Bool
     return false if no_log || active
     return false if subcommand.nil? || SKIP.includes?(subcommand)
+    # Clé ZFS fournie à la main (`unlock --key-file`) : un tube rejoué dans
+    # le terminal journalisé finirait en clair dans le journal.
+    return false if sub_args.any? { |a| a == "-k" || a.starts_with?("--key-file") }
     # Aide d'une sous-commande ; orchestrateur d'une tâche détachée (qui a
     # déjà son journal de tâche).
     !sub_args.any? { |a| a == "-h" || a == "--help" || a.starts_with?("--job") }

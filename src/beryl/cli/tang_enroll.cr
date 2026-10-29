@@ -6,6 +6,7 @@ require "./root_conn"
 require "../config"
 require "../encryption"
 require "./account_utils"
+require "./key_store"
 
 # Sous-commande `beryl tang-enroll <host>` : bascule un host configuré
 # en `mode: tang` (dans le YAML) du chiffrement local (Option C, clé
@@ -14,8 +15,9 @@ require "./account_utils"
 # Pré-requis :
 #
 # * Le host a été bootstrapé : ses pools data sont chiffrés en
-#   ZFS native avec `keyformat=hex`. La clé locale
-#   `~/.config/beryl/<société>/<domaine>/<host>.key` existe.
+#   ZFS native avec `keyformat=hex`. La clé est connue : coffre `[tang]`
+#   de la société, ou `~/.config/beryl/<société>/<domaine>/<host>.key`
+#   (alors copiée dans le coffre au passage, `--apply`).
 # * Le binaire `clevis-zfs` est installé sur le serveur
 #   (à `/usr/local/sbin/clevis-zfs`).
 # * Le YAML host déclare `encryption.mode: tang` avec au moins une
@@ -78,6 +80,7 @@ module Beryl::CLI::TangEnroll
     domain_hint : String? = nil
     dry_run = true
     skip_rc_conf = false
+    no_commit = false
     positional = [] of String
 
     parser = OptionParser.new do |p|
@@ -86,6 +89,7 @@ module Beryl::CLI::TangEnroll
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
       p.on("--apply", "Applique réellement les changements (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false }
       p.on("-R", "--skip-rc-conf", "Ne touche pas à /etc/rc.conf (utile pour debug)") { skip_rc_conf = true }
+      p.on("--no-commit", "Ne commite pas le coffre de la société après y avoir copié la clé") { no_commit = true }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
       p.unknown_args { |rest, _| positional = rest }
     end
@@ -137,22 +141,23 @@ module Beryl::CLI::TangEnroll
     # Lecture de la clé locale. tang-enroll consomme TOUJOURS la clé
     # locale : c'est le matériel cryptographique qui sera enrôlé via
     # Tang. Sans elle, on ne peut pas faire le bind.
-    key_path = Beryl::Encryption.key_path(
-      config_root, host.account_name, host.domain_name, host.short_name
-    )
-    unless Beryl::Encryption.exists?(key_path)
-      STDERR.puts "beryl : clé absente : #{key_path}"
+    # Coffre `[tang]` de la société d'abord, fichier du poste en repli ;
+    # deux exemplaires différents = erreur.
+    found = begin
+      Beryl::CLI::KeyStore.resolve(config_root, host)
+    rescue ex : Beryl::Encryption::Error
+      STDERR.puts "beryl : #{ex.message}"
+      return EXIT_KEY_MISSING
+    end
+    unless found
+      STDERR.puts "beryl : clé absente : ni dans le coffre #{host.account_name} [#{Beryl::ZfsKeys::SECTION}] " \
+                  "#{Beryl::CLI::KeyStore.var(host)}, ni dans #{Beryl::CLI::KeyStore.file_path(config_root, host)}"
       STDERR.puts "        Cette clé doit avoir été générée par `beryl bootstrap` ou `beryl zpool-create` et est"
       STDERR.puts "        nécessaire pour enrôler les pools en mode tang."
       return EXIT_KEY_MISSING
     end
-    key_hex : String
-    begin
-      key_hex = Beryl::Encryption.read(key_path)
-    rescue ex : Beryl::Encryption::InvalidKey
-      STDERR.puts "beryl : #{ex.message}"
-      return EXIT_KEY_MISSING
-    end
+    key_hex = found.hex
+    log "clé : #{found.origin} (empreinte #{Beryl::ZfsKeys.fingerprint(key_hex)})"
 
     target = Beryl.format_ssh_target(host)
     summary = tang_pools.map do |p|
@@ -160,6 +165,21 @@ module Beryl::CLI::TangEnroll
       "#{p.name}(tang×#{enc.tang_urls.size}/#{enc.threshold})"
     end.join(", ")
     log "tang-enroll #{target} : #{tang_pools.size} pool(s) à enrôler (#{summary})"
+
+    # Migration douce : une clé connue du seul fichier du poste (serveur
+    # installé avant le coffre `[tang]`) y est copiée au passage.
+    if found.origin == "fichier"
+      if dry_run
+        log "DRY-RUN : clé copiée dans le coffre #{host.account_name} [#{Beryl::ZfsKeys::SECTION}] #{Beryl::CLI::KeyStore.var(host)}"
+      else
+        begin
+          Beryl::CLI::KeyStore.ensure_in_vault(host, key_hex, no_commit) { |m| log m }
+        rescue ex : Beryl::ZfsKeys::Conflict
+          STDERR.puts "beryl : #{ex.message}"
+          return EXIT_KEY_MISSING
+        end
+      end
+    end
 
     if dry_run
       log "DRY-RUN : SSH root@#{host.ssh_host}:#{host.port}"

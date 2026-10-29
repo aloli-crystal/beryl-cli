@@ -9,6 +9,35 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Clés ZFS : coffre `[tang]` de la société et séquestre papier (`beryl keys`)
+
+La clé de chiffrement ZFS d'un serveur n'existait que dans le fichier
+`<host>.key` du poste : perdre le poste, c'était perdre les données dès que
+Tang ne répond plus. Elle est désormais aussi rangée dans le coffre chiffré
+de la société, section `[tang]`, variable = nom court du serveur en
+majuscules (`web-1` → `WEB_1`).
+
+* `bootstrap` et `zpool-create` y rangent la clé qu'ils créent (avec
+  `--apply`), `tang-enroll` y copie au passage une clé connue du seul
+  fichier du poste.
+* `unlock` et `tang-enroll` lisent le coffre d'abord, le fichier en repli ;
+  deux exemplaires différents sont une erreur, jamais un choix silencieux.
+  Une valeur différente déjà présente dans le coffre n'est jamais écrasée.
+* `beryl keys import <portée>` : migration des clés existantes du poste
+  vers le coffre (essai à blanc par défaut, `--apply` pour écrire).
+* `beryl keys paper <portée> --out DIR` : un PDF imprimable par serveur
+  (société, FQDN, pools chiffrés, date, empreinte courte, clé par groupes
+  de 4, procédure `zpool import -N` / `zfs load-key` / `zfs mount -a` sans
+  beryl, commande beryl, QR code de la commande de déverrouillage clé
+  comprise, lien `keys_paper.docs_url`). PDF en 0600, refusé dans un dépôt
+  git ou sous la config beryl ; produit par le binaire `asciicrystal-pdf`,
+  intermédiaires supprimés. QR codes en SVG par le shard `qr-code`.
+* `beryl unlock --key-file <fichier>` (ou `-`, clé sur un tube) : clé
+  fournie hors coffre et fichier du poste, pour le séquestre. Jamais
+  journalisé, pas plus que `beryl keys`.
+* La section `[tang]` n'est jamais chargée dans l'environnement (`beryl
+  sync`, processus ssh fils).
+
 === `mariadb-secure`, `github-ssh-key` : secret propre au serveur d'abord
 
 Le mot de passe root MariaDB et le jeton GitHub étaient lus tels quels dans

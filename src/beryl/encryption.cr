@@ -16,8 +16,9 @@ module Beryl
   #   - Format ZFS correspondant : `keyformat=hex -O keylocation=prompt`.
   #     ZFS attend exactement 64 chars hex sur stdin (le `\n` final
   #     n'est PAS consommé).
-  #   - Sauvegardée naturellement par Time Machine + (v1) iCloud
-  #     Keychain via `project_beryl_secrets_vault.md`.
+  #   - Copiée aussi dans le coffre chiffré de la société (section
+  #     `[tang]`) et sous séquestre papier (`beryl keys paper`) : voir
+  #     `Beryl::ZfsKeys`.
   #
   # Voir `zpool-encryption-architecture.adoc` pour l'architecture
   # complète (pourquoi `keyformat=hex`, pourquoi pas `raw`, pourquoi
@@ -130,14 +131,23 @@ module Beryl
           "Régénérez si possible, ou corrigez avec `chmod 0400 #{path}` après audit."
         )
       end
-      content = File.read(path).strip
+      parse_hex(File.read(path), "clé #{path}")
+    end
+
+    # Valide une clé hex, quelle que soit sa source (fichier, coffre,
+    # `--key-file`, entrée standard) : 64 caractères hexadécimaux une fois
+    # les blancs retirés — une clé recopiée du papier peut être tapée par
+    # groupes de 4, en majuscules. Retourne la clé en minuscules, sans
+    # blanc (mêmes octets pour ZFS). `label` nomme la source dans l'erreur.
+    def self.parse_hex(raw : String, label : String) : String
+      content = raw.gsub(/\s+/, "").downcase
       unless content.size == KEY_SIZE_BYTES * 2
         raise InvalidKey.new(
-          "clé #{path} : taille #{content.size} (attendu : #{KEY_SIZE_BYTES * 2} chars hex)"
+          "#{label} : taille #{content.size} (attendu : #{KEY_SIZE_BYTES * 2} chars hex)"
         )
       end
-      unless content.each_char.all? { |c| c.ascii_letter? && c.downcase.in?('a'..'f') || c.ascii_number? }
-        raise InvalidKey.new("clé #{path} : caractères non hexadécimaux")
+      unless content.each_char.all? { |c| c.in?('a'..'f') || c.ascii_number? }
+        raise InvalidKey.new("#{label} : caractères non hexadécimaux")
       end
       content
     end
