@@ -9,6 +9,15 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl sync <portée> <recette>` : les dépendances gardent leurs arguments déclarés
+
+En mode ponctuel, une dépendance tirée par la recette nommée (`requires:`)
+partait des valeurs par défaut de ses paramètres, même déclarée avec des
+arguments dans `apply_recipes:`. `beryl sync quimeo periodic-quiet` aurait
+ainsi réécrit le relais de mail de quimeo-twin (`monit: { smarthost: … }`)
+avec celui de la société (29 oct. 2026, vu à l'essai à blanc). Une
+dépendance déclarée reprend désormais ses arguments du host.yml.
+
 === `service-enable` sous Linux : un service mort au démarrage fait échouer l'étape
 
 Une unité systemd `Type=simple` fait réussir `systemctl start` même si le

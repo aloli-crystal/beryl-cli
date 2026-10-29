@@ -469,8 +469,7 @@ module Beryl::CLI::Apply
       dns: dns_hook(config_root, host),
       os: os,
     )
-    recipe_args = {} of String => Array(Hash(String, String))
-    requests.each { |req| (recipe_args[req.name] ||= [] of Hash(String, String)) << req.arguments }
+    recipe_args = recipe_arguments(requests, declared, recipes.map(&.name))
     report = Beryl::Apply::Executor.new(shell, dry_run, context).run(recipes, recipe_args)
 
     log "apply terminé pour #{host.fqdn}#{dry_run ? " (dry-run)" : ""} — #{report.summary_line}"
@@ -654,6 +653,22 @@ module Beryl::CLI::Apply
     return own unless own.empty?
     return [RecipeRequest.new(name, {} of String => String)] if closure.includes?(name) || !restrict
     nil
+  end
+
+  # Jeux d'arguments par recette à jouer. Une dépendance tirée par la recette
+  # ponctuelle (`requires:`) mais DÉCLARÉE dans `apply_recipes:` reprend ses
+  # arguments du host.yml : `beryl sync <portée> periodic-quiet` tire monit,
+  # qui sans eux repartait de ses défauts (relais de mail d'un client écrasé
+  # par celui de la société, quimeo-twin, 29 oct. 2026).
+  def self.recipe_arguments(requests : Array(RecipeRequest), declared : Array(RecipeRequest), resolved : Array(String)) : Hash(String, Array(Hash(String, String)))
+    args = {} of String => Array(Hash(String, String))
+    requests.each { |req| (args[req.name] ||= [] of Hash(String, String)) << req.arguments }
+    resolved.each do |name|
+      next if args.has_key?(name)
+      own = declared.select { |req| req.name == name }
+      args[name] = own.map(&.arguments) unless own.empty?
+    end
+    args
   end
 
   # Recettes d'entrée déclarées en config (`apply_recipes:`), cascadées
