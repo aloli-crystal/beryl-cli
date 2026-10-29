@@ -142,7 +142,7 @@ module Beryl::CLI::TangEnroll
     )
     unless Beryl::Encryption.exists?(key_path)
       STDERR.puts "beryl : clé absente : #{key_path}"
-      STDERR.puts "        Cette clé doit avoir été générée par `beryl bootstrap` et est"
+      STDERR.puts "        Cette clé doit avoir été générée par `beryl bootstrap` ou `beryl zpool-create` et est"
       STDERR.puts "        nécessaire pour enrôler les pools en mode tang."
       return EXIT_KEY_MISSING
     end

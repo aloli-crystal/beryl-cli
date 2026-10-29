@@ -116,7 +116,7 @@ module Beryl::CLI::Unlock
     if needs_local_key || Beryl::Encryption.exists?(key_path)
       unless Beryl::Encryption.exists?(key_path)
         STDERR.puts "beryl : clé absente : #{key_path}"
-        STDERR.puts "        Cette clé doit avoir été générée par `beryl bootstrap`."
+        STDERR.puts "        Cette clé doit avoir été générée par `beryl bootstrap` ou `beryl zpool-create`."
         STDERR.puts "        Si vous l'avez perdue, les datasets chiffrés sont définitivement illisibles."
         return EXIT_KEY_MISSING
       end
