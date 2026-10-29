@@ -42,6 +42,22 @@ describe Beryl::Apply::MariadbSecure do
     ENV.delete("TEST_MDB_PW")
   end
 
+  it "prend le mdp propre au serveur (<SERVEUR>__VAR) avant celui de la société" do
+    ENV["TEST_MDB_PW"] = "commun"
+    ENV["QUIMEO_TWIN_BSD__TEST_MDB_PW"] = "propre"
+    sh = FakeShell.new
+    sh.stub(/grep -q '\^skip-networking'/, exit_code: 0)
+    Beryl::Apply::MariadbSecure.new.apply(
+      sh, y({"root_password_env" => "TEST_MDB_PW"}), false,
+      Beryl::Apply::Context.new(vars: {"hostname" => "quimeo-twin-bsd"}))
+    sql = sh.writes.find! { |w| w.path == "/tmp/beryl-mariadb-secure.sql" }.content
+    sql.should contain("PASSWORD('propre')")
+    sql.should_not contain("commun")
+  ensure
+    ENV.delete("TEST_MDB_PW")
+    ENV.delete("QUIMEO_TWIN_BSD__TEST_MDB_PW")
+  end
+
   it "lève si la variable coffre du mdp est absente" do
     ENV.delete("ABSENT_PW")
     expect_raises(Beryl::Apply::Primitive::PrimitiveError, /absente/) do

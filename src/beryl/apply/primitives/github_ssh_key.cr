@@ -48,7 +48,7 @@ module Beryl::Apply
     def apply(shell : Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Context) : StepResult
       path = required_string(params, "pubkey_path")
       var = required_string(params, "token_env")
-      token = ENV[var]?
+      token = Apply.secret(var, context)
       raise PrimitiveError.new("variable `#{var}` absente de l'environnement (coffre) — PAT GitHub introuvable.") if token.nil? || token.empty?
 
       res = shell.exec("cat #{Process.quote(path)}", raise_on_error: false)

@@ -9,6 +9,14 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `mariadb-secure`, `github-ssh-key` : secret propre au serveur d'abord
+
+Le mot de passe root MariaDB et le jeton GitHub étaient lus tels quels dans
+l'environnement : un `<SERVEUR>__MARIADB_ROOT_PASSWORD` était ignoré, et le
+mot de passe COMMUN à la société partait sur un serveur confié à un client.
+Ils passent désormais par la même recherche que les autres secrets (variante
+du serveur d'abord ; vide = pas de valeur, sans repli sur la société).
+
 === `beryl zpool-create <host>` : pools data sur un serveur déjà installé
 
 Crée les pools data déclarés (`freebsd.zfs.<nom>`) qui n'existent pas

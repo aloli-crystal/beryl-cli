@@ -42,7 +42,7 @@ module Beryl::Apply
 
     def apply(shell : Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Context) : StepResult
       var = required_string(params, "root_password_env")
-      pwd = ENV[var]?
+      pwd = Apply.secret(var, context)
       raise PrimitiveError.new("variable `#{var}` absente de l'environnement (coffre) — mdp root MariaDB introuvable.") if pwd.nil? || pwd.empty?
 
       socket = string(params, "socket") || DEFAULT_SOCKET
