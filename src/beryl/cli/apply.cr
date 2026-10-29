@@ -322,6 +322,7 @@ module Beryl::CLI::Apply
       adhoc = adhoc_requests(r, declared, closure, restrict_adhoc)
       unless adhoc
         log "#{host.fqdn} : recette `#{r}` non déclarée (apply_recipes:) → sauté."
+        Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::UPTODATE, "sauté — `#{r}` non déclarée")
         return EXIT_OK
       end
       requests = adhoc

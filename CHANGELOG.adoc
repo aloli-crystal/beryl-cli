@@ -9,6 +9,13 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Bilan de `beryl sync <portée> <recette>` : serveurs sautés
+
+Un serveur sauté parce que la recette ponctuelle n'y est pas déclarée
+(ou écartée par `skip_recipes:`) apparaissait au bilan de la tâche comme
+« mis à jour — terminé (étape finale non rapportée) ». Il y figure
+désormais « à jour — sauté — `<recette>` non déclarée ».
+
 === `beryl sync <portée> <recette>` : les dépendances gardent leurs arguments déclarés
 
 En mode ponctuel, une dépendance tirée par la recette nommée (`requires:`)
