@@ -22,6 +22,17 @@ module Beryl::Apply
   #     - pf-rule:
   #         nat: true
   #         rule: "nat on egress from 100.64.0.0/10 to any -> (egress)"
+  #
+  # `before: <règle>` insère la règle JUSTE AVANT une règle déjà présente du
+  # bloc (sinon : en fin de bloc). Indispensable pour un `pass quick` ajouté
+  # après coup devant un `block quick` déjà posé : en fin de bloc, il ne
+  # serait jamais atteint. `if_set: "{{ var }}"` saute l'étape si la valeur
+  # est vide (règle facultative).
+  #
+  #     - pf-rule:
+  #         rule: "pass in quick inet proto tcp from { {{ allow_extra }} } to port 8888"
+  #         before: "block in quick proto tcp to port 8888"
+  #         if_set: "{{ allow_extra }}"
   class PfRule < Primitive
     PATH      = "/etc/pf.conf"
     TMP       = "/etc/pf.conf.beryl.tmp"
@@ -37,8 +48,12 @@ module Beryl::Apply
     end
 
     def apply(shell : Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Context) : StepResult
+      if params.has_key?("if_set") && (params["if_set"].as_s? || "").strip.empty?
+        return StepResult.skipped("paramètre vide (if_set) — règle non demandée")
+      end
       rule = required_string(params, "rule").strip
       state = string(params, "state") || "present"
+      before_rule = string(params, "before").try(&.strip)
       nat = bool(params, "nat", default: false)
       begin_tag = nat ? NAT_BEGIN : BEGIN_TAG
       end_tag = nat ? NAT_END : END_TAG
@@ -52,7 +67,11 @@ module Beryl::Apply
         if present
           return StepResult.skipped("règle pf déjà présente")
         end
-        block << rule
+        if before_rule && (idx = block.index(before_rule))
+          block.insert(idx, rule)
+        else
+          block << rule
+        end
         verb = "ajout"
       when "absent"
         unless present

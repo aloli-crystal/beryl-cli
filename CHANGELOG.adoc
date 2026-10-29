@@ -9,6 +9,24 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl zpool-create <host>` : pools data sur un serveur déjà installé
+
+Crée les pools data déclarés (`freebsd.zfs.<nom>`) qui n'existent pas
+encore, sur un serveur installé sans `bootstrap` (VM FreeBSD invitée de la
+recette `kvm-freebsd-guest`) ou un disque ajouté après coup. Mêmes règles
+que bootstrap : partition GPT labellisée, ashift 12, chiffrement ZFS natif
+avec la clé du poste (générée si absente, envoyée sur stdin, jamais écrite
+sur le serveur), pool chiffré hors du cache (`beryl unlock`, ou Tang après
+`beryl tang-enroll`). Pool déjà présent → sauté ; disque absent ou non
+vierge → refus, rien n'est effacé. Essai à blanc par défaut.
+
+=== `pf-rule` : options `before:` et `if_set:`
+
+`before: <règle>` insère la règle juste avant une règle déjà présente du
+bloc géré : un `pass quick` ajouté après coup devant un `block quick` déjà
+posé n'était jamais atteint (ajouté en fin de bloc). `if_set:` saute
+l'étape quand la valeur est vide (règle facultative).
+
 === Bilan de `beryl sync <portée> <recette>` : serveurs sautés
 
 Un serveur sauté parce que la recette ponctuelle n'y est pas déclarée

@@ -26,6 +26,7 @@ require "./cli/unlock"
 require "./cli/reboot"
 require "./cli/status"
 require "./cli/tang_enroll"
+require "./cli/zpool_create"
 require "./cli/env"
 require "./cli/headscale_authkey"
 require "./cli/ssh_config"
@@ -168,6 +169,7 @@ module Beryl::CLI
     when "ssh-config"         then Beryl::CLI::SshConfig.run(config_root, sub_args)
     when "status"             then Beryl::CLI::Status.run(config_root, sub_args)
     when "tang-enroll"        then Beryl::CLI::TangEnroll.run(config_root, sub_args)
+    when "zpool-create"       then Beryl::CLI::ZpoolCreate.run(config_root, sub_args)
     when "env"                then Beryl::CLI::Env.run(config_root, sub_args)
     when "headscale-authkey"  then Beryl::CLI::HeadscaleAuthkey.run(config_root, sub_args)
     when "update"             then Beryl::CLI::Update.run(config_root, sub_args)
@@ -225,6 +227,7 @@ module Beryl::CLI
     {"version", "v", "Affiche la version"},
     {"vrack", "", "Gère le vRack OVH (statut / rattachement)"},
     {"wipe", "w", "Efface un disque sur un hôte en rescue"},
+    {"zpool-create", "", "Crée les pools data déclarés sur un serveur déjà installé (chiffrés : clé du poste) — DRY-RUN par défaut"},
   ]
 
   # Sous-commande (nom long) connue ? Pur.
@@ -296,6 +299,7 @@ module Beryl::CLI
     when "ssh-config"     then Beryl::CLI::SshConfig.run(config_root, ["--help"])
     when "status"         then Beryl::CLI::Status.run(config_root, ["--help"])
     when "tang-enroll"    then Beryl::CLI::TangEnroll.run(config_root, ["--help"])
+    when "zpool-create"   then Beryl::CLI::ZpoolCreate.run(config_root, ["--help"])
     when "env"            then Beryl::CLI::Env.run(config_root, ["--help"])
     when "os-upgrade"     then Beryl::CLI::OsUpgrade.run(config_root, ["--help"])
     when "pg-upgrade"     then Beryl::CLI::PgUpgrade.run(config_root, ["--help"])

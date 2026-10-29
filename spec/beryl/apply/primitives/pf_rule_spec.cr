@@ -24,6 +24,32 @@ describe Beryl::Apply::PfRule do
     shell.writes.should be_empty
   end
 
+  it "before: insère la règle devant un `block quick` déjà posé" do
+    shell = FakeShell.new
+    shell.stub(/cat .*pf\.conf/, stdout: BLOCK)
+    pass = "pass in quick inet proto tcp from { 192.0.2.10/32 } to port 23"
+    result = prim("pf-rule").apply(shell, apply_params({rule: pass, before: RULE}.to_yaml), dry_run: false, context: ctx)
+    result.outcome.should eq(Beryl::Apply::Outcome::Applied)
+    content = shell.writes.first.content
+    (content.index!(pass) < content.index!(RULE)).should be_true
+  end
+
+  it "before: règle de référence absente → en fin de bloc" do
+    shell = FakeShell.new
+    shell.stub(/cat .*pf\.conf/, stdout: BLOCK)
+    pass = "pass in quick inet proto tcp from { 192.0.2.10/32 } to port 22"
+    prim("pf-rule").apply(shell, apply_params({rule: pass, before: "block in quick proto tcp to port 22"}.to_yaml), dry_run: false, context: ctx)
+    content = shell.writes.first.content
+    (content.index!(RULE) < content.index!(pass)).should be_true
+  end
+
+  it "if_set vide : étape sautée, pf.conf intact" do
+    shell = FakeShell.new
+    result = prim("pf-rule").apply(shell, apply_params({rule: "pass in quick from { } to port 23", if_set: ""}.to_yaml), dry_run: false, context: ctx)
+    result.outcome.should eq(Beryl::Apply::Outcome::Skipped)
+    shell.writes.should be_empty
+  end
+
   it "retire une règle existante (state: absent)" do
     shell = FakeShell.new
     shell.stub(/cat .*pf\.conf/, stdout: BLOCK)
