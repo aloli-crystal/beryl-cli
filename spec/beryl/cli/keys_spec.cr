@@ -180,6 +180,33 @@ describe "Beryl::CLI::Unlock.read_key_option" do
   end
 end
 
+describe "Beryl::CLI::Unlock.actions_after" do
+  it "lit after_unlock du host.yml : ordre des pools puis des listes, sans doublon" do
+    with_config do |root|
+      path = File.join(root, "initech", "initech.example", "web-1.host.yml")
+      text = File.read(path)
+        .sub("      mountpoint: /data\n", "      mountpoint: /data\n      after_unlock:\n        - mysql-server: start\n        - nginx: restart\n")
+        .sub("      profile: standard\n", "      profile: standard\n      after_unlock: [{nginx: restart}, {cron: reload}]\n")
+      File.write(path, text)
+      host = web1(root)
+      sa = Beryl::Config::ServiceAction
+      host.data_zpools.first.after_unlock.should eq([sa.new("mysql-server", "start"), sa.new("nginx", "restart")])
+      Beryl::CLI::Unlock.actions_after(host.zpools.reject(&.boot) + host.zpools.select(&.boot))
+        .should eq([sa.new("mysql-server", "start"), sa.new("nginx", "restart"), sa.new("cron", "reload")])
+    end
+  end
+
+  it "action inconnue ou forme invalide → InvalidAfterUnlock" do
+    {"[{nginx: bounce}]", "[nginx]", "nginx", "[{'nginx; reboot': restart}]"}.each do |yaml|
+      expect_raises(Beryl::Config::InvalidAfterUnlock) do
+        Beryl::Config::ServiceAction.list_from_yaml(YAML.parse(yaml), "zdata")
+      end
+    end
+    Beryl::Config::ServiceAction.list_from_yaml(YAML.parse("{mysql-server: start, nginx: restart}"), "zdata")
+      .map(&.service).should eq(["mysql-server", "nginx"])
+  end
+end
+
 describe "journal de session et clés ZFS" do
   it "ni `keys`, ni `unlock --key-file` ne sont journalisés" do
     Beryl::CLI::SessionLog.wanted?("keys", ["paper", "initech"], false, false).should be_false

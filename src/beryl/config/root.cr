@@ -1120,6 +1120,7 @@ module Beryl::Config
           mountpoint: h[YAML::Any.new("mountpoint")]?.try(&.as_s?),
           encryption: parse_encryption(h[YAML::Any.new("encryption")]?, name),
           profile: h[YAML::Any.new("profile")]?.try(&.as_s?),
+          after_unlock: Beryl::Config::ServiceAction.list_from_yaml(h[YAML::Any.new("after_unlock")]?, name),
         )
       end
     end

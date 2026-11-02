@@ -272,6 +272,38 @@ module Beryl::Config
     encrypted : Bool,    # hérite de l'encryptionroot si true
     compression : String # "lz4" | "zstd-3"
 
+  # Une action sur un service après `beryl unlock` (`after_unlock:` d'un
+  # pool) : `service <service> <action>`.
+  record ServiceAction, service : String, action : String do
+    # `onestart`… exclus : un service qui doit tourner est activé dans rc.conf.
+    ACTIONS = %w[reload restart start stop]
+
+    # `after_unlock:` du host.yml : liste ORDONNÉE de `service: action`
+    # (l'ordre compte : la base avant le site). Une table simple est
+    # acceptée aussi (ordre de lecture). Action inconnue → InvalidAfterUnlock.
+    def self.list_from_yaml(any : YAML::Any?, pool_name : String) : Array(ServiceAction)
+      return [] of ServiceAction unless any
+      pairs = if list = any.as_a?
+                list.flat_map { |item| item.as_h?.try(&.to_a) || raise InvalidAfterUnlock.new("pool #{pool_name} : `after_unlock` attend des `service: action`, pas #{item.inspect}") }
+              elsif h = any.as_h?
+                h.to_a
+              else
+                raise InvalidAfterUnlock.new("pool #{pool_name} : `after_unlock` attend une liste de `service: action`")
+              end
+      pairs.map do |svc, act|
+        service = svc.as_s? || raise InvalidAfterUnlock.new("pool #{pool_name} : nom de service invalide #{svc.inspect}")
+        action = act.as_s? || ""
+        unless service.matches?(/\A[A-Za-z0-9_.-]+\z/) && ACTIONS.includes?(action)
+          raise InvalidAfterUnlock.new("pool #{pool_name} : `#{service}: #{action}` invalide dans `after_unlock` (actions : #{ACTIONS.join(", ")})")
+        end
+        new(service, action)
+      end
+    end
+  end
+
+  class InvalidAfterUnlock < Exception
+  end
+
   # Représente un pool ZFS tel que déclaré dans `freebsd.zfs.<nom>`.
   # Le nom du pool = la clé YAML (pas de champ `name:` redondant).
   # Un seul pool porte `boot: true` : c'est celui qu'installera
@@ -290,8 +322,14 @@ module Beryl::Config
     getter mountpoint : String?           # /data, /backup…
     getter encryption : EncryptionConfig? # nil = clair
     getter profile : String?              # "standard" sur le pool boot (C+) ; nil sinon
+    # Actions sur les services qui vivent sur les données chiffrées du pool
+    # (base, site…), jouées par `beryl unlock` dans l'ORDRE donné quand il
+    # vient de les déverrouiller (au boot, leur démarrage a échoué : données
+    # absentes). Sur le pool boot : services des datasets du profil.
+    getter after_unlock : Array(ServiceAction)
 
-    def initialize(@name, @boot, @raid, @disks, @mountpoint = nil, @encryption = nil, @profile = nil)
+    def initialize(@name, @boot, @raid, @disks, @mountpoint = nil, @encryption = nil, @profile = nil,
+                   @after_unlock = [] of ServiceAction)
     end
 
     # Sucre syntaxique pour les call sites qui veulent juste un Bool

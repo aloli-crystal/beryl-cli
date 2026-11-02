@@ -36,6 +36,9 @@ require "./key_store"
 #      c. `zfs mount -a -l` (côté beryl, garde le contrôle du mount).
 #   2. Idempotent : si le pool est déjà importé et la clé chargée,
 #      log « déjà déverrouillé » et passe au suivant.
+#   3. Actions `after_unlock` (host.yml, par pool : `service: action`) des
+#      unités qu'il vient de déverrouiller, jouées dans l'ordre (`service
+#      <s> <action>`), sans doublon. Rien si tout était déjà déverrouillé.
 #
 # Voir `zpool-encryption-architecture.adoc` § « Le modèle SSH unlock »
 # pour le contexte complet.
@@ -49,6 +52,7 @@ module Beryl::CLI::Unlock
   EXIT_UNLOCK_FAILED       = 6
   EXIT_MISSING_CONFIG      = 7
   EXIT_TANG_BINARY_MISSING = 8
+  EXIT_SERVICES_FAILED     = 9
 
   # Chemin attendu du binaire `clevis-zfs` côté serveur. Le
   # paquet `security/clevis-zfs` (recette `tang-client`) l'installe
@@ -174,6 +178,11 @@ module Beryl::CLI::Unlock
         end
         log "DRY-RUN :   zfs mount -a -l   (datasets zroot : /home, /opt, /usr/local/etc)"
       end
+      units_pools = encrypted_pools.dup
+      units_pools << boot_pool.not_nil! if enc_root
+      actions_after(units_pools).each do |sa|
+        log "DRY-RUN :   service #{sa.service} #{sa.action}   (si son pool était verrouillé)"
+      end
       return EXIT_OK
     end
 
@@ -200,8 +209,10 @@ module Beryl::CLI::Unlock
 
     total = encrypted_pools.size + (enc_root ? 1 : 0)
     failures = 0
+    # Unités qui ÉTAIENT verrouillées : leurs actions `after_unlock` sont jouées.
+    unlocked = [] of Beryl::Config::Pool
     encrypted_pools.each do |pool|
-      unlock_one(conn, pool, key_hex, tang_binary)
+      unlocked << pool if unlock_one(conn, pool, key_hex, tang_binary)
     rescue ex
       STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl unlock] " \
                   "ÉCHEC pool #{pool.name} : #{ex.class}: #{ex.message}"
@@ -209,7 +220,7 @@ module Beryl::CLI::Unlock
     end
     if er = enc_root
       begin
-        unlock_encryption_root(conn, er, enc_root_cfg, key_hex, tang_binary)
+        unlocked << boot_pool.not_nil! if unlock_encryption_root(conn, er, enc_root_cfg, key_hex, tang_binary)
       rescue ex
         STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl unlock] " \
                     "ÉCHEC encryptionroot #{er} : #{ex.class}: #{ex.message}"
@@ -217,9 +228,17 @@ module Beryl::CLI::Unlock
       end
     end
 
+    # Actions jouées même si une autre unité a échoué : les services des
+    # unités déverrouillées ont désormais leurs données.
+    services_failed = run_actions(conn, actions_after(unlocked))
+
     if failures > 0
       STDERR.puts "beryl : #{failures}/#{total} unité(s) non déverrouillée(s)"
       return EXIT_UNLOCK_FAILED
+    end
+    unless services_failed.empty?
+      STDERR.puts "beryl : after_unlock en échec : #{services_failed.join(", ")} (voir `service <nom> status` et ses journaux)"
+      return EXIT_SERVICES_FAILED
     end
 
     log "unlock #{target} : terminé (#{total} unité(s) en ligne)"
@@ -276,7 +295,8 @@ module Beryl::CLI::Unlock
   #
   # `key_hex` peut être nil si le pool est en mode tang (la clé arrive
   # via Tang côté serveur, pas via stdin SSH depuis le poste opérateur).
-  private def self.unlock_one(conn : Beryl::CLI::RootConn, pool : Beryl::Config::Pool, key_hex : String?, tang_binary : Bool) : Nil
+  # Rend true si le pool ÉTAIT verrouillé (importé ou clé chargée ici).
+  private def self.unlock_one(conn : Beryl::CLI::RootConn, pool : Beryl::Config::Pool, key_hex : String?, tang_binary : Bool) : Bool
     pool_name = pool.name
     target = "#{conn.user}@#{conn.host}"
     enc = pool.encryption.not_nil!
@@ -331,6 +351,7 @@ module Beryl::CLI::Unlock
         log "3   #{line.strip}"
       end
     end
+    !already_imported || status != "available"
   end
 
   # Déverrouille l'encryptionroot zroot du profil Option I (`zroot/encrypted`)
@@ -341,7 +362,8 @@ module Beryl::CLI::Unlock
   #
   # `enc_cfg` est la config `encryption:` du pool boot (le mode des datasets).
   # nil ou non-tang ⇒ ssh_unlock (clé locale via stdin). `key_hex` requis alors.
-  private def self.unlock_encryption_root(conn : Beryl::CLI::RootConn, enc_root : String, enc_cfg : Beryl::Config::EncryptionConfig?, key_hex : String?, tang_binary : Bool) : Nil
+  # Rend true si la clé n'était pas chargée.
+  private def self.unlock_encryption_root(conn : Beryl::CLI::RootConn, enc_root : String, enc_cfg : Beryl::Config::EncryptionConfig?, key_hex : String?, tang_binary : Bool) : Bool
     target = "#{conn.user}@#{conn.host}"
     tang = enc_cfg.try(&.tang?) == true
 
@@ -371,6 +393,30 @@ module Beryl::CLI::Unlock
         log "3   #{line.strip}"
       end
     end
+    status != "available"
+  end
+
+  # Actions à jouer pour ces unités : `after_unlock` de chaque pool, dans
+  # l'ordre des unités puis de chaque liste, sans doublon. Pur.
+  def self.actions_after(pools : Array(Beryl::Config::Pool)) : Array(Beryl::Config::ServiceAction)
+    pools.flat_map(&.after_unlock).uniq
+  end
+
+  # `service <s> <action>` pour chacune, dans l'ordre ; continue après un
+  # échec (les suivantes peuvent ne pas en dépendre). Rend les échecs.
+  private def self.run_actions(conn : Beryl::CLI::RootConn, actions : Array(Beryl::Config::ServiceAction)) : Array(String)
+    failed = [] of String
+    actions.each do |sa|
+      label = "service #{sa.service} #{sa.action}"
+      result = conn.exec("service #{Process.quote(sa.service)} #{sa.action}", raise_on_error: false)
+      if result.success?
+        log "4 #{label} : OK"
+      else
+        log "4 ÉCHEC #{label} : exit=#{result.exit_code} #{(result.stderr.strip.presence || result.stdout.strip).inspect[0, 200]}"
+        failed << "#{sa.service} #{sa.action}"
+      end
+    end
+    failed
   end
 
   # Mode ssh_unlock — clé locale via stdin SSH (Option C historique).

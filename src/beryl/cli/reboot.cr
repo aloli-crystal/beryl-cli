@@ -148,7 +148,10 @@ module Beryl::CLI::Reboot
       # est en essai à blanc par défaut, et ce redémarrage-ci a bien eu lieu.
       unlock_args = ["#{host.account_name}/#{host.fqdn}", "--apply"]
       ec = Beryl::CLI::Unlock.run(config_root, unlock_args)
-      if ec != Beryl::CLI::Unlock::EXIT_OK
+      if ec == Beryl::CLI::Unlock::EXIT_SERVICES_FAILED
+        STDERR.puts "beryl : reboot et unlock OK, mais une action after_unlock a échoué : voir ci-dessus"
+        return EXIT_UNLOCK_FAILED
+      elsif ec != Beryl::CLI::Unlock::EXIT_OK
         STDERR.puts "beryl : reboot OK mais unlock a échoué (code #{ec}). Réessayez avec : beryl unlock #{host.account_name}/#{host.fqdn}"
         return EXIT_UNLOCK_FAILED
       end

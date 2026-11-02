@@ -9,6 +9,33 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `after_unlock` : services relancés par `beryl unlock`
+
+Après un redémarrage, les services qui vivent sur des données chiffrées
+(base, site) ont échoué au boot : il fallait les relancer à la main après
+`beryl unlock`. Chaque pool du `host.yml` peut désormais déclarer
+`after_unlock:`, une liste ORDONNÉE de `service: action` (`start`,
+`restart`, `reload`, `stop`) :
+
+[source,yaml]
+----
+freebsd:
+  zfs:
+    zdata:
+      encryption: { mode: ssh_unlock }
+      after_unlock:
+        - mysql-server: restart
+        - nginx: restart
+----
+
+* `beryl unlock` (et donc `beryl reboot`) joue `service <s> <action>`
+  pour les seules unités qu'il vient de déverrouiller, dans l'ordre des
+  pools puis de chaque liste, sans doublon ; rien si tout était déjà
+  déverrouillé. L'essai à blanc les affiche.
+* Une action en échec n'arrête pas les suivantes ; code de sortie 9 si
+  l'une a échoué (déverrouillage réussi).
+* Action inconnue ou forme invalide : erreur à la lecture du `host.yml`.
+
 === Clés ZFS : coffre `[tang]` de la société et séquestre papier (`beryl keys`)
 
 La clé de chiffrement ZFS d'un serveur n'existait que dans le fichier
