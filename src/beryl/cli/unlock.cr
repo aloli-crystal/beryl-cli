@@ -36,9 +36,10 @@ require "./key_store"
 #      c. `zfs mount -a -l` (côté beryl, garde le contrôle du mount).
 #   2. Idempotent : si le pool est déjà importé et la clé chargée,
 #      log « déjà déverrouillé » et passe au suivant.
-#   3. Actions `after_unlock` (host.yml, par pool : `service: action`) des
-#      unités qu'il vient de déverrouiller, jouées dans l'ordre (`service
-#      <s> <action>`), sans doublon. Rien si tout était déjà déverrouillé.
+#   3. Actions `freebsd.after_unlock` (host.yml : `service: action`) jouées
+#      dans l'ordre (`service <s> <action>`) si au moins une unité était
+#      verrouillée et que toutes sont désormais ouvertes. Rien si tout était
+#      déjà déverrouillé.
 #
 # Voir `zpool-encryption-architecture.adoc` § « Le modèle SSH unlock »
 # pour le contexte complet.
@@ -104,6 +105,8 @@ module Beryl::CLI::Unlock
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
 
     encrypted_pools = host.data_zpools.select(&.encrypted?)
+    # Lue AVANT toute action : une erreur de configuration arrête tout de suite.
+    after = host.after_unlock
     # Datasets sensibles du zroot (profil Option I) : l'encryptionroot partagé
     # `zroot/encrypted` + ses enfants /home,/opt,/usr/local/etc. `find(&.boot)`
     # plutôt que `boot_zpool` (qui LÈVE) : un host sans pool boot (config de test
@@ -178,10 +181,8 @@ module Beryl::CLI::Unlock
         end
         log "DRY-RUN :   zfs mount -a -l   (datasets zroot : /home, /opt, /usr/local/etc)"
       end
-      units_pools = encrypted_pools.dup
-      units_pools << boot_pool.not_nil! if enc_root
-      actions_after(units_pools).each do |sa|
-        log "DRY-RUN :   service #{sa.service} #{sa.action}   (si son pool était verrouillé)"
+      after.each do |sa|
+        log "DRY-RUN :   service #{sa.service} #{sa.action}   (after_unlock, si une unité était verrouillée)"
       end
       return EXIT_OK
     end
@@ -209,10 +210,10 @@ module Beryl::CLI::Unlock
 
     total = encrypted_pools.size + (enc_root ? 1 : 0)
     failures = 0
-    # Unités qui ÉTAIENT verrouillées : leurs actions `after_unlock` sont jouées.
-    unlocked = [] of Beryl::Config::Pool
+    # Une unité au moins ÉTAIT verrouillée → actions `after_unlock`.
+    was_locked = false
     encrypted_pools.each do |pool|
-      unlocked << pool if unlock_one(conn, pool, key_hex, tang_binary)
+      was_locked = true if unlock_one(conn, pool, key_hex, tang_binary)
     rescue ex
       STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl unlock] " \
                   "ÉCHEC pool #{pool.name} : #{ex.class}: #{ex.message}"
@@ -220,7 +221,7 @@ module Beryl::CLI::Unlock
     end
     if er = enc_root
       begin
-        unlocked << boot_pool.not_nil! if unlock_encryption_root(conn, er, enc_root_cfg, key_hex, tang_binary)
+        was_locked = true if unlock_encryption_root(conn, er, enc_root_cfg, key_hex, tang_binary)
       rescue ex
         STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl unlock] " \
                     "ÉCHEC encryptionroot #{er} : #{ex.class}: #{ex.message}"
@@ -228,14 +229,12 @@ module Beryl::CLI::Unlock
       end
     end
 
-    # Actions jouées même si une autre unité a échoué : les services des
-    # unités déverrouillées ont désormais leurs données.
-    services_failed = run_actions(conn, actions_after(unlocked))
-
     if failures > 0
       STDERR.puts "beryl : #{failures}/#{total} unité(s) non déverrouillée(s)"
+      STDERR.puts "        after_unlock NON joué (un service peut dépendre de l'unité en échec)" unless after.empty?
       return EXIT_UNLOCK_FAILED
     end
+    services_failed = was_locked ? run_actions(conn, after) : [] of String
     unless services_failed.empty?
       STDERR.puts "beryl : after_unlock en échec : #{services_failed.join(", ")} (voir `service <nom> status` et ses journaux)"
       return EXIT_SERVICES_FAILED
@@ -244,6 +243,9 @@ module Beryl::CLI::Unlock
     log "unlock #{target} : terminé (#{total} unité(s) en ligne)"
     EXIT_OK
   rescue ex : Beryl::Config::Root::HostNotFound
+    STDERR.puts "beryl : #{ex.message}"
+    EXIT_USAGE
+  rescue ex : Beryl::Config::InvalidServiceAction
     STDERR.puts "beryl : #{ex.message}"
     EXIT_USAGE
   rescue ex : Beryl::Config::Root::AmbiguousHost
@@ -394,12 +396,6 @@ module Beryl::CLI::Unlock
       end
     end
     status != "available"
-  end
-
-  # Actions à jouer pour ces unités : `after_unlock` de chaque pool, dans
-  # l'ordre des unités puis de chaque liste, sans doublon. Pur.
-  def self.actions_after(pools : Array(Beryl::Config::Pool)) : Array(Beryl::Config::ServiceAction)
-    pools.flat_map(&.after_unlock).uniq
   end
 
   # `service <s> <action>` pour chacune, dans l'ordre ; continue après un

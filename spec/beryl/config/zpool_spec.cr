@@ -289,13 +289,6 @@ describe Beryl::Config::Pool do
     end
   end
 
-  describe "#after_unlock" do
-    it "vide par défaut" do
-      p = Beryl::Config::Pool.new(name: "zdata", boot: false, raid: 0, disks: ["/dev/sdb"])
-      p.after_unlock.should be_empty
-    end
-  end
-
   describe "#validate!" do
     it "rejette encryption sur un pool boot" do
       p = Beryl::Config::Pool.new(

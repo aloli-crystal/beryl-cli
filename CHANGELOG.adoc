@@ -13,28 +13,27 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 Après un redémarrage, les services qui vivent sur des données chiffrées
 (base, site) ont échoué au boot : il fallait les relancer à la main après
-`beryl unlock`. Chaque pool du `host.yml` peut désormais déclarer
-`after_unlock:`, une liste ORDONNÉE de `service: action` (`start`,
-`restart`, `reload`, `stop`) :
+`beryl unlock`. Le `host.yml` peut désormais déclarer `freebsd.after_unlock:`,
+une liste ORDONNÉE de `service: action` (`start`, `restart`, `reload`,
+`stop`), propre au serveur et non à un pool :
 
 [source,yaml]
 ----
 freebsd:
-  zfs:
-    zdata:
-      encryption: { mode: ssh_unlock }
-      after_unlock:
-        - mysql-server: restart
-        - nginx: restart
+  after_unlock:
+    - mysql-server: restart
+    - nginx: restart
 ----
 
-* `beryl unlock` (et donc `beryl reboot`) joue `service <s> <action>`
-  pour les seules unités qu'il vient de déverrouiller, dans l'ordre des
-  pools puis de chaque liste, sans doublon ; rien si tout était déjà
-  déverrouillé. L'essai à blanc les affiche.
+* `beryl unlock` (et donc `beryl reboot`) joue `service <s> <action>` dans
+  l'ordre si au moins une unité était verrouillée et que toutes sont
+  désormais ouvertes ; rien si tout était déjà déverrouillé, rien non plus
+  si une unité a échoué (un service peut en dépendre). L'essai à blanc les
+  affiche.
 * Une action en échec n'arrête pas les suivantes ; code de sortie 9 si
   l'une a échoué (déverrouillage réussi).
-* Action inconnue ou forme invalide : erreur à la lecture du `host.yml`.
+* Action inconnue ou forme invalide : erreur avant toute action sur le
+  serveur.
 
 === Clés ZFS : coffre `[tang]` de la société et séquestre papier (`beryl keys`)
 

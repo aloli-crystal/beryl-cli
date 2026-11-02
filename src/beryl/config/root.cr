@@ -1086,6 +1086,14 @@ module Beryl::Config
       (val.as_a? || [] of YAML::Any).compact_map(&.as_s?)
     end
 
+    # `freebsd.after_unlock:` — actions sur les services qui vivent sur les
+    # données chiffrées (base, site…), jouées dans l'ORDRE par `beryl unlock`
+    # quand il vient de déverrouiller au moins une unité (au boot, leur
+    # démarrage a échoué : données absentes).
+    def after_unlock : Array(Beryl::Config::ServiceAction)
+      Beryl::Config::ServiceAction.list_from_yaml(freebsd_hash[YAML::Any.new("after_unlock")]?, "freebsd.after_unlock")
+    end
+
     # Hash `freebsd.zpool.*` — syntaxe single-pool legacy.
     def freebsd_zpool_hash : Hash(YAML::Any, YAML::Any)
       freebsd_hash[YAML::Any.new("zpool")]?.try(&.as_h?) || {} of YAML::Any => YAML::Any
@@ -1120,7 +1128,6 @@ module Beryl::Config
           mountpoint: h[YAML::Any.new("mountpoint")]?.try(&.as_s?),
           encryption: parse_encryption(h[YAML::Any.new("encryption")]?, name),
           profile: h[YAML::Any.new("profile")]?.try(&.as_s?),
-          after_unlock: Beryl::Config::ServiceAction.list_from_yaml(h[YAML::Any.new("after_unlock")]?, name),
         )
       end
     end

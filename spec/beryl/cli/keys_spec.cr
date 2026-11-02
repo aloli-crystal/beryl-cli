@@ -180,29 +180,24 @@ describe "Beryl::CLI::Unlock.read_key_option" do
   end
 end
 
-describe "Beryl::CLI::Unlock.actions_after" do
-  it "lit after_unlock du host.yml : ordre des pools puis des listes, sans doublon" do
+describe "freebsd.after_unlock" do
+  it "lit la liste ordonnée du host.yml ; vide par défaut" do
     with_config do |root|
+      web1(root).after_unlock.should be_empty
       path = File.join(root, "initech", "initech.example", "web-1.host.yml")
-      text = File.read(path)
-        .sub("      mountpoint: /data\n", "      mountpoint: /data\n      after_unlock:\n        - mysql-server: start\n        - nginx: restart\n")
-        .sub("      profile: standard\n", "      profile: standard\n      after_unlock: [{nginx: restart}, {cron: reload}]\n")
-      File.write(path, text)
-      host = web1(root)
+      File.write(path, File.read(path).sub("freebsd:\n", "freebsd:\n  after_unlock:\n    - mysql-server: start\n    - nginx: restart\n"))
       sa = Beryl::Config::ServiceAction
-      host.data_zpools.first.after_unlock.should eq([sa.new("mysql-server", "start"), sa.new("nginx", "restart")])
-      Beryl::CLI::Unlock.actions_after(host.zpools.reject(&.boot) + host.zpools.select(&.boot))
-        .should eq([sa.new("mysql-server", "start"), sa.new("nginx", "restart"), sa.new("cron", "reload")])
+      web1(root).after_unlock.should eq([sa.new("mysql-server", "start"), sa.new("nginx", "restart")])
     end
   end
 
-  it "action inconnue ou forme invalide → InvalidAfterUnlock" do
+  it "action inconnue ou forme invalide → InvalidServiceAction" do
     {"[{nginx: bounce}]", "[nginx]", "nginx", "[{'nginx; reboot': restart}]"}.each do |yaml|
-      expect_raises(Beryl::Config::InvalidAfterUnlock) do
-        Beryl::Config::ServiceAction.list_from_yaml(YAML.parse(yaml), "zdata")
+      expect_raises(Beryl::Config::InvalidServiceAction) do
+        Beryl::Config::ServiceAction.list_from_yaml(YAML.parse(yaml), "freebsd.after_unlock")
       end
     end
-    Beryl::Config::ServiceAction.list_from_yaml(YAML.parse("{mysql-server: start, nginx: restart}"), "zdata")
+    Beryl::Config::ServiceAction.list_from_yaml(YAML.parse("{mysql-server: start, nginx: restart}"), "freebsd.after_unlock")
       .map(&.service).should eq(["mysql-server", "nginx"])
   end
 end
