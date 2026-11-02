@@ -9,6 +9,16 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl sync <portée> <recette…>` : toutes les recettes nommées sont jouées
+
+`beryl sync quimeo-twin journald-persistent zypper-patch-timer zypper-remove
+--apply` ne jouait que la PREMIÈRE recette ; les suivantes étaient ignorées
+sans un mot (déjà le 30 oct. 2026 : `zypper-patch-timer` jamais appliqué).
+Toutes sont désormais jouées, dans l'ordre de résolution des dépendances,
+y compris par les tâches de flotte. Sur un domaine ou une société, celles
+que le serveur ne déclare pas sont sautées une à une (le serveur entier
+seulement si aucune ne reste).
+
 === `command` : le compte rendu ne recopie plus le script
 
 Avec `show_output: true`, une étape `command` affichait le texte entier de

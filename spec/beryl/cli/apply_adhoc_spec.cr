@@ -39,6 +39,27 @@ describe "Beryl::CLI::Apply.adhoc_requests" do
   end
 end
 
+describe "Beryl::CLI::Apply.adhoc_selection" do
+  declared = [req("monit"), req("zfs-scrub", {"scrub_schedule" => "0 3 * * 3"})]
+
+  it "joue TOUTES les recettes nommées, pas seulement la première" do
+    requests, skipped = Beryl::CLI::Apply.adhoc_selection(["monit", "zfs-scrub", "rotate-key"], declared, [] of String, restrict: false)
+    requests.map(&.name).should eq(["monit", "zfs-scrub", "rotate-key"])
+    skipped.should be_empty
+  end
+
+  it "sépare les recettes non déclarées sur un domaine ou une société" do
+    requests, skipped = Beryl::CLI::Apply.adhoc_selection(["nginx-lite", "zfs-scrub"], declared, [] of String, restrict: true)
+    requests.should eq([req("zfs-scrub", {"scrub_schedule" => "0 3 * * 3"})])
+    skipped.should eq(["nginx-lite"])
+  end
+
+  it "une recette nommée deux fois n'est jouée qu'une fois" do
+    requests, _ = Beryl::CLI::Apply.adhoc_selection(["monit", "monit"], declared, [] of String, restrict: true)
+    requests.size.should eq(1)
+  end
+end
+
 describe "Beryl::CLI::Apply.recipe_arguments" do
   declared = [
     req("monit", {"smarthost" => "relay.example.net"}),
