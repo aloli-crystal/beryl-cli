@@ -9,6 +9,15 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `command` : le compte rendu ne recopie plus le script
+
+Avec `show_output: true`, une étape `command` affichait le texte entier de
+son script puis sa sortie, sans séparation : le texte d'une branche non prise
+se lisait comme un résultat (`zypper-patch` semblait annoncer « REDÉMARRAGE
+NÉCESSAIRE » alors que zypper avait rendu 0). Un script de plusieurs lignes
+est désormais nommé « script de N lignes » (en dry-run, en échec et une fois
+appliqué) ; une commande d'une ligne reste citée, entre accents graves.
+
 === `after_unlock` : services relancés par `beryl unlock`
 
 Après un redémarrage, les services qui vivent sur des données chiffrées

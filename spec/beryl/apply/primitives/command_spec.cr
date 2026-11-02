@@ -38,6 +38,23 @@ describe Beryl::Apply::Command do
     FakeShell.readable(cmd).should contain("/usr/local/etc/app/app.env")
   end
 
+  it "script multi-ligne : le compte rendu montre la sortie, pas le texte du script" do
+    shell = FakeShell.new
+    shell.stub(/check-done/, exit_code: 1)
+    shell.stub(/zypper/, stdout: "(1/1) Installing: suseconnect-ng [done]\n")
+    yaml = "run: |\n  zypper patch\n  case \"$rc\" in\n    102) echo REDEMARRAGE ;;\n  esac\nunless: check-done\nshow_output: true\n"
+    r = prim("command").apply(shell, apply_params(yaml), dry_run: false, context: ctx)
+    r.outcome.should eq(Beryl::Apply::Outcome::Applied)
+    r.message.should eq("script de 4 lignes\n(1/1) Installing: suseconnect-ng [done]")
+  end
+
+  it "commande d'une ligne : nommée entre accents graves" do
+    shell = FakeShell.new
+    shell.stub(/check-done/, exit_code: 1)
+    r = prim("command").apply(shell, apply_params("run: do-it\nunless: check-done\n"), dry_run: false, context: ctx)
+    r.message.should eq("`do-it`")
+  end
+
   it "ne lance rien en dry-run (garde seulement)" do
     shell = FakeShell.new
     shell.stub(/check-done/, exit_code: 1)

@@ -62,15 +62,25 @@ module Beryl::Apply
       # La garde a répondu « non » ; ce qu'elle a écrit sur stderr (psql sur une
       # base absente…) reste visible dans le compte rendu.
       seen = guard_err.empty? ? "" : " — garde : #{guard_err}"
-      return StepResult.applied("lancerait : #{run} (dry-run)#{seen}") if dry_run
+      return StepResult.applied("lancerait : #{label(run)} (dry-run)#{seen}") if dry_run
 
       res = shell.exec(wrap(run, user, env_file), raise_on_error: false)
       unless res.success?
         detail = summary(res.stdout + res.stderr)
-        return StepResult.failed("`#{run}` en échec (code #{res.exit_code}) : #{detail.empty? ? "aucune sortie" : detail}")
+        return StepResult.failed("#{label(run)} en échec (code #{res.exit_code}) : #{detail.empty? ? "aucune sortie" : detail}")
       end
       out = res.stdout.strip
-      StepResult.applied(show && !out.empty? ? "#{run}\n#{out}" : run)
+      StepResult.applied(show && !out.empty? ? "#{label(run)}\n#{out}" : label(run))
+    end
+
+    # Commande telle que le compte rendu la nomme : une ligne entre accents
+    # graves, un script réduit à son nombre de lignes. Affiché en entier, un
+    # script se confondait avec sa sortie (`show_output`) : le texte d'une
+    # branche non prise (« REDÉMARRAGE NÉCESSAIRE ») se lisait comme un
+    # résultat.
+    private def label(run : String) : String
+      lines = run.lines.count { |l| !l.strip.empty? }
+      lines > 1 ? "script de #{lines} lignes" : "`#{run}`"
     end
 
     private def summary(text : String) : String
