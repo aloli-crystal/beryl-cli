@@ -96,7 +96,10 @@ module Beryl::CLI
       domain_hint : String? = nil
       positional = [] of String
       parser = OptionParser.new do |p|
-        p.banner = "USAGE : beryl update [portée]   (pkg update — rafraîchit le catalogue des dépôts)"
+        p.banner = "USAGE : beryl update [portée] [--apply]   (pkg update — rafraîchit le catalogue des dépôts)"
+        # Accepté par habitude (`--apply` partout) : `pkg update` ne touche à
+        # aucun paquet installé, il n'y a pas d'essai à blanc à lever.
+        p.on("--apply", "Sans effet : le catalogue est toujours rafraîchi (aucun paquet modifié)") { }
         p.on("-a NAME", "--account=NAME", "Forcer la société") { |v| account_hint = v }
         p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
         p.on("-h", "--help", "Aide") { puts p; exit 0 }

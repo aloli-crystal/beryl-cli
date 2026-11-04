@@ -9,6 +9,12 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl update --apply` accepté
+
+`beryl update quimeo.net --apply` était refusé (« option inconnue »).
+`--apply` est désormais accepté, sans effet : `pkg update` ne modifie aucun
+paquet installé, le catalogue est rafraîchi avec ou sans l'option.
+
 === `beryl sync <portée> <recette…>` : toutes les recettes nommées sont jouées
 
 `beryl sync quimeo-twin journald-persistent zypper-patch-timer zypper-remove
