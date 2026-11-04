@@ -9,6 +9,14 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl upgrade` : un catalogue injoignable n'annule plus la tâche
+
+Le canari `adi` (`pkg update` en échec : disque plein ou dépôt retiré)
+annulait les 26 autres serveurs de `quimeo.net`, alors que rien n'avait été
+installé. Le catalogue est désormais rafraîchi AVANT que le serveur compte
+comme modifié : son échec ne dit rien de la mise à jour, le canari passe au
+serveur suivant.
+
 === `beryl update --apply` accepté
 
 `beryl update quimeo.net --apply` était refusé (« option inconnue »).

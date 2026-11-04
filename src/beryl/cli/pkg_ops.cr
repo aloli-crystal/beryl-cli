@@ -577,6 +577,21 @@ module Beryl::CLI
         end
       end
 
+      # Catalogue rafraîchi AVANT de compter le serveur comme modifié : un
+      # dépôt injoignable ou un disque plein n'a rien installé, le canari
+      # passe au serveur suivant au lieu d'annuler toute la tâche.
+      if apply
+        FJ.report(FJ::RUNNING, "catalogue")
+        fetched, fetch_out = PkgOps.run_pkg(shell, "pkg update -q")
+        unless fetched
+          puts "───── #{h.short_name} ─────"
+          puts fetch_out.strip
+          puts
+          FJ.report(FJ::FAILED, "pkg update : #{fetch_out.strip.lines.last?}")
+          return :failed
+        end
+      end
+
       PkgOps.log("upgrade", "#{h.short_name} : paquets logiciels (hors #{BASE_REPO}) → pkg upgrade #{apply ? "-y" : "-n"}")
       FJ.report(FJ::RUNNING, apply ? "mise à jour des paquets" : "plan", touched: apply)
       ok, output = PkgOps.run_pkg(shell, software_cmd(apply, pkgs))
