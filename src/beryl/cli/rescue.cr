@@ -173,9 +173,10 @@ module Beryl::CLI::Rescue
       service_name = host.ovh_service_name || raise MissingProviderConfig.new(
         "champ `ovh.service_name` manquant pour #{host.fqdn}"
       )
+      ssh_key_name = ovh_ssh_key_name!(host)
       if dry_run
         log "DRY-RUN : OVHcloud → monitoring OVH coupé (remis en service par bootstrap / boot-hd)"
-        log "DRY-RUN : OVHcloud → prepare_rescue(#{service_name}, ssh_key=#{host.ovh_ssh_key_name || "<auto>"})"
+        log "DRY-RUN : OVHcloud → prepare_rescue(#{service_name}, ssh_key=#{ssh_key_name})"
         log "DRY-RUN : puis wait_for_ssh(#{host.rescue_ssh_host}:#{host.port} as root, timeout #{timeout.total_minutes.to_i}m)" if wait
         log "Pour exécuter : #{Beryl.rerun_hint("rescue", args, replace_host: {raw, Beryl::CLI::AccountUtils.host_ref(host)})}"
         return EXIT_OK
@@ -303,7 +304,7 @@ module Beryl::CLI::Rescue
       "champ `ovh.service_name` manquant pour #{host.fqdn}"
     )
     client = factory.call
-    ssh_key_name = host.ovh_ssh_key_name || auto_select_ovh_ssh_key(client, host)
+    ssh_key_name = ovh_ssh_key_name!(host)
     log "1 OVH : prepare_rescue pour #{service_name} (clé : #{ssh_key_name})"
     client.dedicated_servers.prepare_rescue(service_name: service_name, ssh_key_name: ssh_key_name)
   end
@@ -332,16 +333,25 @@ module Beryl::CLI::Rescue
     log "1 OVH : ⚠ monitoring OVH non coupé (#{ex.message}) — OVH peut ouvrir un incident pendant le redémarrage"
   end
 
-  private def self.auto_select_ovh_ssh_key(client : OvhApi::Client, host : Beryl::Config::ResolvedHost) : String
-    names = client.ssh_keys.list
-    raise MissingProviderConfig.new("aucune clé SSH OVH dans le compte (configurez `ovh.ssh_key_name` dans #{host.domain.source_path})") if names.empty?
-    if names.size == 1
-      log "1 OVH : clé SSH auto-sélectionnée (seule du compte) : #{names.first}"
-      names.first
-    else
-      log "1 OVH : plusieurs clés SSH, utilise #{names.first} (pour choisir explicitement, déclarez `ovh.ssh_key_name`)"
-      names.first
+  # Clé posée sur le rescue = `ovh.ssh_key_name` de la config (société,
+  # domaine ou hôte), JAMAIS choisie dans le compte OVH : wipe, bootstrap et
+  # ssh résolvent la clé locale depuis ce même réglage (`identity_file`). Un
+  # choix automatique ici ouvrirait un rescue que les commandes suivantes ne
+  # sauraient pas joindre. Vérifié AVANT tout redémarrage, dry-run compris.
+  private def self.ovh_ssh_key_name!(host : Beryl::Config::ResolvedHost) : String
+    name = host.ovh_ssh_key_name || raise MissingProviderConfig.new(
+      "`ovh.ssh_key_name` manquant pour #{host.fqdn} : déclarez-le (bloc `ovh:` à la racine) " \
+      "dans le _default.yml de la société, du domaine ou dans le host.yml — " \
+      "wipe et bootstrap en déduisent la clé locale"
+    )
+    path = host.identity_file
+    unless path && File.exists?(path)
+      raise MissingProviderConfig.new(
+        "clé locale de `ovh.ssh_key_name: #{name}` introuvable (#{path || "?"}) : " \
+        "le rescue serait injoignable par wipe et bootstrap"
+      )
     end
+    name
   end
 
   # Flow Scaleway (3 étapes numérotées dans les logs pour clarté).

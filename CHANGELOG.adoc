@@ -9,6 +9,15 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl rescue` : la clé SSH vient de la configuration, jamais du compte OVH
+
+Sans `ovh.ssh_key_name`, `beryl rescue` prenait la première clé du compte
+OVH, alors que `wipe`, `bootstrap` et `ssh` en déduisent la clé locale et
+échouaient ensuite (« Permission denied ») sur un rescue pourtant prêt.
+`beryl rescue` exige désormais `ovh.ssh_key_name` (société, domaine ou
+hôte) et la clé locale correspondante, vérifiées avant tout redémarrage,
+essai à blanc compris.
+
 === `beryl upgrade` : un catalogue injoignable n'annule plus la tâche
 
 Le canari `adi` (`pkg update` en échec : disque plein ou dépôt retiré)
