@@ -484,7 +484,10 @@ module Beryl::CLI
       # Plusieurs serveurs en DRY-RUN : par serveur, les seules mises à jour
       # en attente (vulnérables marquées) ; le plan complet de pkg reste sur un
       # serveur nommé.
-      return fleet_summary(config_root, hosts, skipped, recipes_only) if hosts.size > 1 && !apply
+      if hosts.size > 1 && !apply
+        width = sequential ? 1 : Beryl::CLI::FleetJob.parallel_for(hosts, parallel)
+        return fleet_summary(config_root, hosts, skipped, recipes_only, width)
+      end
       skipped.each do |h|
         PkgOps.log("upgrade", "#{h.short_name} : pas encore installé (installed: false) → SKIP")
       end
@@ -646,15 +649,57 @@ module Beryl::CLI
     # Sortie de flotte (dry-run, plusieurs serveurs) : par serveur, les mises
     # à jour en attente au format de pkg, vulnérables marquées ; ligne
     # d'action seulement s'il y a quelque chose à faire.
-    private def self.fleet_summary(config_root, hosts, skipped, recipes_only : Bool) : Int32
+    #
+    # Les serveurs sont examinés `width` à la fois (`--parallel`, réglage
+    # `parallel:`), chacun annoncé sur STDERR dès qu'il a fini : sans cela,
+    # une société d'une trentaine de serveurs (pkg update, plan, `pkg audit
+    # -F` chacun) restait muette plusieurs minutes. La sortie finale garde
+    # l'ordre de la portée.
+    private def self.fleet_summary(config_root, hosts, skipped, recipes_only : Bool, width : Int32) : Int32
+      PkgOps.log("upgrade", "DRY-RUN : examen de #{hosts.size} serveurs (#{width} à la fois)…")
       states = skipped.map { |h| HostState.new(h.fqdn, true, NOTE_SKIPPED) } +
-               hosts.map { |h| probe_one(config_root, h, recipes_only) }
+               probe_all(config_root, hosts, recipes_only, width)
       puts fleet_output(states)
       if hint = fleet_hint(states)
         puts
         puts hint
       end
       states.all?(&.ok) ? EXIT_OK : EXIT_FAILED
+    end
+
+    # `probe_one` sur chaque serveur, `width` fibres à la fois (les commandes
+    # SSH sont des processus : leur attente ne bloque pas les autres). Une
+    # ligne de progression par serveur terminé ; résultats dans l'ordre de
+    # `hosts`.
+    private def self.probe_all(config_root, hosts, recipes_only : Bool, width : Int32) : Array(HostState)
+      results = Array(HostState?).new(hosts.size, nil)
+      slots = Channel(Nil).new(width)
+      done = Channel(Nil).new
+      finished = 0
+      hosts.each_with_index do |h, i|
+        slots.send(nil)
+        spawn do
+          st = probe_one(config_root, h, recipes_only)
+          results[i] = st
+          finished += 1
+          PkgOps.log("upgrade", "[#{finished}/#{hosts.size}] #{progress_note(st)}")
+        ensure
+          slots.receive
+          done.send(nil)
+        end
+      end
+      hosts.size.times { done.receive }
+      results.map(&.not_nil!)
+    end
+
+    # Ligne de progression d'un serveur examiné. Pur.
+    def self.progress_note(st : HostState) : String
+      return "#{st.fqdn} : #{st.note}" unless st.ok
+      parts = [] of String
+      parts << "#{st.lines.size} mise(s) à jour" unless st.lines.empty?
+      n = st.vulns.try(&.size) || 0
+      parts << "#{n} vulnérable(s)" if n > 0
+      "#{st.fqdn} : #{parts.empty? ? st.note : parts.join(", ")}"
     end
 
     # État d'un serveur, en LECTURE SEULE : plan `pkg upgrade -n` et paquets

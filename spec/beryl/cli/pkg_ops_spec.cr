@@ -306,3 +306,14 @@ describe "Beryl::CLI::Upgrade.fleet_hint" do
     hint.should contain("beryl upgrade <portée> --apply")
   end
 end
+
+describe "Beryl::CLI::Upgrade.progress_note" do
+  it "résume chaque serveur examiné : à jour, en attente, injoignable" do
+    hs = Beryl::CLI::Upgrade::HostState
+    Beryl::CLI::Upgrade.progress_note(hs.new("a", true, "à jour", vulns: [] of String)).should eq("a : à jour")
+    Beryl::CLI::Upgrade.progress_note(
+      hs.new("b", true, "à jour", ["python312: 3.12.14_1 -> 3.12.15 [FreeBSD-ports]"], %w[python312-3.12.14_1])
+    ).should eq("b : 1 mise(s) à jour, 1 vulnérable(s)")
+    Beryl::CLI::Upgrade.progress_note(hs.new("c", false, "SSH KO : timeout", vulns: nil)).should eq("c : SSH KO : timeout")
+  end
+end

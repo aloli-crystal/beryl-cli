@@ -9,6 +9,17 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl upgrade <société>` : examen en parallèle, avec progression
+
+En essai à blanc sur plusieurs serveurs, chaque serveur était examiné l'un
+après l'autre (`pkg update`, plan, `pkg audit -F`) et rien ne s'affichait
+avant la fin : plusieurs minutes de silence pour une société d'une
+trentaine de serveurs. Les serveurs sont désormais examinés plusieurs à la
+fois (`--parallel`, réglage `parallel:`, 4 par défaut ; `--no-parallel`
+pour un seul), chacun annoncé dès qu'il a fini
+(`[3/27] ah.example.net : 2 mise(s) à jour`). Le récapitulatif final
+garde l'ordre de la portée.
+
 === `beryl rescue` : la clé SSH vient de la configuration, jamais du compte OVH
 
 Sans `ovh.ssh_key_name`, `beryl rescue` prenait la première clé du compte
