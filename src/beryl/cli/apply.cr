@@ -472,6 +472,10 @@ module Beryl::CLI::Apply
       os: os,
     )
     recipe_args = recipe_arguments(requests, declared, recipes.map(&.name))
+    unless adhoc_recipes.empty?
+      full = resolver.resolve(declared.map(&.name).uniq)
+      recipe_args = imposed_by_declared(full, recipe_args, recipes.map(&.name))
+    end
     report = Beryl::Apply::Executor.new(shell, dry_run, context).run(recipes, recipe_args)
 
     log "apply terminé pour #{host.fqdn}#{dry_run ? " (dry-run)" : ""} — #{report.summary_line}"
@@ -686,6 +690,17 @@ module Beryl::CLI::Apply
       args[name] = own.map(&.arguments) unless own.empty?
     end
     args
+  end
+
+  # Recettes nommées : les arguments qu'imposent aux dépendances (`requires:`
+  # en forme map) les recettes DÉCLARÉES du serveur, même non nommées.
+  # `beryl sync aloli static-site-https` tirait `nginx-lite` sans le
+  # `package: nginx-lite-aloli` de `nginx-lite-aloli` : paquet maison
+  # remplacé par l'officiel, sans HTTP/2 (loulou, 9 nov. 2026). Limité aux
+  # recettes jouées.
+  def self.imposed_by_declared(full : Array(Beryl::Apply::Recipe), recipe_args : Hash(String, Array(Hash(String, String))),
+                               resolved : Array(String)) : Hash(String, Array(Hash(String, String)))
+    Beryl::Apply::Executor.merge_required_args(full, recipe_args).select { |name, _| resolved.includes?(name) }
   end
 
   # Recettes d'entrée déclarées en config (`apply_recipes:`), cascadées

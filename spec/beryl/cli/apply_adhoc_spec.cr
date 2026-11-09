@@ -60,6 +60,32 @@ describe "Beryl::CLI::Apply.adhoc_selection" do
   end
 end
 
+private def recipe(name : String, requires_args = {} of String => Hash(String, String)) : Beryl::Apply::Recipe
+  Beryl::Apply::Recipe.new(name, "", requires_args.keys, {} of String => YAML::Any, {} of String => YAML::Any,
+    [] of Beryl::Apply::Step, "<spec>", requires_args: requires_args)
+end
+
+describe "Beryl::CLI::Apply.imposed_by_declared" do
+  # loulou : nginx-lite-aloli (déclarée) impose le paquet maison à nginx-lite.
+  full = [
+    recipe("nginx-lite"),
+    recipe("nginx-lite-aloli", {"nginx-lite" => {"package" => "nginx-lite-aloli"}}),
+    recipe("static-site-https", {"nginx-lite" => {} of String => String}),
+  ]
+
+  it "une dépendance tirée par une recette nommée reçoit les arguments imposés par une déclarée non nommée" do
+    args = Beryl::CLI::Apply.imposed_by_declared(full, {"static-site-https" => [{"http2" => "http2 on;"}]},
+      ["nginx-lite", "static-site-https"])
+    args["nginx-lite"].should eq([{"package" => "nginx-lite-aloli"}])
+    args["static-site-https"].should eq([{"http2" => "http2 on;"}])
+  end
+
+  it "rien pour une recette qui n'est pas jouée" do
+    args = Beryl::CLI::Apply.imposed_by_declared(full, {} of String => Array(Hash(String, String)), ["static-site-https"])
+    args.has_key?("nginx-lite").should be_false
+  end
+end
+
 describe "Beryl::CLI::Apply.recipe_arguments" do
   declared = [
     req("monit", {"smarthost" => "relay.example.net"}),

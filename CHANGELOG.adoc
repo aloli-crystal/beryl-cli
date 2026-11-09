@@ -9,6 +9,16 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl sync <portée> <recette…>` : les dépendances gardent les arguments imposés par les recettes déclarées
+
+`beryl sync aloli static-site-https --apply` tirait `nginx-lite` avec ses
+défauts : le `package: nginx-lite-aloli` imposé par la recette déclarée
+`nginx-lite-aloli` (non nommée) était perdu. Sur loulou (9 nov. 2026), le
+paquet maison a été remplacé par le nginx-lite officiel, sans HTTP/2, et
+nginx ne se rechargeait plus. Les arguments qu'imposent les recettes
+déclarées du serveur s'appliquent désormais aux recettes jouées, nommées
+ou non.
+
 === `mariadb-secure` : tous les users anonymes supprimés, étape sautée si déjà faite
 
 L'installation de MariaDB crée aussi un user anonyme au nom de la machine
