@@ -9,6 +9,16 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `mariadb-secure` : tous les users anonymes supprimés, étape sautée si déjà faite
+
+L'installation de MariaDB crée aussi un user anonyme au nom de la machine
+(`''@'too'`), que la primitive laissait en place (seuls `''@'localhost'` et
+`''@'%'` étaient supprimés) : ils le sont désormais tous, quel que soit
+l'hôte. L'état réel est lu par le socket (empreinte du mot de passe du
+coffre calculée sur le poste, rien de secret envoyé) : tout en place →
+étape sautée, au lieu d'être rejouée à chaque `beryl sync` et de relancer
+MariaDB par les `service-restart: { if_changed: true }` qui suivent.
+
 === `beryl upgrade <société>` : examen en parallèle, avec progression
 
 En essai à blanc sur plusieurs serveurs, chaque serveur était examiné l'un

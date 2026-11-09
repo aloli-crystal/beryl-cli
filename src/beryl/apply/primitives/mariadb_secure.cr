@@ -1,3 +1,4 @@
+require "digest/sha1"
 require "../primitive"
 
 module Beryl::Apply
@@ -16,6 +17,16 @@ module Beryl::Apply
   #         socket: /var/run/mysql/mysql.sock   # optionnel
   #         conf_path: /usr/local/etc/mysql/conf.d/zz-beryl-hardening.cnf  # optionnel
   #         service: mysql-server               # optionnel (restart si conf posée)
+  #
+  # Idempotence : état lu en LECTURE SEULE par le socket (OS-root), comparé
+  # ici — rien de secret n'est envoyé au serveur pour cette vérification :
+  #   * ligne `root@localhost` de `mysql.global_priv` (JSON) : `unix_socket`
+  #     présent ET empreinte `mysql_native_password` du mot de passe du
+  #     coffre (calculée localement) ;
+  #   * aucun user anonyme, pas de base `test` ;
+  #   * `skip-networking` dans `conf_path`.
+  # Tout est déjà en place → Skipped (sinon « applied » à chaque passage, et
+  # les `service-restart: { if_changed: true }` qui suivent relançaient).
   class MariadbSecure < Primitive
     DEFAULT_SOCKET = "/var/run/mysql/mysql.sock"
     DEFAULT_CONF   = "/usr/local/etc/mysql/conf.d/zz-beryl-hardening.cnf"
@@ -29,15 +40,56 @@ module Beryl::Apply
     # l'accès OS-root par socket (donc les re-runs beryl marchent) tout en
     # posant un mot de passe. Pur, exposé pour test. Le mot de passe est
     # échappé pour SQL (`'` doublée).
+    #
+    # Users anonymes : TOUS, quel que soit l'hôte. L'installation en crée
+    # aussi un au nom de la machine (`''@'too'`, vu le 8 nov. 2026), que
+    # `''@'localhost'` / `''@'%'` seuls laissaient en place. Bloc anonyme
+    # MariaDB (`WHILE … EXECUTE IMMEDIATE`), d'où le `DELIMITER` du client :
+    # un à la fois, relu à chaque tour, plutôt qu'un curseur sur la table que
+    # chaque `DROP USER` modifie (un échec lève une erreur : pas de boucle
+    # infinie).
     def self.build_sql(password : String) : String
       esc = password.gsub("'", "''")
       <<-SQL
         ALTER USER 'root'@'localhost' IDENTIFIED VIA unix_socket OR mysql_native_password USING PASSWORD('#{esc}');
-        DROP USER IF EXISTS ''@'localhost';
-        DROP USER IF EXISTS ''@'%';
+        DELIMITER //
+        BEGIN NOT ATOMIC
+          DECLARE anon_host VARCHAR(255);
+          WHILE (SELECT COUNT(*) FROM mysql.global_priv WHERE User = '') > 0 DO
+            SELECT Host INTO anon_host FROM mysql.global_priv WHERE User = '' LIMIT 1;
+            EXECUTE IMMEDIATE CONCAT('DROP USER ''''@', QUOTE(anon_host));
+          END WHILE;
+        END //
+        DELIMITER ;
         DROP DATABASE IF EXISTS test;
         FLUSH PRIVILEGES;
         SQL
+    end
+
+    # Vrai si la sortie de `state_query` décrit un MariaDB déjà durci avec ce
+    # mot de passe. L'ordre des méthodes dans le JSON (`auth_or`) varie selon
+    # les versions : on cherche seulement leur présence. Pur.
+    def self.hardened?(output : String, password : String) : Bool
+      lines = output.lines.map(&.strip)
+      return false unless lines.size == 3
+      priv, anonymous, test_db = lines
+      priv.includes?("unix_socket") && priv.includes?(native_hash(password)) &&
+        anonymous == "0" && test_db == "0"
+    end
+
+    # Empreinte `mysql_native_password` (= `PASSWORD()` de MariaDB) :
+    # `*` + SHA1(SHA1(mdp)) en hexadécimal majuscule. Pure.
+    def self.native_hash(password : String) : String
+      "*" + Digest::SHA1.digest(Digest::SHA1.digest(password)).hexstring.upcase
+    end
+
+    # Lecture de l'état (une valeur par ligne, `mysql -N -B`) : JSON `Priv`
+    # de root@localhost, nombre d'users anonymes, présence de la base `test`.
+    def self.state_query(socket : String) : String
+      sql = "SELECT Priv FROM mysql.global_priv WHERE User='root' AND Host='localhost'; " \
+            "SELECT COUNT(*) FROM mysql.global_priv WHERE User=''; " \
+            "SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='test';"
+      "mysql --socket=#{Process.quote(socket)} -u root -N -B -e #{Process.quote(sql)}"
     end
 
     def apply(shell : Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Context) : StepResult
@@ -52,6 +104,12 @@ module Beryl::Apply
         "test -f #{Process.quote(conf_path)} && grep -q '^skip-networking' #{Process.quote(conf_path)}",
         raise_on_error: false,
       ).success?
+
+      # MariaDB arrêté ou absent (premier passage) : sonde en échec → à faire.
+      state = shell.exec(self.class.state_query(socket), raise_on_error: false)
+      if conf_present && state.success? && self.class.hardened?(state.stdout, pwd)
+        return StepResult.skipped("MariaDB déjà durci (mdp root, unix_socket, ni anonymes ni base test, skip-networking)")
+      end
 
       return StepResult.applied("durcissement MariaDB (dry-run)") if dry_run
 
