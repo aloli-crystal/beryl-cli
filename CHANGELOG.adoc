@@ -9,6 +9,12 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== CI : ameba de nouveau au vert
+
+Le linter refusait le heredoc d'une spec de `pkg-install` (corps pas
+indenté de 2 espaces, `Style/HeredocIndent`) depuis la 0.6.136 : toutes
+les CI Linux échouaient depuis le 27 oct. 2026, specs comprises (sautées).
+
 === `beryl sync <portée> <recette…>` : les dépendances gardent les arguments imposés par les recettes déclarées
 
 `beryl sync aloli static-site-https --apply` tirait `nginx-lite` avec ses

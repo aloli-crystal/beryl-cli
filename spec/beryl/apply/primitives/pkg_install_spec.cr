@@ -58,12 +58,12 @@ describe Beryl::Apply::PkgInstall do
     shell = FakeShell.new
     shell.stub(/pkg info -q/, stdout: "")
     shell.stub(/pkg install -n/, stdout: <<-OUT)
-    New packages to be INSTALLED:
-    \tgmp: 6.3.0 [aloli]
-    \tmpfr: 4.2.2,1 [aloli]
-    \tnginx-lite-aloli: 1.28.0 [aloli]
-    \tsmartmontools: 7.5_2 [FreeBSD-ports]
-    OUT
+      New packages to be INSTALLED:
+      \tgmp: 6.3.0 [aloli]
+      \tmpfr: 4.2.2,1 [aloli]
+      \tnginx-lite-aloli: 1.28.0 [aloli]
+      \tsmartmontools: 7.5_2 [FreeBSD-ports]
+      OUT
     r = Beryl::Apply::Primitive["pkg-install"]?.not_nil!.apply(shell,
       {"packages" => YAML.parse("[smartmontools, nginx-lite-aloli, outil]")}, dry_run: false,
       context: Beryl::Apply::Context.new)
