@@ -1,3 +1,4 @@
+require "./scope"
 require "option_parser"
 require "./option_errors"
 require "api-scaleway/scaleway_api"
@@ -50,6 +51,8 @@ module Beryl::CLI::AddProvider
     end
     Beryl::CLI.handle_option_errors(parser).parse(args)
 
+    # Un seul argument (Scope.args) : un argument de plus est refusé, jamais ignoré.
+    return EXIT_USAGE unless Beryl::CLI::Scope.args("add-provider", positional)
     raw = positional.first?
     unless raw
       STDERR.puts "beryl : provider non précisé. USAGE : beryl add-provider <société>/<provider>"

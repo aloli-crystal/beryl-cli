@@ -38,21 +38,19 @@ module Beryl::CLI::Monitoring
       p.unknown_args { |rest, _| positional = rest }
     end
     Beryl::CLI.handle_option_errors(parser).parse(args)
-    # `a, b, c` (espaces après les virgules, coupés par le shell) → `a,b,c`.
-    positional = Beryl::CLI::Scope.join_list(positional)
-
-    state, scope = split_args(positional)
+    scope, values = Beryl::CLI::Scope.args("monitoring", positional, "états") || return EXIT_USAGE
     unless scope
       STDERR.puts "beryl : portée non précisée. USAGE : beryl monitoring <portée> [on|off] [--apply]"
       return EXIT_USAGE
     end
-
-    root = Beryl::Config::Root.load(config_root)
-    hosts = Beryl::CLI::Info.scoped_hosts(root, scope).select { |h| h.provider == "ovh" && h.ovh_service_name }
-    if hosts.empty?
-      STDERR.puts "beryl : aucun serveur OVH dans la portée #{scope}."
+    state = values.first?
+    if values.size > 1 || (state && !STATES.includes?(state))
+      STDERR.puts "beryl monitoring : état attendu après la portée : on ou off (reçu : #{values.join(",")})."
       return EXIT_USAGE
     end
+
+    root = Beryl::Config::Root.load(config_root)
+    hosts = Beryl::CLI::Scope.hosts("monitoring", root, scope, "aucun serveur OVH") { |h| h.provider == "ovh" && !h.ovh_service_name.nil? } || return EXIT_USAGE
 
     code = EXIT_OK
     hosts.group_by(&.account_name).each do |account, group|
@@ -73,13 +71,6 @@ module Beryl::CLI::Monitoring
   rescue ex : Beryl::CLI::Credentials::MissingCredentials
     STDERR.puts "beryl : #{ex.message}"
     EXIT_USAGE
-  end
-
-  # {état demandé (on/off ou nil), portée} — dans n'importe quel ordre. Pur.
-  def self.split_args(positional : Array(String)) : {String?, String?}
-    state = positional.find { |a| STATES.includes?(a) }
-    scope = positional.find { |a| !STATES.includes?(a) }
-    {state, scope}
   end
 
   private def self.line(fqdn : String, client : OvhApi::Client, sn : String, state : String?, dry_run : Bool) : String

@@ -50,7 +50,7 @@ module Beryl::CLI::Apply
     positional = [] of String
 
     parser = OptionParser.new do |p|
-      p.banner = "USAGE : beryl sync <host|groupe|domaine|société|a,b,…> [recette…] [options]"
+      p.banner = "USAGE : beryl sync <host|groupe|domaine|société|a,b,…> [recette,…] [options]"
       p.on("-a NAME", "--account=NAME", "Forcer la société (si ambiguë)") { |v| account_hint = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
       p.on("--apply", "Applique réellement les changements (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false }
@@ -68,10 +68,9 @@ module Beryl::CLI::Apply
       p.unknown_args { |rest, _| positional = rest }
     end
     Beryl::CLI.handle_option_errors(parser).parse(args)
-    # `a, b, c` (espaces après les virgules, coupés par le shell) → `a,b,c`.
-    positional = Beryl::CLI::Scope.join_list(positional)
-
     return Beryl::CLI::FleetJob.status("sync", positional.first?) if status
+    # Portée puis recettes, chacune une liste à virgules (Scope.args).
+    raw, adhoc_recipes = Beryl::CLI::Scope.args("sync", positional, "recettes") || return EXIT_USAGE
     if jd = job_dir
       return Beryl::CLI::FleetJob.run(jd, Beryl::CLI::FleetJob.self_cmd(config_root))
     end
@@ -80,15 +79,13 @@ module Beryl::CLI::Apply
       return EXIT_USAGE
     end
 
-    raw = positional.first?
     unless raw
-      STDERR.puts "beryl : portée non précisée. USAGE : beryl sync <host|domaine|société> [recette…]"
+      STDERR.puts "beryl : portée non précisée. USAGE : beryl sync <host|domaine|société> [recette,…]"
       return EXIT_USAGE
     end
-    # Positionnels suivants, optionnels : recettes nommées à appliquer en
-    # ONE-OFF (non persistées dans la config), ex. une rotation de clé. Toutes
-    # sont jouées (seule la première l'était, les autres ignorées sans un mot).
-    adhoc_recipes = positional.size > 1 ? positional[1..] : [] of String
+    # Liste après la portée, optionnelle : recettes nommées à appliquer en
+    # ONE-OFF (non persistées dans la config), ex. une rotation de clé.
+    adhoc_recipes = adhoc_recipes.uniq
     parsed = Beryl::CLI::AccountUtils.split_host_path(raw)
     host_name = parsed[:host]
     account_hint ||= parsed[:account]
@@ -129,6 +126,18 @@ module Beryl::CLI::Apply
       STDERR.puts "beryl : aucun serveur installé dans la portée #{raw}."
       return EXIT_USAGE
     end
+    # Recette nommée jouée sur AUCUN serveur de la portée (faute de frappe,
+    # recette déclarée nulle part) : refus avant de rien lancer, au lieu d'un
+    # « sautée » sur chaque serveur.
+    unless adhoc_recipes.empty?
+      restricted = hosts.reject { |h| single_host || named.includes?(h.fqdn) }
+      unused = unused_adhoc(config_root, hosts, adhoc_recipes) { |h| declared_only || restricted.includes?(h) }
+      unless unused.empty?
+        STDERR.puts "beryl sync : recette(s) jouée(s) sur aucun serveur de la portée #{raw} : #{unused.join(", ")} " \
+                    "(inconnue, ou déclarée par aucun d'eux dans apply_recipes:) — rien n'est lancé."
+        return EXIT_USAGE
+      end
+    end
 
     # `--apply` sur plusieurs serveurs : tâche de flotte PAR DÉFAUT (canari puis
     # N à la fois, cf. FleetJob ; N = --parallel, sinon le réglage `parallel:`,
@@ -146,7 +155,7 @@ module Beryl::CLI::Apply
         end
         fqdns = [first.fqdn] + (fqdns - [first.fqdn])
       end
-      child_args = adhoc_recipes + ["--apply"]
+      child_args = (adhoc_recipes.empty? ? [] of String : [adhoc_recipes.join(",")]) + ["--apply"]
       # Recette ponctuelle : chaque enfant ne voit qu'UN serveur (nommé) ; la
       # règle « seulement là où elle est déclarée » lui est passée, sauf si
       # TOUS les serveurs de la portée ont été nommés.
@@ -295,32 +304,15 @@ module Beryl::CLI::Apply
 
     search_path = recipes_search_path(config_root, host)
 
-    # Recettes d'ENTRÉE : la liste `apply_recipes:` cascadée du merge (état
-    # désiré, versionné) + recettes-shell dérivées des users (ex. `shell:
-    # oh-my-zsh` → recette oh-my-zsh avec user: <nom>) ; ou, en mode
-    # ponctuel, la seule recette nommée en argument.
-    declared = apply_recipes_list(host) + user_shell_recipe_requests(host)
-    # `skip_recipes:` du host.yml : recettes héritées (défauts société ou
-    # domaine) à NE PAS jouer sur cet hôte. Retirées AVANT la résolution, pour
-    # que leurs dépendances (`requires:`) ne passent pas non plus.
     unless (skip = host.skip_recipes).empty?
-      if (removed = declared.select { |req| skip.includes?(req.name) }).size > 0
-        log "écartées (skip_recipes de #{host.fqdn}) : #{removed.map(&.name).uniq.join(", ")}"
-        declared = declared.reject { |req| skip.includes?(req.name) }
-      end
+      removed = (apply_recipes_list(host) + user_shell_recipe_requests(host)).select { |req| skip.includes?(req.name) }
+      log "écartées (skip_recipes de #{host.fqdn}) : #{removed.map(&.name).uniq.join(", ")}" unless removed.empty?
     end
+    declared = declared_requests(host)
     resolver = Beryl::Apply::Resolver.new(search_path)
     requests = declared
     unless adhoc_recipes.empty?
-      # Recettes tirées par les déclarées (`requires:`) : utile seulement
-      # sur une portée multiple, pour une recette non déclarée en direct.
-      closure =
-        if restrict_adhoc && adhoc_recipes.any? { |r| declared.none? { |req| req.name == r } }
-          resolver.resolve(declared.map(&.name).uniq).map(&.name)
-        else
-          [] of String
-        end
-      requests, undeclared = adhoc_selection(adhoc_recipes, declared, closure, restrict_adhoc)
+      requests, undeclared = adhoc_selection(adhoc_recipes, declared, adhoc_closure(resolver, declared, adhoc_recipes, restrict_adhoc), restrict_adhoc)
       undeclared.each { |r| log "#{host.fqdn} : recette `#{r}` non déclarée (apply_recipes:) → sautée." }
       if requests.empty?
         Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::UPTODATE,
@@ -659,6 +651,50 @@ module Beryl::CLI::Apply
     return own unless own.empty?
     return [RecipeRequest.new(name, {} of String => String)] if closure.includes?(name) || !restrict
     nil
+  end
+
+  # Recettes d'ENTRÉE d'un host : la liste `apply_recipes:` cascadée du
+  # merge (état désiré, versionné) + recettes-shell dérivées des users (ex.
+  # `shell: oh-my-zsh` → recette oh-my-zsh avec user: <nom>), moins
+  # `skip_recipes:` (recettes héritées à NE PAS jouer sur cet hôte, retirées
+  # AVANT la résolution pour que leurs dépendances ne passent pas non plus).
+  def self.declared_requests(host : Beryl::Config::ResolvedHost) : Array(RecipeRequest)
+    declared = apply_recipes_list(host) + user_shell_recipe_requests(host)
+    skip = host.skip_recipes
+    skip.empty? ? declared : declared.reject { |req| skip.includes?(req.name) }
+  end
+
+  # Recettes tirées par les déclarées (`requires:`) : utile seulement sur
+  # une portée multiple, pour une recette ponctuelle non déclarée en direct.
+  def self.adhoc_closure(resolver : Beryl::Apply::Resolver, declared : Array(RecipeRequest), adhoc : Array(String), restrict : Bool) : Array(String)
+    return [] of String unless restrict && adhoc.any? { |r| declared.none? { |req| req.name == r } }
+    resolver.resolve(declared.map(&.name).uniq).map(&.name)
+  end
+
+  # Recettes ponctuelles jouées sur AUCUN des `hosts` (`restrict` : serveur
+  # pris dans un domaine ou une société, où seules les recettes déclarées
+  # passent) ; une recette introuvable n'est jouée nulle part.
+  def self.unused_adhoc(config_root : String, hosts : Array(Beryl::Config::ResolvedHost), adhoc : Array(String),
+                        & : Beryl::Config::ResolvedHost -> Bool) : Array(String)
+    used = Set(String).new
+    hosts.each do |h|
+      resolver = Beryl::Apply::Resolver.new(recipes_search_path(config_root, h))
+      restrict = yield h
+      declared = declared_requests(h)
+      closure = begin
+        adhoc_closure(resolver, declared, adhoc, restrict)
+      rescue
+        [] of String
+      end
+      requests, _ = adhoc_selection(adhoc, declared, closure, restrict)
+      requests.each do |req|
+        resolver.resolve([req.name])
+        used << req.name
+      rescue Beryl::Apply::Resolver::RecipeNotFound
+      end
+      break if used.size == adhoc.size
+    end
+    adhoc.reject { |r| used.includes?(r) }
   end
 
   # Plusieurs recettes ponctuelles : {requêtes à jouer, recettes sautées}

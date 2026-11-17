@@ -252,16 +252,11 @@ module Beryl::CLI::Keys
   # Serveurs de la portée (premier positionnel), nil après un message
   # d'erreur si elle est absente ou vide.
   private def scoped(config_root : String, positional : Array(String), sub : String) : Array(Beryl::Config::ResolvedHost)?
-    joined = Beryl::CLI::Scope.join_list(positional)
-    unless scope = joined.first?
+    scope, _ = Beryl::CLI::Scope.args("keys #{sub}", positional) || return
+    unless scope
       STDERR.puts "beryl keys #{sub} : portée manquante (serveur, groupe, domaine, société ou liste)."
       return
     end
-    hosts = Beryl::CLI::Info.scoped_hosts(Beryl::Config::Root.load(config_root), scope)
-    if hosts.empty?
-      STDERR.puts "beryl keys #{sub} : aucun serveur pour la portée #{scope}."
-      return
-    end
-    hosts
+    Beryl::CLI::Scope.hosts("keys #{sub}", Beryl::Config::Root.load(config_root), scope) { true }
   end
 end

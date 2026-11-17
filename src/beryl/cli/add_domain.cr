@@ -1,3 +1,4 @@
+require "./scope"
 require "option_parser"
 require "./option_errors"
 require "./fmt"
@@ -57,6 +58,8 @@ module Beryl::CLI::AddDomain
     end
     Beryl::CLI.handle_option_errors(parser).parse(args)
 
+    # Un seul argument (Scope.args) : un argument de plus est refusé, jamais ignoré.
+    return EXIT_USAGE unless Beryl::CLI::Scope.args("add-domain", positional)
     raw = positional.first?
     unless raw
       STDERR.puts "beryl : domaine non précisé. USAGE : beryl add-domain <société>/<domaine>"

@@ -1,3 +1,4 @@
+require "./scope"
 require "option_parser"
 require "./option_errors"
 require "../config"
@@ -41,6 +42,8 @@ module Beryl::CLI::FollowInstall
     end
     Beryl::CLI.handle_option_errors(parser).parse(args)
 
+    # Un seul argument (Scope.args) : un argument de plus est refusé, jamais ignoré.
+    return EXIT_USAGE unless Beryl::CLI::Scope.args("follow-install", positional)
     raw = positional.first?
     unless raw
       STDERR.puts "beryl : hôte non précisé. USAGE : beryl follow-install <host>"

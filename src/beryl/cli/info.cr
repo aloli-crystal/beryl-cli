@@ -76,12 +76,14 @@ module Beryl::CLI
         p.unknown_args { |rest, _| positional = rest }
       end
       Beryl::CLI.handle_option_errors(parser).parse(args)
-      # `a, b, c` (espaces après les virgules, coupés par le shell) → `a,b,c`.
-      positional = Beryl::CLI::Scope.join_list(positional)
+      raw_scope, _ = Beryl::CLI::Scope.args("info", positional) || return EXIT_USAGE
+      positional = raw_scope ? [raw_scope] : [] of String
 
       return render_freebsd_releases if freebsd_releases # réseau seul, pas de config requise
 
       root = Beryl::Config::Root.load(config_root)
+      # Chaque élément de la portée doit désigner au moins un serveur.
+      return EXIT_USAGE if raw_scope && !Beryl::CLI::Scope.hosts("info", root, raw_scope) { true }
       return refresh_metadata(root, positional.first?, no_commit) if refresh
       return render_ovh_network(root, positional.first?) if ovh_network
       if versions

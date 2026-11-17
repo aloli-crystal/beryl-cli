@@ -5,12 +5,13 @@ require "toml"
 require "../config"
 require "../xdg"
 require "./config_git"
+require "./scope"
 
 # `beryl env` — gestion des credentials chiffrés par société.
 #
 # Trois sous-commandes :
 #
-#   migrate [<société>...]  Convertit `.env.yml[société]` en
+#   migrate [<société>,…]  Convertit `.env.yml[société]` en
 #                           `<société>/.env.toml.age` chiffré.
 #   edit <société>          Ouvre le coffre dans $EDITOR, re-chiffre.
 #   show <société>          Affiche le plaintext (debug, hors prod).
@@ -30,7 +31,7 @@ module Beryl::CLI::Env
     USAGE : beryl env <SOUS-COMMANDE> [args]
 
     SOUS-COMMANDES :
-      migrate [<société>...]    Migre .env.yml[société] vers <société>/.env.toml.age
+      migrate [<société>,…]      Migre .env.yml[société] vers <société>/.env.toml.age
       edit <société>            Édite le coffre d'une société dans $EDITOR
       show <société>            Affiche le plaintext du coffre (debug, à éviter en prod)
       set <société> <SECTION.VAR>  Pose une variable, valeur lue sur l'ENTRÉE (tube), jamais affichée
@@ -72,13 +73,14 @@ module Beryl::CLI::Env
     no_commit = false
     OptionParser.parse(argv.dup) do |parser|
       Beryl::CLI.handle_option_errors(parser)
-      parser.banner = "USAGE : beryl env migrate [--force] [--purge-yaml] [<société>...]"
+      parser.banner = "USAGE : beryl env migrate [--force] [--purge-yaml] [<société>,…]"
       parser.on("-f", "--force", "Écrase un coffre destination déjà présent (DANGEREUX)") { force = true }
       parser.on("-p", "--purge-yaml", "Supprime la section migrée de .env.yml après écriture du coffre") { purge = true }
       parser.on("--no-commit", "N'auto-commite pas le coffre chiffré dans le dépôt git de config") { no_commit = true }
       parser.on("-h", "--help", "Affiche cette aide") { puts parser; exit 0 }
     end
-    only = argv.reject { |a| a.starts_with?("-") }
+    list, _ = Beryl::CLI::Scope.args("env migrate", argv.reject(&.starts_with?("-"))) || return 64
+    only = list ? Beryl::CLI::Scope.parts(list) : [] of String
 
     env_yml_path = File.join(config_root, ".env.yml")
     unless File.exists?(env_yml_path)
@@ -87,6 +89,10 @@ module Beryl::CLI::Env
     end
 
     env_file = Beryl::Config::EnvFile.load(env_yml_path)
+    if (unknown = only - env_file.accounts).present?
+      STDERR.puts "beryl env migrate : société(s) absente(s) de .env.yml : #{unknown.join(", ")} — rien n'est lancé."
+      return 1
+    end
     accounts_to_migrate = only.empty? ? env_file.accounts : only
     if accounts_to_migrate.empty?
       STDERR.puts "beryl env migrate : aucune société à migrer (le .env.yml est vide)."
@@ -174,7 +180,11 @@ module Beryl::CLI::Env
       parser.on("--no-commit", "N'auto-commite pas le coffre chiffré dans le dépôt git de config") { no_commit = true }
       parser.on("-h", "--help", "Affiche cette aide") { puts parser; exit 0 }
     end
-    positional = argv.reject { |a| a.starts_with?("-") }
+    positional = argv.reject(&.starts_with?("-"))
+    if positional.size > 1
+      STDERR.puts "beryl env : argument(s) en trop : #{positional[1..].join(" ")} — une seule société."
+      return 64
+    end
     account = positional.first if positional.size >= 1
 
     if account.empty?
@@ -269,7 +279,7 @@ module Beryl::CLI::Env
     no_commit = argv.includes?("--no-commit")
     positional = argv.reject(&.starts_with?("-"))
     account, path = positional[0]?, positional[1]?
-    unless account && path && (sv = split_var(path))
+    unless positional.size <= 2 && account && path && (sv = split_var(path))
       STDERR.puts "USAGE : … | beryl env set <société> <SECTION.VAR> [--no-commit]"
       return 64
     end
@@ -315,7 +325,7 @@ module Beryl::CLI::Env
   # un tube (vérification d'empreinte…). Rien d'autre n'est écrit sur stdout.
   private def self.cmd_get(config_root : String, argv : Array(String)) : Int32
     account, path = argv[0]?, argv[1]?
-    unless account && path && (sv = split_var(path))
+    unless argv.size <= 2 && account && path && (sv = split_var(path))
       STDERR.puts "USAGE : beryl env get <société> <SECTION.VAR>"
       return 64
     end
@@ -375,7 +385,11 @@ module Beryl::CLI::Env
       parser.banner = "USAGE : beryl env show <société>"
       parser.on("-h", "--help", "Affiche cette aide") { puts parser; exit 0 }
     end
-    positional = argv.reject { |a| a.starts_with?("-") }
+    positional = argv.reject(&.starts_with?("-"))
+    if positional.size > 1
+      STDERR.puts "beryl env : argument(s) en trop : #{positional[1..].join(" ")} — une seule société."
+      return 64
+    end
     account = positional.first if positional.size >= 1
 
     if account.empty?

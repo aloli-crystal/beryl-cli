@@ -383,7 +383,13 @@ module Beryl::CLI
   # ---------- show ----------
 
   private def self.cmd_show(config_root : String, args : Array(String)) : Int32
-    raw = args.first?
+    positional = args.reject(&.starts_with?("-"))
+    flags = args - positional
+    if positional.size > 1 || flags.any? { |f| !f.starts_with?("--domain=") && !f.starts_with?("--account=") }
+      STDERR.puts "beryl show : argument(s) non reconnu(s) : #{(positional[1..]? || [] of String).+(flags.reject { |f| f.starts_with?("--domain=") || f.starts_with?("--account=") }).join(" ")}"
+      return 1
+    end
+    raw = positional.first?
     unless raw
       STDERR.puts "USAGE : beryl show <host>  ou  beryl show <société>/<host>"
       return 1

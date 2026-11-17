@@ -54,17 +54,20 @@ module Beryl::CLI
 
     # Hosts FreeBSD INSTALLÉS de la portée (les autres OS n'ont pas `pkg`) ;
     # ceux marqués `installed: false` sont signalés puis écartés.
-    def self.freebsd_hosts(cmd : String, root : Beryl::Config::Root, scope : String?) : Array(Beryl::Config::ResolvedHost)
-      hosts, skipped = split_installed(root, scope)
+    def self.freebsd_hosts(cmd : String, root : Beryl::Config::Root, scope : String?) : Array(Beryl::Config::ResolvedHost)?
+      hosts, skipped = split_installed(cmd, root, scope) || return
       skipped.each do |h|
         log(cmd, "#{h.short_name} : pas encore installé (installed: false) → SKIP")
       end
       hosts
     end
 
-    # Hosts FreeBSD de la portée : {installés, pas encore installés}.
-    def self.split_installed(root : Beryl::Config::Root, scope : String?) : {Array(Beryl::Config::ResolvedHost), Array(Beryl::Config::ResolvedHost)}
-      Beryl::CLI::Info.scoped_hosts(root, scope).select { |h| h.os == "freebsd" && !h.virtual }.partition(&.installed?)
+    # Hosts FreeBSD de la portée : {installés, pas encore installés} ; nil
+    # (après message) si un élément de la portée est inconnu ou ne désigne
+    # aucun serveur FreeBSD (Scope.hosts).
+    def self.split_installed(cmd : String, root : Beryl::Config::Root, scope : String?) : {Array(Beryl::Config::ResolvedHost), Array(Beryl::Config::ResolvedHost)}?
+      hosts = Beryl::CLI::Scope.hosts(cmd, root, scope, "aucun serveur FreeBSD (pkg)") { |h| h.os == "freebsd" && !h.virtual }
+      hosts.try(&.partition(&.installed?))
     end
 
     def self.log(cmd : String, msg : String) : Nil
@@ -106,13 +109,11 @@ module Beryl::CLI
         p.unknown_args { |rest, _| positional = rest }
       end
       Beryl::CLI.handle_option_errors(parser).parse(args)
-      # `a, b, c` (espaces après les virgules, coupés par le shell) → `a,b,c`.
-      positional = Beryl::CLI::Scope.join_list(positional)
+      raw, _ = Beryl::CLI::Scope.args("update", positional) || return EXIT_USAGE
 
       root = Beryl::Config::Root.load(config_root)
-      scope = positional.first?
-      scope ||= account_hint || domain_hint
-      hosts = PkgOps.freebsd_hosts("update", root, scope)
+      scope = raw || account_hint || domain_hint
+      hosts = PkgOps.freebsd_hosts("update", root, scope) || return EXIT_USAGE
       if hosts.empty?
         STDERR.puts "beryl : aucun host FreeBSD dans la portée."
         return EXIT_USAGE
@@ -155,17 +156,16 @@ module Beryl::CLI
     # Dépôt du SYSTÈME de base (pkgbase) : réservé à `beryl os-upgrade`.
     BASE_REPO = "FreeBSD-base"
 
-    # Paquets nommés après la portée (`git-lite curl`, `git-lite,curl`), sans
-    # doublon ni vide. Pur.
-    def self.named_packages(args : Array(String)) : Array(String)
-      args.flat_map(&.split(',')).map(&.strip).reject(&.empty?).uniq
+    # {paquets à passer à `software_cmd` (nil = tous), paquets nommés REFUSÉS
+    # car hors des recettes avec --recipes (`recipe` non nil)}. Pur.
+    def self.select_packages(named : Array(String), recipe : Array(String)?) : {Array(String)?, Array(String)}
+      return {recipe, [] of String} if named.empty?
+      {named, recipe ? named - recipe : [] of String}
     end
 
-    # Paquets à passer à `software_cmd` : nil = tous ; les nommés, restreints
-    # à ceux des recettes avec --recipes (`recipe` non nil). Pur.
-    def self.select_packages(named : Array(String), recipe : Array(String)?) : Array(String)?
-      return recipe if named.empty?
-      recipe ? named & recipe : named
+    # Message d'un serveur où des paquets nommés sont hors des recettes. Pur.
+    def self.outside_recipes(rejected : Array(String)) : String
+      "paquet(s) hors des recettes (--recipes) : #{rejected.join(", ")} — rien n'est mis à jour"
     end
 
     # `pkg upgrade` des seuls paquets LOGICIELS : les paquets installés HORS du
@@ -188,19 +188,23 @@ module Beryl::CLI
     # `trace` (dry-run seulement) : même plan, avec la trace du solveur
     # (`SOLVER_DEBUG`) sur la sortie d'erreur.
     #
-    # `warn_missing` (paquets nommés sur la ligne de commande) : chaque nom
-    # écarté (non installé, absent des dépôts, ou du système de base) est
-    # signalé au lieu de disparaître en silence.
+    # `require_all` (paquets nommés sur la ligne de commande) : un nom
+    # introuvable (non installé, absent des dépôts, ou du système de base)
+    # arrête tout AVANT `pkg upgrade` (code 3), au lieu d'être ignoré.
     def self.software_cmd(apply : Bool, pkgs : Array(String)? = nil, trace : Bool = false,
-                          warn_missing : Bool = false) : String
+                          require_all : Bool = false) : String
       flag = apply ? "-y" : "-n"
       upgrade = trace && !apply ? "pkg #{SOLVER_DEBUG} upgrade" : "pkg upgrade"
       want = Process.quote((pkgs || [] of String).join(" "))
-      missing = warn_missing ? <<-SH : ""
+      missing = require_all ? <<-SH : ""
+        absent=
         for p in $(printf '%s' #{want}); do
-          echo "$plan" | awk -v p="$p" '$2 == p { f = 1 } END { exit !f }' ||
-            echo "$p : non installé, absent des dépôts ou paquet du système de base — ignoré"
+          echo "$plan" | awk -v p="$p" '$2 == p { f = 1 } END { exit !f }' || absent="$absent $p"
         done
+        if [ -n "$absent" ]; then
+          echo "paquet(s) introuvable(s) :$absent (non installé, absent des dépôts ou du système de base) — rien n'est mis à jour"
+          exit 3
+        fi
         SH
       <<-SH
         pkg update -q || exit $?
@@ -468,11 +472,11 @@ module Beryl::CLI
       job_dir : String? = nil
       positional = [] of String
       parser = OptionParser.new do |p|
-        p.banner = "USAGE : beryl upgrade [portée [paquet…]] [--apply] [--recipes] [--no-restart] [--parallel N] [--canary HOST] [--detach]\n" \
+        p.banner = "USAGE : beryl upgrade [portée [paquet,…]] [--apply] [--recipes] [--no-restart] [--parallel N] [--canary HOST] [--detach]\n" \
                    "        beryl upgrade --status [TÂCHE]\n" \
                    "        Paquets LOGICIELS (le système de base : `beryl os-upgrade`) — DRY-RUN par défaut ; --apply pour exécuter.\n" \
                    "        Paquets nommés après la portée : eux seuls (et ce que pkg doit mettre à jour avec eux),\n" \
-                   "        ex. `beryl upgrade quimeo-twin-bsd git-lite curl` ; tous les paquets sinon.\n" \
+                   "        ex. `beryl upgrade a,b git-lite,curl` ; tous les paquets sinon.\n" \
                    "        Les services ACTIVÉS touchés (paquet ou bibliothèque modifiés) sont relancés.\n" \
                    "        Plusieurs serveurs en --apply : CANARI puis PARALLÈLE limité ; état suivi par `--status`."
         p.on("--apply", "Exécute réellement (sinon : dry-run, affiche le plan sans rien changer)") { apply = true }
@@ -493,10 +497,8 @@ module Beryl::CLI
         p.unknown_args { |rest, _| positional = rest }
       end
       Beryl::CLI.handle_option_errors(parser).parse(args)
-      # `a, b, c` (espaces après les virgules, coupés par le shell) → `a,b,c`.
-      positional = Beryl::CLI::Scope.join_list(positional)
-
       return Beryl::CLI::FleetJob.status("upgrade", positional.first?) if status
+      raw, named = Beryl::CLI::Scope.args("upgrade", positional, "paquets") || return EXIT_USAGE
       if jd = job_dir
         return Beryl::CLI::FleetJob.run(jd, Beryl::CLI::FleetJob.self_cmd(config_root))
       end
@@ -506,10 +508,9 @@ module Beryl::CLI
       end
 
       root = Beryl::Config::Root.load(config_root)
-      scope = positional.first? || account_hint || domain_hint
-      # Après la portée : les paquets à mettre à jour (`a b`, ou `a,b`).
-      named = Upgrade.named_packages(positional[1..]? || [] of String)
-      hosts, skipped = PkgOps.split_installed(root, scope)
+      scope = raw || account_hint || domain_hint
+      named = named.uniq
+      hosts, skipped = PkgOps.split_installed("upgrade", root, scope) || return EXIT_USAGE
       # Plusieurs serveurs en DRY-RUN : par serveur, les seules mises à jour
       # en attente (vulnérables marquées) ; le plan complet de pkg reste sur un
       # serveur nommé.
@@ -528,6 +529,18 @@ module Beryl::CLI
       # Plusieurs serveurs en --apply : tâche (canari puis parallèle limité).
       if apply && hosts.size > 1
         width = sequential ? 1 : Beryl::CLI::FleetJob.parallel_for(hosts, parallel)
+        # Paquets nommés : vérifiés sur TOUS les serveurs avant de lancer
+        # quoi que ce soit (lecture seule) — un paquet introuvable ou hors des
+        # recettes sur un seul serveur refuse toute la tâche.
+        unless named.empty?
+          PkgOps.log("upgrade", "vérification des paquets #{named.join(",")} sur #{hosts.size} serveurs avant de lancer…")
+          refused = probe_all(config_root, hosts, recipes_only, named, width).select { |st| refused_note?(st.note) }
+          unless refused.empty?
+            refused.each { |st| STDERR.puts "  #{st.fqdn} : #{st.note}" }
+            STDERR.puts "beryl upgrade : #{refused.size} serveur(s) refusé(s) — rien n'est lancé."
+            return EXIT_USAGE
+          end
+        end
         fqdns = hosts.map(&.fqdn)
         if c = canary
           first = hosts.find { |h| h.fqdn == c || h.short_name == c }
@@ -537,8 +550,8 @@ module Beryl::CLI
           end
           fqdns = [first.fqdn] + (fqdns - [first.fqdn])
         end
-        # Paquets en tête : l'enfant reçoit `upgrade <fqdn> <paquet…> --apply`.
-        child_args = named + ["--apply"]
+        # Paquets en tête : l'enfant reçoit `upgrade <fqdn> <paquet,…> --apply`.
+        child_args = (named.empty? ? [] of String : [named.join(",")]) + ["--apply"]
         child_args << "--recipes" if recipes_only
         child_args << "--no-restart" unless restart
         PkgOps.log("upgrade", "portée #{scope} : #{fqdns.size} serveurs → canari #{fqdns.first}, puis #{width} en parallèle")
@@ -600,7 +613,12 @@ module Beryl::CLI
         return :failed
       end
 
-      pkgs = select_packages(named, recipes_only ? Beryl::CLI::Info.recipe_packages(config_root, [h]) : nil)
+      pkgs, rejected = select_packages(named, recipes_only ? Beryl::CLI::Info.recipe_packages(config_root, [h]) : nil)
+      unless rejected.empty?
+        PkgOps.log("upgrade", "#{h.short_name} : #{outside_recipes(rejected)}")
+        FJ.report(FJ::FAILED, outside_recipes(rejected))
+        return :failed
+      end
       if pkgs && pkgs.empty?
         why = named.empty? ? "aucune recette avec pkg-install" : "aucun des paquets nommés n'est géré par les recettes (--recipes)"
         PkgOps.log("upgrade", "#{h.short_name} : #{why} → rien à faire")
@@ -625,7 +643,12 @@ module Beryl::CLI
 
       PkgOps.log("upgrade", "#{h.short_name} : paquets logiciels (hors #{BASE_REPO}) → pkg upgrade #{apply ? "-y" : "-n"}")
       FJ.report(FJ::RUNNING, apply ? "mise à jour des paquets" : "plan", touched: apply)
-      ok, output = PkgOps.run_pkg(shell, software_cmd(apply, pkgs, warn_missing: !named.empty?))
+      ok, output = PkgOps.run_pkg(shell, software_cmd(apply, pkgs, require_all: !named.empty?))
+      if !ok && !named.empty? && output.includes?("introuvable")
+        PkgOps.log("upgrade", "#{h.short_name} : #{output.strip.lines.last?}")
+        FJ.report(FJ::FAILED, output.strip.lines.last? || "paquet(s) introuvable(s)")
+        return :failed
+      end
       # En dry-run, `pkg upgrade -n` sort non-zéro s'il n'y a RIEN à faire sur
       # certaines versions de pkg — on n'en fait pas un échec, on affiche.
       puts "───── #{h.short_name} ─────"
@@ -720,6 +743,12 @@ module Beryl::CLI
       results.map(&.not_nil!)
     end
 
+    # Note d'un serveur refusé pour ses paquets nommés (introuvables, ou hors
+    # des recettes avec --recipes). Pur.
+    def self.refused_note?(note : String) : Bool
+      note.includes?("introuvable") || note.includes?("hors des recettes")
+    end
+
     # Ligne de progression d'un serveur examiné. Pur.
     def self.progress_note(st : HostState) : String
       return "#{st.fqdn} : #{st.note}" unless st.ok
@@ -738,8 +767,12 @@ module Beryl::CLI
         return HostState.new(h.fqdn, false, "SSH KO : #{Beryl::CLI::SshProbe.compact_error(probe.stderr, probe.exit_code)}", vulns: nil)
       end
       shell = Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(h.connection(user)))
-      pkgs = select_packages(named, recipes_only ? Beryl::CLI::Info.recipe_packages(config_root, [h]) : nil)
-      output = pkgs && pkgs.empty? ? "" : PkgOps.run_pkg(shell, software_cmd(false, pkgs))[1]
+      pkgs, rejected = select_packages(named, recipes_only ? Beryl::CLI::Info.recipe_packages(config_root, [h]) : nil)
+      return HostState.new(h.fqdn, false, outside_recipes(rejected), vulns: nil) unless rejected.empty?
+      ok, output = pkgs && pkgs.empty? ? {true, ""} : PkgOps.run_pkg(shell, software_cmd(false, pkgs, require_all: !named.empty?))
+      if !ok && !named.empty? && output.includes?("introuvable")
+        return HostState.new(h.fqdn, false, output.strip.lines.last? || "paquet(s) introuvable(s)", vulns: nil)
+      end
       trace = output.empty? ? [] of String : new_packages_trace(shell, output, pkgs)
       HostState.new(h.fqdn, true, NOTE_OK, pending_lines(output), audit(shell, !h.protected?), trace)
     rescue ex

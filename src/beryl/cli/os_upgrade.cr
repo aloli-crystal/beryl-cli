@@ -72,10 +72,8 @@ module Beryl::CLI::OsUpgrade
       p.unknown_args { |rest, _| positional = rest }
     end
     Beryl::CLI.handle_option_errors(parser).parse(args)
-    # `a, b, c` (espaces après les virgules, coupés par le shell) → `a,b,c`.
-    positional = Beryl::CLI::Scope.join_list(positional)
-
     return Beryl::CLI::FleetJob.status("os-upgrade", positional.first?) if status
+    raw, _ = Beryl::CLI::Scope.args("os-upgrade", positional) || return EXIT_USAGE
     if jd = job_dir
       return Beryl::CLI::FleetJob.run(jd, Beryl::CLI::FleetJob.self_cmd(config_root))
     end
@@ -85,14 +83,14 @@ module Beryl::CLI::OsUpgrade
     end
 
     # Périmètre : host, société ou domaine (comme `beryl update`/`upgrade`).
-    scope = positional.first? || account_hint || domain_hint
+    scope = raw || account_hint || domain_hint
     unless scope
       STDERR.puts "beryl : périmètre non précisé. USAGE : beryl os-upgrade <host|société|domaine> [--to X.Y] [--apply] [--reboot]"
       return EXIT_USAGE
     end
 
     root = Beryl::Config::Root.load(config_root)
-    hosts = Beryl::CLI::Info.scoped_hosts(root, scope).select { |h| h.os == "freebsd" && !h.virtual }
+    hosts = Beryl::CLI::Scope.hosts("os-upgrade", root, scope, "aucun serveur FreeBSD") { |h| h.os == "freebsd" && !h.virtual } || return EXIT_USAGE
     skipped = hosts.reject(&.installed?)
     hosts = hosts.select(&.installed?)
     # Portée multi-hôtes en DRY-RUN → tableau compact (état du parc), et non

@@ -32,22 +32,75 @@ module Beryl::CLI::Scope
     @@fanning
   end
 
-  # Recolle les positionnels de tête coupés aux virgules par le shell
-  # (`["ah,", "be,", "ga", "x"]` → `["ah,be,ga", "x"]`). Pur.
+  # Recolle les listes coupées aux virgules par le shell (`["ah,", "be,",
+  # "ga", "x,", "y"]` → `["ah,be,ga", "x,y"]`). Pur.
   def join_list(positional : Array(String)) : Array(String)
-    return positional if positional.empty?
-    head = positional[0]
-    i = 1
-    while i < positional.size && (head.ends_with?(',') || positional[i].starts_with?(','))
-      head += positional[i]
-      i += 1
+    out = [] of String
+    positional.each do |tok|
+      if (last = out.last?) && (last.ends_with?(',') || tok.starts_with?(','))
+        out[-1] = last + tok
+      else
+        out << tok
+      end
     end
-    [head] + positional[i..]
+    out
   end
 
   # Éléments d'une portée (`a,b,,c ` → `[a, b, c]`). Pur.
   def parts(scope : String) : Array(String)
     scope.split(',').map(&.strip).reject(&.empty?)
+  end
+
+  # RÈGLE COMMUNE à toutes les commandes : la portée (liste `a,b`), puis, si
+  # la commande en prend (`items` : « recettes », « paquets »…), UNE liste
+  # d'éléments `x,y`. Tout argument de plus est REFUSÉ : `beryl upgrade a b
+  # git-lite` (virgule oubliée) lancerait sinon la commande en prenant `b`
+  # pour autre chose ou en l'ignorant. {portée, éléments} ; nil après message.
+  def args(cmd : String, positional : Array(String), items : String? = nil) : {String?, Array(String)}?
+    groups = join_list(positional)
+    max = items ? 2 : 1
+    if groups.size > max
+      STDERR.puts "beryl #{cmd} : #{groups.size} arguments séparés par des espaces (#{groups.join(" ")}), " \
+                  "#{max} au plus : <portée>#{items ? " [#{items}]" : ""} — chaque liste se sépare par des VIRGULES " \
+                  "(ex. `beryl #{cmd} a,b#{items ? " x,y" : ""}`). Rien n'est lancé."
+      return
+    end
+    {groups[0]?, groups[1]?.try { |g| parts(g) } || [] of String}
+  end
+
+  # Serveurs de la portée `raw` (tous si nil) retenus par `keep`. Chaque
+  # élément de la liste doit en donner AU MOINS UN, sinon refus avant de
+  # rien lancer : un élément inconnu, ou hors du ressort de la commande
+  # (`out_of_scope` : « pas un serveur FreeBSD »…), ne disparaît jamais en
+  # silence. nil après message.
+  def hosts(cmd : String, root : Beryl::Config::Root, raw : String?, out_of_scope : String = "hors du ressort de la commande",
+            & : Beryl::Config::ResolvedHost -> Bool) : Array(Beryl::Config::ResolvedHost)?
+    unless raw
+      return Beryl::CLI::Info.scoped_hosts(root, nil).select { |h| yield h }
+    end
+    hosts = [] of Beryl::Config::ResolvedHost
+    bad = [] of String
+    elements = parts(raw)
+    if elements.empty?
+      STDERR.puts "beryl #{cmd} : portée vide."
+      return
+    end
+    elements.each do |part|
+      all = Beryl::CLI::Info.scoped_hosts(root, part)
+      kept = all.select { |h| yield h }
+      if all.empty?
+        bad << "#{part} : inconnu (ni serveur, ni groupe, ni domaine, ni société)"
+      elsif kept.empty?
+        bad << "#{part} : #{out_of_scope}"
+      else
+        hosts.concat(kept)
+      end
+    end
+    unless bad.empty?
+      STDERR.puts "beryl #{cmd} : portée refusée, rien n'est lancé — #{bad.join(" ; ")}."
+      return
+    end
+    hosts.uniq(&.fqdn)
   end
 
   # Si la portée désigne PLUSIEURS serveurs (ou une liste), rejoue la commande
@@ -63,6 +116,7 @@ module Beryl::CLI::Scope
   # nommé seul reste possible, installé ou non.
   def fan_out(cmd : String, config_root : String, args : Array(String), positional : Array(String),
               fresh_only : Bool = false, & : Array(String) -> Int32) : Int32?
+    return 1 unless args(cmd, positional)
     joined = join_list(positional)
     raw = joined.first?
     return unless raw

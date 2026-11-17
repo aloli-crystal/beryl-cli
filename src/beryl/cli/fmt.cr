@@ -1,5 +1,6 @@
 require "option_parser"
 require "./option_errors"
+require "./scope"
 require "yaml-tidy"
 
 module Beryl::CLI
@@ -21,16 +22,23 @@ module Beryl::CLI
       check = false
       positional = [] of String
       parser = OptionParser.new do |p|
-        p.banner = "USAGE : beryl fmt [host|société|domaine] [--check]"
+        p.banner = "USAGE : beryl fmt [host|société|domaine|a,b,…] [--check]"
         p.on("--check", "Liste les fichiers à normaliser SANS écrire") { check = true }
         p.on("-h", "--help", "Aide") { puts p; exit 0 }
         p.unknown_args { |rest, _| positional = rest }
       end
       Beryl::CLI.handle_option_errors(parser).parse(args)
 
+      scope, _ = Beryl::CLI::Scope.args("fmt", positional) || return 1
       files = config_files(config_root)
-      if scope = positional.first?
-        files = files.select { |f| in_scope?(f, config_root, scope) }
+      if scope
+        # Liste `a,b` : chaque élément doit désigner au moins un fichier.
+        elements = Beryl::CLI::Scope.parts(scope)
+        if (unknown = elements.reject { |e| files.any? { |f| in_scope?(f, config_root, e) } }).present?
+          STDERR.puts "beryl fmt : portée refusée, rien n'est lancé — inconnu(s) : #{unknown.join(", ")}."
+          return 1
+        end
+        files = files.select { |f| elements.any? { |e| in_scope?(f, config_root, e) } }
       end
 
       changed = 0

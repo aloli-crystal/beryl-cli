@@ -1,3 +1,4 @@
+require "./scope"
 require "option_parser"
 require "./option_errors"
 require "./fmt"
@@ -59,6 +60,8 @@ module Beryl::CLI::Init
     Dir.mkdir_p(config_root) unless dry_run
 
     # Étape 1 : nom de la société (argument ou prompt)
+    # Un seul argument (Scope.args) : un argument de plus est refusé, jamais ignoré.
+    return EXIT_USAGE unless Beryl::CLI::Scope.args("init", positional)
     account = positional.first?
     if (account.nil? || account.empty?) && non_interactive
       STDERR.puts "beryl : argument société requis en --non-interactive. USAGE : beryl init <société>"

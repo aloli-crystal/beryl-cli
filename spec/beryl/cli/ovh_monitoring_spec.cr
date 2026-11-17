@@ -37,12 +37,6 @@ describe Beryl::CLI::OvhMonitoring do
 end
 
 describe Beryl::CLI::Monitoring do
-  it "lit l'état et la portée dans n'importe quel ordre" do
-    Beryl::CLI::Monitoring.split_args(["loulou", "off"]).should eq({"off", "loulou"})
-    Beryl::CLI::Monitoring.split_args(["on", "quimeo.net"]).should eq({"on", "quimeo.net"})
-    Beryl::CLI::Monitoring.split_args(["quimeo"]).should eq({nil, "quimeo"})
-  end
-
   it "texte d'état" do
     Beryl::CLI::Monitoring.status_text(true).should eq "monitoring actif"
     Beryl::CLI::Monitoring.status_text(false).should eq "monitoring coupé"

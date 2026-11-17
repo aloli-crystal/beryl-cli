@@ -22,8 +22,8 @@ module Beryl::CLI::RotateKey
   # jour (`[active, suivante]` → `[suivante]`) que si TOUT a réussi.
   def self.run(config_root : String, args : Array(String)) : Int32
     scope = args.first?
-    unless scope
-      STDERR.puts "USAGE : beryl rotate-key <host-fqdn | domaine>"
+    unless scope && args.size == 1
+      STDERR.puts "USAGE : beryl rotate-key <host-fqdn | domaine>  (un seul argument)"
       return EXIT_USAGE
     end
 

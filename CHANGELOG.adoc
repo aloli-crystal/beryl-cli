@@ -9,6 +9,34 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Arguments : une règle pour TOUTES les commandes, rien d'ignoré en silence
+
+`beryl upgrade quimeo-twin-bsd too git-lite` prenait `too` pour un paquet,
+et `beryl upgrade quimeo-twin-bsd,tooo …` ignorait `tooo` sans un mot.
+Règle commune (`Scope.args`, `Scope.hosts`) :
+
+* une portée, puis (si la commande en prend) UNE liste d'éléments ;
+  chacune se sépare par des VIRGULES (`beryl upgrade a,b git-lite,curl`,
+  `beryl sync a,b monit,zfs-scrub`) ; l'espace après une virgule reste
+  toléré ;
+* un argument de plus (virgule oubliée) : REFUS, rien n'est lancé — sur
+  toutes les commandes (sync, upgrade, update, os-upgrade, info, fmt,
+  keys, monitoring, ssh-config, env, show, rotate-key, commandes à un
+  serveur et celles qui rejouent une portée) ;
+* chaque élément de la portée doit désigner au moins un serveur dans le
+  ressort de la commande (inconnu, pas FreeBSD pour pkg, pas OVH pour le
+  monitoring…), sinon refus ;
+* `sync` : une recette nommée jouée sur aucun serveur de la portée
+  (faute de frappe, déclarée nulle part) → refus ;
+* `upgrade` : un paquet nommé introuvable (non installé, absent des
+  dépôts, système de base) ou hors des recettes avec `--recipes` → le
+  serveur n'est pas mis à jour ; sur plusieurs serveurs en `--apply`,
+  tous sont vérifiés AVANT de lancer la tâche.
+
+CHANGEMENTS d'usage : `beryl sync <portée> a b` → `a,b` ;
+`beryl ssh-config quimeo aloli` → `quimeo,aloli` ; `beryl env migrate
+a b` → `a,b` ; `beryl monitoring` prend la portée PUIS on/off.
+
 === `beryl upgrade <portée> <paquet…>` : seulement les paquets nommés
 
 `beryl upgrade quimeo-twin-bsd git-lite` mettait TOUT à jour : seul le

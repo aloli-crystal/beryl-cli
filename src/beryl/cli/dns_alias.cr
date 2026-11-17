@@ -1,3 +1,4 @@
+require "./scope"
 require "option_parser"
 require "./option_errors"
 require "./dns_apply"
@@ -49,6 +50,8 @@ module Beryl::CLI
       end
       Beryl::CLI.handle_option_errors(parser).parse(args)
 
+      # Un seul argument (Scope.args) : un argument de plus est refusé, jamais ignoré.
+      return EXIT_USAGE unless Beryl::CLI::Scope.args("dns-alias", positional)
       raw = positional.first?
       unless raw
         STDERR.puts "beryl dns-alias : host non précisé. USAGE : beryl dns-alias <host> --name <label>"

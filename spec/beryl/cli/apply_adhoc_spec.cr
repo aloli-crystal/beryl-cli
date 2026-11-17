@@ -1,3 +1,4 @@
+require "file_utils"
 require "../../spec_helper"
 require "../../../src/beryl/cli/apply"
 
@@ -104,5 +105,28 @@ describe "Beryl::CLI::Apply.recipe_arguments" do
     args = Beryl::CLI::Apply.recipe_arguments([req("periodic-quiet")], [req("periodic-quiet")],
       ["monit", "periodic-quiet"])
     args.has_key?("monit").should be_false
+  end
+end
+
+describe "Beryl::CLI::Apply.unused_adhoc" do
+  # Recettes privées minimales de la société, dans une copie du jeu d'essai
+  # (hidden déclare vrack-interface ; bast ne déclare rien).
+  it "recette déclarée nulle part ou inconnue : signalée (sync refuse avant de lancer)" do
+    dir = File.tempname("beryl-unused-adhoc")
+    FileUtils.cp_r(File.expand_path(File.join(__DIR__, "..", "..", "fixtures", "config", "ssh-host-override")), dir)
+    recipes = File.join(dir, "initech", "recipes")
+    Dir.mkdir_p(recipes)
+    %w[vrack-interface autre].each do |name|
+      File.write(File.join(recipes, "#{name}.recipe.yml"), "recipe: #{name}\ndescription: essai\nsystems: [freebsd]\nsteps: []\n")
+    end
+    root = Beryl::Config::Root.load(dir)
+    hosts = %w[hidden bast].map { |n| root.resolve("#{n}.initech.example") }
+    wanted = %w[vrack-interface autre tpyo]
+    # Portée domaine/société : seules les recettes déclarées passent.
+    Beryl::CLI::Apply.unused_adhoc(dir, hosts, wanted) { true }.should eq(%w[autre tpyo])
+    # Serveurs nommés : toute recette existante passe, l'inconnue jamais.
+    Beryl::CLI::Apply.unused_adhoc(dir, hosts, wanted) { false }.should eq(%w[tpyo])
+  ensure
+    FileUtils.rm_rf(dir) if dir
   end
 end

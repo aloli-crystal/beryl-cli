@@ -19,6 +19,32 @@ describe Beryl::CLI::Scope do
       Beryl::CLI::Scope.join_list(["loulou", "recette"]).should eq(["loulou", "recette"])
       Beryl::CLI::Scope.join_list([] of String).should be_empty
     end
+
+    it "recolle aussi la liste qui suit la portée" do
+      Beryl::CLI::Scope.join_list(["a,", "b", "x,", "y"]).should eq(["a,b", "x,y"])
+    end
+  end
+
+  describe ".args" do
+    it "portée puis UNE liste d'éléments, chacune à virgules" do
+      Beryl::CLI::Scope.args("t", ["a,", "b", "x,y"], "paquets").should eq({"a,b", ["x", "y"]})
+      Beryl::CLI::Scope.args("t", ["a"], "paquets").should eq({"a", [] of String})
+      Beryl::CLI::Scope.args("t", [] of String).should eq({nil, [] of String})
+    end
+
+    it "argument en trop (virgule oubliée) : refus, jamais ignoré" do
+      Beryl::CLI::Scope.args("t", ["a", "b", "x"], "paquets").should be_nil
+      Beryl::CLI::Scope.args("t", ["a", "b"]).should be_nil
+    end
+  end
+
+  describe ".hosts" do
+    it "chaque élément doit donner au moins un serveur retenu" do
+      root = Beryl::Config::Root.load(FAN_FIXTURE)
+      Beryl::CLI::Scope.hosts("t", root, "db01,web") { true }.try(&.map(&.short_name).sort).should eq(%w[db01 rails01 rails02])
+      Beryl::CLI::Scope.hosts("t", root, "db01,inconnu") { true }.should be_nil
+      Beryl::CLI::Scope.hosts("t", root, "db01,web") { |h| h.short_name != "db01" }.should be_nil
+    end
   end
 
   describe ".without_scope" do

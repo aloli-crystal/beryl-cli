@@ -1,3 +1,4 @@
+require "./scope"
 require "option_parser"
 require "./option_errors"
 require "../config"
@@ -23,7 +24,7 @@ module Beryl::CLI::SshConfig
     ssh_dir = File.join(Path.home.to_s, ".ssh")
 
     parser = OptionParser.new do |p|
-      p.banner = "USAGE : beryl ssh-config [société…] [--apply]\n\n" \
+      p.banner = "USAGE : beryl ssh-config [société,…] [--apply]\n\n" \
                  "Écrit ~/.ssh/#{Beryl::SshConfig::FILE_PREFIX}<société>.conf (toutes les sociétés, ou celles nommées) :\n" \
                  "tous les hosts gérés par beryl, par leur\n" \
                  "FQDN et leur nom court ; un host caché derrière le vRack passe par son bastion préféré, puis\n" \
@@ -35,8 +36,10 @@ module Beryl::CLI::SshConfig
     end
     Beryl::CLI.handle_option_errors(parser).parse(args)
 
+    scope, _ = Beryl::CLI::Scope.args("ssh-config", args) || return EXIT_USAGE
+    accounts = scope ? Beryl::CLI::Scope.parts(scope) : [] of String
     root = Beryl::Config::Root.load(config_root)
-    if (unknown = args - root.account_names).present?
+    if (unknown = accounts - root.account_names).present?
       STDERR.puts "[beryl ssh-config] société inconnue : #{unknown.join(", ")}. Connues : #{root.account_names.join(", ")}"
       return EXIT_USAGE
     end
@@ -46,7 +49,7 @@ module Beryl::CLI::SshConfig
       nil
     end
     files = Beryl::SshConfig.render(hosts)
-    files = files.select { |account, _| args.includes?(account) } unless args.empty?
+    files = files.select { |account, _| accounts.includes?(account) } unless accounts.empty?
     counts = hosts.select(&.ssh_config?).group_by(&.account_name).transform_values(&.size)
     skipped = hosts.reject(&.ssh_config?).group_by(&.account_name).transform_values(&.size)
     main = File.join(ssh_dir, "config")
