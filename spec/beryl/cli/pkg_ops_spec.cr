@@ -67,9 +67,36 @@ describe Beryl::CLI::Upgrade do
       res.should eq("UPGRADE -r FreeBSD-ports -n monit\nUPGRADE -r quimeo -n nginx-lite\n")
     end
 
+    it "paquets nommés : eux seuls, les noms écartés signalés" do
+      res = run_with_fake_pkg(Beryl::CLI::Upgrade.software_cmd(false, ["git-lite", "absent", "FreeBSD-runtime"], warn_missing: true),
+        remote: ["FreeBSD-runtime FreeBSD-base", "curl FreeBSD-ports", "git-lite FreeBSD-ports"],
+        installed: ["FreeBSD-runtime FreeBSD-base", "curl FreeBSD-ports", "git-lite FreeBSD-ports"])
+      res.should eq("absent : non installé, absent des dépôts ou paquet du système de base — ignoré\n" \
+                    "FreeBSD-runtime : non installé, absent des dépôts ou paquet du système de base — ignoré\n" \
+                    "UPGRADE -r FreeBSD-ports -n git-lite\n")
+    end
+
     it "trace : même plan, avec la trace du solveur (dry-run seulement)" do
       Beryl::CLI::Upgrade.software_cmd(false, trace: true).should contain(%(pkg -dddd upgrade -r "$repo" -n "$@"))
       Beryl::CLI::Upgrade.software_cmd(true, trace: true).should_not contain("-dddd")
+    end
+  end
+
+  describe ".named_packages" do
+    it "noms séparés par espaces ou virgules, sans doublon ni vide" do
+      Beryl::CLI::Upgrade.named_packages(["git-lite,curl", "", "git-lite", "monit, "]).should eq(["git-lite", "curl", "monit"])
+    end
+  end
+
+  describe ".select_packages" do
+    it "rien de nommé : tous (nil), ou ceux des recettes avec --recipes" do
+      Beryl::CLI::Upgrade.select_packages([] of String, nil).should be_nil
+      Beryl::CLI::Upgrade.select_packages([] of String, ["monit"]).should eq(["monit"])
+    end
+
+    it "paquets nommés : eux seuls, restreints aux recettes avec --recipes" do
+      Beryl::CLI::Upgrade.select_packages(["git-lite"], nil).should eq(["git-lite"])
+      Beryl::CLI::Upgrade.select_packages(["git-lite", "curl"], ["curl", "monit"]).should eq(["curl"])
     end
   end
 

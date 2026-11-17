@@ -9,6 +9,17 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl upgrade <portée> <paquet…>` : seulement les paquets nommés
+
+`beryl upgrade quimeo-twin-bsd git-lite` mettait TOUT à jour : seul le
+premier argument (la portée) était lu, `git-lite` ignoré en silence. Les
+arguments qui suivent la portée sont désormais les paquets à mettre à jour
+(`git-lite curl` ou `git-lite,curl`), sur un serveur comme sur une portée
+de plusieurs (canari et parallèle compris) ; pkg y ajoute ce qu'il doit
+mettre à jour avec eux (dépendances). Un nom non installé, absent des
+dépôts ou du système de base est signalé, pas ignoré. Avec `--recipes` :
+les paquets nommés gérés par les recettes seulement.
+
 === CI : ameba de nouveau au vert
 
 Le linter refusait le heredoc d'une spec de `pkg-install` (corps pas
