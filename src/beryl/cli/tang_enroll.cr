@@ -27,7 +27,11 @@ require "./key_store"
 #   `beryl unlock` d'abord si nécessaire) — `zfs change-key`
 #   demande la clé courante en mémoire.
 #
-# Flow par pool en `mode: tang` :
+# Unités enrôlées : les pools data en `mode: tang`, et `zroot/encrypted`
+# (/home, /opt, /usr/local/etc) quand le pool boot porte `profile: standard`
+# avec `encryption.mode: tang` — même clé, mêmes Tang.
+#
+# Flow par unité :
 #
 #   1. Pré-check : pool chiffré, clé chargée (keystatus=available).
 #   2. Pousse la clé locale via stdin SSH dans un tmpfs
@@ -120,9 +124,20 @@ module Beryl::CLI::TangEnroll
     tang_pools = host.data_zpools.select do |p|
       p.encryption.try(&.tang?) || false
     end
+    # Datasets sensibles du zroot (`profile: standard` : /home, /opt,
+    # /usr/local/etc sous `zroot/encrypted`) en mode tang : enrôlés aussi,
+    # sinon /home resterait fermé au boot (un `beryl unlock` à la main).
+    boot_pool = host.zpools.find(&.boot)
+    enc_root = boot_pool.try(&.encryption_root)
+    enc_root = nil unless boot_pool.try(&.encryption).try(&.tang?)
+    # Unités à enrôler : {dataset, pool qui porte sa configuration Tang}.
+    units = tang_pools.map { |p| {p.name, p} }
+    if (er = enc_root) && (bp = boot_pool)
+      units.unshift({er, bp})
+    end
 
-    if tang_pools.empty?
-      STDERR.puts "beryl : aucun pool data avec `encryption.mode: tang` déclaré pour #{host.fqdn}"
+    if units.empty?
+      STDERR.puts "beryl : aucun pool data ni zroot (`profile: standard`) avec `encryption.mode: tang` déclaré pour #{host.fqdn}"
       STDERR.puts "        Les pools data trouvés et leur mode :"
       host.data_zpools.each do |p|
         m = p.encryption.try(&.mode.to_s) || "(pas chiffré)"
@@ -132,7 +147,7 @@ module Beryl::CLI::TangEnroll
     end
 
     # Validation YAML de chaque pool (URLs présentes, threshold cohérent…).
-    tang_pools.each do |p|
+    units.map(&.[1]).uniq.each do |p|
       p.validate!
     rescue ex : Beryl::Config::InvalidEncryptionConfig | Beryl::Config::Zpool::UnknownRaidLevel | Beryl::Config::Zpool::InvalidDiskCount
       STDERR.puts "beryl : config invalide pour #{p.name} — #{ex.message}"
@@ -161,11 +176,11 @@ module Beryl::CLI::TangEnroll
     log "clé : #{found.origin} (empreinte #{Beryl::ZfsKeys.fingerprint(key_hex)})"
 
     target = Beryl.format_ssh_target(host)
-    summary = tang_pools.map do |p|
+    summary = units.map do |ds, p|
       enc = p.encryption.not_nil!
-      "#{p.name}(tang×#{enc.tang_urls.size}/#{enc.threshold})"
+      "#{ds}(tang×#{enc.tang_urls.size}/#{enc.threshold})"
     end.join(", ")
-    log "tang-enroll #{target} : #{tang_pools.size} pool(s) à enrôler (#{summary})"
+    log "tang-enroll #{target} : #{units.size} unité(s) à enrôler (#{summary})"
 
     # Migration douce : une clé connue du seul fichier du poste (serveur
     # installé avant le coffre `[tang]`) y est copiée au passage.
@@ -184,20 +199,20 @@ module Beryl::CLI::TangEnroll
 
     if dry_run
       log "DRY-RUN : SSH root@#{host.ssh_host}:#{host.port}"
-      tang_pools.each do |pool|
+      units.each do |ds, pool|
         enc = pool.encryption.not_nil!
         tang_args = enc.tang_urls.map { |u| "-t #{u}" }.join(" ")
-        log "DRY-RUN :   pré-check : pool #{pool.name} chiffré + clé chargée"
+        log "DRY-RUN :   pré-check : #{ds} chiffré + clé chargée"
         log "DRY-RUN :   pousser clé via stdin SSH → #{TMPFS_KEY_PREFIX}.<rand>"
-        log "DRY-RUN :   zfs set keylocation=file://#{TMPFS_KEY_PREFIX}.<rand> #{pool.name}"
-        log "DRY-RUN :   #{TANG_BINARY} bind --use-existing-key --dataset #{pool.name} #{tang_args}" \
+        log "DRY-RUN :   zfs set keylocation=file://#{TMPFS_KEY_PREFIX}.<rand> #{ds}"
+        log "DRY-RUN :   #{TANG_BINARY} bind --use-existing-key --dataset #{ds} #{tang_args}" \
             "#{enc.threshold > 1 ? " --threshold #{enc.threshold}" : ""}"
         log "DRY-RUN :   rm #{TMPFS_KEY_PREFIX}.<rand>"
-        log "DRY-RUN :   zfs set keylocation=prompt #{pool.name}"
+        log "DRY-RUN :   zfs set keylocation=prompt #{ds}"
       end
       unless skip_rc_conf
         log "DRY-RUN :   sysrc clevis_zfs_enable=YES"
-        log "DRY-RUN :   sysrc clevis_zfs_datasets=\"#{tang_pools.map(&.name).join(" ")}\""
+        log "DRY-RUN :   sysrc clevis_zfs_datasets=\"#{units.map(&.[0]).join(" ")}\""
       end
       return EXIT_OK
     end
@@ -217,22 +232,22 @@ module Beryl::CLI::TangEnroll
 
     failures = 0
     enrolled_names = [] of String
-    tang_pools.each do |pool|
-      enroll_one(conn, pool, key_hex)
-      enrolled_names << pool.name
+    units.each do |ds, pool|
+      enroll_one(conn, ds, pool.encryption.not_nil!, key_hex)
+      enrolled_names << ds
     rescue ex : KeyNotLoaded
       STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl tang-enroll")} " \
-                  "ÉCHEC pool #{pool.name} : #{ex.message}"
+                  "ÉCHEC #{ds} : #{ex.message}"
       STDERR.puts "        Lancez `beryl unlock #{host.account_name}/#{host.fqdn}` puis ré-essayez."
       failures += 1
     rescue ex
       STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl tang-enroll")} " \
-                  "ÉCHEC pool #{pool.name} : #{ex.class}: #{ex.message}"
+                  "ÉCHEC #{ds} : #{ex.class}: #{ex.message}"
       failures += 1
     end
 
     if failures > 0
-      STDERR.puts "beryl : #{failures}/#{tang_pools.size} pool(s) non enrôlé(s)"
+      STDERR.puts "beryl : #{failures}/#{units.size} unité(s) non enrôlée(s)"
       return EXIT_BIND_FAILED
     end
 
@@ -252,7 +267,7 @@ module Beryl::CLI::TangEnroll
       end
     end
 
-    log "tang-enroll #{target} : terminé (#{enrolled_names.size} pool(s) enrôlé(s) ; auto-unlock au boot activé)"
+    log "tang-enroll #{target} : terminé (#{enrolled_names.size} unité(s) enrôlée(s) : #{enrolled_names.join(", ")} ; auto-unlock au boot activé)"
     log "testez en : `beryl reboot #{host.account_name}/#{host.fqdn}` (puis `beryl status` pour vérifier)"
     EXIT_OK
   rescue ex : Beryl::Config::Root::HostNotFound
@@ -277,13 +292,10 @@ module Beryl::CLI::TangEnroll
   class KeyNotLoaded < Exception
   end
 
-  # Enrôle un pool en mode tang. Le `ensure` garantit que le tmpfs
-  # est nettoyé même en cas d'erreur — la clé sur disque (en RAM) ne
-  # doit pas survivre.
-  private def self.enroll_one(conn : Beryl::CLI::RootConn, pool : Beryl::Config::Pool, key_hex : String) : Nil
-    pool_name = pool.name
-    enc = pool.encryption.not_nil!
-
+  # Enrôle un dataset chiffré (pool data, ou `zroot/encrypted` du profil
+  # standard) en mode tang. Le `ensure` garantit que le tmpfs est nettoyé
+  # même en cas d'erreur — la clé sur disque (en RAM) ne doit pas survivre.
+  private def self.enroll_one(conn : Beryl::CLI::RootConn, pool_name : String, enc : Beryl::Config::EncryptionConfig, key_hex : String) : Nil
     # 1. Pré-check : pool existe, est chiffré, clé chargée.
     encrypted = conn.exec(
       "zfs get -H -o value encryption #{Process.quote(pool_name)}",

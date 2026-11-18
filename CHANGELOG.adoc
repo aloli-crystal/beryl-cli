@@ -9,6 +9,14 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl tang-enroll` : /home aussi déverrouillé par Tang au démarrage
+
+Un pool boot `profile: standard` avec `encryption.mode: tang` : son
+`zroot/encrypted` (/home, /opt, /usr/local/etc) est enrôlé comme les
+pools data (même clé, mêmes Tang) et ajouté à `clevis_zfs_datasets`.
+Avant, seuls les pools data l'étaient : /home restait fermé à chaque
+redémarrage jusqu'à un `beryl unlock` à la main.
+
 === Journaux : le serveur dans le préfixe
 
 `[beryl unlock]` → `[beryl unlock quimeo-twin-bsd]`. Toute commande qui
