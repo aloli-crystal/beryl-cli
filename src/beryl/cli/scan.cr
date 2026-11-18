@@ -236,6 +236,8 @@ module Beryl::CLI::Scan
     end
 
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
+
+    Beryl.log_host = host.short_name
     host.apply_all_credentials_to_env!
 
     # Provider Dedibox : on a BESOIN d'un server_id (entier) pour
@@ -1810,6 +1812,6 @@ module Beryl::CLI::Scan
   end
 
   private def self.log(message : String) : Nil
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl scan] #{Beryl.format_step(message)}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl scan")} #{Beryl.format_step(message)}"
   end
 end

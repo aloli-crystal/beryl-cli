@@ -138,6 +138,8 @@ module Beryl::CLI::Rescue
 
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
     return EXIT_BAD_PROVIDER if Beryl::CLI::MachineKind.refuse_vps(host, "rescue")
+
+    Beryl.log_host = host.short_name
     host.apply_all_credentials_to_env!
 
     unless dns_resolver.call(host.rescue_ssh_host)
@@ -763,7 +765,7 @@ module Beryl::CLI::Rescue
   end
 
   private def self.log(message : String) : Nil
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl rescue] #{Beryl.format_step(message)}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl rescue")} #{Beryl.format_step(message)}"
   end
 
   # Message d'erreur pour quand `provider:` n'est pas résolu. Liste les

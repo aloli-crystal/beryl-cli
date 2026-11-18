@@ -83,6 +83,7 @@ module Beryl::CLI::HeadscaleAuthkey
 
     root = Beryl::Config::Root.load(config_root)
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
+    Beryl.log_host = host.short_name
 
     # Défaut du user Headscale = société du host (mesh d'une société).
     hs_user = user || host.account_name
@@ -200,6 +201,6 @@ module Beryl::CLI::HeadscaleAuthkey
   end
 
   private def self.log(message : String) : Nil
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl headscale-authkey] #{message}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl headscale-authkey")} #{message}"
   end
 end

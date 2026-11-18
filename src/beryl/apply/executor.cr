@@ -396,7 +396,7 @@ module Beryl::Apply
     end
 
     private def log(message : String) : Nil
-      STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl sync] #{message}"
+      STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl sync")} #{message}"
     end
   end
 end

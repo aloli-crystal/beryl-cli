@@ -74,6 +74,7 @@ module Beryl::CLI::Wipe
 
     root = Beryl::Config::Root.load(config_root)
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
+    Beryl.log_host = host.short_name
     host.apply_all_credentials_to_env!
 
     # Résolution des disques à wipe, par ordre de priorité :
@@ -247,7 +248,7 @@ module Beryl::CLI::Wipe
   # Log horodaté. `Beryl.format_step` enveloppe un numéro d'étape de tête
   # (« 1 … » → « [Étape 1] … »).
   private def self.log(message : String) : Nil
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl wipe] #{Beryl.format_step(message)}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl wipe")} #{Beryl.format_step(message)}"
   end
 
   def self.wipe_script(disk : String, passes : Int32 = 0, hardware : Bool = false) : String

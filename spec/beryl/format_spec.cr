@@ -44,4 +44,19 @@ describe Beryl do
       )
     end
   end
+
+  describe ".log_tag / .with_log_host" do
+    it "ajoute le serveur au préfixe le temps du bloc, puis le retire" do
+      Beryl.log_tag("beryl unlock").should eq("[beryl unlock]")
+      Beryl.with_log_host("quimeo-twin-bsd") do
+        Beryl.log_tag("beryl unlock").should eq("[beryl unlock quimeo-twin-bsd]")
+      end
+      Beryl.log_tag("beryl unlock").should eq("[beryl unlock]")
+    end
+
+    it "restaure la valeur précédente même sur exception" do
+      expect_raises(Exception) { Beryl.with_log_host("loulou") { raise "x" } }
+      Beryl.log_host.should be_nil
+    end
+  end
 end

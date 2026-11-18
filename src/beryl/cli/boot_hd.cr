@@ -87,6 +87,7 @@ module Beryl::CLI::BootHd
     root = Beryl::Config::Root.load(config_root)
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
     return EXIT_BAD_PROVIDER if Beryl::CLI::MachineKind.refuse_vps(host, "boot-hd")
+    Beryl.log_host = host.short_name
     host.apply_all_credentials_to_env!
 
     # Résolution du provider : --provider CLI gagne, sinon celui du merge.
@@ -196,6 +197,6 @@ module Beryl::CLI::BootHd
   end
 
   private def self.log(message : String) : Nil
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl boot-hd] #{Beryl.format_step(message)}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl boot-hd")} #{Beryl.format_step(message)}"
   end
 end

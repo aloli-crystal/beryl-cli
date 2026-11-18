@@ -70,6 +70,7 @@ module Beryl::CLI::ZpoolCreate
 
     root = Beryl::Config::Root.load(config_root)
     host = root.resolve(parsed[:host], account_hint: account_hint, domain_hint: domain_hint)
+    Beryl.log_host = host.short_name
     pools = host.data_zpools
     if pools.empty?
       STDERR.puts "beryl : aucun pool data déclaré pour #{host.fqdn} (freebsd.zfs.<nom>, hors pool boot)"
@@ -197,6 +198,6 @@ module Beryl::CLI::ZpoolCreate
   end
 
   private def self.log(message : String) : Nil
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl zpool-create] #{message}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl zpool-create")} #{message}"
   end
 end

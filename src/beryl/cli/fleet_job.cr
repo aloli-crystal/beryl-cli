@@ -391,7 +391,7 @@ module Beryl::CLI::FleetJob
   end
 
   private def say(job : Job, msg : String) : Nil
-    STDOUT.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl #{job.kind}] #{msg}"
+    STDOUT.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl #{job.kind}")} #{msg}"
     STDOUT.flush
   end
 

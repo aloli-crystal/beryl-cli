@@ -90,7 +90,7 @@ module Beryl::CLI
       dns = provider.as(Beryl::DnsProvider)
       dns.ensure_record(zone, type, sub, target)
       dns.refresh_zone(zone)
-      STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl dns-record] ✓ #{type} #{fqdn} → #{target} (zone #{zone} rafraîchie)"
+      STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl dns-record")} ✓ #{type} #{fqdn} → #{target} (zone #{zone} rafraîchie)"
       EXIT_OK
     rescue ex : ArgumentError
       STDERR.puts "beryl dns-record : #{ex.message}"

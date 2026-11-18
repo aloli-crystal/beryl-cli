@@ -66,6 +66,7 @@ module Beryl::CLI::Status
 
     root = Beryl::Config::Root.load(config_root)
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
+    Beryl.log_host = host.short_name
 
     target = Beryl.format_ssh_target(host)
     log "status #{target}"
@@ -239,6 +240,6 @@ module Beryl::CLI::Status
   end
 
   private def self.log(message : String) : Nil
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl status] #{message}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl status")} #{message}"
   end
 end

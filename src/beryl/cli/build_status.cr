@@ -145,6 +145,6 @@ module Beryl::CLI::BuildStatus
   end
 
   private def self.log(message : String) : Nil
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl build-status] #{message}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl build-status")} #{message}"
   end
 end

@@ -70,8 +70,11 @@ module Beryl::CLI
       hosts.try(&.partition(&.installed?))
     end
 
+    # Serveur déjà dans le préfixe (`[beryl upgrade loulou]`) : le « loulou : »
+    # en tête du message, utile hors boucle (fibres parallèles), serait un doublon.
     def self.log(cmd : String, msg : String) : Nil
-      STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl #{cmd}] #{msg}"
+      Beryl.log_host.try { |h| msg = msg.lchop("#{h} : ") }
+      STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl #{cmd}")} #{msg}"
     end
 
     # Host chiffré ET VERROUILLÉ ? (au moins une unité avec keystatus=unavailable).
@@ -121,6 +124,7 @@ module Beryl::CLI
 
       failures = 0
       hosts.each do |h|
+        Beryl.log_host = h.short_name
         if h.protected?
           PkgOps.log("update", "#{h.short_name} : protégé (protected: true) → SKIP (aucune écriture)")
           next
@@ -137,6 +141,7 @@ module Beryl::CLI
           failures += 1
         end
       end
+      Beryl.log_host = nil
       failures > 0 ? EXIT_FAILED : EXIT_OK
     rescue ex : Beryl::Config::Root::HostNotFound | Beryl::Config::Root::AmbiguousHost
       STDERR.puts "beryl : #{ex.message}"
@@ -571,7 +576,7 @@ module Beryl::CLI
       unreachable = 0
       base_hosts = [] of String
       hosts.each do |h|
-        r = upgrade_one(config_root, h, apply, recipes_only, named, restart)
+        r = Beryl.with_log_host(h.short_name) { upgrade_one(config_root, h, apply, recipes_only, named, restart) }
         failures += 1 if r == :failed
         unreachable += 1 if r == :unreachable
         base_hosts << h.short_name if r == :base_pending

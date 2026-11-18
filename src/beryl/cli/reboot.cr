@@ -94,6 +94,7 @@ module Beryl::CLI::Reboot
     root = Beryl::Config::Root.load(config_root)
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
     return EXIT_BAD_PROVIDER if mode == :hard && Beryl::CLI::MachineKind.refuse_vps(host, "reboot --hard")
+    Beryl.log_host = host.short_name
     host.apply_all_credentials_to_env!
 
     target = Beryl.format_ssh_target(host)
@@ -316,6 +317,6 @@ module Beryl::CLI::Reboot
   end
 
   private def self.log(message : String) : Nil
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl reboot] #{Beryl.format_step(message)}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl reboot")} #{Beryl.format_step(message)}"
   end
 end

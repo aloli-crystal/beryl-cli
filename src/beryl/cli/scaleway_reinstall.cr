@@ -121,6 +121,8 @@ module Beryl::CLI::ScalewayReinstall
     end
 
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
+
+    Beryl.log_host = host.short_name
     host.apply_all_credentials_to_env!
 
     # scaleway-reinstall a besoin de lister les clés SSH du projet
@@ -371,6 +373,6 @@ module Beryl::CLI::ScalewayReinstall
   end
 
   private def self.log(message : String) : Nil
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl scaleway-reinstall] #{Beryl.format_step(message)}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl scaleway-reinstall")} #{Beryl.format_step(message)}"
   end
 end

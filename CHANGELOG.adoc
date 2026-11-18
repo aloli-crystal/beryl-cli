@@ -9,6 +9,19 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Journaux : le serveur dans le préfixe
+
+`[beryl unlock]` → `[beryl unlock quimeo-twin-bsd]`. Toute commande qui
+vise un serveur le nomme dans le préfixe de chaque ligne (`Beryl.log_host`,
+`Beryl.log_tag`), dès qu'elle l'a résolu : unlock, lock, reboot, rescue,
+wipe, boot-hd, bootstrap, scan, status, tang-enroll, zpool-create,
+follow-install, scaleway-reinstall, headscale-authkey, pg-upgrade. Sur
+plusieurs serveurs, à chaque tour : sync, update, upgrade, os-upgrade,
+rotate-key. Pour update/upgrade, le « loulou : » en tête du message
+disparaît (doublon) ; l'examen en parallèle de `beryl upgrade <société>`
+garde le serveur dans le message (fibres concurrentes). Commandes sans
+serveur (init, add-domain…) : préfixe inchangé.
+
 === Essais à blanc sans faux changements ; monit sans courriel de retour à la normale
 
 * `directory` : un `owner` sans groupe (`postgres`) se compare au seul

@@ -103,6 +103,7 @@ module Beryl::CLI::Unlock
 
     root = Beryl::Config::Root.load(config_root)
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
+    Beryl.log_host = host.short_name
 
     encrypted_pools = host.data_zpools.select(&.encrypted?)
     # Lue AVANT toute action : une erreur de configuration arrête tout de suite.
@@ -215,7 +216,7 @@ module Beryl::CLI::Unlock
     encrypted_pools.each do |pool|
       was_locked = true if unlock_one(conn, pool, key_hex, tang_binary)
     rescue ex
-      STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl unlock] " \
+      STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl unlock")} " \
                   "ÉCHEC pool #{pool.name} : #{ex.class}: #{ex.message}"
       failures += 1
     end
@@ -223,7 +224,7 @@ module Beryl::CLI::Unlock
       begin
         was_locked = true if unlock_encryption_root(conn, er, enc_root_cfg, key_hex, tang_binary)
       rescue ex
-        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl unlock] " \
+        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl unlock")} " \
                     "ÉCHEC encryptionroot #{er} : #{ex.class}: #{ex.message}"
         failures += 1
       end
@@ -463,6 +464,6 @@ module Beryl::CLI::Unlock
   end
 
   private def self.log(message : String) : Nil
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl unlock] #{Beryl.format_step(message)}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl unlock")} #{Beryl.format_step(message)}"
   end
 end

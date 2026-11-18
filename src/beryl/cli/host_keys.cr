@@ -20,7 +20,7 @@ module Beryl::CLI::HostKeys
   def self.forget(host : Beryl::Config::ResolvedHost, command : String) : Nil
     found = Beryl::KnownHosts.forget(names(host), host.port)
     return if found.empty?
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl #{command}] known_hosts : anciennes clés d'hôte retirées (#{found.join(", ")}) ; copie dans #{Beryl::KnownHosts.default_path}.old"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl #{command}")} known_hosts : anciennes clés d'hôte retirées (#{found.join(", ")}) ; copie dans #{Beryl::KnownHosts.default_path}.old"
   rescue ex
     STDERR.puts "beryl : ⚠ les anciennes clés d'hôte de #{host.fqdn} n'ont pas pu être retirées de known_hosts (#{ex.message}) — lancez `ssh-keygen -R #{host.fqdn}`."
   end

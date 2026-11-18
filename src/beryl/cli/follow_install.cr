@@ -57,6 +57,7 @@ module Beryl::CLI::FollowInstall
 
     root = Beryl::Config::Root.load(config_root)
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
+    Beryl.log_host = host.short_name
 
     # Construit la commande shell exécutée CÔTÉ RESCUE : attente de
     # l'apparition du log dans la VM, puis tail avec filtre de bruit.
@@ -118,6 +119,6 @@ module Beryl::CLI::FollowInstall
   end
 
   private def self.log(message : String) : Nil
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl follow-install] #{Beryl.format_step(message)}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl follow-install")} #{Beryl.format_step(message)}"
   end
 end

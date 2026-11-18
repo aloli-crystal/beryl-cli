@@ -710,7 +710,7 @@ module Beryl::CLI
     end
 
     private def self.log(message : String) : Nil
-      STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl vrack] #{message}"
+      STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl vrack")} #{message}"
     end
   end
 end

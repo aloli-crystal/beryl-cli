@@ -72,6 +72,7 @@ module Beryl::CLI::Lock
 
     root = Beryl::Config::Root.load(config_root)
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
+    Beryl.log_host = host.short_name
 
     encrypted_pools = host.data_zpools.select(&.encrypted?)
     if encrypted_pools.empty?
@@ -98,7 +99,7 @@ module Beryl::CLI::Lock
     encrypted_pools.each do |pool|
       lock_one(conn, pool, force)
     rescue ex
-      STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl lock] " \
+      STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl lock")} " \
                   "ÉCHEC pool #{pool.name} : #{ex.class}: #{ex.message}"
       failures += 1
     end
@@ -152,6 +153,6 @@ module Beryl::CLI::Lock
   end
 
   private def self.log(message : String) : Nil
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl lock] #{message}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl lock")} #{message}"
   end
 end

@@ -34,6 +34,30 @@ module Beryl
     @@transport_mode == :overlay
   end
 
+  # Serveur en cours de traitement, repris dans le préfixe des journaux :
+  # `[beryl unlock quimeo-twin-bsd]`. Posé par chaque commande dès qu'elle
+  # connaît son serveur (et à chaque tour d'une boucle sur plusieurs) ;
+  # nil = commande sans serveur (init, add-domain…) → `[beryl init]`.
+  class_property log_host : String? = nil
+
+  # Préfixe de journal `[beryl <commande> <serveur>]` (cf. `log_host`).
+  def self.log_tag(prefix : String) : String
+    (host = @@log_host) ? "[#{prefix} #{host}]" : "[#{prefix}]"
+  end
+
+  # Un tour de boucle sur plusieurs serveurs : `log_host` le temps du bloc,
+  # puis la valeur d'avant. Jamais dans des fibres parallèles (variable
+  # globale) : leurs lignes nomment le serveur dans le message.
+  def self.with_log_host(host : String?, & : -> T) : T forall T
+    previous = @@log_host
+    @@log_host = host
+    begin
+      yield
+    ensure
+      @@log_host = previous
+    end
+  end
+
   # Largeur cible en caractères pour aligner le compteur `[NNNs]` en fin
   # de ligne sur toutes les sous-commandes (rescue, bootstrap, …). Le
   # padding se fait par `String#size` pour éviter que `printf %-Ns`
@@ -161,7 +185,7 @@ module Beryl
   #     # ... long polling ...
   #   end
   def self.log_step(prefix : String, label : String, & : -> T) : T forall T
-    line = "[#{format_timestamp(Time.local)}] [#{prefix}] #{format_step(label)}"
+    line = "[#{format_timestamp(Time.local)}] #{log_tag(prefix)} #{format_step(label)}"
     pad = pad_to(line)
     STDERR.print "#{line}#{pad}  [   0s]"
     STDERR.flush

@@ -90,6 +90,7 @@ module Beryl::CLI::Bootstrap
     root = Beryl::Config::Root.load(config_root)
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
     return EXIT_USAGE if Beryl::CLI::MachineKind.refuse_vps(host, "bootstrap")
+    Beryl.log_host = host.short_name
     host.apply_all_credentials_to_env!
 
     # Résolution de la version FreeBSD + URL mfsBSD. Règle « pas de
@@ -139,7 +140,7 @@ module Beryl::CLI::Bootstrap
         abi = info.abi
         resolved_iso_url ||= info.image_url
         origin = own_mfsbsd_url ? "image maison (mfsbsd_url)" : "détectée sur GitHub"
-        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 1] mfsBSD SE #{origin} : #{info.version} (#{info.image_url})"
+        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl bootstrap")} [Étape 1] mfsBSD SE #{origin} : #{info.version} (#{info.image_url})"
         latest_by_branch = begin
           Beryl::FreebsdRelease.latest_by_branch
         rescue
@@ -148,7 +149,7 @@ module Beryl::CLI::Bootstrap
         if pkgbase
           freebsd_version = forced || Beryl::Bootstrap.pkgbase_target(info.version, latest_by_branch)
           if freebsd_version != info.version
-            STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 1] pkgbase : installe FreeBSD #{freebsd_version} " \
+            STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl bootstrap")} [Étape 1] pkgbase : installe FreeBSD #{freebsd_version} " \
                         "(dépôt #{Beryl::Bootstrap.base_release_branch(freebsd_version)}) ; mfsBSD SE #{info.version} sert seulement d'outil d'installation."
           end
         else
@@ -157,7 +158,7 @@ module Beryl::CLI::Bootstrap
           # mfsBSD, qui peut être en retard sur la dernière release. On informe.
           fb = latest_by_branch.values.max_by? { |v| Beryl::FreebsdRelease.version_key(v) }
           if fb && Beryl::FreebsdRelease.version_key(fb) > Beryl::FreebsdRelease.version_key(info.version)
-            STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] ⚠️  FreeBSD #{fb}-RELEASE est sortie (dernière du projet), " \
+            STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl bootstrap")} ⚠️  FreeBSD #{fb}-RELEASE est sortie (dernière du projet), " \
                         "mais mfsBSD SE n'est dispo qu'en #{info.version} → bootstrap installe #{info.version}."
             STDERR.puts "        Pour #{fb} : passez à `install_type: packages` (pkgbase), ou attendez la mfsBSD SE #{fb}."
           end
@@ -192,7 +193,7 @@ module Beryl::CLI::Bootstrap
     Beryl::CLI::Precheck.report(host, precheck)
     unless precheck.ok
       if force
-        STDERR.puts "[beryl bootstrap] [Étape 1] --force : précheck ignoré. PROCÉDEZ AVEC PRUDENCE."
+        STDERR.puts "#{Beryl.log_tag("beryl bootstrap")} [Étape 1] --force : précheck ignoré. PROCÉDEZ AVEC PRUDENCE."
       else
         STDERR.puts
         STDERR.puts "beryl : précheck échoué. Corrigez la config ou utilisez --force."
@@ -233,7 +234,7 @@ module Beryl::CLI::Bootstrap
     all_pool_disks = disks + host.data_zpools.flat_map(&.disks)
     ashift_by_disk = detect_ashifts(rescue_conn, all_pool_disks)
     boot_ashift = disks.map { |d| ashift_by_disk[d]? || 12 }.max
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 1] ashift (bloc physique, plancher #{MIN_ASHIFT}) : " +
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl bootstrap")} [Étape 1] ashift (bloc physique, plancher #{MIN_ASHIFT}) : " +
                 ashift_by_disk.map { |d, a| "#{d}→#{a}" }.join(", ")
 
     # Pools data : créés post-install via `zpool create` dans la VM
@@ -267,7 +268,7 @@ module Beryl::CLI::Bootstrap
         # `clevis-zfs bind --use-existing-key` côté serveur.
         key_hex = host_key ||= bootstrap_key(config_root, host, dry_run)
         if enc.tang?
-          STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] " \
+          STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl bootstrap")} " \
                       "[Étape 1] mode tang demandé pour #{pool.name} : pool créé en ssh_unlock pour le bootstrap. " \
                       "Lancez `beryl tang-enroll #{host.account_name}/#{host.fqdn}` " \
                       "après le 1er reboot et `beryl sync` (recette tang-client) pour basculer vers Tang."
@@ -294,7 +295,7 @@ module Beryl::CLI::Bootstrap
     unless system_datasets.empty?
       system_key_hex = host_key ||= bootstrap_key(config_root, host, dry_run)
       enc_count = system_datasets.count(&.encrypted)
-      STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] " \
+      STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl bootstrap")} " \
                   "[Étape 1] profil C+ : #{system_datasets.size} dataset(s) système (#{enc_count} chiffré(s) sous #{encryption_root}), clé du serveur"
     end
 
@@ -322,8 +323,8 @@ module Beryl::CLI::Bootstrap
     end
 
     all_disks = disks + data_pools.flat_map(&.disks)
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 1] cible : #{Beryl.format_ssh_target(host)} disques : #{all_disks.join(", ")}"
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 1] FreeBSD #{freebsd_version} — users : #{users.map(&.name).join(", ")} — pools data : #{data_pools.size}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl bootstrap")} [Étape 1] cible : #{Beryl.format_ssh_target(host)} disques : #{all_disks.join(", ")}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl bootstrap")} [Étape 1] FreeBSD #{freebsd_version} — users : #{users.map(&.name).join(", ")} — pools data : #{data_pools.size}"
 
     if dry_run
       STDERR.puts
@@ -454,7 +455,7 @@ module Beryl::CLI::Bootstrap
     )
     bootstrap.run
 
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 4] terminé pour #{host.fqdn}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl bootstrap")} [Étape 4] terminé pour #{host.fqdn}"
     # Le FreeBSD installé a de nouvelles clés d'hôte (le rescue aussi).
     Beryl::CLI::HostKeys.forget(host, "bootstrap")
     mark_installed(host)
@@ -463,9 +464,9 @@ module Beryl::CLI::Bootstrap
     if (client = ovh_client) && (sn = host.ovh_service_name)
       begin
         msg = monitoring ? Beryl::CLI::OvhMonitoring.resume(client, sn) : "monitoring OVH laissé coupé (--no-monitoring)"
-        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 4] OVH : #{msg}"
+        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl bootstrap")} [Étape 4] OVH : #{msg}"
       rescue ex : OvhApi::Error
-        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 4] OVH : ⚠ monitoring OVH non rétabli (#{ex.message}) — à réactiver dans l'espace client OVH"
+        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl bootstrap")} [Étape 4] OVH : ⚠ monitoring OVH non rétabli (#{ex.message}) — à réactiver dans l'espace client OVH"
       end
     end
     return EXIT_OK unless chain_apply
@@ -474,7 +475,7 @@ module Beryl::CLI::Bootstrap
     # recettes (celles par défaut de la société : relais SMTP, supervision…),
     # pour qu'aucun serveur ne reste « nu », sans courrier ni alertes.
     ref = Beryl::CLI::AccountUtils.host_ref(host)
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 5] enchaîne `beryl sync #{ref} --apply`"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl bootstrap")} [Étape 5] enchaîne `beryl sync #{ref} --apply`"
     code = Beryl::CLI::Apply.run(config_root, ["#{host.account_name}/#{host.domain_name}/#{host.short_name}", "--apply"])
     unless code == Beryl::CLI::Apply::EXIT_OK
       STDERR.puts "beryl : FreeBSD est installé, mais `apply` a échoué (code #{code}). Corrigez puis relancez : beryl sync #{ref} --apply"
@@ -520,7 +521,7 @@ module Beryl::CLI::Bootstrap
   # plus le seul exemplaire.
   private def self.bootstrap_key(config_root : String, host : Beryl::Config::ResolvedHost, dry_run : Bool) : String
     hex, created = Beryl::CLI::KeyStore.obtain_or_create(config_root, host)
-    stamp = "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 1]"
+    stamp = "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl bootstrap")} [Étape 1]"
     if created
       STDERR.puts "#{stamp} clé générée et stockée : #{Beryl::CLI::KeyStore.file_path(config_root, host)} (chmod 0400, 256 bits hex)"
       STDERR.puts "#{stamp} ⚠ mettez-la sous séquestre papier (`beryl keys paper #{host.account_name}/#{host.fqdn}`) — " \
@@ -545,7 +546,7 @@ module Beryl::CLI::Bootstrap
     after = drop_installed_false(before)
     return if after == before
     Beryl::CLI::Fmt.write(path, after)
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] #{File.basename(path)} : `installed: false` retiré"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl bootstrap")} #{File.basename(path)} : `installed: false` retiré"
     Beryl::CLI::ConfigGit.commit([path], "bootstrap : #{host.fqdn} installé", false)
   rescue ex
     STDERR.puts "beryl : ⚠ #{host.fqdn} installé, mais `installed: false` n'a pas pu être retiré du host.yml (#{ex.message}) — retirez-le à la main."
@@ -605,7 +606,7 @@ module Beryl::CLI::Bootstrap
   # un autre aurait pu l'accompagner.
   private def self.log_mirrors(pool : String, paths : Array(String), known : Hash(String, Beryl::CLI::Scan::Disk)) : Nil
     pairs = paths.each_slice(2).map { |m| m.map { |p| "#{File.basename(p)} (#{known[p]?.try(&.model) || "?"})" }.join(" + ") }
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl bootstrap] [Étape 1] #{pool} RAID 10, miroirs : #{pairs.join(" ; ")}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl bootstrap")} [Étape 1] #{pool} RAID 10, miroirs : #{pairs.join(" ; ")}"
     found = paths.compact_map { |p| known[p]? }
     Beryl::CLI::Scan.mirror_warnings(pool, found, 10, known.values).each { |w| STDERR.puts w } if found.size == paths.size
   end

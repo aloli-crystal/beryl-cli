@@ -108,7 +108,7 @@ module Beryl::CLI::OsUpgrade
       return EXIT_USAGE
     end
     if hosts.size == 1
-      return upgrade_one(config_root, hosts.first, to, apply, reboot)
+      return Beryl.with_log_host(hosts.first.short_name) { upgrade_one(config_root, hosts.first, to, apply, reboot) }
     end
 
     # Plusieurs serveurs en --apply : tâche (canari puis parallèle limité).
@@ -649,6 +649,6 @@ module Beryl::CLI::OsUpgrade
   end
 
   private def self.log(msg : String) : Nil
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl os-upgrade] #{msg}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl os-upgrade")} #{msg}"
   end
 end

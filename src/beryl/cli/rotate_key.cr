@@ -53,6 +53,7 @@ module Beryl::CLI::RotateKey
 
     failures = 0
     hosts.each do |host|
+      Beryl.log_host = host.short_name
       pairs.each do |pair|
         users = (u = pair.user) ? [u] : all_users
         users.each do |user|
@@ -61,6 +62,7 @@ module Beryl::CLI::RotateKey
       end
     end
 
+    Beryl.log_host = nil
     if failures > 0
       STDERR.puts "beryl : #{failures} rotation(s) en échec — fichier de conf NON modifié (sécurité)."
       return EXIT_FAIL
@@ -211,6 +213,6 @@ module Beryl::CLI::RotateKey
   end
 
   private def self.log(msg : String) : Nil
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl rotate-key] #{msg}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl rotate-key")} #{msg}"
   end
 end

@@ -114,6 +114,7 @@ module Beryl::CLI::TangEnroll
 
     root = Beryl::Config::Root.load(config_root)
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
+    Beryl.log_host = host.short_name
 
     # Sélection des pools en mode tang dans le YAML.
     tang_pools = host.data_zpools.select do |p|
@@ -220,12 +221,12 @@ module Beryl::CLI::TangEnroll
       enroll_one(conn, pool, key_hex)
       enrolled_names << pool.name
     rescue ex : KeyNotLoaded
-      STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl tang-enroll] " \
+      STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl tang-enroll")} " \
                   "ÉCHEC pool #{pool.name} : #{ex.message}"
       STDERR.puts "        Lancez `beryl unlock #{host.account_name}/#{host.fqdn}` puis ré-essayez."
       failures += 1
     rescue ex
-      STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl tang-enroll] " \
+      STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl tang-enroll")} " \
                   "ÉCHEC pool #{pool.name} : #{ex.class}: #{ex.message}"
       failures += 1
     end
@@ -403,6 +404,6 @@ module Beryl::CLI::TangEnroll
   end
 
   private def self.log(message : String) : Nil
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl tang-enroll] #{Beryl.format_step(message)}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl tang-enroll")} #{Beryl.format_step(message)}"
   end
 end

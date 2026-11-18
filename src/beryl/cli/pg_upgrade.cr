@@ -122,6 +122,7 @@ module Beryl::CLI::PgUpgrade
     root = Beryl::Config::Root.load(config_root)
     host = root.resolve(parsed[:host], account_hint: parsed[:account] || account_hint,
       domain_hint: parsed[:domain] || domain_hint)
+    Beryl.log_host = host.short_name
     unless host.os == "freebsd"
       STDERR.puts "beryl : pg-upgrade = FreeBSD uniquement (host : #{host.os})."
       return EXIT_USAGE
@@ -809,7 +810,7 @@ module Beryl::CLI::PgUpgrade
     end
 
     private def log(msg : String) : Nil
-      @err.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl pg-upgrade] #{msg}"
+      @err.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl pg-upgrade")} #{msg}"
     end
   end
 end

@@ -180,7 +180,9 @@ module Beryl::CLI::Apply
     hosts.each do |host|
       # Serveur nommé (seul ou dans une liste) : la recette ponctuelle vaut
       # pour lui ; domaine, société, groupe : seulement là où elle est déclarée.
-      rc = apply_one(config_root, host, adhoc_recipes, dry_run, restrict_adhoc: declared_only || (!single_host && !named.includes?(host.fqdn)))
+      rc = Beryl.with_log_host(host.short_name) do
+        apply_one(config_root, host, adhoc_recipes, dry_run, restrict_adhoc: declared_only || (!single_host && !named.includes?(host.fqdn)))
+      end
       worst = rc unless rc == EXIT_OK
     end
     worst
@@ -823,7 +825,7 @@ module Beryl::CLI::Apply
   end
 
   private def self.log(message : String) : Nil
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl sync] #{message}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl sync")} #{message}"
   end
 end
 

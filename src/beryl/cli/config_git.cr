@@ -101,6 +101,6 @@ module Beryl::CLI::ConfigGit
   end
 
   private def log(message : String) : Nil
-    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] [beryl git] #{message}"
+    STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl git")} #{message}"
   end
 end
