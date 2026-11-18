@@ -32,9 +32,9 @@ module Beryl::CLI
     # Shell root sur le host via le premier user de connexion qui répond ; nil
     # (motif SSH court journalisé) si aucun ne passe.
     def self.connect(cmd : String, host : Beryl::Config::ResolvedHost) : Beryl::Apply::SudoShell?
-      user, probe = Beryl::CLI::SshProbe.reachable(host)
+      user, probe = Beryl::CLI::SshProbe.reachable(host, Beryl::CLI::SshProbe::FREEBSD_PROBE)
       unless user
-        log(cmd, "#{host.short_name} : SSH KO — #{Beryl::CLI::SshProbe.compact_error(probe.stderr, probe.exit_code)} " \
+        log(cmd, "#{host.short_name} : #{Beryl::CLI::SshProbe.describe(probe.stderr, probe.exit_code)} " \
                  "(users tentés : #{host.connect_users.join(", ")})")
         return
       end
@@ -767,9 +767,9 @@ module Beryl::CLI
     # État d'un serveur, en LECTURE SEULE : plan `pkg upgrade -n` et paquets
     # vulnérables (`pkg audit`).
     private def self.probe_one(config_root, h, recipes_only : Bool, named : Array(String)) : HostState
-      user, probe = Beryl::CLI::SshProbe.reachable(h)
+      user, probe = Beryl::CLI::SshProbe.reachable(h, Beryl::CLI::SshProbe::FREEBSD_PROBE)
       unless user
-        return HostState.new(h.fqdn, false, "SSH KO : #{Beryl::CLI::SshProbe.compact_error(probe.stderr, probe.exit_code)}", vulns: nil)
+        return HostState.new(h.fqdn, false, Beryl::CLI::SshProbe.describe(probe.stderr, probe.exit_code), vulns: nil)
       end
       shell = Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(h.connection(user)))
       pkgs, rejected = select_packages(named, recipes_only ? Beryl::CLI::Info.recipe_packages(config_root, [h]) : nil)

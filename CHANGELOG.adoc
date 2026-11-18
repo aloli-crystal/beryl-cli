@@ -9,6 +9,15 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Serveur en rescue : « en rescue (Linux) » au lieu de « SSH KO »
+
+* `os-upgrade`, `update`, `upgrade` : un serveur démarré sur le rescue
+  Linux de l'hébergeur (`sh: 1: freebsd-version: not found`, exit 127)
+  est signalé « en rescue (Linux) » — SSH répond, ce n'est pas une panne
+  de connexion.
+* `update` / `upgrade` sondent avec `freebsd-version -r` (avant :
+  `uname -s`, qui laissait passer un rescue Linux jusqu'à `pkg`).
+
 === `pg-upgrade` : dump à côté du cluster déplacé
 
 * `--dump-dir` par défaut = dossier PARENT de `postgresql_data` quand il

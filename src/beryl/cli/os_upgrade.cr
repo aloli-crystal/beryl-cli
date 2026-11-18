@@ -162,9 +162,15 @@ module Beryl::CLI::OsUpgrade
 
     # Trouve le user qui répond (cascade connect_users : admin, deploy… puis
     # root), avec la version déjà lue. Puis SudoShell sur CE user.
-    user, probe = Beryl::CLI::SshProbe.reachable(host, "freebsd-version -r")
+    user, probe = Beryl::CLI::SshProbe.reachable(host, Beryl::CLI::SshProbe::FREEBSD_PROBE)
     cur_raw = probe.stdout.strip
     cur = parse_version(cur_raw)
+    if !user && Beryl::CLI::SshProbe.rescue_linux?(probe.stderr, probe.exit_code)
+      STDERR.puts "beryl : #{host.fqdn} en rescue (Linux) : SSH répond, mais le serveur n'a pas démarré sur FreeBSD."
+      STDERR.puts "        Réinstallation en cours (bootstrap) ou rescue à quitter (netboot sur disque + reboot)."
+      Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::FAILED, "en rescue (Linux)")
+      return EXIT_FAILED
+    end
     unless user && cur
       STDERR.puts "beryl : #{host.fqdn} injoignable en SSH (users tentés : #{host.connect_users.join(", ")})."
       STDERR.puts "        #{host.ssh_host}:#{host.port} → #{Beryl::CLI::SshProbe.compact_error(probe.stderr, probe.exit_code)} (exit #{probe.exit_code})"
@@ -276,11 +282,11 @@ module Beryl::CLI::OsUpgrade
   # sudo) puis, si la release est la dernière, correctifs du dépôt de base en
   # attente (`pkg upgrade -n`, via sudo : rien n'est installé).
   private def self.probe_one(host, to) : HostState
-    user, probe = Beryl::CLI::SshProbe.reachable(host, "freebsd-version -r")
+    user, probe = Beryl::CLI::SshProbe.reachable(host, Beryl::CLI::SshProbe::FREEBSD_PROBE)
     cur_raw = probe.stdout.strip
     cur = parse_version(cur_raw)
     unless user && cur
-      return HostState.new(host.fqdn, false, nil, nil, "SSH KO : #{Beryl::CLI::SshProbe.compact_error(probe.stderr, probe.exit_code)}")
+      return HostState.new(host.fqdn, false, nil, nil, Beryl::CLI::SshProbe.describe(probe.stderr, probe.exit_code))
     end
     via = user == host.connect_user ? "" : " (via #{user})"
     cur_major, cur_minor, _ = cur

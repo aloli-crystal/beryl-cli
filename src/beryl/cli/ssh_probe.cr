@@ -28,6 +28,24 @@ module Beryl::CLI::SshProbe
       s.includes?("connection refused") || s.includes?("could not resolve") || s.includes?("name or service")
   end
 
+  # Commande de sonde des hôtes FreeBSD : sortie non vide sur FreeBSD,
+  # « not found » (exit 127) sur un autre système, notamment le rescue Linux
+  # de l'hébergeur (OVH : Debian) entre `beryl rescue` et `bootstrap`.
+  FREEBSD_PROBE = "freebsd-version -r"
+
+  # SSH passe mais le système n'est pas FreeBSD : la sonde FREEBSD_PROBE est
+  # introuvable (exit 127 du shell distant, ex. dash : `sh: 1: …: not found`).
+  def rescue_linux?(stderr : String, exit_code : Int32) : Bool
+    exit_code == 127 && stderr.includes?("freebsd-version") && stderr.includes?("not found")
+  end
+
+  # Échec de sonde en une ligne pour les résumés de flotte : « en rescue
+  # (Linux) » (connexion valide, mauvais système) ou « SSH KO : <motif> ».
+  def describe(stderr : String, exit_code : Int32) : String
+    return "en rescue (Linux)" if rescue_linux?(stderr, exit_code)
+    "SSH KO : #{compact_error(stderr, exit_code)}"
+  end
+
   # Motif SSH lisible en une ligne (sans le préfixe `user@host:`).
   def compact_error(stderr : String, exit_code : Int32) : String
     s = stderr.downcase

@@ -17,6 +17,17 @@ describe Beryl::CLI::SshProbe do
     end
   end
 
+  describe ".describe" do
+    it "rescue Linux : la sonde FreeBSD est introuvable (dash, exit 127)" do
+      Beryl::CLI::SshProbe.describe("sh: 1: freebsd-version: not found", 127).should eq("en rescue (Linux)")
+    end
+
+    it "autre échec : motif SSH" do
+      Beryl::CLI::SshProbe.describe("", 255).should eq("SSH KO : SSH exit 255")
+      Beryl::CLI::SshProbe.describe("sh: 1: autre: not found", 127).should eq("SSH KO : SSH exit 127")
+    end
+  end
+
   describe ".network_error?" do
     it "vrai pour un refus de connexion (inutile d'essayer d'autres users)" do
       Beryl::CLI::SshProbe.network_error?("connect to host x port 22: Connection refused").should be_true
