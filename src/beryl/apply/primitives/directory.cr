@@ -36,7 +36,7 @@ module Beryl::Apply
         raise PrimitiveError.new("#{path} existe mais n'est pas un dossier — refus de clobberer.")
       end
 
-      need_owner = owner && current_owner(shell, path, is_dir, context.os) != owner
+      need_owner = owner && current_owner(shell, path, is_dir, context.os, owner.includes?(':')) != owner
       need_mode = mode && current_mode(shell, path, is_dir, context.os) != self.class.norm_mode(mode)
 
       if is_dir && !need_owner && !need_mode
@@ -56,9 +56,11 @@ module Beryl::Apply
       StepResult.applied(msg)
     end
 
-    private def current_owner(shell : Shell, path : String, exists : Bool, os : String) : String?
+    # `owner` sans groupe (« postgres ») : on lit le seul propriétaire, sinon
+    # « postgres:postgres » ≠ « postgres » et chown à chaque passage.
+    private def current_owner(shell : Shell, path : String, exists : Bool, os : String, with_group : Bool) : String?
       return unless exists
-      r = Primitive.read_probe(shell, Posix.owner(path, os))
+      r = Primitive.read_probe(shell, Posix.owner(path, os, with_group))
       r.success? ? r.stdout.strip : nil
     end
 

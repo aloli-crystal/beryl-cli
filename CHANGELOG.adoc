@@ -9,6 +9,21 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Essais à blanc sans faux changements ; monit sans courriel de retour à la normale
+
+* `directory` : un `owner` sans groupe (`postgres`) se compare au seul
+  propriétaire ; il était comparé à `postgres:postgres`, d'où un `chown`
+  à chaque passage et un changement annoncé à chaque essai à blanc.
+* `zfs-dataset` : l'essai à blanc lit le dataset (`zfs list`/`zfs get`,
+  lecture seule) et n'annonce que l'écart réel ; il annonçait toujours
+  `zfs create`, même pour un dataset présent et conforme.
+* Variable `{{ monit_quiet_recovery }}` : action monit au retour à la
+  normale SANS courriel — `ignore` sous FreeBSD (monit ≥ 5.34), `exec
+  "/usr/bin/true"` sous Linux (monit 5.26 de SUSE, sans `ignore`). Toute
+  action autre que `ignore` déclenche l'alerte de monit : `exec
+  "/usr/bin/true"` envoyait donc « Status succeeded » (ex. `vuln-fix`
+  après chaque `beryl upgrade`). Recettes : beryl-recipes ≥ 0.0.82.
+
 === Arguments : une règle pour TOUTES les commandes, rien d'ignoré en silence
 
 `beryl upgrade quimeo-twin-bsd too git-lite` prenait `too` pour un paquet,

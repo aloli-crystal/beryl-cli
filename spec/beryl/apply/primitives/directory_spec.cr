@@ -43,6 +43,26 @@ describe Beryl::Apply::Directory do
     r.outcome.should eq(Beryl::Apply::Outcome::Skipped)
   end
 
+  it "owner sans groupe : compare le seul propriétaire (pas de chown à chaque passage)" do
+    sh = FakeShell.new
+    sh.stub(/test -d/, exit_code: 0)
+    sh.stub(/stat -f '?%Su:%Sg/, stdout: "postgres:postgres\n")
+    sh.stub(/stat -f '?%Su(\s|'|$)/, stdout: "postgres\n")
+    sh.stub(/stat -f '?%Lp/, stdout: "700\n")
+    r = Beryl::Apply::Directory.new.apply(
+      sh, y({"path" => "/home/backups", "owner" => "postgres", "mode" => "0700"}), true, ctx)
+    r.outcome.should eq(Beryl::Apply::Outcome::Skipped)
+  end
+
+  it "owner sans groupe : chown si le propriétaire diffère" do
+    sh = FakeShell.new
+    sh.stub(/test -d/, exit_code: 0)
+    sh.stub(/stat -f '?%Su(\s|'|$)/, stdout: "root\n")
+    r = Beryl::Apply::Directory.new.apply(sh, y({"path" => "/home/backups", "owner" => "postgres"}), false, ctx)
+    r.outcome.should eq(Beryl::Apply::Outcome::Applied)
+    sh.ran?(/chown .*postgres .*backups/).should be_true
+  end
+
   it "refuse un chemin occupé par un non-dossier" do
     sh = FakeShell.new
     sh.stub(/test -d/, exit_code: 1)

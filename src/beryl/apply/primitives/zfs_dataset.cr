@@ -37,9 +37,17 @@ module Beryl::Apply
       dataset = "#{container}/#{cname}"
       props = ZfsDataset.build_props(params)
 
+      # Essai à blanc : lectures seules (zfs list/get), on n'annonce que
+      # l'écart réel — dataset absent ou propriétés divergentes.
       if dry_run
-        return StepResult.applied("dataset #{dataset} (#{props.map { |k, v| "#{k}=#{v}" }.join(", ")}) — " \
-                                  "dry-run : #{ZfsDataset.create_cmd(dataset, props)}")
+        unless ZfsDataset.exists?(shell, dataset)
+          return StepResult.applied("dataset #{dataset} (#{props.map { |k, v| "#{k}=#{v}" }.join(", ")}) — " \
+                                    "dry-run : #{ZfsDataset.create_cmd(dataset, props)}")
+        end
+        drift = props.reject { |k, v| ZfsDataset.current_prop(shell, dataset, k) == v }
+        return StepResult.skipped("dataset #{dataset} déjà conforme") if drift.empty?
+        return StepResult.applied("dataset #{dataset} : props à ajuster " \
+                                  "(#{drift.map { |k, v| "#{k}=#{v}" }.join(", ")}) (dry-run)")
       end
 
       # 1. Conteneur <pool>/clients : canmount=off → non monté lui-même, mais les
@@ -54,8 +62,7 @@ module Beryl::Apply
       if ZfsDataset.exists?(shell, dataset)
         changed = [] of String
         props.each do |k, v|
-          cur = shell.exec("zfs get -H -o value #{k} #{Process.quote(dataset)}", raise_on_error: false).stdout.strip
-          next if cur == v
+          next if ZfsDataset.current_prop(shell, dataset, k) == v
           set = shell.exec("zfs set #{k}=#{Process.quote(v)} #{Process.quote(dataset)}", raise_on_error: false)
           return StepResult.failed("zfs set #{k}=#{v} #{dataset} échoué : #{set.stderr.strip.lines.last?}") unless set.success?
           changed << k
@@ -92,6 +99,11 @@ module Beryl::Apply
     # Le dataset existe-t-il ? (csh-safe : pas de redir Bourne ; SudoShell→sh).
     def self.exists?(shell : Shell, dataset : String) : Bool
       Primitive.probe?(shell, "zfs list -H -o name #{Process.quote(dataset)}")
+    end
+
+    # Valeur actuelle d'une propriété du dataset (lecture seule).
+    def self.current_prop(shell : Shell, dataset : String, prop : String) : String
+      Primitive.read_probe(shell, "zfs get -H -o value #{prop} #{Process.quote(dataset)}").stdout.strip
     end
 
     # Nom de client : strict (c'est un tenant, va dans un chemin ZFS + montage).

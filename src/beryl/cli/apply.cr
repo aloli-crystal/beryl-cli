@@ -454,6 +454,12 @@ module Beryl::CLI::Apply
     # sous FreeBSD (ports), /etc sous Linux (paquets de la distribution). Une
     # recette portable y écrit sans dupliquer ses étapes (monitrc, monit.d…).
     vars["pkg_etc"] = os == Beryl::Apply::LINUX ? "/etc" : "/usr/local/etc"
+    # Action monit au RETOUR à la normale, sans courriel → `else if succeeded
+    # then {{ monit_quiet_recovery }}`. Toute action sauf `ignore` passe par
+    # l'envoi d'alerte de monit (event.c, _handleAction) : `exec "/usr/bin/true"`
+    # n'évitait PAS le mail « … succeeded ». `ignore` n'existe qu'à partir de
+    # monit 5.34 (FreeBSD) ; SUSE a la 5.26 : rien de mieux qu'un exec neutre.
+    vars["monit_quiet_recovery"] = os == Beryl::Apply::LINUX ? %(exec "/usr/bin/true") : "ignore"
     # Compte par lequel beryl se connecte : une recette qui restreint l'accès
     # SSH (`sshd-allow-users`) s'en sert pour ne jamais fermer sa propre porte.
     vars["connect_user"] = ssh_user
