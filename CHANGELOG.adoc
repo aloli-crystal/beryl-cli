@@ -9,6 +9,15 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `pg-upgrade` : dump à côté du cluster déplacé
+
+* `--dump-dir` par défaut = dossier PARENT de `postgresql_data` quand il
+  est posé (ex. `/home/postgres` pour `/home/postgres/data18`, chiffré avec
+  `profile: standard`) ; sinon `/var/db/postgres` comme avant. Un dump en
+  clair dans `/var/db` défaisait le chiffrement du cluster.
+* `--cleanup` retrouve l'état au même endroit ; `--dump-dir` n'est
+  redonné dans le résumé que s'il reste nécessaire.
+
 === `postgresql-initdb` suit `postgresql_data` ; `sysrc-set` accepte `if_set`
 
 * `postgresql-initdb` : « déjà initialisé » se lit dans le cluster de

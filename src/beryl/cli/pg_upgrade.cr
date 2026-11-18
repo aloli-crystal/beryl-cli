@@ -46,6 +46,9 @@ module Beryl::CLI::PgUpgrade
   # (UID 770, home /var/db/postgres). Persistant au reboot (≠ /tmp), même
   # système de fichiers que les data dirs par défaut (un seul contrôle
   # d'espace), et déjà réservé aux données PostgreSQL (droits restreints).
+  # Cluster déplacé par `postgresql_data` (ex. /home/postgres/data18, sur un
+  # dataset chiffré) : le défaut devient le dossier PARENT du cluster — un
+  # dump en clair dans /var/db/postgres défairait ce chiffrement.
   DEFAULT_DUMP_DIR = "/var/db/postgres"
   # Fichier d'état écrit dans `--dump-dir` après une migration réussie : lu
   # par `--cleanup` pour savoir quoi supprimer (clé=valeur, une par ligne).
@@ -61,7 +64,7 @@ module Beryl::CLI::PgUpgrade
     apply : Bool = false,
     link : Bool = false,
     dump : Bool = true,
-    dump_dir : String = DEFAULT_DUMP_DIR,
+    dump_dir : String? = nil,
     stop_services : Array(String) = [] of String,
     new_data : String? = nil,
     cleanup : Bool = false
@@ -71,7 +74,7 @@ module Beryl::CLI::PgUpgrade
     apply = false
     link = false
     dump = true
-    dump_dir = DEFAULT_DUMP_DIR
+    dump_dir : String? = nil
     services = [] of String
     new_data : String? = nil
     cleanup = false
@@ -88,7 +91,7 @@ module Beryl::CLI::PgUpgrade
       p.on("--stop-services=LISTE", "Services clients à arrêter avant / relancer après (séparés par des virgules)") do |v|
         services = v.split(',').map(&.strip).reject(&.empty?)
       end
-      p.on("--dump-dir=DIR", "Répertoire de la sauvegarde pg_dumpall et des paquets de secours (défaut : #{DEFAULT_DUMP_DIR})") { |v| dump_dir = v.rchop('/') }
+      p.on("--dump-dir=DIR", "Répertoire de la sauvegarde pg_dumpall et des paquets de secours (défaut : parent de postgresql_data s'il est posé, sinon #{DEFAULT_DUMP_DIR})") { |v| dump_dir = v.rchop('/') }
       p.on("--no-dump", "Pas de sauvegarde pg_dumpall préalable (déconseillé)") { dump = false }
       p.on("--new-data=DIR", "Data dir du nouveau cluster (seulement si postgresql_data est personnalisé)") { |v| new_data = v.rchop('/') }
       p.on("--cleanup", "Supprime l'ancien data dir, les paquets de secours et #{WORK_DIR} (nouvelle version en service)") { cleanup = true }
@@ -156,7 +159,9 @@ module Beryl::CLI::PgUpgrade
     if t = opts.to
       return "--to attend un numéro de majeure (ex. 19), reçu #{t.inspect}" unless t.matches?(/\A\d+\z/)
     end
-    return "--dump-dir doit être un chemin absolu simple (reçu #{opts.dump_dir.inspect})" unless safe_dir?(opts.dump_dir)
+    if dd = opts.dump_dir
+      return "--dump-dir doit être un chemin absolu simple (reçu #{dd.inspect})" unless safe_dir?(dd)
+    end
     if nd = opts.new_data
       return "--new-data doit être un chemin absolu simple (reçu #{nd.inspect})" unless safe_dir?(nd)
     end
@@ -169,6 +174,15 @@ module Beryl::CLI::PgUpgrade
   # `/var` : ces chemins finissent dans des `rm -rf`).
   def self.safe_dir?(path : String) : Bool
     path.matches?(SAFE_PATH) && !path.includes?("..") && path.split('/').count { |s| !s.empty? } >= 2
+  end
+
+  # Dossier de dump par défaut : parent du cluster désigné par
+  # `postgresql_data` (vide = data dir du port → DEFAULT_DUMP_DIR). nil si ce
+  # parent n'est pas un chemin sûr (ex. /data18 → `/`) : `--dump-dir` exigé.
+  def self.default_dump_dir(rc_data : String) : String?
+    return DEFAULT_DUMP_DIR if rc_data.empty?
+    parent = File.dirname(rc_data)
+    safe_dir?(parent) ? parent : nil
   end
 
   # Clé de tri d'un numéro de majeure FreeBSD : `96` = 9.6 (avant la
@@ -270,6 +284,7 @@ module Beryl::CLI::PgUpgrade
       @deps_touched = false
       @new_data_created = false
       @upgrade_started = false
+      @dump_dir = @opts.dump_dir || DEFAULT_DUMP_DIR
     end
 
     def run : Int32
@@ -353,6 +368,7 @@ module Beryl::CLI::PgUpgrade
           "#{p.home}/data#{p.new_major}"
         end
       refuse("le nouveau data dir est l'ancien (#{p.new_data}).") if p.new_data == p.old_data
+      @dump_dir = resolve_dump_dir(custom)
       pg_version = read("cat #{p.old_data}/PG_VERSION 2>/dev/null")
       unless pg_version.delete('.') == p.old_major
         refuse("#{p.old_data}/PG_VERSION = #{pg_version.inspect}, attendu #{p.old_major} : ce n'est pas le cluster en service.")
@@ -360,9 +376,9 @@ module Beryl::CLI::PgUpgrade
       if ok?("test -e #{p.new_data}")
         refuse("#{p.new_data} existe déjà (reste d'un essai ?). Vérifiez-le et supprimez-le avant de relancer.")
       end
-      refuse("#{@opts.dump_dir} n'existe pas (--dump-dir).") unless ok?("test -d #{@opts.dump_dir}")
-      p.pkg_dir = "#{@opts.dump_dir}/pg-upgrade-#{BASE}#{p.old_major}-pkg"
-      p.dump_file = "#{@opts.dump_dir}/pg_dumpall-#{p.old_major}-#{@now.to_s("%Y%m%d-%H%M%S")}.sql"
+      refuse("#{@dump_dir} n'existe pas (--dump-dir).") unless ok?("test -d #{@dump_dir}")
+      p.pkg_dir = "#{@dump_dir}/pg-upgrade-#{BASE}#{p.old_major}-pkg"
+      p.dump_file = "#{@dump_dir}/pg_dumpall-#{p.old_major}-#{@now.to_s("%Y%m%d-%H%M%S")}.sql"
 
       @opts.stop_services.each do |svc|
         unless ok?("test -x /etc/rc.d/#{svc} -o -x /usr/local/etc/rc.d/#{svc}")
@@ -445,7 +461,7 @@ module Beryl::CLI::PgUpgrade
       avail = {} of String => Int64
       wanted = [] of {String, Int64}
       wanted << {File.dirname(p.new_data), p.data_kb} unless @opts.link
-      wanted << {@opts.dump_dir, p.data_kb} if @opts.dump
+      wanted << {@dump_dir, p.data_kb} if @opts.dump
       wanted.each do |dir, kb|
         df = PgUpgrade.parse_df(read("df -kP #{dir} | tail -1"))
         refuse("espace libre illisible sur #{dir} (df).") unless df
@@ -655,7 +671,7 @@ module Beryl::CLI::PgUpgrade
       content = {"old_major" => p.old_major, "new_major" => p.new_major, "old_data" => p.old_data,
                  "new_data" => p.new_data, "pkg_dir" => p.pkg_dir, "home" => p.home, "pg_user" => p.pg_user}
         .map { |k, v| "#{k}=#{v}" }.join("\n") + "\n"
-      @shell.write_file("#{@opts.dump_dir}/#{STATE_FILE}", content, "0600")
+      @shell.write_file("#{@dump_dir}/#{STATE_FILE}", content, "0600")
     end
 
     private def summary : Nil
@@ -675,8 +691,20 @@ module Beryl::CLI::PgUpgrade
       o.puts "    (#{@opts.link ? "--link : l'ancien cluster n'est déjà plus utilisable" : "jusque-là, retour arrière manuel possible"})."
     end
 
+    # `--cleanup` retrouve seul le dossier d'après le postgresql_data en
+    # service (repointé sur le nouveau cluster) ; option à redonner sinon.
     private def dump_dir_flag : String
-      @opts.dump_dir == DEFAULT_DUMP_DIR ? "" : " --dump-dir=#{@opts.dump_dir}"
+      after = @plan.rc_data_set ? PgUpgrade.default_dump_dir(@plan.new_data) : DEFAULT_DUMP_DIR
+      @dump_dir == after ? "" : " --dump-dir=#{@dump_dir}"
+    end
+
+    # `--dump-dir` explicite, sinon le défaut déduit de postgresql_data.
+    private def resolve_dump_dir(rc_data : String) : String
+      if dd = @opts.dump_dir
+        return dd
+      end
+      PgUpgrade.default_dump_dir(rc_data) ||
+        refuse("postgresql_data = #{rc_data} : dossier parent inutilisable pour le dump, précisez --dump-dir=DIR.")
     end
 
     # ── --cleanup ───────────────────────────────────────────────────────────
@@ -684,7 +712,8 @@ module Beryl::CLI::PgUpgrade
     # script delete_old_cluster.sh de pg_upgrade — seulement si la nouvelle
     # version tourne bien sur le nouveau data dir. Le dump est gardé.
     private def cleanup : Int32
-      state_path = "#{@opts.dump_dir}/#{STATE_FILE}"
+      @dump_dir = resolve_dump_dir(read("sysrc -n postgresql_data 2>/dev/null").rchop('/'))
+      state_path = "#{@dump_dir}/#{STATE_FILE}"
       st = read("cat #{state_path} 2>/dev/null").lines.compact_map do |l|
         k, _, v = l.partition('=')
         {k.strip, v.strip} unless k.strip.empty?
@@ -710,7 +739,7 @@ module Beryl::CLI::PgUpgrade
       @out.puts ""
       @out.puts "Nettoyage après migration #{st["old_major"]} → #{st["new_major"]} sur #{@label}#{@opts.apply ? "" : " (dry-run)"} :"
       targets.each { |t| @out.puts "  rm -rf #{t}" }
-      @out.puts "  (la sauvegarde pg_dumpall de #{@opts.dump_dir} est conservée)"
+      @out.puts "  (la sauvegarde pg_dumpall de #{@dump_dir} est conservée)"
       unless @opts.apply
         @out.puts "→ ajoutez `--apply` pour supprimer."
         return EXIT_OK

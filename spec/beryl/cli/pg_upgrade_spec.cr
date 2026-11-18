@@ -154,6 +154,37 @@ describe Beryl::CLI::PgUpgrade do
       buf.to_s.should contain("sysrc postgresql_data=/data/pg/data19")
     end
 
+    it "cluster déplacé (postgresql_data) : dump dans son dossier parent, pas dans /var/db/postgres" do
+      shell = happy_shell
+      shell.stub(/sysrc -n postgresql_data/, "/home/postgres/data18\n")
+      shell.stub(%r{^cat /home/postgres/data18/PG_VERSION}, "18\n")
+      shell.stub(%r{^test -e /home/postgres/data19$}, exit_code: 1)
+      buf = IO::Memory.new
+      migration(shell, buf).run.should eq(PgU::EXIT_OK)
+      buf.to_s.should contain("pg_dumpall > /home/postgres/pg_dumpall-18-20261014-183000.sql")
+      buf.to_s.should_not contain("/var/db/postgres/pg_dumpall")
+    end
+
+    it "--dump-dir explicite prime sur le parent de postgresql_data" do
+      shell = happy_shell
+      shell.stub(/sysrc -n postgresql_data/, "/home/postgres/data18\n")
+      shell.stub(%r{^cat /home/postgres/data18/PG_VERSION}, "18\n")
+      shell.stub(%r{^test -e /home/postgres/data19$}, exit_code: 1)
+      buf = IO::Memory.new
+      migration(shell, buf, dump_dir: "/home/dumps").run.should eq(PgU::EXIT_OK)
+      buf.to_s.should contain("pg_dumpall > /home/dumps/pg_dumpall-18-")
+    end
+
+    it "parent de postgresql_data à la racine (/data) : --dump-dir exigé" do
+      shell = happy_shell
+      shell.stub(/sysrc -n postgresql_data/, "/data/data18\n")
+      shell.stub(%r{^cat /data/data18/PG_VERSION}, "18\n")
+      shell.stub(%r{^test -e /data/data19$}, exit_code: 1)
+      err = IO::Memory.new
+      migration(shell, IO::Memory.new, err).run.should eq(PgU::EXIT_REFUSED)
+      err.to_s.should contain("--dump-dir")
+    end
+
     it "rien à faire (code 0) quand le dépôt n'a pas plus récent, sans --to" do
       shell = happy_shell
       shell.stub(/pkg rquery -U '%v %n'/, "18.3 postgresql18-server")
@@ -440,6 +471,18 @@ describe Beryl::CLI::PgUpgrade do
       shell.stub(/show data_directory/, "/var/db/postgres/data18\n")
       migration(shell, cleanup: true, apply: true).run.should eq(PgU::EXIT_REFUSED)
       shell.ran?(/rm -rf/).should be_false
+    end
+
+    it "cluster déplacé : retrouve l'état dans le parent de postgresql_data" do
+      moved = state.gsub("/var/db/postgres/data", "/home/postgres/data")
+        .gsub("pkg_dir=/var/db/postgres", "pkg_dir=/home/postgres")
+      shell = FakeShell.new
+      shell.stub(/sysrc -n postgresql_data/, "/home/postgres/data19\n")
+      shell.stub(%r{^cat /home/postgres/pg-upgrade.state}, moved)
+      shell.stub(/^pkg query '%n'$/, "postgresql19-client\npostgresql19-server\n")
+      shell.stub(/show data_directory/, "/home/postgres/data19\n")
+      migration(shell, cleanup: true, apply: true).run.should eq(PgU::EXIT_OK)
+      shell.ran?(%r{^rm -rf /home/postgres/data18 /home/postgres/pg-upgrade-postgresql18-pkg .* /home/postgres/pg-upgrade.state$}).should be_true
     end
 
     it "refuse sans migration enregistrée" do
