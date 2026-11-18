@@ -4,11 +4,17 @@ module Beryl::Apply
   # Primitive `postgresql-initdb` : initialise le cluster PostgreSQL via
   # `service postgresql oneinitdb`. PostgreSQL l'exige avant le premier start
   # (MariaDB s'auto-initialise, lui). Idempotente et auto-gardée : skip si
-  # un data dir est déjà initialisé (`/var/db/postgres/data*/PG_VERSION`).
+  # un data dir est déjà initialisé : `postgresql_data` (rc.conf) s'il est
+  # posé (recette `postgresql`, `datadir`), sinon `/var/db/postgres/data*`.
   # Capacité ÉTROITE : initialiser le cluster, rien d'autre.
   #
   #     - postgresql-initdb: {}
   class PostgresqlInitdb < Primitive
+    # Vrai si le cluster de `postgresql_data` (sinon du port) est initialisé.
+    INITIALIZED_PROBE = %(d=$(sysrc -n postgresql_data 2>/dev/null); ) +
+                        %(if [ -n "$d" ]; then test -f "$d/PG_VERSION"; ) +
+                        %(else ls /var/db/postgres/data*/PG_VERSION >/dev/null 2>&1; fi)
+
     def name : String
       "postgresql-initdb"
     end
@@ -39,7 +45,7 @@ module Beryl::Apply
     end
 
     private def initialized?(shell : Shell) : Bool
-      Primitive.probe?(shell, "ls /var/db/postgres/data*/PG_VERSION >/dev/null 2>&1")
+      Primitive.probe?(shell, Apply.sh_line(INITIALIZED_PROBE))
     end
   end
 

@@ -25,4 +25,11 @@ describe Beryl::Apply::SysrcSet do
     result.outcome.should eq(Beryl::Apply::Outcome::Applied)
     shell.ran?(/sysrc dumpdev=NO/).should be_true
   end
+
+  it "if_set vide : étape sautée, rien posé" do
+    shell = FakeShell.new
+    result = prim("sysrc-set").apply(shell, apply_params(%({key: postgresql_data, value: "", if_set: ""})), dry_run: false, context: ctx)
+    result.outcome.should eq(Beryl::Apply::Outcome::Skipped)
+    shell.commands.should be_empty
+  end
 end

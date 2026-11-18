@@ -9,6 +9,14 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `postgresql-initdb` suit `postgresql_data` ; `sysrc-set` accepte `if_set`
+
+* `postgresql-initdb` : « déjà initialisé » se lit dans le cluster de
+  `postgresql_data` (rc.conf) s'il est posé, sinon dans
+  `/var/db/postgres/data*` — pour le `datadir` de la recette `postgresql`
+  (ex. `/home/postgres/data18`, chiffré avec `profile: standard`).
+* `sysrc-set` : `if_set: "{{ param }}"` vide → étape sautée.
+
 === `beryl sync --apply` enchaîne `tang-enroll`
 
 Fiche en mode Tang (pools data, ou zroot `profile: standard`), recettes

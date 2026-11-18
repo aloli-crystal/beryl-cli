@@ -60,4 +60,9 @@ describe Beryl::Apply::PostgresqlInitdb do
     result.outcome.should eq(Beryl::Apply::Outcome::Skipped)
     shell.ran?(/initdb/).should be_false
   end
+
+  it "lit postgresql_data (datadir de la recette) avant le dossier du port" do
+    Beryl::Apply::PostgresqlInitdb::INITIALIZED_PROBE.should contain("sysrc -n postgresql_data")
+    Beryl::Apply::PostgresqlInitdb::INITIALIZED_PROBE.should contain(%(test -f "$d/PG_VERSION"))
+  end
 end

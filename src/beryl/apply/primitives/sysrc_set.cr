@@ -9,12 +9,17 @@ module Beryl::Apply
   #     - sysrc-set:
   #         key: clear_tmp_enable
   #         value: "YES"
+  #
+  # `if_set: "{{ param }}"` : paramètre vide → étape sautée (rien posé).
   class SysrcSet < Primitive
     def name : String
       "sysrc-set"
     end
 
     def apply(shell : Shell, params : Hash(String, YAML::Any), dry_run : Bool, context : Context) : StepResult
+      if params.has_key?("if_set") && (params["if_set"].as_s? || "").strip.empty?
+        return StepResult.skipped("paramètre vide (if_set) — variable non demandée")
+      end
       key = required_string(params, "key")
       value = required_string(params, "value")
 
