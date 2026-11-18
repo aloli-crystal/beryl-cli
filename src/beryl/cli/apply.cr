@@ -8,6 +8,7 @@ require "ssh"
 require "./account_utils"
 require "./dns_record"
 require "./fleet_job"
+require "./tang_enroll"
 
 # Sous-commande `beryl sync <host>` : applique sur le serveur FreeBSD
 # (déjà bootstrappé) les *recettes* déclarées dans le dossier
@@ -479,6 +480,14 @@ module Beryl::CLI::Apply
     report = Beryl::Apply::Executor.new(shell, dry_run, context).run(recipes, recipe_args)
 
     log "apply terminé pour #{host.fqdn}#{dry_run ? " (dry-run)" : ""} — #{report.summary_line}"
+    # Fiche en mode Tang, serveur pas encore enrôlé : `tang-enroll` enchaîné
+    # (recettes jouées sans échec seulement : tang-client, vRack, résolveur).
+    if report.failed == 0 && os == Beryl::Apply::FREEBSD
+      unless Beryl::CLI::TangEnroll.after_sync(config_root, host, shell, dry_run) == Beryl::CLI::TangEnroll::EXIT_OK
+        Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::FAILED, "#{report.summary_line} ; tang-enroll en échec", touched: report.applied > 0)
+        return EXIT_RECIPE
+      end
+    end
     # Tâche de flotte (`--parallel`, no-op sinon) : « mis à jour » si une étape a
     # agi (le canari est validé), « à jour » sinon.
     if report.failed > 0

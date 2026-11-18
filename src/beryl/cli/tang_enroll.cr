@@ -120,21 +120,7 @@ module Beryl::CLI::TangEnroll
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
     Beryl.log_host = host.short_name
 
-    # Sélection des pools en mode tang dans le YAML.
-    tang_pools = host.data_zpools.select do |p|
-      p.encryption.try(&.tang?) || false
-    end
-    # Datasets sensibles du zroot (`profile: standard` : /home, /opt,
-    # /usr/local/etc sous `zroot/encrypted`) en mode tang : enrôlés aussi,
-    # sinon /home resterait fermé au boot (un `beryl unlock` à la main).
-    boot_pool = host.zpools.find(&.boot)
-    enc_root = boot_pool.try(&.encryption_root)
-    enc_root = nil unless boot_pool.try(&.encryption).try(&.tang?)
-    # Unités à enrôler : {dataset, pool qui porte sa configuration Tang}.
-    units = tang_pools.map { |p| {p.name, p} }
-    if (er = enc_root) && (bp = boot_pool)
-      units.unshift({er, bp})
-    end
+    units = units(host)
 
     if units.empty?
       STDERR.puts "beryl : aucun pool data ni zroot (`profile: standard`) avec `encryption.mode: tang` déclaré pour #{host.fqdn}"
@@ -285,6 +271,49 @@ module Beryl::CLI::TangEnroll
   rescue ex
     STDERR.puts "beryl : erreur inattendue — #{ex.class}: #{ex.message}"
     EXIT_UNEXPECTED
+  end
+
+  # Unités à enrôler, {dataset, pool qui porte sa configuration Tang} : les
+  # pools data en mode tang, et `zroot/encrypted` (/home, /opt,
+  # /usr/local/etc) quand le pool boot porte `profile: standard` en mode tang.
+  def self.units(host : Beryl::Config::ResolvedHost) : Array({String, Beryl::Config::Pool})
+    units = host.data_zpools.select { |p| p.encryption.try(&.tang?) || false }.map { |p| {p.name, p} }
+    boot_pool = host.zpools.find(&.boot)
+    if (bp = boot_pool) && (er = bp.encryption_root) && bp.encryption.try(&.tang?)
+      units.unshift({er, bp})
+    end
+    units
+  end
+
+  # Unités pas encore enrôlées : absentes de `clevis_zfs_datasets` (rc.conf
+  # du serveur, écrit par l'enrôlement). Pur.
+  def self.missing(units : Array(String), rc_value : String) : Array(String)
+    units - rc_value.split(/\s+/).reject(&.empty?)
+  end
+
+  # Fin de `beryl sync` : enrôlement Tang automatique d'un serveur dont la
+  # fiche demande Tang et que rien n'a encore enrôlé (`clevis_zfs_datasets`
+  # incomplet) — étape 5 de la mise en route, plus à lancer à la main.
+  # Rien si le client Tang manque (recette `tang-client` pas jouée). Déjà
+  # enrôlé : rien, la clé n'est pas renvoyée au serveur. Renvoie le code de
+  # `tang-enroll` (EXIT_OK si rien à faire).
+  def self.after_sync(config_root : String, host : Beryl::Config::ResolvedHost,
+                      shell : Beryl::Apply::Shell, dry_run : Bool) : Int32
+    names = units(host).map(&.[0])
+    return EXIT_OK if names.empty?
+    unless shell.exec("test -x #{Process.quote(TANG_BINARY)}", raise_on_error: false).success?
+      log "Tang demandé (#{names.join(", ")}) mais #{TANG_BINARY} absent : recette `tang-client` d'abord"
+      return EXIT_OK
+    end
+    rc = shell.exec("sysrc -n clevis_zfs_datasets", raise_on_error: false)
+    todo = missing(names, rc.success? ? rc.stdout : "")
+    return EXIT_OK if todo.empty?
+    if dry_run
+      log "DRY-RUN : enrôlement Tang à faire (#{todo.join(", ")}) → `tang-enroll` lancé par `sync --apply`"
+      return EXIT_OK
+    end
+    log "enrôlement Tang automatique (#{todo.join(", ")} pas encore enrôlé)"
+    run(config_root, [Beryl::CLI::AccountUtils.host_ref(host), "--apply"])
   end
 
   # Levée si la clé du dataset n'est pas chargée côté serveur (=

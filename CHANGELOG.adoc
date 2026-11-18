@@ -9,6 +9,14 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl sync --apply` enchaîne `tang-enroll`
+
+Fiche en mode Tang (pools data, ou zroot `profile: standard`), recettes
+jouées sans échec, client Tang installé (`tang-client`) et unités absentes
+de `clevis_zfs_datasets` : `tang-enroll --apply` est lancé à la fin du
+`sync`. Déjà enrôlé : rien (la clé n'est pas renvoyée au serveur). En essai
+à blanc, l'enrôlement à faire est annoncé.
+
 === `beryl tang-enroll` : /home aussi déverrouillé par Tang au démarrage
 
 Un pool boot `profile: standard` avec `encryption.mode: tang` : son
