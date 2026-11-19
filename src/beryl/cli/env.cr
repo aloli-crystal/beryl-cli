@@ -46,8 +46,8 @@ module Beryl::CLI::Env
       get <société> <SECTION> <VAR>
                                     Écrit une variable sur la sortie (pour un tube : empreinte…)
 
-    <SECTION> <VAR> s'écrit aussi <SECTION.VAR> (ex. `mail SMTP_RELAY_USER` ou
-    `mail.SMTP_RELAY_USER`).
+    Séparateur : espace ou point (`quimeo mail SMTP_RELAY_USER`,
+    `quimeo.mail.SMTP_RELAY_USER`, `quimeo mail.SMTP_RELAY_USER`).
 
     Le coffre est chiffré au roster `secrets` global. Lancer
     `secrets init` une fois sur ce poste si ce n'est pas déjà fait.
@@ -549,6 +549,13 @@ module Beryl::CLI::Env
   def self.target(positional : Array(String)) : {String, String?, String?}?
     account = positional[0]? || return
     return if account.empty?
+    # `quimeo.mail`, `quimeo.mail.SMTP_RELAY_USER` : le point sépare aussi la
+    # société (un nom de société ne contient pas de point).
+    if account.includes?('.')
+      parts = account.split('.')
+      return if parts.size > 3 || positional.size > 1 || parts.any?(&.empty?)
+      return target(parts)
+    end
     case positional.size
     when 1 then {account, nil, nil}
     when 2

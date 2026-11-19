@@ -102,6 +102,10 @@ describe "beryl env : société [SECTION [VAR]]" do
     Beryl::CLI::Env.target(["aloli", "mail"]).should eq({"aloli", "mail", nil})
     Beryl::CLI::Env.target(["aloli", "mail", "SMTP_RELAY_USER"]).should eq({"aloli", "mail", "SMTP_RELAY_USER"})
     Beryl::CLI::Env.target(["aloli", "mail.SMTP_RELAY_USER"]).should eq({"aloli", "mail", "SMTP_RELAY_USER"})
+    Beryl::CLI::Env.target(["aloli.mail"]).should eq({"aloli", "mail", nil})
+    Beryl::CLI::Env.target(["aloli.mail.SMTP_RELAY_USER"]).should eq({"aloli", "mail", "SMTP_RELAY_USER"})
+    Beryl::CLI::Env.target(["aloli.mail", "X"]).should be_nil
+    Beryl::CLI::Env.target(["aloli..X"]).should be_nil
   end
 
   it "refuse les formes invalides" do

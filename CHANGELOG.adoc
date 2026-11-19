@@ -9,6 +9,12 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl env` : point aussi entre société et section
+
+* `quimeo.mail` et `quimeo.mail.SMTP_RELAY_USER` valent
+  `quimeo mail` et `quimeo mail SMTP_RELAY_USER` (avant : cherché comme
+  une société `quimeo.mail`).
+
 === `beryl env` : société [SECTION [VAR]]
 
 * `env show <société> [SECTION [VAR]]` : tout le coffre, une section ou
