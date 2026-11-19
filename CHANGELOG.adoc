@@ -9,6 +9,8 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `env sort` : alias de `env fmt`
+
 === Coffre toujours trié, commentaires gardés
 
 * `env set`, `env unset` et `env edit` écrivent le coffre TRIÉ : sections

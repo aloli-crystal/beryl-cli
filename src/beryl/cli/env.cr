@@ -35,7 +35,7 @@ module Beryl::CLI::Env
       migrate [<société>,…]      Migre .env.yml[société] vers <société>/.env.toml.age
       edit <société>            Édite le coffre d'une société dans $EDITOR
       show <société>            Affiche le plaintext du coffre (debug, à éviter en prod)
-      fmt <société>                 Trie le coffre (sections, variables), commentaires gardés
+      fmt <société>                 Trie le coffre (sections, variables), commentaires gardés — alias : sort
       list <société>                Liste les sections et variables du coffre (NOMS seulement, jamais les valeurs)
       set <société> <SECTION.VAR> [--replace]
                                     Pose une variable : saisie MASQUÉE au clavier (deux fois), ou
@@ -57,14 +57,14 @@ module Beryl::CLI::Env
     sub = argv.first
     rest = argv[1..-1]
     case sub
-    when "migrate" then cmd_migrate(config_root, rest)
-    when "edit"    then cmd_edit(config_root, rest)
-    when "show"    then cmd_show(config_root, rest)
-    when "fmt"     then cmd_fmt(config_root, rest)
-    when "list"    then cmd_list(config_root, rest)
-    when "set"     then cmd_set(config_root, rest)
-    when "unset"   then cmd_unset(config_root, rest)
-    when "get"     then cmd_get(config_root, rest)
+    when "migrate"     then cmd_migrate(config_root, rest)
+    when "edit"        then cmd_edit(config_root, rest)
+    when "show"        then cmd_show(config_root, rest)
+    when "fmt", "sort" then cmd_fmt(config_root, rest)
+    when "list"        then cmd_list(config_root, rest)
+    when "set"         then cmd_set(config_root, rest)
+    when "unset"       then cmd_unset(config_root, rest)
+    when "get"         then cmd_get(config_root, rest)
     else
       STDERR.puts "beryl env : sous-commande inconnue : #{sub}"
       STDERR.puts USAGE
