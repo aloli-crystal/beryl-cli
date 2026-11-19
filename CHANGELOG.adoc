@@ -9,6 +9,26 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== /home chiffré : root limité au déverrouillage ZFS
+
+Serveurs au profil `standard` (/home, /opt, /usr/local/etc chiffrés) :
+
+* root n'ouvre plus de session : `PermitRootLogin forced-commands-only`
+  (bootstrap et `{{ root_ssh_login }}` de la recette
+  `sshd-auth-keys-only`) ; chaque clé de root porte
+  `restrict,command="/usr/local/sbin/beryl-unlock"`, script qui n'exécute
+  que les opérations ZFS de `beryl unlock` (liste fermée, noms vérifiés,
+  refus journalisés en `auth`).
+* Les clés publiques des comptes sont aussi dans
+  `/etc/ssh/authorized_keys/<user>` (en clair, `AuthorizedKeysFile`) :
+  `admin` se connecte avant le déverrouillage ; `user-update-keys` tient
+  cette copie à jour.
+* `beryl unlock` passe par root (commande imposée) pour ZFS, puis par
+  `admin` + sudo pour `after_unlock`.
+* `beryl bootstrap` déverrouille avant d'enchaîner `beryl sync` : avant, il
+  attendait `admin` (clé dans /home chiffré) jusqu'au délai maximal, et un
+  `sync` sur un serveur verrouillé aurait écrit sous les points de montage.
+
 === `beryl env` : point aussi entre société et section
 
 * `quimeo.mail` et `quimeo.mail.SMTP_RELAY_USER` valent

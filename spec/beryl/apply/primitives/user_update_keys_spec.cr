@@ -2,9 +2,15 @@ require "../../../spec_helper"
 require "../../../support/fake_shell"
 require "../../../support/apply_helpers"
 
-private def with_home(shell : FakeShell, authorized : String, home = "/home/deploy")
+private def with_home(shell : FakeShell, authorized : String, home = "/home/deploy", mirror : String? = nil)
   shell.stub(/getent passwd/, stdout: home)
   shell.stub(/cat .*authorized_keys/, stdout: authorized)
+  # Pas de copie en clair (/home non chiffré) sauf `mirror` donné.
+  if mirror
+    shell.stub(%r{^cat /etc/ssh/authorized_keys/}, stdout: mirror)
+  else
+    shell.stub(%r{^test -d /etc/ssh/authorized_keys$}, exit_code: 1)
+  end
 end
 
 describe Beryl::Apply::UserUpdateKeys do
@@ -55,5 +61,30 @@ describe Beryl::Apply::UserUpdateKeys do
       )
     end
     shell.writes.should be_empty
+  end
+
+  it "/home chiffré : copie en clair resynchronisée même si ~/.ssh est à jour" do
+    shell = FakeShell.new
+    with_home(shell, "ssh-ed25519 AAAAfoo x\n", mirror: "ssh-ed25519 AAAAold x\n")
+    result = prim("user-update-keys").apply(
+      shell,
+      apply_params(%({user: deploy, keys: ["ssh-ed25519 AAAAfoo x"]})),
+      dry_run: false, context: ctx,
+    )
+    result.outcome.should eq(Beryl::Apply::Outcome::Applied)
+    w = shell.writes.find! { |x| x.path == "/etc/ssh/authorized_keys/deploy" }
+    w.content.should eq("ssh-ed25519 AAAAfoo x\n")
+    shell.ran?(%r{chown root:wheel /etc/ssh/authorized_keys/deploy}).should be_true
+  end
+
+  it "/home chiffré : copie en clair identique → rien à faire" do
+    shell = FakeShell.new
+    with_home(shell, "ssh-ed25519 AAAAfoo x\n", mirror: "ssh-ed25519 AAAAfoo x\n")
+    result = prim("user-update-keys").apply(
+      shell,
+      apply_params(%({user: deploy, keys: ["ssh-ed25519 AAAAfoo x"]})),
+      dry_run: false, context: ctx,
+    )
+    result.outcome.should eq(Beryl::Apply::Outcome::Skipped)
   end
 end

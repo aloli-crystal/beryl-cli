@@ -4,6 +4,7 @@ require "./option_errors"
 require "../config"
 require "../apply"
 require "../vrack_zone"
+require "../unlock_gate"
 require "ssh"
 require "./account_utils"
 require "./dns_record"
@@ -532,8 +533,8 @@ module Beryl::CLI::Apply
 
   # `{{ root_ssh_login }}` (PermitRootLogin, recette sshd-auth-keys-only) : la
   # MÊME règle que le bootstrap — root COUPÉ (`no`), sauf `/home` chiffré
-  # (profil C+), où root par clé (`prohibit-password`) est la porte de secours
-  # tant que les datasets ne sont pas déverrouillés.
+  # (profil standard) : `forced-commands-only`, root limité à la commande
+  # imposée de déverrouillage ZFS (`Beryl::UnlockGate`), jamais de session.
   def self.root_ssh_login(host : Beryl::Config::ResolvedHost) : String
     root_ssh_login(host.boot_zpool)
   rescue
@@ -541,7 +542,7 @@ module Beryl::CLI::Apply
   end
 
   def self.root_ssh_login(boot_pool : Beryl::Config::Pool) : String
-    boot_pool.system_datasets.any?(&.encrypted) ? "prohibit-password" : "no"
+    boot_pool.system_datasets.any?(&.encrypted) ? Beryl::UnlockGate::PERMIT_ROOT_LOGIN : "no"
   end
 
   # Variables fournies par l'hôte → ce qu'il faut renseigner pour les avoir.

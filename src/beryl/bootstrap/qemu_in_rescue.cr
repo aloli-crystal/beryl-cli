@@ -3,6 +3,7 @@ require "uri"
 require "api-ovh/ovh_api"
 require "ssh"
 require "../config/zpool"
+require "../unlock_gate"
 
 module Beryl::Bootstrap
   # Spécification d'un utilisateur à créer sur le FreeBSD installé.
@@ -426,6 +427,7 @@ module Beryl::Bootstrap
         .gsub("__DATA_POOLS_SCRIPT_B64__", data_pools_script_b64)
         .gsub("__SYSTEM_DATASETS_SCRIPT_B64__", system_datasets_script_b64)
         .gsub("__ROOT_KEYS_B64__", root_authorized_keys_b64)
+        .gsub("__UNLOCK_GATE_B64__", unlock_gate_b64)
         .gsub("__INSTALL_TYPE__", @install_type)
         .gsub("__INSTALL_PKGBASE_PATH__", INSTALL_PKGBASE_PATH)
     end
@@ -455,6 +457,7 @@ module Beryl::Bootstrap
         .gsub("__DATA_POOLS_SCRIPT_B64__", data_pools_script_b64)
         .gsub("__SYSTEM_DATASETS_SCRIPT_B64__", system_datasets_script_b64)
         .gsub("__ROOT_KEYS_B64__", root_authorized_keys_b64)
+        .gsub("__UNLOCK_GATE_B64__", unlock_gate_b64)
     end
 
     # Users encodés en TSV (name|pgroup|sgroups|shell|key1,key2 par ligne),
@@ -628,11 +631,20 @@ module Beryl::Bootstrap
     # fail-safe lisible avant l'unlock (`/root` est clair), `beryl unlock` s'y
     # connecte. Vide sinon → root reste coupé (durcissement historique).
     # Voir zpool-encryption-architecture.adoc § « Accès SSH au boot ».
+    #
+    # Chaque clé est RESTREINTE à la commande imposée `Beryl::UnlockGate`
+    # (`restrict,command="…"`) : root ne sert qu'au déverrouillage ZFS, jamais
+    # à une session (sshd : `PermitRootLogin forced-commands-only`).
     def root_authorized_keys_b64 : String
       return "" if @system_datasets.empty?
       keys = @users.flat_map(&.ssh_keys).uniq
       return "" if keys.empty?
-      Base64.strict_encode(keys.join("\n"))
+      Base64.strict_encode(keys.map { |k| Beryl::UnlockGate.root_key_line(k) }.join("\n"))
+    end
+
+    # Script de la commande imposée de root (base64). Vide hors profil.
+    def unlock_gate_b64 : String
+      @system_datasets.empty? ? "" : Beryl::UnlockGate.script_b64
     end
 
     # Contenu base64 du fichier sudoers (chaque ligne == une règle).

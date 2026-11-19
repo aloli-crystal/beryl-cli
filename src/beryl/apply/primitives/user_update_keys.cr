@@ -1,4 +1,5 @@
 require "../primitive"
+require "../../unlock_gate"
 
 module Beryl::Apply
   # Primitive `user-update-keys` : synchronise le fichier
@@ -13,6 +14,10 @@ module Beryl::Apply
   # actuellement pour se connecter (`context.protected_keys`, dérivées
   # de `host.identity_file`). Sans ça, retirer cette clé du YAML puis
   # lancer apply couperait l'accès en plein vol.
+  #
+  # /home CHIFFRÉ (profil standard, `Beryl::UnlockGate::KEYS_DIR` présent) :
+  # la copie EN CLAIR `/etc/ssh/authorized_keys/<user>` (root, 0644), lue par
+  # sshd avant le déverrouillage, reçoit exactement le même contenu.
   #
   #     - user-update-keys:
   #         user: deploy
@@ -77,19 +82,34 @@ module Beryl::Apply
         )
       end
 
+      content = desired_by_id.values.join("\n")
+      content += "\n" unless content.empty?
+      # Copie en clair (/home chiffré) : à réécrire si absente ou différente.
+      mirror = "#{Beryl::UnlockGate::KEYS_DIR}/#{user}"
+      mirror_stale = shell.exec("test -d #{Beryl::UnlockGate::KEYS_DIR}", raise_on_error: false).success? &&
+                     shell.exec("cat #{Process.quote(mirror)} 2>/dev/null", raise_on_error: false).stdout != content
+
       if to_add.empty? && to_remove.empty?
-        return StepResult.skipped("#{user} : #{desired_ids.size} clé(s), déjà sync")
+        return StepResult.skipped("#{user} : #{desired_ids.size} clé(s), déjà sync") unless mirror_stale
+        return StepResult.applied("#{mirror} à resynchroniser (dry-run)") if dry_run
+        write_mirror(shell, mirror, content)
+        return StepResult.applied("#{mirror} resynchronisé (#{desired_ids.size} clé(s))")
       end
 
       msg = "#{user} : +#{to_add.size} / -#{to_remove.size} clé(s)"
       return StepResult.applied("#{msg} (dry-run)") if dry_run
-
-      content = desired_by_id.values.join("\n")
-      content += "\n" unless content.empty?
       shell.exec("mkdir -p #{Process.quote(home)}/.ssh && chmod 700 #{Process.quote(home)}/.ssh && chown #{Process.quote(user)} #{Process.quote(home)}/.ssh")
       shell.write_file("#{home}/.ssh/authorized_keys", content, mode: "0600")
       shell.exec("chown #{Process.quote(user)} #{Process.quote(home)}/.ssh/authorized_keys")
+      write_mirror(shell, mirror, content) if mirror_stale
       StepResult.applied(msg)
+    end
+
+    # Copie lisible par sshd avant le déverrouillage : root, 0644 (sshd
+    # refuse un fichier modifiable par un autre compte que root ou le user).
+    private def write_mirror(shell : Shell, path : String, content : String) : Nil
+      shell.write_file(path, content, mode: "0644")
+      shell.exec("chown root:wheel #{Process.quote(path)}")
     end
 
     # Identité d'une clé = "type blob", en sautant d'éventuelles

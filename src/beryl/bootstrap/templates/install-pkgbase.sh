@@ -37,6 +37,8 @@ SYSTEM_DATASETS_SCRIPT_B64="__SYSTEM_DATASETS_SCRIPT_B64__"
 # Clés autorisées pour root (base64, une par ligne). Non vide UNIQUEMENT en
 # Option I (/home chiffré) → root clé-seule = porte de secours fail-safe.
 ROOT_KEYS_B64="__ROOT_KEYS_B64__"
+# Script de la commande imposée de root (/usr/local/sbin/beryl-unlock), base64.
+UNLOCK_GATE_B64="__UNLOCK_GATE_B64__"
 
 echo "==> [beryl] Disques boot : ${BOOT_DISKS} (RAID ${BOOT_RAID})"
 
@@ -316,19 +318,38 @@ fi
 # Voir zpool-encryption-architecture.adoc § « Accès SSH au boot ».
 # Sinon (pas de profil) : root COUPÉ (durcissement historique, accès user+sudo).
 if [ -n "${SYSTEM_DATASETS_SCRIPT}" ]; then
-  echo "==> [beryl] SSH : root CLÉ-SEULE (porte de secours fail-safe, /home chiffré)"
-  PERMIT_ROOT="prohibit-password"
+  echo "==> [beryl] SSH : root limité au déverrouillage ZFS (/home chiffré)"
+  # root : AUCUNE session (forced-commands-only) ; chaque clé est restreinte
+  # à /usr/local/sbin/beryl-unlock (opérations ZFS de `beryl unlock` seules).
+  PERMIT_ROOT="forced-commands-only"
+  AKF_LINE="AuthorizedKeysFile .ssh/authorized_keys /etc/ssh/authorized_keys/%u"
   mkdir -p /mnt/root/.ssh
   printf '%s' "${ROOT_KEYS_B64}" | b64decode -r > /mnt/root/.ssh/authorized_keys
   chmod 700 /mnt/root/.ssh
   chmod 600 /mnt/root/.ssh/authorized_keys
+  mkdir -p /mnt/usr/local/sbin
+  printf '%s' "${UNLOCK_GATE_B64}" | b64decode -r > /mnt/usr/local/sbin/beryl-unlock
+  chown root:wheel /mnt/usr/local/sbin/beryl-unlock
+  chmod 0555 /mnt/usr/local/sbin/beryl-unlock
+  # Clés publiques des comptes AUSSI en clair (/etc/ssh/authorized_keys/<user>) :
+  # admin se connecte avant le déverrouillage (sa copie de /home est chiffrée).
+  mkdir -p /mnt/etc/ssh/authorized_keys
+  chmod 755 /mnt/etc/ssh/authorized_keys
+  for AK in /mnt/home/*/.ssh/authorized_keys; do
+    [ -s "${AK}" ] || continue
+    U=${AK#/mnt/home/}
+    U=${U%%/*}
+    install -m 0644 -o root -g wheel "${AK}" "/mnt/etc/ssh/authorized_keys/${U}"
+  done
 else
   echo "==> [beryl] SSH : ROOT COUPÉ d'emblée (accès uniquement par user + sudo)"
   PERMIT_ROOT="no"
+  AKF_LINE=""
 fi
 mkdir -p /mnt/etc/ssh/sshd_config.d
 cat > /mnt/etc/ssh/sshd_config.d/10-beryl-bootstrap.conf <<SSHD
 PermitRootLogin ${PERMIT_ROOT}
+${AKF_LINE}
 PasswordAuthentication no
 ChallengeResponseAuthentication no
 SSHD

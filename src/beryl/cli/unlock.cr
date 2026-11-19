@@ -7,6 +7,7 @@ require "../config"
 require "../encryption"
 require "./account_utils"
 require "./key_store"
+require "../unlock_gate"
 
 # Sous-commande `beryl unlock <host>` (étape H4 du chiffrement) :
 # importe et déchiffre les pools data chiffrés d'un host après un
@@ -162,7 +163,7 @@ module Beryl::CLI::Unlock
     log "unlock #{target} : #{units.size} unité(s) chiffrée(s) à déverrouiller (#{units.join(", ")})"
 
     if dry_run
-      log "DRY-RUN : SSH root@#{host.ssh_host}:#{host.port}"
+      log "DRY-RUN : SSH #{enc_root ? "root (commande imposée #{Beryl::UnlockGate::PATH})" : host.connect_user + " + sudo"}@#{host.ssh_host}:#{host.port}"
       encrypted_pools.each do |pool|
         log "DRY-RUN :   zpool import -N #{pool.name}"
         case pool.encryption.not_nil!.mode
@@ -188,8 +189,15 @@ module Beryl::CLI::Unlock
       return EXIT_OK
     end
 
-    # Commandes ZFS en root (sudo -n si beryl n'est pas connecté en root).
-    conn = Beryl::CLI::RootConn.new(host.connection)
+    # Commandes ZFS en root. /home chiffré (profil du pool boot) : avant le
+    # déverrouillage, sudo est inutilisable (sa configuration est dans
+    # /usr/local/etc, chiffré) → connexion `root`, dont les clés sont
+    # restreintes à la commande imposée `Beryl::UnlockGate` (opérations ZFS de
+    # cette commande seules). Sinon : le compte d'administration + `sudo -n`.
+    # Les actions `after_unlock` passent toujours par ce dernier (déverrouillé,
+    # sudo refonctionne ; journaux nominatifs).
+    admin_conn = Beryl::CLI::RootConn.new(host.connection)
+    conn = enc_root ? Beryl::CLI::RootConn.new(host.connection("root")) : admin_conn
 
     # Pre-flight : si au moins un pool est en mode tang, vérifier que
     # le binaire `clevis-zfs` est présent côté serveur. Sinon
@@ -235,7 +243,7 @@ module Beryl::CLI::Unlock
       STDERR.puts "        after_unlock NON joué (un service peut dépendre de l'unité en échec)" unless after.empty?
       return EXIT_UNLOCK_FAILED
     end
-    services_failed = was_locked ? run_actions(conn, after) : [] of String
+    services_failed = was_locked ? run_actions(admin_conn, after) : [] of String
     unless services_failed.empty?
       STDERR.puts "beryl : after_unlock en échec : #{services_failed.join(", ")} (voir `service <nom> status` et ses journaux)"
       return EXIT_SERVICES_FAILED

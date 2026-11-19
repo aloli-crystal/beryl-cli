@@ -14,6 +14,7 @@ require "./key_store"
 require "./host_keys"
 require "./ovh_monitoring"
 require "./scan"
+require "./unlock"
 
 # Sous-commande `beryl bootstrap <host>` : installe FreeBSD 15 sur un
 # hôte actuellement en rescue Linux (voie mfsBSD-in-QEMU, ADR-012/013).
@@ -475,6 +476,19 @@ module Beryl::CLI::Bootstrap
     # recettes (celles par défaut de la société : relais SMTP, supervision…),
     # pour qu'aucun serveur ne reste « nu », sans courrier ni alertes.
     ref = Beryl::CLI::AccountUtils.host_ref(host)
+    # /home, /opt et /usr/local/etc chiffrés (profil) : verrouillés au premier
+    # démarrage. Un `sync` écrirait SOUS leurs points de montage (fichiers
+    # masqués ensuite) et sudo n'a pas sa configuration → déverrouiller
+    # d'abord, avec la clé du serveur que ce bootstrap vient de ranger.
+    unless system_datasets.none?(&.encrypted)
+      STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl bootstrap")} [Étape 5] /home chiffré → `beryl unlock #{ref} --apply` avant les recettes"
+      ucode = Beryl::CLI::Unlock.run(config_root, ["#{host.account_name}/#{host.domain_name}/#{host.short_name}", "--apply"])
+      unless ucode == Beryl::CLI::Unlock::EXIT_OK
+        STDERR.puts "beryl : FreeBSD est installé, mais le déverrouillage a échoué (code #{ucode}) : recettes NON posées. " \
+                    "Relancez : beryl unlock #{ref} --apply, puis beryl sync #{ref} --apply"
+        return ucode
+      end
+    end
     STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl bootstrap")} [Étape 5] enchaîne `beryl sync #{ref} --apply`"
     code = Beryl::CLI::Apply.run(config_root, ["#{host.account_name}/#{host.domain_name}/#{host.short_name}", "--apply"])
     unless code == Beryl::CLI::Apply::EXIT_OK

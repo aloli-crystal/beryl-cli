@@ -60,6 +60,9 @@ SYSTEM_DATASETS_SCRIPT='__SYSTEM_DATASETS_SCRIPT_B64__'
 # secours fail-safe : root clé-seule reste joignable avant tout `beryl unlock`
 # (les authorized_keys opérateur de /home sont chiffrés au boot). Vide hors profil.
 ROOT_KEYS_B64='__ROOT_KEYS_B64__'
+# Script de la commande imposée de root (/usr/local/sbin/beryl-unlock), base64.
+# Vide hors profil.
+UNLOCK_GATE_B64='__UNLOCK_GATE_B64__'
 # Type d'install : "distribution_sets" (bsdinstall + tarballs) ou
 # "packages" (pkgbase via install-pkgbase.sh). Chemin du script pkgbase
 # déposé sur le rescue (scp'é dans la VM par la branche pkgbase).
@@ -313,24 +316,39 @@ fi
 # `beryl unlock` se connecte alors en root. Sinon (pas de profil) : root COUPÉ
 # (durcissement historique). Cf. zpool-encryption-architecture.adoc § « Accès SSH ».
 if [ -n "$SYSTEM_DATASETS_SCRIPT" ]; then
-  echo "[rescue-run-vm] SSH : root CLÉ-SEULE (porte de secours fail-safe, /home chiffré)"
+  echo "[rescue-run-vm] SSH : root limité au déverrouillage ZFS (/home chiffré)"
   # Garde anti-brick : en Option I, root est la SEULE porte avant unlock. Sans
   # clé root, le serveur serait inaccessible au reboot → on échoue l'install.
   if [ -z "$ROOT_KEYS_B64" ]; then
     echo "ERREUR [rescue-run-vm] : profil Option I mais AUCUNE clé root → abandon (serveur sinon verrouillé)." >&2
     exit 1
   fi
-  PERMIT_ROOT="prohibit-password"
+  # root : AUCUNE session (forced-commands-only) ; chaque clé est restreinte
+  # à /usr/local/sbin/beryl-unlock (opérations ZFS de `beryl unlock` seules).
+  PERMIT_ROOT="forced-commands-only"
+  AKF_LINE="AuthorizedKeysFile .ssh/authorized_keys /etc/ssh/authorized_keys/%u"
   ssh_vm "mkdir -p /mnt/root/.ssh && \
     printf '%s' '$ROOT_KEYS_B64' | base64 -d > /mnt/root/.ssh/authorized_keys && \
     chmod 700 /mnt/root/.ssh && chmod 600 /mnt/root/.ssh/authorized_keys"
+  ssh_vm "mkdir -p /mnt/usr/local/sbin && \
+    printf '%s' '$UNLOCK_GATE_B64' | base64 -d > /mnt/usr/local/sbin/beryl-unlock && \
+    chown root:wheel /mnt/usr/local/sbin/beryl-unlock && chmod 0555 /mnt/usr/local/sbin/beryl-unlock"
+  # Clés publiques des comptes AUSSI en clair (/etc/ssh/authorized_keys/<user>) :
+  # admin se connecte avant le déverrouillage (sa copie de /home est chiffrée).
+  ssh_vm "mkdir -p /mnt/etc/ssh/authorized_keys && chmod 755 /mnt/etc/ssh/authorized_keys && \
+    for AK in /mnt/home/*/.ssh/authorized_keys; do \
+      [ -s \"\$AK\" ] || continue; U=\${AK#/mnt/home/}; U=\${U%%/*}; \
+      install -m 0644 -o root -g wheel \"\$AK\" /mnt/etc/ssh/authorized_keys/\$U; \
+    done"
 else
   echo "[rescue-run-vm] SSH : ROOT COUPÉ d'emblée (accès uniquement par user + sudo)"
   PERMIT_ROOT="no"
+  AKF_LINE=""
 fi
 ssh_vm "mkdir -p /mnt/etc/ssh/sshd_config.d
 cat > /mnt/etc/ssh/sshd_config.d/10-beryl-bootstrap.conf <<SSHD
 PermitRootLogin $PERMIT_ROOT
+$AKF_LINE
 PasswordAuthentication no
 ChallengeResponseAuthentication no
 SSHD"

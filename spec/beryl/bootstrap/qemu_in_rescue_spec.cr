@@ -269,11 +269,22 @@ describe Beryl::Bootstrap::QemuInRescue do
       # Porte de secours fail-safe (PARITÉ tarball + pkgbase) : root clé-seule
       # + clés dans /root clair, dans les DEUX templates.
       [bs.render_install_pkgbase, bs.render_rescue_run_vm].each do |sh|
-        sh.should contain("prohibit-password")
+        sh.should contain("forced-commands-only")
+        sh.should_not contain("prohibit-password")
         sh.should contain("/mnt/root/.ssh/authorized_keys")
         sh.should_not contain(%(ROOT_KEYS_B64="")) # clés root injectées (non vide)
         sh.should_not contain(%(ROOT_KEYS_B64=''))
+        # Commande imposée posée, clés publiques en clair pour admin.
+        sh.should_not contain("__UNLOCK_GATE_B64__")
+        sh.should contain("/mnt/usr/local/sbin/beryl-unlock")
+        sh.should contain("AuthorizedKeysFile .ssh/authorized_keys /etc/ssh/authorized_keys/%u")
+        sh.should contain("/mnt/etc/ssh/authorized_keys")
       end
+      # Chaque clé root est restreinte à la commande imposée.
+      Base64.decode_string(bs.root_authorized_keys_b64).each_line do |l|
+        l.should start_with(%(restrict,command="/usr/local/sbin/beryl-unlock" ssh-))
+      end
+      Base64.decode_string(bs.unlock_gate_b64).should contain("SSH_ORIGINAL_COMMAND")
     end
 
     it "a des défauts raisonnables pour les paramètres non versionnés" do
