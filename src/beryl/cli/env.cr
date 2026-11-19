@@ -6,6 +6,7 @@ require "../config"
 require "../xdg"
 require "./config_git"
 require "./scope"
+require "./vault_sort"
 
 # `beryl env` — gestion des credentials chiffrés par société.
 #
@@ -34,6 +35,7 @@ module Beryl::CLI::Env
       migrate [<société>,…]      Migre .env.yml[société] vers <société>/.env.toml.age
       edit <société>            Édite le coffre d'une société dans $EDITOR
       show <société>            Affiche le plaintext du coffre (debug, à éviter en prod)
+      fmt <société>                 Trie le coffre (sections, variables), commentaires gardés
       list <société>                Liste les sections et variables du coffre (NOMS seulement, jamais les valeurs)
       set <société> <SECTION.VAR> [--replace]
                                     Pose une variable : saisie MASQUÉE au clavier (deux fois), ou
@@ -58,6 +60,7 @@ module Beryl::CLI::Env
     when "migrate" then cmd_migrate(config_root, rest)
     when "edit"    then cmd_edit(config_root, rest)
     when "show"    then cmd_show(config_root, rest)
+    when "fmt"     then cmd_fmt(config_root, rest)
     when "list"    then cmd_list(config_root, rest)
     when "set"     then cmd_set(config_root, rest)
     when "unset"   then cmd_unset(config_root, rest)
@@ -250,9 +253,7 @@ module Beryl::CLI::Env
 
     Dir.mkdir_p(account_dir)
     File.chmod(account_dir, 0o700)
-    ciphertext = Secrets::Vault.encrypt(plaintext_after, Secrets::Recipients.encryption_keys)
-    File.write(vault_path, ciphertext)
-    File.chmod(vault_path, 0o600)
+    write_vault(vault_path, plaintext_after)
 
     STDOUT.puts "[edit] #{vault_path} mis à jour."
     # Coffre chiffré → commitable. Auto-commit dans le dépôt de config.
@@ -394,6 +395,37 @@ module Beryl::CLI::Env
     1
   end
 
+  # `beryl env fmt <société>` : trie le coffre existant (sections puis
+  # variables par ordre alphabétique, commentaires gardés). `set`, `unset` et
+  # `edit` l'écrivent déjà trié ; ceci range un coffre plus ancien.
+  private def self.cmd_fmt(config_root : String, argv : Array(String)) : Int32
+    no_commit = argv.includes?("--no-commit")
+    unknown = argv.select(&.starts_with?("-")) - ["--no-commit"]
+    positional = argv.reject(&.starts_with?("-"))
+    account = positional.first?
+    unless account && positional.size == 1 && unknown.empty?
+      STDERR.puts "USAGE : beryl env fmt <société> [--no-commit]"
+      return 64
+    end
+    vault_path = File.join(config_root, account, Beryl::Config::EnvFile::VAULT_FILENAME)
+    unless File.exists?(vault_path)
+      STDERR.puts "beryl env fmt : #{vault_path} n'existe pas."
+      return 1
+    end
+    plaintext = Secrets::Vault.decrypt(File.read(vault_path), Secrets::MasterKey.read.identity)
+    if Beryl::CLI::VaultSort.sort(plaintext) == plaintext
+      STDOUT.puts "[fmt] #{vault_path} déjà trié."
+      return 0
+    end
+    write_vault(vault_path, plaintext)
+    STDOUT.puts "[fmt] #{vault_path} trié (sections, variables ; commentaires gardés)."
+    Beryl::CLI::ConfigGit.commit([vault_path], "env : coffre #{account} trié (fmt)", no_commit)
+    0
+  rescue ex
+    STDERR.puts "beryl env fmt : #{ex.message}"
+    1
+  end
+
   # `beryl env list <société>` : sections et NOMS de variables, triés ; jamais
   # les valeurs (seulement leur nombre de lignes pour les multi-lignes).
   private def self.cmd_list(config_root : String, argv : Array(String)) : Int32
@@ -465,8 +497,10 @@ module Beryl::CLI::Env
     strip.call(a) == strip.call(b)
   end
 
+  # Chiffre et écrit le coffre, TOUJOURS trié (sections puis variables par
+  # ordre alphabétique, commentaires gardés — cf. VaultSort).
   private def self.write_vault(vault_path : String, plaintext : String) : Nil
-    File.write(vault_path, Secrets::Vault.encrypt(plaintext, Secrets::Recipients.encryption_keys))
+    File.write(vault_path, Secrets::Vault.encrypt(Beryl::CLI::VaultSort.sort(plaintext), Secrets::Recipients.encryption_keys))
     File.chmod(vault_path, 0o600)
   end
 

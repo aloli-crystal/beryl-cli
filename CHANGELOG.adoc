@@ -9,6 +9,17 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Coffre toujours trié, commentaires gardés
+
+* `env set`, `env unset` et `env edit` écrivent le coffre TRIÉ : sections
+  puis variables par ordre alphabétique. Les commentaires suivent ce
+  qu'ils décrivent (collés à un en-tête → la section ; avant une
+  variable → la variable) ; le préambule reste en tête ; une valeur
+  multi-ligne se déplace d'un bloc.
+* `env fmt <société>` : trie un coffre existant.
+* Garde-fou : si le tri changeait la moindre donnée (relecture TOML),
+  le texte d'origine est gardé.
+
 === `beryl env` : gérer le coffre sans l'ouvrir
 
 * `env list <société>` : sections et noms de variables, jamais les valeurs.
