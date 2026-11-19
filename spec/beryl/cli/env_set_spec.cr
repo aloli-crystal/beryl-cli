@@ -95,3 +95,24 @@ describe "beryl env set --replace / unset (retrait ciblé)" do
     out.should_not contain("relais@example.net")
   end
 end
+
+describe "beryl env : société [SECTION [VAR]]" do
+  it "accepte société, section, section+VAR (espace ou point)" do
+    Beryl::CLI::Env.target(["aloli"]).should eq({"aloli", nil, nil})
+    Beryl::CLI::Env.target(["aloli", "mail"]).should eq({"aloli", "mail", nil})
+    Beryl::CLI::Env.target(["aloli", "mail", "SMTP_RELAY_USER"]).should eq({"aloli", "mail", "SMTP_RELAY_USER"})
+    Beryl::CLI::Env.target(["aloli", "mail.SMTP_RELAY_USER"]).should eq({"aloli", "mail", "SMTP_RELAY_USER"})
+  end
+
+  it "refuse les formes invalides" do
+    Beryl::CLI::Env.target([] of String).should be_nil
+    Beryl::CLI::Env.target(["aloli", "a.b.c"]).should be_nil
+    Beryl::CLI::Env.target(["aloli", "mail", "X", "Y"]).should be_nil
+    Beryl::CLI::Env.target(["aloli", "mail", "X-Y"]).should be_nil
+  end
+
+  it "show filtré : section triée, valeurs en TOML" do
+    Beryl::CLI::Env.show_text("mail", {"Z" => "z", "A" => "a\"b"})
+      .should eq("[mail]\nA = \"a\\\"b\"\nZ = \"z\"\n")
+  end
+end

@@ -9,6 +9,14 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl env` : société [SECTION [VAR]]
+
+* `env show <société> [SECTION [VAR]]` : tout le coffre, une section ou
+  une seule variable.
+* `env list <société> [SECTION]` : noms d'une seule section.
+* `set`, `unset`, `get` : `<SECTION> <VAR>` séparés par une espace, ou
+  `<SECTION.VAR>` comme avant.
+
 === `env sort` : alias de `env fmt`
 
 === Coffre toujours trié, commentaires gardés

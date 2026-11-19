@@ -34,14 +34,20 @@ module Beryl::CLI::Env
     SOUS-COMMANDES :
       migrate [<société>,…]      Migre .env.yml[société] vers <société>/.env.toml.age
       edit <société>            Édite le coffre d'une société dans $EDITOR
-      show <société>            Affiche le plaintext du coffre (debug, à éviter en prod)
+      show <société> [SECTION [VAR]]
+                                    Affiche le coffre en clair, ou une section, ou une variable
       fmt <société>                 Trie le coffre (sections, variables), commentaires gardés — alias : sort
-      list <société>                Liste les sections et variables du coffre (NOMS seulement, jamais les valeurs)
-      set <société> <SECTION.VAR> [--replace]
+      list <société> [SECTION]      Liste les sections et variables (NOMS seulement, jamais les valeurs)
+      set <société> <SECTION> <VAR> [--replace]
                                     Pose une variable : saisie MASQUÉE au clavier (deux fois), ou
                                     lue sur l'entrée (tube, multi-ligne). Existante → --replace
-      unset <société> <SECTION.VAR> Retire une variable (les commentaires du coffre restent)
-      get <société> <SECTION.VAR>  Écrit une variable sur la sortie (pour un tube : empreinte…)
+      unset <société> <SECTION> <VAR>
+                                    Retire une variable (les commentaires du coffre restent)
+      get <société> <SECTION> <VAR>
+                                    Écrit une variable sur la sortie (pour un tube : empreinte…)
+
+    <SECTION> <VAR> s'écrit aussi <SECTION.VAR> (ex. `mail SMTP_RELAY_USER` ou
+    `mail.SMTP_RELAY_USER`).
 
     Le coffre est chiffré au roster `secrets` global. Lancer
     `secrets init` une fois sur ce poste si ce n'est pas déjà fait.
@@ -288,13 +294,14 @@ module Beryl::CLI::Env
     replace = argv.includes?("--replace")
     unknown = argv.select(&.starts_with?("-")) - ["--no-commit", "--replace"]
     positional = argv.reject(&.starts_with?("-"))
-    account, path = positional[0]?, positional[1]?
-    unless unknown.empty? && positional.size <= 2 && account && path && (sv = split_var(path))
-      STDERR.puts "USAGE : beryl env set <société> <SECTION.VAR> [--replace] [--no-commit]"
+    t = target(positional)
+    unless unknown.empty? && t && (section = t[1]) && (var = t[2])
+      STDERR.puts "USAGE : beryl env set <société> <SECTION> <VAR> [--replace] [--no-commit]"
       STDERR.puts "        (valeur saisie masquée au clavier, ou lue sur l'entrée : `… | beryl env set …`)"
       return 64
     end
-    section, var = sv
+    account = t[0]
+    path = "#{section}.#{var}"
     vault_path = File.join(config_root, account, Beryl::Config::EnvFile::VAULT_FILENAME)
     unless File.exists?(vault_path)
       STDERR.puts "beryl env set : #{vault_path} n'existe pas (`beryl env edit --create #{account}`)."
@@ -363,12 +370,13 @@ module Beryl::CLI::Env
     no_commit = argv.includes?("--no-commit")
     unknown = argv.select(&.starts_with?("-")) - ["--no-commit"]
     positional = argv.reject(&.starts_with?("-"))
-    account, path = positional[0]?, positional[1]?
-    unless unknown.empty? && positional.size <= 2 && account && path && (sv = split_var(path))
-      STDERR.puts "USAGE : beryl env unset <société> <SECTION.VAR> [--no-commit]"
+    t = target(positional)
+    unless unknown.empty? && t && (section = t[1]) && (var = t[2])
+      STDERR.puts "USAGE : beryl env unset <société> <SECTION> <VAR> [--no-commit]"
       return 64
     end
-    section, var = sv
+    account = t[0]
+    path = "#{section}.#{var}"
     vault_path = File.join(config_root, account, Beryl::Config::EnvFile::VAULT_FILENAME)
     unless File.exists?(vault_path)
       STDERR.puts "beryl env unset : #{vault_path} n'existe pas."
@@ -429,18 +437,26 @@ module Beryl::CLI::Env
   # `beryl env list <société>` : sections et NOMS de variables, triés ; jamais
   # les valeurs (seulement leur nombre de lignes pour les multi-lignes).
   private def self.cmd_list(config_root : String, argv : Array(String)) : Int32
-    positional = argv.reject(&.starts_with?("-"))
-    account = positional.first?
-    unless account && positional.size == 1 && argv.none?(&.starts_with?("-"))
-      STDERR.puts "USAGE : beryl env list <société>"
+    t = target(argv.reject(&.starts_with?("-")))
+    unless t && t[2].nil? && argv.none?(&.starts_with?("-"))
+      STDERR.puts "USAGE : beryl env list <société> [SECTION]"
       return 64
     end
+    account, section, _ = t
     vault_path = File.join(config_root, account, Beryl::Config::EnvFile::VAULT_FILENAME)
     unless File.exists?(vault_path)
       STDERR.puts "beryl env list : #{vault_path} n'existe pas."
       return 1
     end
-    STDOUT.print list_text(Beryl::Config::EnvFile.load_vault(vault_path))
+    vault = Beryl::Config::EnvFile.load_vault(vault_path)
+    if section
+      unless vault.has_key?(section)
+        STDERR.puts "beryl env list : section [#{section}] absente du coffre #{account}."
+        return 1
+      end
+      vault = vault.select(section)
+    end
+    STDOUT.print list_text(vault)
     0
   rescue ex
     STDERR.puts "beryl env list : #{ex.message}"
@@ -507,12 +523,13 @@ module Beryl::CLI::Env
   # `beryl env get <société> <SECTION.VAR>` : valeur brute sur la sortie, pour
   # un tube (vérification d'empreinte…). Rien d'autre n'est écrit sur stdout.
   private def self.cmd_get(config_root : String, argv : Array(String)) : Int32
-    account, path = argv[0]?, argv[1]?
-    unless argv.size <= 2 && account && path && (sv = split_var(path))
-      STDERR.puts "USAGE : beryl env get <société> <SECTION.VAR>"
+    t = target(argv)
+    unless t && (section = t[1]) && (var = t[2])
+      STDERR.puts "USAGE : beryl env get <société> <SECTION> <VAR>"
       return 64
     end
-    section, var = sv
+    account = t[0]
+    path = "#{section}.#{var}"
     vault_path = File.join(config_root, account, Beryl::Config::EnvFile::VAULT_FILENAME)
     value = Beryl::Config::EnvFile.load_vault(vault_path)[section]?.try(&.[var]?)
     unless value
@@ -525,6 +542,30 @@ module Beryl::CLI::Env
     STDERR.puts "beryl env get : #{ex.message}"
     1
   end
+
+  # Arguments positionnels → {société, section?, VAR?}. Formes acceptées :
+  # `aloli`, `aloli mail`, `aloli mail SMTP_RELAY_USER`,
+  # `aloli mail.SMTP_RELAY_USER`. nil si la forme est invalide. Pur.
+  def self.target(positional : Array(String)) : {String, String?, String?}?
+    account = positional[0]? || return
+    return if account.empty?
+    case positional.size
+    when 1 then {account, nil, nil}
+    when 2
+      arg = positional[1]
+      if sv = split_var(arg)
+        {account, sv[0], sv[1]}
+      elsif arg.matches?(SECTION_NAME)
+        {account, arg, nil}
+      end
+    when 3
+      return unless positional[1].matches?(SECTION_NAME) && positional[2].matches?(VAR_NAME)
+      {account, positional[1], positional[2]}
+    end
+  end
+
+  SECTION_NAME = /\A[A-Za-z0-9_-]+\z/
+  VAR_NAME     = /\A[A-Za-z0-9_]+\z/
 
   # « section.VAR » → {section, VAR} ; noms simples seulement. Pur.
   def self.split_var(path : String) : {String, String}?
@@ -565,20 +606,15 @@ module Beryl::CLI::Env
     account = ""
     OptionParser.parse(argv.dup) do |parser|
       Beryl::CLI.handle_option_errors(parser)
-      parser.banner = "USAGE : beryl env show <société>"
+      parser.banner = "USAGE : beryl env show <société> [SECTION [VAR]]"
       parser.on("-h", "--help", "Affiche cette aide") { puts parser; exit 0 }
     end
-    positional = argv.reject(&.starts_with?("-"))
-    if positional.size > 1
-      STDERR.puts "beryl env : argument(s) en trop : #{positional[1..].join(" ")} — une seule société."
+    t = target(argv.reject(&.starts_with?("-")))
+    unless t
+      STDERR.puts "USAGE : beryl env show <société> [SECTION [VAR]]"
       return 64
     end
-    account = positional.first if positional.size >= 1
-
-    if account.empty?
-      STDERR.puts "beryl env show : argument <société> manquant."
-      return 64
-    end
+    account, section, var = t
 
     vault_path = File.join(config_root, account, Beryl::Config::EnvFile::VAULT_FILENAME)
     unless File.exists?(vault_path)
@@ -588,6 +624,18 @@ module Beryl::CLI::Env
 
     identity = Secrets::MasterKey.read.identity
     plaintext = Secrets::Vault.decrypt(File.read(vault_path), identity)
+    if section
+      vars = Beryl::Config::EnvFile.parse_vault_toml(plaintext)[section]?
+      unless vars
+        STDERR.puts "beryl env show : section [#{section}] absente du coffre #{account}."
+        return 1
+      end
+      if var && !vars.has_key?(var)
+        STDERR.puts "beryl env show : #{section}.#{var} absent du coffre #{account}."
+        return 1
+      end
+      plaintext = show_text(section, var ? vars.select(var) : vars)
+    end
     STDERR.puts "─── #{vault_path} ───────────────────"
     STDOUT.puts plaintext
     STDERR.puts "─── fin du plaintext (à NE PAS commiter en clair) ───"
@@ -599,6 +647,15 @@ module Beryl::CLI::Env
   rescue ex
     STDERR.puts "beryl env show : échec — #{ex.message}"
     1
+  end
+
+  # Rendu filtré de `env show` : `[section]` puis ses variables triées
+  # (valeurs en clair, sans les commentaires du coffre). Pur.
+  def self.show_text(section : String, vars : Hash(String, String)) : String
+    String.build do |s|
+      s << "[#{section}]\n"
+      vars.keys.sort.each { |k| s << toml_assign(k, vars[k]) }
+    end
   end
 
   # Retire les lignes de note d'erreur (préfixe ERR_MARKER) injectées par la
