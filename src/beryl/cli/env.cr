@@ -34,7 +34,11 @@ module Beryl::CLI::Env
       migrate [<société>,…]      Migre .env.yml[société] vers <société>/.env.toml.age
       edit <société>            Édite le coffre d'une société dans $EDITOR
       show <société>            Affiche le plaintext du coffre (debug, à éviter en prod)
-      set <société> <SECTION.VAR>  Pose une variable, valeur lue sur l'ENTRÉE (tube), jamais affichée
+      list <société>                Liste les sections et variables du coffre (NOMS seulement, jamais les valeurs)
+      set <société> <SECTION.VAR> [--replace]
+                                    Pose une variable : saisie MASQUÉE au clavier (deux fois), ou
+                                    lue sur l'entrée (tube, multi-ligne). Existante → --replace
+      unset <société> <SECTION.VAR> Retire une variable (les commentaires du coffre restent)
       get <société> <SECTION.VAR>  Écrit une variable sur la sortie (pour un tube : empreinte…)
 
     Le coffre est chiffré au roster `secrets` global. Lancer
@@ -54,7 +58,9 @@ module Beryl::CLI::Env
     when "migrate" then cmd_migrate(config_root, rest)
     when "edit"    then cmd_edit(config_root, rest)
     when "show"    then cmd_show(config_root, rest)
+    when "list"    then cmd_list(config_root, rest)
     when "set"     then cmd_set(config_root, rest)
+    when "unset"   then cmd_unset(config_root, rest)
     when "get"     then cmd_get(config_root, rest)
     else
       STDERR.puts "beryl env : sous-commande inconnue : #{sub}"
@@ -269,56 +275,199 @@ module Beryl::CLI::Env
   # show
   # ─────────────────────────────────────────────────────────────
 
-  # `beryl env set <société> <SECTION.VAR>` : pose UNE variable, valeur lue sur
-  # l'entrée standard (tube : `… | beryl env set quimeo builder.CLE`), jamais
-  # en argument ni au clavier, jamais affichée. Valeur multi-ligne acceptée
-  # (clé PEM). Insertion CIBLÉE dans le texte déchiffré : les commentaires du
-  # coffre sont conservés ; une variable déjà présente est REFUSÉE (on
-  # n'écrase pas un secret en silence). TOML validé avant chiffrement.
+  # `beryl env set <société> <SECTION.VAR> [--replace]` : pose UNE variable,
+  # jamais en argument (historique du shell), jamais affichée. Au clavier :
+  # saisie MASQUÉE, deux fois (une ligne). En tube : `… | beryl env set …`
+  # (multi-ligne accepté : clé PEM). Insertion CIBLÉE dans le texte
+  # déchiffré : les commentaires du coffre sont conservés. Variable déjà
+  # présente : refusée sans `--replace` (pas d'écrasement silencieux).
+  # Relecture vérifiée avant chiffrement.
   private def self.cmd_set(config_root : String, argv : Array(String)) : Int32
     no_commit = argv.includes?("--no-commit")
+    replace = argv.includes?("--replace")
+    unknown = argv.select(&.starts_with?("-")) - ["--no-commit", "--replace"]
     positional = argv.reject(&.starts_with?("-"))
     account, path = positional[0]?, positional[1]?
-    unless positional.size <= 2 && account && path && (sv = split_var(path))
-      STDERR.puts "USAGE : … | beryl env set <société> <SECTION.VAR> [--no-commit]"
+    unless unknown.empty? && positional.size <= 2 && account && path && (sv = split_var(path))
+      STDERR.puts "USAGE : beryl env set <société> <SECTION.VAR> [--replace] [--no-commit]"
+      STDERR.puts "        (valeur saisie masquée au clavier, ou lue sur l'entrée : `… | beryl env set …`)"
       return 64
     end
     section, var = sv
-    if STDIN.tty?
-      STDERR.puts "beryl env set : la valeur se passe par un TUBE (ex. `… | beryl env set #{account} #{path}`), pas au clavier."
-      return 64
-    end
-    value = STDIN.gets_to_end
-    if value.strip.empty?
-      STDERR.puts "beryl env set : valeur vide sur l'entrée — rien n'est écrit."
-      return 1
-    end
     vault_path = File.join(config_root, account, Beryl::Config::EnvFile::VAULT_FILENAME)
     unless File.exists?(vault_path)
       STDERR.puts "beryl env set : #{vault_path} n'existe pas (`beryl env edit --create #{account}`)."
       return 1
     end
     plaintext = Secrets::Vault.decrypt(File.read(vault_path), Secrets::MasterKey.read.identity)
-    updated = insert_var(plaintext, section, var, value)
+    present = Beryl::Config::EnvFile.parse_vault_toml(plaintext)[section]?.try(&.has_key?(var)) || false
+    # Refus AVANT la saisie : inutile de taper un mot de passe pour rien.
+    if present && !replace
+      STDERR.puts "beryl env set : #{path} existe déjà dans le coffre #{account} — ajoutez --replace pour le remplacer."
+      return 1
+    end
+    value = STDIN.tty? ? prompt_value(path) : STDIN.gets_to_end
+    return 1 unless value
+    if value.strip.empty?
+      STDERR.puts "beryl env set : valeur vide — rien n'est écrit."
+      return 1
+    end
+    base = present ? remove_var(plaintext, section, var) : plaintext
+    updated = base.try { |b| insert_var(b, section, var, value) }
     unless updated
-      STDERR.puts "beryl env set : #{path} existe déjà dans le coffre #{account} — refusé (pas d'écrasement silencieux ; `beryl env edit #{account}`)."
+      STDERR.puts "beryl env set : #{path} : remplacement impossible sans risque — rien n'est écrit (`beryl env edit #{account}`)."
       return 1
     end
     begin
-      got = Beryl::Config::EnvFile.parse_vault_toml(updated)[section]?.try(&.[var]?)
-      raise "relecture différente de la valeur reçue" unless got == value
+      after = Beryl::Config::EnvFile.parse_vault_toml(updated)
+      raise "relecture différente de la valeur reçue" unless after[section]?.try(&.[var]?) == value
+      raise "autres variables modifiées" unless same_except?(Beryl::Config::EnvFile.parse_vault_toml(plaintext), after, section, var)
     rescue ex
       STDERR.puts "beryl env set : coffre résultant invalide (#{ex.message}) — rien n'est écrit."
       return 1
     end
-    File.write(vault_path, Secrets::Vault.encrypt(updated, Secrets::Recipients.encryption_keys))
-    File.chmod(vault_path, 0o600)
-    STDOUT.puts "[set] #{path} posé dans #{vault_path} (#{value.lines.size} ligne(s), valeur non affichée)."
-    Beryl::CLI::ConfigGit.commit([vault_path], "env : #{account} #{section}.#{var} posé (set)", no_commit)
+    write_vault(vault_path, updated)
+    verb = present ? "remplacé" : "posé"
+    STDOUT.puts "[set] #{path} #{verb} dans #{vault_path} (#{value.lines.size} ligne(s), valeur non affichée)."
+    Beryl::CLI::ConfigGit.commit([vault_path], "env : #{account} #{section}.#{var} #{verb} (set)", no_commit)
     0
   rescue ex
     STDERR.puts "beryl env set : #{ex.message}"
     1
+  end
+
+  # Saisie masquée, deux fois ; nil (message déjà affiché) si elles diffèrent
+  # ou si l'entrée est fermée.
+  private def self.prompt_value(path : String) : String?
+    STDERR.print "#{path} (saisie masquée) : "
+    first = STDIN.noecho { STDIN.gets.try(&.chomp) }
+    STDERR.puts
+    STDERR.print "#{path} (confirmation) : "
+    second = STDIN.noecho { STDIN.gets.try(&.chomp) }
+    STDERR.puts
+    if first.nil? || second.nil?
+      STDERR.puts "beryl env set : saisie interrompue — rien n'est écrit."
+      return
+    end
+    unless first == second
+      STDERR.puts "beryl env set : les deux saisies diffèrent — rien n'est écrit."
+      return
+    end
+    first
+  end
+
+  # `beryl env unset <société> <SECTION.VAR>` : retire UNE variable. Les
+  # commentaires et les autres variables restent ; relecture vérifiée.
+  private def self.cmd_unset(config_root : String, argv : Array(String)) : Int32
+    no_commit = argv.includes?("--no-commit")
+    unknown = argv.select(&.starts_with?("-")) - ["--no-commit"]
+    positional = argv.reject(&.starts_with?("-"))
+    account, path = positional[0]?, positional[1]?
+    unless unknown.empty? && positional.size <= 2 && account && path && (sv = split_var(path))
+      STDERR.puts "USAGE : beryl env unset <société> <SECTION.VAR> [--no-commit]"
+      return 64
+    end
+    section, var = sv
+    vault_path = File.join(config_root, account, Beryl::Config::EnvFile::VAULT_FILENAME)
+    unless File.exists?(vault_path)
+      STDERR.puts "beryl env unset : #{vault_path} n'existe pas."
+      return 1
+    end
+    plaintext = Secrets::Vault.decrypt(File.read(vault_path), Secrets::MasterKey.read.identity)
+    before = Beryl::Config::EnvFile.parse_vault_toml(plaintext)
+    unless before[section]?.try(&.has_key?(var))
+      STDERR.puts "beryl env unset : #{path} absent du coffre #{account}."
+      return 1
+    end
+    updated = remove_var(plaintext, section, var)
+    after = updated.try { |u| Beryl::Config::EnvFile.parse_vault_toml(u) rescue nil }
+    unless updated && after && !after[section]?.try(&.has_key?(var)) && same_except?(before, after, section, var)
+      STDERR.puts "beryl env unset : #{path} : retrait impossible sans risque — rien n'est écrit (`beryl env edit #{account}`)."
+      return 1
+    end
+    write_vault(vault_path, updated)
+    STDOUT.puts "[unset] #{path} retiré de #{vault_path}."
+    Beryl::CLI::ConfigGit.commit([vault_path], "env : #{account} #{section}.#{var} retiré (unset)", no_commit)
+    0
+  rescue ex
+    STDERR.puts "beryl env unset : #{ex.message}"
+    1
+  end
+
+  # `beryl env list <société>` : sections et NOMS de variables, triés ; jamais
+  # les valeurs (seulement leur nombre de lignes pour les multi-lignes).
+  private def self.cmd_list(config_root : String, argv : Array(String)) : Int32
+    positional = argv.reject(&.starts_with?("-"))
+    account = positional.first?
+    unless account && positional.size == 1 && argv.none?(&.starts_with?("-"))
+      STDERR.puts "USAGE : beryl env list <société>"
+      return 64
+    end
+    vault_path = File.join(config_root, account, Beryl::Config::EnvFile::VAULT_FILENAME)
+    unless File.exists?(vault_path)
+      STDERR.puts "beryl env list : #{vault_path} n'existe pas."
+      return 1
+    end
+    STDOUT.print list_text(Beryl::Config::EnvFile.load_vault(vault_path))
+    0
+  rescue ex
+    STDERR.puts "beryl env list : #{ex.message}"
+    1
+  end
+
+  # Rendu de `env list` : `[section]` puis une variable par ligne. Pur.
+  def self.list_text(vault : Hash(String, Hash(String, String))) : String
+    String.build do |s|
+      vault.keys.sort.each_with_index do |section, i|
+        s << "\n" if i > 0
+        s << "[#{section}]\n"
+        vault[section].keys.sort.each do |var|
+          n = vault[section][var].lines.size
+          s << "  #{var}#{n > 1 ? " (#{n} lignes)" : ""}\n"
+        end
+      end
+    end
+  end
+
+  # Retire l'affectation `var = …` de `[section]` (chaîne multi-ligne
+  # `'''…'''` / `"""…"""` comprise), sans toucher au reste ni aux
+  # commentaires. nil si la variable est introuvable dans le texte. Pur.
+  def self.remove_var(plaintext : String, section : String, var : String) : String?
+    lines = plaintext.lines(chomp: false)
+    current = nil
+    i = 0
+    while i < lines.size
+      line = lines[i]
+      if m = line.match(/\A\s*\[\s*([^\]]+?)\s*\]\s*(#.*)?\z/)
+        current = m[1].strip
+      elsif current == section && (m = line.match(/\A\s*#{Regex.escape(var)}\s*=\s*(.*)\z/m))
+        stop = i
+        rest = m[1]
+        if (delim = {"'''", "\"\"\""}.find { |d| rest.starts_with?(d) }) && !rest[3..].includes?(delim)
+          stop += 1
+          until stop >= lines.size || lines[stop].includes?(delim)
+            stop += 1
+          end
+          return if stop >= lines.size
+        end
+        return (lines[0...i] + lines[(stop + 1)..]).join
+      end
+      i += 1
+    end
+    nil
+  end
+
+  # Mêmes sections et valeurs dans `a` et `b`, hors `section.var`. Pur.
+  def self.same_except?(a, b, section : String, var : String) : Bool
+    strip = ->(h : Hash(String, Hash(String, String))) do
+      h.to_h { |s, vars| {s, s == section ? vars.reject(var) : vars} }.reject { |_, v| v.empty? }
+    end
+    strip.call(a) == strip.call(b)
+  end
+
+  private def self.write_vault(vault_path : String, plaintext : String) : Nil
+    File.write(vault_path, Secrets::Vault.encrypt(plaintext, Secrets::Recipients.encryption_keys))
+    File.chmod(vault_path, 0o600)
   end
 
   # `beryl env get <société> <SECTION.VAR>` : valeur brute sur la sortie, pour

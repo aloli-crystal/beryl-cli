@@ -46,3 +46,52 @@ describe "beryl env set (insertion ciblée)" do
     Beryl::CLI::Env.split_var("a.b.c").should be_nil
   end
 end
+
+describe "beryl env set --replace / unset (retrait ciblé)" do
+  it "retire une variable simple, garde commentaires et voisines" do
+    res = Beryl::CLI::Env.remove_var(VAULT, "mail", "SMTP_RELAY_USER").not_nil!
+    res.should contain("notes de Philippe")
+    read(res, "mail", "SMTP_RELAY_USER").should be_nil
+    read(res, "ovh", "OVH_APPLICATION_KEY").should eq("abc")
+  end
+
+  it "retire une chaîne multi-ligne ''' en entier" do
+    with_pem = Beryl::CLI::Env.insert_var(VAULT, "builder", "KEY", PEM).not_nil!
+    res = Beryl::CLI::Env.remove_var(with_pem, "builder", "KEY").not_nil!
+    res.should_not contain("PRIVATE KEY")
+    Beryl::Config::EnvFile.parse_vault_toml(res)["builder"]?.try(&.empty?).should be_true
+    read(res, "mail", "SMTP_RELAY_USER").should eq("relais@example.net")
+  end
+
+  it "ne touche pas une variable de même nom dans une autre section" do
+    v = VAULT + "\n[autre]\nSMTP_RELAY_USER = \"x@example.net\"\n"
+    res = Beryl::CLI::Env.remove_var(v, "autre", "SMTP_RELAY_USER").not_nil!
+    read(res, "mail", "SMTP_RELAY_USER").should eq("relais@example.net")
+    read(res, "autre", "SMTP_RELAY_USER").should be_nil
+  end
+
+  it "remplacement = retrait puis insertion" do
+    res = Beryl::CLI::Env.insert_var(Beryl::CLI::Env.remove_var(VAULT, "mail", "SMTP_RELAY_USER").not_nil!,
+      "mail", "SMTP_RELAY_USER", "monit@example.org").not_nil!
+    read(res, "mail", "SMTP_RELAY_USER").should eq("monit@example.org")
+    Beryl::CLI::Env.same_except?(Beryl::Config::EnvFile.parse_vault_toml(VAULT),
+      Beryl::Config::EnvFile.parse_vault_toml(res), "mail", "SMTP_RELAY_USER").should be_true
+  end
+
+  it "variable absente : nil" do
+    Beryl::CLI::Env.remove_var(VAULT, "mail", "ABSENTE").should be_nil
+  end
+
+  it "same_except? détecte une autre variable modifiée" do
+    a = Beryl::Config::EnvFile.parse_vault_toml(VAULT)
+    b = Beryl::Config::EnvFile.parse_vault_toml(VAULT.sub("abc", "xyz"))
+    Beryl::CLI::Env.same_except?(a, b, "mail", "SMTP_RELAY_USER").should be_false
+  end
+
+  it "list : noms seulement, jamais les valeurs" do
+    with_pem = Beryl::CLI::Env.insert_var(VAULT, "builder", "KEY", PEM).not_nil!
+    out = Beryl::CLI::Env.list_text(Beryl::Config::EnvFile.parse_vault_toml(with_pem))
+    out.should eq("[builder]\n  KEY (4 lignes)\n\n[mail]\n  SMTP_RELAY_USER\n\n[ovh]\n  OVH_APPLICATION_KEY\n")
+    out.should_not contain("relais@example.net")
+  end
+end

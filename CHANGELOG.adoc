@@ -9,6 +9,16 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl env` : gérer le coffre sans l'ouvrir
+
+* `env list <société>` : sections et noms de variables, jamais les valeurs.
+* `env set` : saisie MASQUÉE au clavier (deux fois) en plus du tube ;
+  `--replace` remplace une variable existante (refus sans, AVANT la
+  saisie).
+* `env unset <société> <SECTION.VAR>` : retire une variable.
+* Remplacement et retrait ciblés : commentaires et autres variables
+  intacts, vérifié par relecture avant chiffrement.
+
 === Serveur en rescue : « en rescue (Linux) » au lieu de « SSH KO »
 
 * `os-upgrade`, `update`, `upgrade` : un serveur démarré sur le rescue
