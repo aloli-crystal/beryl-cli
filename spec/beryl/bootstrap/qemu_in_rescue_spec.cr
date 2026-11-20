@@ -281,6 +281,8 @@ describe Beryl::Bootstrap::QemuInRescue do
         sh.should contain("/mnt/etc/ssh/authorized_keys")
       end
       # Chaque clé root est restreinte à la commande imposée.
+      # Fin de ligne finale : un ajout ultérieur (>>) ne se colle pas à la dernière clé.
+      Base64.decode_string(bs.root_authorized_keys_b64).should end_with("\n")
       Base64.decode_string(bs.root_authorized_keys_b64).each_line do |l|
         l.should start_with(%(restrict,command="/usr/local/sbin/beryl-unlock" ssh-))
       end

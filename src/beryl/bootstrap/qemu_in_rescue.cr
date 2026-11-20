@@ -646,7 +646,7 @@ module Beryl::Bootstrap
       return "" if @system_datasets.empty?
       keys = @users.flat_map(&.ssh_keys).uniq
       return "" if keys.empty?
-      Base64.strict_encode(keys.map { |k| Beryl::UnlockGate.root_key_line(k) }.join("\n"))
+      Base64.strict_encode(keys.map { |k| Beryl::UnlockGate.root_key_line(k) + "\n" }.join)
     end
 
     # Clé d'hôte privée / publique (base64), vides sans clé fournie.

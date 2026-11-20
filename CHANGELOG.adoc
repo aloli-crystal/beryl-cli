@@ -9,6 +9,11 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `bootstrap` : `/root/.ssh/authorized_keys` terminé par une fin de ligne
+
+* La dernière clé de root n'avait pas de fin de ligne : une clé ajoutée
+  ensuite (`>>`) s'y serait collée, rendant les deux inutilisables.
+
 === `bootstrap` : compilation réparée (0.6.177-0.6.178)
 
 * La clé d'hôte SSH réutilisait le nom de variable de la clé ZFS
