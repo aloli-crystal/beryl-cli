@@ -9,6 +9,17 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `beryl host-keys` : clés d'hôte des serveurs déjà installés
+
+* `beryl host-keys <portée> [--apply]` lit la clé ed25519 de chaque
+  serveur installé et l'inscrit dans `<société>/known_hosts`, comme le
+  bootstrap pour un serveur neuf, puis regénère
+  `~/.ssh/beryl--<société>.conf`.
+* Recoupement avec `~/.ssh/known_hosts` : clé différente → serveur
+  refusé (clé changée ou interception). Sans entrée locale, empreinte
+  affichée, à comparer. Une autre clé déjà inscrite pour le serveur →
+  refus aussi.
+
 === `bootstrap` : clé d'hôte connue d'avance, premier `ssh` sans question
 
 * beryl génère la clé d'hôte ed25519 du serveur et l'installe

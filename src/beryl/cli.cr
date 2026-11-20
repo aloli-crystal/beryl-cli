@@ -31,6 +31,7 @@ require "./cli/env"
 require "./cli/keys"
 require "./cli/headscale_authkey"
 require "./cli/ssh_config"
+require "./cli/host_keys_import"
 require "./cli/pkg_ops"
 require "./cli/os_upgrade"
 require "./cli/build_status"
@@ -168,6 +169,7 @@ module Beryl::CLI
     when "reboot"             then Beryl::CLI::Reboot.run(config_root, sub_args)
     when "monitoring"         then Beryl::CLI::Monitoring.run(config_root, sub_args)
     when "ssh-config"         then Beryl::CLI::SshConfig.run(config_root, sub_args)
+    when "host-keys"          then Beryl::CLI::HostKeysImport.run(config_root, sub_args)
     when "status"             then Beryl::CLI::Status.run(config_root, sub_args)
     when "tang-enroll"        then Beryl::CLI::TangEnroll.run(config_root, sub_args)
     when "zpool-create"       then Beryl::CLI::ZpoolCreate.run(config_root, sub_args)
@@ -205,6 +207,7 @@ module Beryl::CLI
     {"follow-install", "fi", "Suit l'installation FreeBSD en cours"},
     {"headscale-authkey", "hak", "Génère une pre-auth key sur le serveur Headscale (à injecter dans un node)"},
     {"help", "h", "Aide globale ou d'une sous-commande précise"},
+    {"host-keys", "", "Inscrit les clés d'hôte des serveurs installés dans <société>/known_hosts — DRY-RUN par défaut"},
     {"info", "nf", "Inventaire serveurs (gamme/CPU/RAM/disques ; --usage = live ; --refresh = MAJ via API OVH)"},
     {"init", "i", "Initialise ~/.config/beryl/<société>/ + providers/domaines"},
     {"keys", "k", "Clés ZFS des serveurs : import dans le coffre [tang], séquestre papier PDF — DRY-RUN par défaut"},
@@ -220,7 +223,7 @@ module Beryl::CLI
     {"scaleway-reinstall", "", "Réinstalle un serveur Scaleway via l'API"},
     {"scan", "s", "Détecte les disques et propose un YAML host"},
     {"show", "sh", "Détails d'un hôte (config mergée complète)"},
-    {"ssh-config", "", "Écrit ~/.ssh/beryl.conf : hosts cachés derrière le vRack, rebond à replis — DRY-RUN par défaut"},
+    {"ssh-config", "", "Écrit ~/.ssh/beryl--<société>.conf : tous les hosts, rebond à replis, clés d'hôte — DRY-RUN par défaut"},
     {"sync", "sy", "Synchronise packages/users/clés SSH (recettes) — ex-`apply`"},
     {"status", "st", "État pools / services chiffrés d'un host"},
     {"tang-enroll", "te", "Enrôle les pools chiffrés via Tang"},
@@ -300,6 +303,7 @@ module Beryl::CLI
     when "reboot"         then Beryl::CLI::Reboot.run(config_root, ["--help"])
     when "monitoring"     then Beryl::CLI::Monitoring.run(config_root, ["--help"])
     when "ssh-config"     then Beryl::CLI::SshConfig.run(config_root, ["--help"])
+    when "host-keys"      then Beryl::CLI::HostKeysImport.run(config_root, ["--help"])
     when "status"         then Beryl::CLI::Status.run(config_root, ["--help"])
     when "tang-enroll"    then Beryl::CLI::TangEnroll.run(config_root, ["--help"])
     when "zpool-create"   then Beryl::CLI::ZpoolCreate.run(config_root, ["--help"])

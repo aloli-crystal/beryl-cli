@@ -19,3 +19,14 @@ describe Beryl::HostKey do
       .should eq "#{Beryl::HostKey::HEADER}\na.example ssh-ed25519 K\n"
   end
 end
+
+require "../../src/beryl/cli/host_keys_import"
+
+describe Beryl::CLI::HostKeysImport do
+  it "entry : clé ed25519 d'un serveur dans un known_hosts (noms multiples tolérés)" do
+    content = "# en-tête\na.example ssh-ed25519 AAA\nb.example,10.0.0.2 ssh-ed25519 BBB\nb.example ssh-rsa RRR\n"
+    Beryl::CLI::HostKeysImport.entry(content, "a.example").should eq "AAA"
+    Beryl::CLI::HostKeysImport.entry(content, "b.example").should eq "BBB"
+    Beryl::CLI::HostKeysImport.entry(content, "c.example").should be_nil
+  end
+end
