@@ -533,9 +533,16 @@ module Beryl::CLI::Bootstrap
   # sinon une neuve dans le fichier (0400). Hors essai à blanc, rangée dans
   # le coffre `[tang]` de la société AVANT l'installation : le poste n'est
   # plus le seul exemplaire.
-  private def self.bootstrap_key(config_root : String, host : Beryl::Config::ResolvedHost, dry_run : Bool) : String
-    hex, created = Beryl::CLI::KeyStore.obtain_or_create(config_root, host)
+  def self.bootstrap_key(config_root : String, host : Beryl::Config::ResolvedHost, dry_run : Bool) : String
     stamp = "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl bootstrap")} [Étape 1]"
+    # Essai à blanc : RIEN n'est écrit. Sans clé existante, une clé jetable
+    # en mémoire tient lieu de clé pour le plan (jamais affichée ni gardée).
+    if dry_run && !Beryl::CLI::KeyStore.resolve(config_root, host)
+      STDERR.puts "#{stamp} DRY-RUN : clé neuve à générer dans #{Beryl::CLI::KeyStore.file_path(config_root, host)} " \
+                  "(0400), puis à ranger dans le coffre #{host.account_name} [#{Beryl::ZfsKeys::SECTION}] #{Beryl::CLI::KeyStore.var(host)}"
+      return Beryl::Encryption.generate_hex
+    end
+    hex, created = Beryl::CLI::KeyStore.obtain_or_create(config_root, host)
     if created
       STDERR.puts "#{stamp} clé générée et stockée : #{Beryl::CLI::KeyStore.file_path(config_root, host)} (chmod 0400, 256 bits hex)"
       STDERR.puts "#{stamp} ⚠ mettez-la sous séquestre papier (`beryl keys paper #{host.account_name}/#{host.fqdn}`) — " \

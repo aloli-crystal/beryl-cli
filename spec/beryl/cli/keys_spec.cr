@@ -3,6 +3,7 @@ require "file_utils"
 require "../../../src/beryl/cli/keys"
 require "../../../src/beryl/cli/unlock"
 require "../../../src/beryl/cli/session_log"
+require "../../../src/beryl/cli/bootstrap"
 
 private KEY_A = "a" * 64
 private KEY_B = "0123456789abcdef" * 4
@@ -69,6 +70,19 @@ describe Beryl::CLI::KeyStore do
       Beryl::CLI::KeyStore.obtain_or_create(root, host).should eq({hex, false})
       host.env_file.set_account("initech", {"tang" => {"WEB_1" => KEY_B}})
       expect_raises(Beryl::ZfsKeys::Conflict) { Beryl::CLI::KeyStore.obtain_or_create(root, host) }
+    end
+  end
+
+  it "bootstrap en essai à blanc : aucune clé écrite (clé jetable en mémoire)" do
+    with_config do |root|
+      host = web1(root)
+      hex = Beryl::CLI::Bootstrap.bootstrap_key(root, host, true)
+      hex.size.should eq(64)
+      File.exists?(Beryl::CLI::KeyStore.file_path(root, host)).should be_false
+      # Clé existante : réutilisée telle quelle, toujours sans écriture.
+      File.write(Beryl::CLI::KeyStore.file_path(root, host), KEY_A + "\n")
+      File.chmod(Beryl::CLI::KeyStore.file_path(root, host), 0o400)
+      Beryl::CLI::Bootstrap.bootstrap_key(root, host, true).should eq(KEY_A)
     end
   end
 

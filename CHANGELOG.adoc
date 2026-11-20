@@ -9,6 +9,12 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `bootstrap` en essai à blanc n'écrit plus la clé ZFS
+
+* Sans clé existante, l'essai à blanc générait et ÉCRIVAIT
+  `<serveur>.key` sur le poste. Il annonce désormais la clé à créer et
+  prépare le plan avec une clé jetable en mémoire ; seul `--apply` écrit.
+
 === /home chiffré : root limité au déverrouillage ZFS
 
 Serveurs au profil `standard` (/home, /opt, /usr/local/etc chiffrés) :
