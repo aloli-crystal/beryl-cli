@@ -597,6 +597,15 @@ module Beryl::CLI::Apply
       e.fields.each { |k, v| params[k.as_s? || k.to_s] = v unless k.as_s? == "shell" }
       params["name"] = name_any
       steps << Beryl::Apply::Step.new(name: "user-sync", params: params)
+      # authorized_keys = exactement les clés déclarées (clé du domaine +
+      # celles du compte, l'active d'une paire de rotation) ; la clé de
+      # connexion de beryl n'est jamais retirée (garde-fou). Aucune clé
+      # déclarée → étape omise : jamais de compte vidé de ses clés.
+      keys = e.fields[YAML::Any.new("ssh_keys")]?.try(&.as_a?) || [] of YAML::Any
+      unless keys.empty?
+        steps << Beryl::Apply::Step.new(name: "user-update-keys",
+          params: {"user" => name_any, "keys" => YAML::Any.new(keys)})
+      end
       # Clé d'identité du user (générée sur le serveur, idempotent).
       steps << Beryl::Apply::Step.new(name: "user-ssh-key", params: {"name" => name_any})
       # `shell: /chemin` → user-shell (idempotent, gère le CHANGEMENT de shell).

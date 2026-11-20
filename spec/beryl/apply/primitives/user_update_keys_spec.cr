@@ -88,3 +88,17 @@ describe Beryl::Apply::UserUpdateKeys do
     result.outcome.should eq(Beryl::Apply::Outcome::Skipped)
   end
 end
+
+describe "user-update-keys : clés retirées nommées" do
+  it "nomme la clé retirée (commentaire) dans le message, dès l'essai à blanc" do
+    shell = FakeShell.new
+    with_home(shell, "ssh-ed25519 AAAAkeep ops@initech\nssh-ed25519 AAAAgone stagiaire@laptop\n")
+    result = prim("user-update-keys").apply(
+      shell,
+      apply_params(%({user: deploy, keys: ["ssh-ed25519 AAAAkeep ops@initech"]})),
+      dry_run: true, context: ctx,
+    )
+    result.message.should contain("-1 clé(s) (retirées : stagiaire@laptop)")
+    shell.writes.should be_empty
+  end
+end

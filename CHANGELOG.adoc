@@ -9,6 +9,17 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `sync` tient les `authorized_keys` des comptes
+
+* Phase `users` : un `user-update-keys` par compte qui déclare des clés
+  (clé du domaine + les siennes ; l'active d'une paire de rotation).
+  Ensemble exact : une clé absente de la config est retirée, sauf la clé
+  de connexion de beryl (garde-fou, étape en échec). Aucune clé déclarée
+  → étape omise, jamais de compte vidé. /home chiffré : la copie en
+  clair `/etc/ssh/authorized_keys/<user>` suit.
+* `user-update-keys` nomme les clés retirées dans son message
+  (commentaire de la clé), dès l'essai à blanc.
+
 === Clés de root (/home chiffré) tenues par `sync` et `rotate-key`
 
 * Nouvelle primitive `root-unlock-keys` : `/root/.ssh/authorized_keys`

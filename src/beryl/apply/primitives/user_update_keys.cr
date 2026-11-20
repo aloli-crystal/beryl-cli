@@ -98,6 +98,11 @@ module Beryl::Apply
       end
 
       msg = "#{user} : +#{to_add.size} / -#{to_remove.size} clé(s)"
+      # Clés retirées nommées (commentaire, sinon fin du blob) : une clé posée
+      # hors config ne disparaît pas sans qu'on la voie dans l'essai à blanc.
+      unless to_remove.empty?
+        msg += " (retirées : #{to_remove.map { |id| label(current_raw, id) }.join(", ")})"
+      end
       return StepResult.applied("#{msg} (dry-run)") if dry_run
       shell.exec("mkdir -p #{Process.quote(home)}/.ssh && chmod 700 #{Process.quote(home)}/.ssh && chown #{Process.quote(user)} #{Process.quote(home)}/.ssh")
       shell.write_file("#{home}/.ssh/authorized_keys", content, mode: "0600")
@@ -122,6 +127,15 @@ module Beryl::Apply
       blob = tokens[idx + 1]?
       return unless blob
       "#{tokens[idx]} #{blob}"
+    end
+
+    # Commentaire de la ligne de `raw` portant la clé `id`, sinon « …<fin du blob> ».
+    private def label(raw : String, id : String) : String
+      line = raw.each_line.find { |l| key_id(l) == id } || id
+      tokens = line.strip.split(/\s+/)
+      idx = tokens.index { |t| t.matches?(KEY_TYPE) } || 0
+      comment = tokens[(idx + 2)..]?.try(&.join(" "))
+      comment.presence || "…#{id[-12..]? || id}"
     end
 
     private def home_dir(shell : Shell, user : String) : String
