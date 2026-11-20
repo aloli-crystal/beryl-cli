@@ -15,6 +15,8 @@ require "./host_keys"
 require "./ovh_monitoring"
 require "./scan"
 require "./unlock"
+require "./ssh_config"
+require "../host_key"
 
 # Sous-commande `beryl bootstrap <host>` : installe FreeBSD 15 sur un
 # hôte actuellement en rescue Linux (voie mfsBSD-in-QEMU, ADR-012/013).
@@ -359,6 +361,8 @@ module Beryl::CLI::Bootstrap
       STDERR.puts "  packages    : #{packages.join(", ")}"
       STDERR.puts "  sudoers     :"
       sudoers.each { |s| STDERR.puts "    - #{s}" }
+      STDERR.puts "  clé d'hôte  : ed25519 neuve, publiée dans #{Beryl::HostKey.path(host.account.path)} ; " \
+                  "~/.ssh/#{Beryl::SshConfig.file_name(host.account_name)} regénéré"
       if chain_apply
         STDERR.puts "  ensuite     : beryl sync #{Beryl::CLI::AccountUtils.host_ref(host)} --apply (enchaîné ; --skip-recipes pour l'éviter)"
       end
@@ -420,6 +424,10 @@ module Beryl::CLI::Bootstrap
       scaleway_zone = host.scaleway_zone
     end
 
+    # Clé d'hôte créée ici (et non par sshd au premier démarrage) : publiée
+    # dans le known_hosts de la société, le premier `ssh` ne pose pas de question.
+    host_key = Beryl::HostKey.generate("root@#{host.fqdn}")
+
     bootstrap = Beryl::Bootstrap::QemuInRescue.new(
       rescue_conn: rescue_conn,
       disks: disks,
@@ -453,12 +461,14 @@ module Beryl::CLI::Bootstrap
       system_datasets_key_hex: system_key_hex,
       boot_ashift: boot_ashift,
       follow_hint_host_name: Beryl::CLI::AccountUtils.host_ref(host),
+      host_key: host_key,
     )
     bootstrap.run
 
     STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl bootstrap")} [Étape 4] terminé pour #{host.fqdn}"
     # Le FreeBSD installé a de nouvelles clés d'hôte (le rescue aussi).
     Beryl::CLI::HostKeys.forget(host, "bootstrap")
+    publish_host_key(config_root, host, host_key)
     mark_installed(host)
     # Monitoring OVH (coupé par `beryl rescue`) remis en service, le serveur
     # installé répond — sauf `--no-monitoring` (cf. `OvhMonitoring`).
@@ -557,6 +567,22 @@ module Beryl::CLI::Bootstrap
       Beryl::CLI::KeyStore.ensure_in_vault(host, hex) { |m| STDERR.puts "#{stamp} #{m}" }
     end
     hex
+  end
+
+  # Clé d'hôte du serveur dans `<société>/known_hosts` (commitée), puis
+  # `~/.ssh/beryl--<société>.conf` regénéré (il désigne ce fichier) : le
+  # premier `ssh` vers le serveur la vérifie sans poser de question. Un échec
+  # n'invalide pas le bootstrap.
+  private def self.publish_host_key(config_root : String, host : Beryl::Config::ResolvedHost, key : Beryl::HostKey::Pair) : Nil
+    stamp = "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl bootstrap")} [Étape 4]"
+    path = Beryl::HostKey.path(host.account.path)
+    before = File.exists?(path) ? File.read(path) : ""
+    File.write(path, Beryl::HostKey.with_entry(before, host.fqdn, key.public_key))
+    STDERR.puts "#{stamp} clé d'hôte publiée dans #{path} (#{Beryl::HostKey.fingerprint(key.public_key)})"
+    Beryl::CLI::ConfigGit.commit([path], "bootstrap : clé d'hôte de #{host.fqdn}", false)
+    Beryl::CLI::SshConfig.run(config_root, [host.account_name, "--apply"])
+  rescue ex
+    STDERR.puts "beryl : ⚠ clé d'hôte de #{host.fqdn} non publiée (#{ex.message}) — le premier `ssh` demandera de l'accepter."
   end
 
   # FreeBSD installé → retire `installed: false` du host.yml (les commandes de

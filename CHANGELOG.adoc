@@ -9,6 +9,18 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `bootstrap` : clé d'hôte connue d'avance, premier `ssh` sans question
+
+* beryl génère la clé d'hôte ed25519 du serveur et l'installe
+  (`/etc/ssh/ssh_host_ed25519_key`, seule présentée : `HostKey` dans le
+  drop-in du bootstrap), au lieu de laisser sshd en créer au premier
+  démarrage.
+* Sa clé publique est inscrite dans `<société>/known_hosts` (dépôt de
+  config, commité) ; `~/.ssh/beryl--<société>.conf` désigne ce fichier
+  (`GlobalKnownHostsFile`) et le bootstrap le regénère lui-même : plus
+  besoin de `beryl ssh-config`, et le premier `ssh` vérifie vraiment la
+  clé au lieu de demander « yes ».
+
 === `bootstrap` : le déverrouillage ne relance plus des services absents
 
 * Après l'installation d'un serveur à /home chiffré, `unlock` relançait

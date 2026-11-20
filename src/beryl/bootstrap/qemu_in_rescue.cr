@@ -4,6 +4,7 @@ require "api-ovh/ovh_api"
 require "ssh"
 require "../config/zpool"
 require "../unlock_gate"
+require "../host_key"
 
 module Beryl::Bootstrap
   # Spécification d'un utilisateur à créer sur le FreeBSD installé.
@@ -259,6 +260,8 @@ module Beryl::Bootstrap
       # FQDN du host (ex. han.example.net) — pour le commentaire des clés
       # d'identité user générées au bootstrap. Défaut : @hostname.
       @fqdn : String = "",
+      # Clé d'hôte ed25519 générée par beryl (nil : sshd la crée au boot).
+      @host_key : Beryl::HostKey::Pair? = nil,
     )
       @fqdn = @hostname if @fqdn.empty?
       raise ArgumentError.new("disks ne peut pas être vide") if @disks.empty?
@@ -428,6 +431,8 @@ module Beryl::Bootstrap
         .gsub("__SYSTEM_DATASETS_SCRIPT_B64__", system_datasets_script_b64)
         .gsub("__ROOT_KEYS_B64__", root_authorized_keys_b64)
         .gsub("__UNLOCK_GATE_B64__", unlock_gate_b64)
+        .gsub("__HOST_KEY_B64__", host_key_b64)
+        .gsub("__HOST_KEY_PUB_B64__", host_key_pub_b64)
         .gsub("__INSTALL_TYPE__", @install_type)
         .gsub("__INSTALL_PKGBASE_PATH__", INSTALL_PKGBASE_PATH)
     end
@@ -458,6 +463,8 @@ module Beryl::Bootstrap
         .gsub("__SYSTEM_DATASETS_SCRIPT_B64__", system_datasets_script_b64)
         .gsub("__ROOT_KEYS_B64__", root_authorized_keys_b64)
         .gsub("__UNLOCK_GATE_B64__", unlock_gate_b64)
+        .gsub("__HOST_KEY_B64__", host_key_b64)
+        .gsub("__HOST_KEY_PUB_B64__", host_key_pub_b64)
     end
 
     # Users encodés en TSV (name|pgroup|sgroups|shell|key1,key2 par ligne),
@@ -640,6 +647,15 @@ module Beryl::Bootstrap
       keys = @users.flat_map(&.ssh_keys).uniq
       return "" if keys.empty?
       Base64.strict_encode(keys.map { |k| Beryl::UnlockGate.root_key_line(k) }.join("\n"))
+    end
+
+    # Clé d'hôte privée / publique (base64), vides sans clé fournie.
+    def host_key_b64 : String
+      @host_key.try { |k| Base64.strict_encode(k.private_key) } || ""
+    end
+
+    def host_key_pub_b64 : String
+      @host_key.try { |k| Base64.strict_encode(k.public_key + "\n") } || ""
     end
 
     # Script de la commande imposée de root (base64). Vide hors profil.

@@ -72,6 +72,9 @@ describe Beryl::SshConfig do
     files = Beryl::SshConfig.render(fallback_hosts)
     files.keys.should eq ["initech"]
     out = files["initech"]
+    # Chaque bloc désigne le known_hosts de la société (clés posées par bootstrap).
+    out.lines.count(&.ends_with?("/initech/known_hosts /etc/ssh/ssh_known_hosts")).should eq 6
+    out = out.gsub(/^  GlobalKnownHostsFile [^\n]*\n/m, "")
     out.should contain("# app1.initech.example — caché, via zb, puis za, puis zc\n" \
                        "Host app1 app1.initech.example\n  HostName 192.168.42.11\n" \
                        "  HostKeyAlias app1.initech.example\n  User admin\n  IdentityFile /keys/ops.key\n" \

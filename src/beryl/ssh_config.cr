@@ -1,4 +1,5 @@
 require "./config"
+require "./host_key"
 
 # Accès SSH « à la main » à TOUS les hosts gérés par beryl : un fichier par
 # société, `~/.ssh/beryl--<société>.conf`, inclus en tête de `~/.ssh/config`
@@ -99,6 +100,8 @@ module Beryl::SshConfig
     io << "  HostKeyAlias " << h.fqdn << "\n" unless address == h.fqdn
     io << "  Port " << h.port << "\n" unless h.port == 22
     io << "  User " << h.connect_user << "\n"
+    # Clés d'hôte posées par `beryl bootstrap` (fichier absent : ignoré par ssh).
+    io << "  GlobalKnownHostsFile " << known_hosts_file(h) << " /etc/ssh/ssh_known_hosts\n"
     if key = h.identity_file
       io << "  IdentityFile " << key << "\n"
       io << "  IdentitiesOnly yes\n"
@@ -113,6 +116,13 @@ module Beryl::SshConfig
     elsif jumps.size > 1
       io << "  ProxyCommand " << proxy_command(jumps) << "\n"
     end
+  end
+
+  # `known_hosts` de la société, en `~/…` sous le dossier personnel.
+  def known_hosts_file(h : Beryl::Config::ResolvedHost) : String
+    path = Beryl::HostKey.path(h.account.path)
+    home = Path.home.to_s
+    path.starts_with?("#{home}/") ? "~#{path[home.size..]}" : path
   end
 
   # Caché → IP vRack ; `ssh_host:` explicite → lui ; sinon le FQDN (DNS, et

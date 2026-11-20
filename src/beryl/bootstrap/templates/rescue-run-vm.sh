@@ -63,6 +63,10 @@ ROOT_KEYS_B64='__ROOT_KEYS_B64__'
 # Script de la commande imposée de root (/usr/local/sbin/beryl-unlock), base64.
 # Vide hors profil.
 UNLOCK_GATE_B64='__UNLOCK_GATE_B64__'
+# Clé d'hôte ed25519 générée par beryl (privée + publique, base64), publiée
+# dans le known_hosts de la société. Vide = clés créées par sshd au boot.
+HOST_KEY_B64='__HOST_KEY_B64__'
+HOST_KEY_PUB_B64='__HOST_KEY_PUB_B64__'
 # Type d'install : "distribution_sets" (bsdinstall + tarballs) ou
 # "packages" (pkgbase via install-pkgbase.sh). Chemin du script pkgbase
 # déposé sur le rescue (scp'é dans la VM par la branche pkgbase).
@@ -345,10 +349,21 @@ else
   PERMIT_ROOT="no"
   AKF_LINE=""
 fi
+HOSTKEY_LINE=""
+if [ -n "$HOST_KEY_B64" ]; then
+  echo "[rescue-run-vm] SSH : clé d'hôte ed25519 fournie par beryl"
+  ssh_vm "mkdir -p /mnt/etc/ssh && \
+    printf '%s' '$HOST_KEY_B64' | base64 -d > /mnt/etc/ssh/ssh_host_ed25519_key && \
+    printf '%s' '$HOST_KEY_PUB_B64' | base64 -d > /mnt/etc/ssh/ssh_host_ed25519_key.pub && \
+    chown root:wheel /mnt/etc/ssh/ssh_host_ed25519_key /mnt/etc/ssh/ssh_host_ed25519_key.pub && \
+    chmod 0600 /mnt/etc/ssh/ssh_host_ed25519_key && chmod 0644 /mnt/etc/ssh/ssh_host_ed25519_key.pub"
+  HOSTKEY_LINE="HostKey /etc/ssh/ssh_host_ed25519_key"
+fi
 ssh_vm "mkdir -p /mnt/etc/ssh/sshd_config.d
 cat > /mnt/etc/ssh/sshd_config.d/10-beryl-bootstrap.conf <<SSHD
 PermitRootLogin $PERMIT_ROOT
 $AKF_LINE
+$HOSTKEY_LINE
 PasswordAuthentication no
 ChallengeResponseAuthentication no
 SSHD"

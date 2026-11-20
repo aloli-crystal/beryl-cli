@@ -287,6 +287,22 @@ describe Beryl::Bootstrap::QemuInRescue do
       Base64.decode_string(bs.unlock_gate_b64).should contain("SSH_ORIGINAL_COMMAND")
     end
 
+    it "clé d'hôte fournie : posée dans /mnt/etc/ssh et seule présentée (les deux templates)" do
+      pair = Beryl::HostKey::Pair.new("-----BEGIN OPENSSH PRIVATE KEY-----\nxx\n", "ssh-ed25519 AAAA root@h")
+      bs = make_bootstrap(host_key: pair)
+      [bs.render_install_pkgbase, bs.render_rescue_run_vm].each do |sh|
+        sh.should_not contain("__HOST_KEY_B64__")
+        sh.should_not contain("__HOST_KEY_PUB_B64__")
+        sh.should contain(Base64.strict_encode(pair.private_key))
+        sh.should contain("/mnt/etc/ssh/ssh_host_ed25519_key")
+        sh.should contain("HostKey /etc/ssh/ssh_host_ed25519_key")
+      end
+      # Sans clé : variables vides, sshd crée les siennes au boot.
+      plain = make_bootstrap
+      plain.render_install_pkgbase.should contain(%(HOST_KEY_B64=""))
+      plain.render_rescue_run_vm.should contain(%(HOST_KEY_B64=''))
+    end
+
     it "a des défauts raisonnables pour les paramètres non versionnés" do
       # freebsd_version / mfsbsd_version / abi n'ont plus de défaut :
       # résolus dynamiquement en prod via MfsBSDRelease.latest, ou
