@@ -482,7 +482,8 @@ module Beryl::CLI::Bootstrap
     # d'abord, avec la clé du serveur que ce bootstrap vient de ranger.
     unless system_datasets.none?(&.encrypted)
       STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl bootstrap")} [Étape 5] /home chiffré → `beryl unlock #{ref} --apply` avant les recettes"
-      ucode = Beryl::CLI::Unlock.run(config_root, ["#{host.account_name}/#{host.domain_name}/#{host.short_name}", "--apply"])
+      # Services d'`after_unlock` pas encore installés : le sync qui suit les pose.
+      ucode = Beryl::CLI::Unlock.run(config_root, ["#{host.account_name}/#{host.domain_name}/#{host.short_name}", "--skip-after-unlock", "--apply"])
       unless ucode == Beryl::CLI::Unlock::EXIT_OK
         STDERR.puts "beryl : FreeBSD est installé, mais le déverrouillage a échoué (code #{ucode}) : recettes NON posées. " \
                     "Relancez : beryl unlock #{ref} --apply, puis beryl sync #{ref} --apply"

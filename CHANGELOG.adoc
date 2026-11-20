@@ -9,6 +9,16 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `bootstrap` : le déverrouillage ne relance plus des services absents
+
+* Après l'installation d'un serveur à /home chiffré, `unlock` relançait
+  les services d'`after_unlock` (unbound, nginx, monit…), pas encore
+  installés : échec, et le `sync` enchaîné n'était pas lancé. Le
+  bootstrap passe désormais `--skip-after-unlock` (nouvelle option).
+* `unlock` déverrouille /home, /opt et /usr/local/etc AVANT les pools
+  data : fin du « Key load error: encryption failure » affiché par le
+  `zfs mount -a -l` du pool data.
+
 === `bootstrap` en essai à blanc n'écrit plus la clé ZFS
 
 * Sans clé existante, l'essai à blanc générait et ÉCRIVAIT

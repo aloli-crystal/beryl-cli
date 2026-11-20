@@ -66,6 +66,7 @@ module Beryl::CLI::Unlock
     domain_hint : String? = nil
     dry_run = true
     key_file : String? = nil
+    skip_after = false
     positional = [] of String
 
     parser = OptionParser.new do |p|
@@ -73,6 +74,7 @@ module Beryl::CLI::Unlock
       p.on("-a NAME", "--account=NAME", "Forcer la société (si ambiguë)") { |v| account_hint = v }
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
       p.on("-k PATH", "--key-file=PATH", "Clé fournie à part (séquestre papier recopié, autre poste) au lieu du coffre/fichier ; `-` = lue sur un tube. Un seul serveur ; jamais journalisé") { |v| key_file = v }
+      p.on("--skip-after-unlock", "Ne joue pas les actions `after_unlock` (serveur tout juste installé : services pas encore posés)") { skip_after = true }
       p.on("--apply", "Applique réellement les changements (sinon : dry-run, prévisualise sans rien modifier)") { dry_run = false }
       p.on("-h", "--help", "Aide") { puts p; exit 0 }
       p.unknown_args { |rest, _| positional = rest }
@@ -221,13 +223,9 @@ module Beryl::CLI::Unlock
     failures = 0
     # Une unité au moins ÉTAIT verrouillée → actions `after_unlock`.
     was_locked = false
-    encrypted_pools.each do |pool|
-      was_locked = true if unlock_one(conn, pool, key_hex, tang_binary)
-    rescue ex
-      STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl unlock")} " \
-                  "ÉCHEC pool #{pool.name} : #{ex.class}: #{ex.message}"
-      failures += 1
-    end
+    # /home, /opt, /usr/local/etc D'ABORD : le pool data n'est pas encore
+    # importé, le `zfs mount -a -l` de l'encryptionroot ne tente donc pas de
+    # charger sa clé (« Key load error »), et inversement ensuite.
     if er = enc_root
       begin
         was_locked = true if unlock_encryption_root(conn, er, enc_root_cfg, key_hex, tang_binary)
@@ -237,11 +235,22 @@ module Beryl::CLI::Unlock
         failures += 1
       end
     end
+    encrypted_pools.each do |pool|
+      was_locked = true if unlock_one(conn, pool, key_hex, tang_binary)
+    rescue ex
+      STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl unlock")} " \
+                  "ÉCHEC pool #{pool.name} : #{ex.class}: #{ex.message}"
+      failures += 1
+    end
 
     if failures > 0
       STDERR.puts "beryl : #{failures}/#{total} unité(s) non déverrouillée(s)"
       STDERR.puts "        after_unlock NON joué (un service peut dépendre de l'unité en échec)" unless after.empty?
       return EXIT_UNLOCK_FAILED
+    end
+    if skip_after && !after.empty?
+      log "after_unlock non joué (--skip-after-unlock) : #{after.map { |sa| "#{sa.service} #{sa.action}" }.join(", ")}"
+      after = [] of Beryl::Config::ServiceAction
     end
     services_failed = was_locked ? run_actions(admin_conn, after) : [] of String
     unless services_failed.empty?
