@@ -9,6 +9,16 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `unlock` : les services d'`after_unlock` ne bloquent plus la session
+
+* `service <s> restart` lancé nu : le démon héritait des descripteurs de
+  la session SSH, `unlock` (et `reboot`, qui l'enchaîne) attendait sans
+  fin (`tangd` sur zsbg). Même commande que `sync` désormais : entrée
+  fermée, sorties dans un fichier, délai de 120 s.
+* Montage une seule fois, après le chargement de TOUTES les clés : au
+  démarrage, le pool data est déjà importé et le `zfs mount -a -l` de
+  /home tentait sa clé (« Key load error: encryption failure »).
+
 === `sync` tient les `authorized_keys` des comptes
 
 * Phase `users` : un `user-update-keys` par compte qui déclare des clés

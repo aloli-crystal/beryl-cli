@@ -8,6 +8,7 @@ require "../encryption"
 require "./account_utils"
 require "./key_store"
 require "../unlock_gate"
+require "../apply"
 
 # Sous-commande `beryl unlock <host>` (étape H4 du chiffrement) :
 # importe et déchiffre les pools data chiffrés d'un host après un
@@ -223,9 +224,8 @@ module Beryl::CLI::Unlock
     failures = 0
     # Une unité au moins ÉTAIT verrouillée → actions `after_unlock`.
     was_locked = false
-    # /home, /opt, /usr/local/etc D'ABORD : le pool data n'est pas encore
-    # importé, le `zfs mount -a -l` de l'encryptionroot ne tente donc pas de
-    # charger sa clé (« Key load error »), et inversement ensuite.
+    # Clés de TOUTES les unités d'abord (/home… puis pools data), montage
+    # ensuite, une seule fois (`mount_all`).
     if er = enc_root
       begin
         was_locked = true if unlock_encryption_root(conn, er, enc_root_cfg, key_hex, tang_binary)
@@ -242,6 +242,8 @@ module Beryl::CLI::Unlock
                   "ÉCHEC pool #{pool.name} : #{ex.class}: #{ex.message}"
       failures += 1
     end
+    # Même après un échec : ce qui est déverrouillé se monte.
+    mount_all(conn, (enc_root ? [enc_root] : [] of String) + encrypted_pools.map(&.name))
 
     if failures > 0
       STDERR.puts "beryl : #{failures}/#{total} unité(s) non déverrouillée(s)"
@@ -348,30 +350,28 @@ module Beryl::CLI::Unlock
       end
     end
 
-    # 3. Monte les datasets du pool. Étape commune aux deux modes —
-    # `clevis-zfs unlock` est appelé avec `--no-mount` pour
-    # qu'on garde le contrôle ici (cohérence avec le mode ssh_unlock,
-    # diagnostic uniforme).
-    log "3 zfs mount -a -l (montage des datasets de #{pool_name})"
+    # 3. Montage : UNE fois pour toutes les unités, quand toutes les clés
+    # sont chargées (`mount_all`). `clevis-zfs unlock` est appelé avec
+    # `--no-mount` pour qu'on garde le contrôle ici.
+    !already_imported || status != "available"
+  end
+
+  # Monte tout ce qui est déchiffrable (`zfs mount -a -l`), UNE fois, APRÈS le
+  # chargement de toutes les clés : monté plus tôt, `-l` tentait les clés des
+  # unités pas encore traitées (« Key load error: encryption failure »).
+  # Puis liste les datasets de chaque unité. Non-zéro (un point de montage
+  # déjà occupé…) : journalisé, sans échec — la liste dit ce qui est monté.
+  private def self.mount_all(conn : Beryl::CLI::RootConn, units : Array(String)) : Nil
+    log "3 zfs mount -a -l (#{units.join(", ")})"
     mount = conn.exec("zfs mount -a -l", raise_on_error: false)
     unless mount.success?
-      # `zfs mount -a` peut retourner non-zero si UN dataset échoue
-      # (ex: mountpoint déjà utilisé par un dataset clair). On loggue
-      # mais ne lève pas — l'opérateur regarde la sortie.
       log "3 zfs mount -a -l a retourné exit=#{mount.exit_code} stderr=#{mount.stderr.strip.inspect[0, 200]}"
     end
-
-    # Diagnostic : liste les datasets montés du pool pour confirmer.
-    mounted = conn.exec(
-      "zfs list -H -o name,mounted,mountpoint -r #{Process.quote(pool_name)}",
-      raise_on_error: false,
-    )
-    if mounted.success?
-      mounted.stdout.each_line do |line|
-        log "3   #{line.strip}"
-      end
+    units.each do |unit|
+      mounted = conn.exec("zfs list -H -o name,mounted,mountpoint -r #{Process.quote(unit)}", raise_on_error: false)
+      next unless mounted.success?
+      mounted.stdout.each_line { |line| log "3   #{line.strip}" }
     end
-    !already_imported || status != "available"
   end
 
   # Déverrouille l'encryptionroot zroot du profil Option I (`zroot/encrypted`)
@@ -396,33 +396,25 @@ module Beryl::CLI::Unlock
     else
       load_key_via_ssh_stdin(conn, enc_root, key_hex.not_nil!)
     end
-
-    # Monte les enfants (/home, /opt, /usr/local/etc), maintenant déchiffrables.
-    log "3 zfs mount -a -l (datasets zroot de #{enc_root})"
-    mount = conn.exec("zfs mount -a -l", raise_on_error: false)
-    unless mount.success?
-      log "3 zfs mount -a -l a retourné exit=#{mount.exit_code} stderr=#{mount.stderr.strip.inspect[0, 200]}"
-    end
-
-    mounted = conn.exec(
-      "zfs list -H -o name,mounted,mountpoint -r #{Process.quote(enc_root)}",
-      raise_on_error: false,
-    )
-    if mounted.success?
-      mounted.stdout.each_line do |line|
-        log "3   #{line.strip}"
-      end
-    end
+    # Montage des enfants (/home, /opt, /usr/local/etc) : `mount_all`.
     status != "available"
   end
 
   # `service <s> <action>` pour chacune, dans l'ordre ; continue après un
   # échec (les suivantes peuvent ne pas en dépendre). Rend les échecs.
+  #
+  # Même commande que `sync` (`Primitive.service_command`) : entrée fermée,
+  # sorties dans un fichier. Lancé nu, un démon gardait la session SSH
+  # ouverte (descripteurs hérités) et `unlock` attendait sans fin (`tangd
+  # restart` sur zsbg, 20 nov. 2026). Délai : un service bloqué ne fige pas
+  # le déverrouillage.
+  SERVICE_TIMEOUT = 120
+
   private def self.run_actions(conn : Beryl::CLI::RootConn, actions : Array(Beryl::Config::ServiceAction)) : Array(String)
     failed = [] of String
     actions.each do |sa|
       label = "service #{sa.service} #{sa.action}"
-      result = conn.exec("service #{Process.quote(sa.service)} #{sa.action}", raise_on_error: false)
+      result = conn.exec(Beryl::Apply::Primitive.service_command(sa.service, sa.action, SERVICE_TIMEOUT), raise_on_error: false)
       if result.success?
         log "4 #{label} : OK"
       else
