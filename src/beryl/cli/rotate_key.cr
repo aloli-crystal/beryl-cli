@@ -2,6 +2,7 @@ require "./fmt"
 require "yaml"
 require "../config"
 require "../apply"
+require "./apply"
 
 module Beryl::CLI::RotateKey
   EXIT_OK    = 0
@@ -70,7 +71,42 @@ module Beryl::CLI::RotateKey
 
     pairs.each { |pair| swap_pair_in_file(file_path, pair) }
     log "rotation terminée pour toutes les paires. #{file_path} mis à jour."
+    root_side_failures = refresh_root_side(config_root, hosts)
+    return EXIT_FAIL if root_side_failures > 0
     EXIT_OK
+  end
+
+  # /home chiffré : après la rotation (config déjà à jour), par le compte
+  # d'administration + sudo, (1) copies en clair /etc/ssh/authorized_keys/<user>
+  # refaites depuis les authorized_keys des comptes, (2) clés de root (limitées
+  # au déverrouillage) = nouvelles clés des comptes. Rend le nombre d'échecs ;
+  # les clés des comptes sont déjà tournées, `beryl sync` refait la partie root.
+  private def self.refresh_root_side(config_root : String, hosts : Array(Beryl::Config::ResolvedHost)) : Int32
+    prim = Beryl::Apply::Primitive["root-unlock-keys"]?.not_nil!
+    root = Beryl::Config::Root.load(config_root)
+    failures = 0
+    hosts.each do |old|
+      host = root.resolve(old.fqdn)
+      next unless Beryl::CLI::Apply.root_ssh_login(host) == Beryl::UnlockGate::PERMIT_ROOT_LOGIN
+      begin
+        shell = Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(host.connection))
+        user_names(host).each do |user|
+          shell.exec("test -d #{Beryl::UnlockGate::KEYS_DIR} || exit 0; " \
+                     "f=$(getent passwd #{Process.quote(user)} | cut -d: -f6)/.ssh/authorized_keys; " \
+                     "test -s \"$f\" || exit 0; " \
+                     "install -m 0644 -o root -g wheel \"$f\" #{Beryl::UnlockGate::KEYS_DIR}/#{Process.quote(user)}")
+        end
+        params = {"keys" => YAML::Any.new(Beryl::CLI::Apply.root_unlock_keys(host).map { |k| YAML::Any.new(k) })}
+        r = prim.apply(shell, params, false, Beryl::Apply::Context.new)
+        raise r.message if r.outcome.failed?
+        log "  ✓ #{host.fqdn} : copies en clair et clés de root à jour (#{r.message})"
+      rescue ex
+        STDERR.puts "  ✗ #{host.fqdn} : clés de root / copies en clair NON mises à jour (#{ex.message}) — " \
+                    "serveur déverrouillé, relancez : beryl sync #{host.account_name}/#{host.fqdn} --apply"
+        failures += 1
+      end
+    end
+    failures
   end
 
   # Portée → (fichier à éditer, hosts résolus). Host d'abord, sinon domaine.
@@ -125,7 +161,7 @@ module Beryl::CLI::RotateKey
 
     # Passe 1 : connexion avec l'ACTIVE → pose la suivante (garde l'active).
     sh_a = Beryl::Apply::SshShell.new(conn_a)
-    ctx_a = Beryl::Apply::Context.new(protected_keys: [active_pub])
+    ctx_a = Beryl::Apply::Context.new(protected_keys: [active_pub], mirror: false)
     r1 = prim.apply(sh_a, params(user, [active_pub, suivante_pub]), false, ctx_a)
     if r1.outcome.failed?
       STDERR.puts "  ✗ #{host.fqdn}/#{user} : pose de la nouvelle clé échouée (#{r1.message})"
@@ -141,7 +177,7 @@ module Beryl::CLI::RotateKey
 
     # Passe 3 : connexion avec la SUIVANTE → retire l'active.
     sh_b = Beryl::Apply::SshShell.new(conn_b)
-    ctx_b = Beryl::Apply::Context.new(protected_keys: [suivante_pub])
+    ctx_b = Beryl::Apply::Context.new(protected_keys: [suivante_pub], mirror: false)
     r3 = prim.apply(sh_b, params(user, [suivante_pub]), false, ctx_b)
     if r3.outcome.failed?
       STDERR.puts "  ✗ #{host.fqdn}/#{user} : retrait de l'ancienne clé échoué (#{r3.message})"

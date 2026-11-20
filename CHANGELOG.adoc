@@ -9,6 +9,23 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Clés de root (/home chiffré) tenues par `sync` et `rotate-key`
+
+* Nouvelle primitive `root-unlock-keys` : `/root/.ssh/authorized_keys`
+  = exactement les clés des comptes, chacune restreinte à
+  `/usr/local/sbin/beryl-unlock` (root:wheel 0600), et le script de la
+  porte à jour (0555). Liste vide refusée (root est le seul accès avant
+  le déverrouillage).
+* `beryl sync` la joue d'office (phase `users`) sur les serveurs à
+  /home chiffré : le script de la porte suit désormais la version de
+  beryl, et un fichier posé sans fin de ligne est réécrit.
+* `beryl rotate-key` : après la rotation, par le compte
+  d'administration + sudo, refait les copies en clair
+  `/etc/ssh/authorized_keys/<user>` et les clés de root. Pendant la
+  rotation (connexion en tant que le compte, sans droits root),
+  `user-update-keys` ne touche plus à la copie en clair (`mirror: false`) :
+  son écriture échouait.
+
 === `bootstrap` : `/root/.ssh/authorized_keys` terminé par une fin de ligne
 
 * La dernière clé de root n'avait pas de fin de ligne : une clé ajoutée

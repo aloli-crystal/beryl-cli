@@ -62,3 +62,12 @@ describe "beryl sync et installed: false" do
     installed.map(&.short_name).should eq(["explicit", "ready"])
   end
 end
+
+describe "Beryl::CLI::Apply.root_unlock_keys" do
+  it "union dédoublonnée des clés des comptes (clé du domaine partagée → une seule)" do
+    host = Beryl::Config::Root.load(FIXTURE).resolve("connectuser")
+    keys = Beryl::CLI::Apply.root_unlock_keys(host)
+    keys.size.should eq 1
+    keys.first.should start_with("ssh-")
+  end
+end

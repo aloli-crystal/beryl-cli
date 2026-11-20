@@ -541,6 +541,16 @@ module Beryl::CLI::Apply
     "no" # pas de pool boot déclaré : rien de chiffré
   end
 
+  # Clés de root d'un serveur à /home chiffré : l'union des clés (résolues,
+  # rotation : l'active) de ses comptes — la même règle qu'au bootstrap.
+  def self.root_unlock_keys(host : Beryl::Config::ResolvedHost) : Array(String)
+    users = host.merged[YAML::Any.new("freebsd")]?.try(&.as_h?).try(&.[YAML::Any.new("users")]?).try(&.as_a?)
+    return [] of String unless users
+    Beryl::Config::Users.list(users).flat_map do |e|
+      e.fields[YAML::Any.new("ssh_keys")]?.try(&.as_a?).try(&.compact_map(&.as_s?)) || [] of String
+    end.map(&.strip).uniq
+  end
+
   def self.root_ssh_login(boot_pool : Beryl::Config::Pool) : String
     boot_pool.system_datasets.any?(&.encrypted) ? Beryl::UnlockGate::PERMIT_ROOT_LOGIN : "no"
   end
@@ -594,6 +604,12 @@ module Beryl::CLI::Apply
         steps << Beryl::Apply::Step.new(name: "user-shell",
           params: {"user" => name_any, "shell" => YAML::Any.new(path)})
       end
+    end
+    # /home chiffré : clés de root (limitées au déverrouillage) = celles des
+    # comptes, comme au bootstrap ; script de la commande imposée à jour.
+    if root_ssh_login(host) == Beryl::UnlockGate::PERMIT_ROOT_LOGIN
+      keys = root_unlock_keys(host).map { |k| YAML::Any.new(k) }
+      steps << Beryl::Apply::Step.new(name: "root-unlock-keys", params: {"keys" => YAML::Any.new(keys)})
     end
     return if steps.empty?
 

@@ -69,7 +69,12 @@ module Beryl::Apply
     protected_keys : Array(String) = [] of String,
     vars : Hash(String, String) = {} of String => String,
     dns : DnsHook? = nil,
-    os : String = FREEBSD
+    os : String = FREEBSD,
+    # `user-update-keys` : réécrire aussi la copie en clair
+    # /etc/ssh/authorized_keys/<user> (/home chiffré). false quand la
+    # connexion n'est pas root (rotate-key, connecté en tant que le compte) :
+    # la copie est alors refaite ensuite, par sudo.
+    mirror : Bool = true
 
   # Variable du coffre PROPRE À UN SERVEUR : `<HÔTE>__<NOM>` (nom court en
   # majuscules, tout caractère hors [A-Z0-9] → `_`). Serveur en tête : dans

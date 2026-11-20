@@ -86,7 +86,8 @@ module Beryl::Apply
       content += "\n" unless content.empty?
       # Copie en clair (/home chiffré) : à réécrire si absente ou différente.
       mirror = "#{Beryl::UnlockGate::KEYS_DIR}/#{user}"
-      mirror_stale = shell.exec("test -d #{Beryl::UnlockGate::KEYS_DIR}", raise_on_error: false).success? &&
+      mirror_stale = context.mirror &&
+                     shell.exec("test -d #{Beryl::UnlockGate::KEYS_DIR}", raise_on_error: false).success? &&
                      shell.exec("cat #{Process.quote(mirror)} 2>/dev/null", raise_on_error: false).stdout != content
 
       if to_add.empty? && to_remove.empty?
