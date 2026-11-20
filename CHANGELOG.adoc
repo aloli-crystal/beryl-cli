@@ -9,6 +9,11 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `bootstrap` : compilation réparée (0.6.177-0.6.178)
+
+* La clé d'hôte SSH réutilisait le nom de variable de la clé ZFS
+  (`host_key`) : le binaire ne compilait plus. Renommée `ssh_host_key`.
+
 === `beryl host-keys` : clés d'hôte des serveurs déjà installés
 
 * `beryl host-keys <portée> [--apply]` lit la clé ed25519 de chaque

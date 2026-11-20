@@ -426,7 +426,7 @@ module Beryl::CLI::Bootstrap
 
     # Clé d'hôte créée ici (et non par sshd au premier démarrage) : publiée
     # dans le known_hosts de la société, le premier `ssh` ne pose pas de question.
-    host_key = Beryl::HostKey.generate("root@#{host.fqdn}")
+    ssh_host_key = Beryl::HostKey.generate("root@#{host.fqdn}")
 
     bootstrap = Beryl::Bootstrap::QemuInRescue.new(
       rescue_conn: rescue_conn,
@@ -461,14 +461,14 @@ module Beryl::CLI::Bootstrap
       system_datasets_key_hex: system_key_hex,
       boot_ashift: boot_ashift,
       follow_hint_host_name: Beryl::CLI::AccountUtils.host_ref(host),
-      host_key: host_key,
+      host_key: ssh_host_key,
     )
     bootstrap.run
 
     STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl bootstrap")} [Étape 4] terminé pour #{host.fqdn}"
     # Le FreeBSD installé a de nouvelles clés d'hôte (le rescue aussi).
     Beryl::CLI::HostKeys.forget(host, "bootstrap")
-    publish_host_key(config_root, host, host_key)
+    publish_host_key(config_root, host, ssh_host_key)
     mark_installed(host)
     # Monitoring OVH (coupé par `beryl rescue`) remis en service, le serveur
     # installé répond — sauf `--no-monitoring` (cf. `OvhMonitoring`).
