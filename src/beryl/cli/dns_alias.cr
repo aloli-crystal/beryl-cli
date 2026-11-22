@@ -110,6 +110,8 @@ module Beryl::CLI
         return EXIT_OK
       end
 
+      # Crédentials du coffre de la société (OVH_*, DNS…), comme `beryl dns`.
+      host.apply_all_credentials_to_env!
       ovh = Beryl::CLI::Credentials.ovh_client
       plan = Beryl::CLI::DnsSetup.build_plan(ovh, service, label, zone)
       ipv4 = plan.ipv4

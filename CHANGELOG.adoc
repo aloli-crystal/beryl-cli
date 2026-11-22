@@ -9,6 +9,12 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `dns-alias` : crédentials du coffre chargés
+
+* `--apply` échouait sur « OVH_APPLICATION_KEY manquante » : la commande
+  lisait l'API OVH sans charger le coffre de la société (comme `beryl dns`
+  le fait).
+
 === `unlock` : les services d'`after_unlock` ne bloquent plus la session
 
 * `service <s> restart` lancé nu : le démon héritait des descripteurs de
