@@ -9,6 +9,14 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `unlock` : cron relancé après `zroot/encrypted`
+
+* `/usr/local/etc` (chiffré) est monté après le démarrage de cron, qui ne
+  relisait jamais `/usr/local/etc/cron.d` : ses tâches (acme, miroirs des
+  bastions) ne tournaient pas après un redémarrage. Si `zroot/encrypted`
+  était verrouillé, `unlock` (et `reboot`) finit par `service cron restart`,
+  même avec `--skip-after-unlock` ; sans doublon si `after_unlock` le nomme.
+
 === `dns-alias` : crédentials du coffre chargés
 
 * `--apply` échouait sur « OVH_APPLICATION_KEY manquante » : la commande
