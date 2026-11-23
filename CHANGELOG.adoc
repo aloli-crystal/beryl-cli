@@ -9,6 +9,12 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `unlock` : syslogd relu après `zroot/encrypted`
+
+* Même piège que cron : syslogd lit `include /usr/local/etc/syslog.d` à son
+  démarrage, avant le montage. `service syslogd reload` ajouté avant
+  `cron restart`, aux mêmes conditions.
+
 === `unlock` : cron relancé après `zroot/encrypted`
 
 * `/usr/local/etc` (chiffré) est monté après le démarrage de cron, qui ne

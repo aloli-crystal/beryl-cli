@@ -6,25 +6,26 @@ private def action(service : String, act : String) : Beryl::Config::ServiceActio
 end
 
 describe Beryl::CLI::Unlock do
-  describe ".with_cron_restart" do
-    it "ajoute `cron restart` en dernier si zroot/encrypted était verrouillé" do
+  describe ".with_base_reloads" do
+    it "ajoute `syslogd reload` puis `cron restart` en dernier si zroot/encrypted était verrouillé" do
       after = [action("unbound", "restart"), action("nginx", "restart")]
-      Beryl::CLI::Unlock.with_cron_restart(after, true).should eq(
-        [action("unbound", "restart"), action("nginx", "restart"), action("cron", "restart")])
+      Beryl::CLI::Unlock.with_base_reloads(after, true).should eq(
+        [action("unbound", "restart"), action("nginx", "restart"), action("syslogd", "reload"), action("cron", "restart")])
     end
 
-    it "relance cron même sans after_unlock (--skip-after-unlock)" do
-      Beryl::CLI::Unlock.with_cron_restart([] of Beryl::Config::ServiceAction, true).should eq([action("cron", "restart")])
+    it "les ajoute même sans after_unlock (--skip-after-unlock)" do
+      Beryl::CLI::Unlock.with_base_reloads([] of Beryl::Config::ServiceAction, true).should eq(
+        [action("syslogd", "reload"), action("cron", "restart")])
     end
 
     it "ne touche à rien si zroot/encrypted était déjà ouvert (pools data seuls)" do
       after = [action("mysql-server", "restart")]
-      Beryl::CLI::Unlock.with_cron_restart(after, false).should eq(after)
+      Beryl::CLI::Unlock.with_base_reloads(after, false).should eq(after)
     end
 
-    it "garde l'action cron déclarée dans after_unlock, sans la doubler" do
+    it "garde l'action déclarée dans after_unlock, sans la doubler" do
       after = [action("cron", "restart"), action("nginx", "restart")]
-      Beryl::CLI::Unlock.with_cron_restart(after, true).should eq(after)
+      Beryl::CLI::Unlock.with_base_reloads(after, true).should eq(after + [action("syslogd", "reload")])
     end
   end
 end

@@ -42,7 +42,8 @@ require "../apply"
 #      dans l'ordre (`service <s> <action>`) si au moins une unité était
 #      verrouillée et que toutes sont désormais ouvertes. Rien si tout était
 #      déjà déverrouillé. Si c'était `zroot/encrypted` (/usr/local/etc), ces
-#      actions finissent par `cron restart` (voir `with_cron_restart`).
+#      actions finissent par `syslogd reload` et `cron restart` (voir
+#      `with_base_reloads`).
 #
 # Voir `zpool-encryption-architecture.adoc` § « Le modèle SSH unlock »
 # pour le contexte complet.
@@ -190,7 +191,11 @@ module Beryl::CLI::Unlock
       after.each do |sa|
         log "DRY-RUN :   service #{sa.service} #{sa.action}   (after_unlock, si une unité était verrouillée)"
       end
-      log "DRY-RUN :   service cron restart   (si #{enc_root} était verrouillé : /usr/local/etc/cron.d)" if enc_root && after.none? { |sa| sa.service == "cron" }
+      if er = enc_root
+        (with_base_reloads(after, true) - after).each do |sa|
+          log "DRY-RUN :   service #{sa.service} #{sa.action}   (si #{er} était verrouillé : /usr/local/etc)"
+        end
+      end
       return EXIT_OK
     end
 
@@ -226,7 +231,7 @@ module Beryl::CLI::Unlock
     failures = 0
     # Une unité au moins ÉTAIT verrouillée → actions `after_unlock`.
     was_locked = false
-    # L'encryptionroot zroot (/usr/local/etc) l'était → cron relancé.
+    # L'encryptionroot zroot (/usr/local/etc) l'était → syslogd et cron relus.
     root_was_locked = false
     # Clés de TOUTES les unités d'abord (/home… puis pools data), montage
     # ensuite, une seule fois (`mount_all`).
@@ -261,8 +266,8 @@ module Beryl::CLI::Unlock
       log "after_unlock non joué (--skip-after-unlock) : #{after.map { |sa| "#{sa.service} #{sa.action}" }.join(", ")}"
       after = [] of Beryl::Config::ServiceAction
     end
-    # Même avec --skip-after-unlock : cron est dans la base, toujours là.
-    after = with_cron_restart(after, root_was_locked)
+    # Même avec --skip-after-unlock : syslogd et cron sont dans la base.
+    after = with_base_reloads(after, root_was_locked)
     services_failed = was_locked ? run_actions(admin_conn, after) : [] of String
     unless services_failed.empty?
       STDERR.puts "beryl : after_unlock en échec : #{services_failed.join(", ")} (voir `service <nom> status` et ses journaux)"
@@ -409,16 +414,26 @@ module Beryl::CLI::Unlock
     status != "available"
   end
 
-  # cron (base) ne lit /usr/local/etc/cron.d qu'au démarrage, ou quand la
-  # plus récente des dates de ses tables change : ce dossier chiffré, monté
-  # après lui, n'y change rien → ses tâches ne tournaient jamais (acme,
-  # miroirs des bastions, 22 nov. 2026). Relancé EN DERNIER (les tâches
-  # peuvent dépendre des services d'`after_unlock`), sauf si `after_unlock`
-  # le nomme déjà.
-  def self.with_cron_restart(after : Array(Beryl::Config::ServiceAction), root_was_locked : Bool) : Array(Beryl::Config::ServiceAction)
+  # Services de la BASE démarrés au boot, avant le montage de /usr/local/etc
+  # (chiffré), qui n'en relisent la partie locale qu'au démarrage :
+  # * syslogd : `include /usr/local/etc/syslog.d` (syslog.conf par défaut),
+  #   relu sur SIGHUP → `reload` ;
+  # * cron : /usr/local/etc/cron.d, relu seulement si la plus récente des
+  #   dates de ses tables change, ce que ce montage ne fait pas → ses tâches
+  #   ne tournaient jamais (acme, miroirs des bastions, 22 nov. 2026) ;
+  #   `restart`.
+  # Ajoutés EN DERNIER (les tâches cron peuvent dépendre des services
+  # d'`after_unlock`), syslogd avant cron ; un service qu'`after_unlock`
+  # nomme déjà n'est pas doublé.
+  BASE_RELOADS = [
+    Beryl::Config::ServiceAction.new("syslogd", "reload"),
+    Beryl::Config::ServiceAction.new("cron", "restart"),
+  ]
+
+  def self.with_base_reloads(after : Array(Beryl::Config::ServiceAction), root_was_locked : Bool) : Array(Beryl::Config::ServiceAction)
     return after unless root_was_locked
-    return after if after.any? { |sa| sa.service == "cron" }
-    after + [Beryl::Config::ServiceAction.new("cron", "restart")]
+    named = after.map(&.service)
+    after + BASE_RELOADS.reject { |sa| named.includes?(sa.service) }
   end
 
   # `service <s> <action>` pour chacune, dans l'ordre ; continue après un
