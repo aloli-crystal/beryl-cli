@@ -9,6 +9,13 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== DNS du vRack : nom de service `bastions.<zone>`
+
+* Un enregistrement A par bastion (sans PTR) dans la zone servie par
+  `unbound-vrack`. Les clients des services communs des bastions (cache de
+  paquets, clamd, sources des ports) le visent : un bastion verrouillé ou
+  en panne, le client passe au suivant.
+
 === `unlock` : devd relancé après `zroot/encrypted`
 
 * devd ne lit `/usr/local/etc/devd` qu'au démarrage, avant le montage :

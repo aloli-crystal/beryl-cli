@@ -14,7 +14,20 @@ describe Beryl::VrackZone do
             local-data-ptr: "192.168.42.1 pkg.vrack.internal."
             local-data: "zgra.vrack.internal. IN A 192.168.42.10"
             local-data-ptr: "192.168.42.10 zgra.vrack.internal."
+            local-data: "bastions.vrack.internal. IN A 192.168.42.10"
         DATA
+    end
+
+    it "nom de service `bastions` : un A par bastion, sans PTR" do
+      data = Beryl::VrackZone.local_data([peer("pkg", "192.168.42.1"), peer("zgra", "192.168.42.10", true), peer("zrbx", "192.168.42.20", true)], "vrack.internal")
+      data.lines.select(&.includes?("bastions.")).should eq [
+        "    local-data: \"bastions.vrack.internal. IN A 192.168.42.10\"",
+        "    local-data: \"bastions.vrack.internal. IN A 192.168.42.20\"",
+      ]
+    end
+
+    it "aucun bastion : pas de nom de service" do
+      Beryl::VrackZone.local_data([peer("pkg", "192.168.42.1")], "vrack.internal").should_not contain("bastions.")
     end
 
     it "aucun host : vide" do

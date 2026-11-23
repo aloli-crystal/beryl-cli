@@ -15,6 +15,13 @@ module Beryl::VrackZone
 
   DEFAULT_ZONE = "vrack.internal"
 
+  # Nom de SERVICE des bastions : un A par bastion (`bastions.<zone>`), sans
+  # PTR (l'inverse reste le nom du host). Les clients des services communs
+  # (cache de paquets, clamd, sources des ports) le visent : unbound répond
+  # dans un ordre tournant et le client passe au suivant si l'un ne répond
+  # pas (bastion verrouillé).
+  BASTIONS_NAME = "bastions"
+
   record Peer, name : String, ip : String, bastion : Bool
 
   # Hosts du même vRack (`vrack.name`) qui ont une IP vRack, triés par nom.
@@ -27,13 +34,17 @@ module Beryl::VrackZone
     end.uniq(&.name).sort_by(&.name)
   end
 
-  # `local-data` unbound (A + PTR) de la zone. Pur.
+  # `local-data` unbound (A + PTR) de la zone, puis le nom de service des
+  # bastions (`BASTIONS_NAME`). Pur.
   def local_data(peers : Array(Peer), zone : String) : String
     String.build do |io|
       peers.each do |p|
         fqdn = "#{p.name}.#{zone}"
         io << "    local-data: \"#{fqdn}. IN A #{p.ip}\"\n"
         io << "    local-data-ptr: \"#{p.ip} #{fqdn}.\"\n"
+      end
+      peers.select(&.bastion).each do |p|
+        io << "    local-data: \"#{BASTIONS_NAME}.#{zone}. IN A #{p.ip}\"\n"
       end
     end.rstrip("\n")
   end
