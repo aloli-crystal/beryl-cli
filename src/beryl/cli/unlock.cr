@@ -42,8 +42,8 @@ require "../apply"
 #      dans l'ordre (`service <s> <action>`) si au moins une unité était
 #      verrouillée et que toutes sont désormais ouvertes. Rien si tout était
 #      déjà déverrouillé. Si c'était `zroot/encrypted` (/usr/local/etc), ces
-#      actions finissent par `syslogd reload` et `cron restart` (voir
-#      `with_base_reloads`).
+#      actions finissent par `devd restart`, `syslogd reload` et
+#      `cron restart` (voir `with_base_reloads`).
 #
 # Voir `zpool-encryption-architecture.adoc` § « Le modèle SSH unlock »
 # pour le contexte complet.
@@ -231,7 +231,7 @@ module Beryl::CLI::Unlock
     failures = 0
     # Une unité au moins ÉTAIT verrouillée → actions `after_unlock`.
     was_locked = false
-    # L'encryptionroot zroot (/usr/local/etc) l'était → syslogd et cron relus.
+    # L'encryptionroot zroot (/usr/local/etc) l'était → devd, syslogd et cron relus.
     root_was_locked = false
     # Clés de TOUTES les unités d'abord (/home… puis pools data), montage
     # ensuite, une seule fois (`mount_all`).
@@ -266,7 +266,7 @@ module Beryl::CLI::Unlock
       log "after_unlock non joué (--skip-after-unlock) : #{after.map { |sa| "#{sa.service} #{sa.action}" }.join(", ")}"
       after = [] of Beryl::Config::ServiceAction
     end
-    # Même avec --skip-after-unlock : syslogd et cron sont dans la base.
+    # Même avec --skip-after-unlock : devd, syslogd et cron sont dans la base.
     after = with_base_reloads(after, root_was_locked)
     services_failed = was_locked ? run_actions(admin_conn, after) : [] of String
     unless services_failed.empty?
@@ -416,6 +416,7 @@ module Beryl::CLI::Unlock
 
   # Services de la BASE démarrés au boot, avant le montage de /usr/local/etc
   # (chiffré), qui n'en relisent la partie locale qu'au démarrage :
+  # * devd : /usr/local/etc/devd, lu au démarrage seulement → `restart` ;
   # * syslogd : `include /usr/local/etc/syslog.d` (syslog.conf par défaut),
   #   relu sur SIGHUP → `reload` ;
   # * cron : /usr/local/etc/cron.d, relu seulement si la plus récente des
@@ -423,9 +424,10 @@ module Beryl::CLI::Unlock
   #   ne tournaient jamais (acme, miroirs des bastions, 22 nov. 2026) ;
   #   `restart`.
   # Ajoutés EN DERNIER (les tâches cron peuvent dépendre des services
-  # d'`after_unlock`), syslogd avant cron ; un service qu'`after_unlock`
+  # d'`after_unlock`), dans cet ordre ; un service qu'`after_unlock`
   # nomme déjà n'est pas doublé.
   BASE_RELOADS = [
+    Beryl::Config::ServiceAction.new("devd", "restart"),
     Beryl::Config::ServiceAction.new("syslogd", "reload"),
     Beryl::Config::ServiceAction.new("cron", "restart"),
   ]

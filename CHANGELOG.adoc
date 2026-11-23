@@ -9,6 +9,11 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `unlock` : devd relancé après `zroot/encrypted`
+
+* devd ne lit `/usr/local/etc/devd` qu'au démarrage, avant le montage :
+  `service devd restart` ajouté en tête, avant syslogd et cron.
+
 === `unlock` : syslogd relu après `zroot/encrypted`
 
 * Même piège que cron : syslogd lit `include /usr/local/etc/syslog.d` à son
