@@ -29,9 +29,12 @@ describe Beryl::UnlockGate do
       "/usr/local/sbin/clevis-zfs unlock --no-mount --dataset zdata",
     ].each do |req|
       _, err = gate(req)
+      # Pas de refus = la gate a pris la branche `exec` (preuve portable : le
+      # message de refus est le SEUL stderr possible hors `exec`). Le code et
+      # le stderr de l'outil lancé varient selon l'OS — Linux : introuvable
+      # (127) ; FreeBSD : zfs/zpool sont en base et échouent plus loin, p. ex.
+      # « Failed to load zfs module » — on ne s'y fie donc pas.
       err.should_not contain("refusée")
-      # La commande a bien été LANCÉE (introuvable sur ce poste).
-      err.should match(/not found|No such file/)
     end
   end
 
