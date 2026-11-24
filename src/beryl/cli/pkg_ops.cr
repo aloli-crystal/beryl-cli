@@ -5,6 +5,7 @@ require "../apply"
 require "./info" # scoped_hosts + recipe_packages
 require "./account_utils"
 require "./ssh_probe"
+require "../vuln_accept"
 require "./fleet_job" # canari + parallèle + --status (portée multi-serveurs)
 
 # Mises à jour de paquets façon Homebrew, sur une PORTÉE (société/domaine/host/
@@ -396,7 +397,22 @@ module Beryl::CLI
     # quand il n'y a rien à lister, sinon `lines` = mises à jour en attente.
     record HostState, fqdn : String, ok : Bool, note : String,
       lines : Array(String) = [] of String, vulns : Array(String)? = [] of String,
-      trace : Array(String) = [] of String
+      trace : Array(String) = [] of String, accepted : Array(String) = [] of String
+
+    # Failles acceptées (`vuln_accepted:` du host, `Beryl::VulnAccept`) :
+    # sorties de `vulns` sauf acceptation invalide ou échue ; une note par
+    # acceptation, toujours affichée. nil (audit impossible) inchangé.
+    def self.accept_vulns(h, vulns : Array(String)?) : {Array(String)?, Array(String)}
+      return {vulns, [] of String} unless vulns
+      res = Beryl::VulnAccept.split(vulns, Beryl::VulnAccept.entries(h.vuln_accepted), Time.local.to_s("%F"))
+      {res.alert, res.notes}
+    end
+
+    # Bloc des acceptations sous l'alerte (ou seul). nil si aucune. Pur.
+    def self.accepted_block(fqdn : String, notes : Array(String)) : String?
+      return if notes.empty?
+      (["", "  ℹ Failles acceptées (`vuln_accepted`) — #{fqdn} :"] + notes.map { |n| "    #{n}" }).join("\n")
+    end
 
     # Lignes de mise à jour de `pkg upgrade -n`, au format de pkg
     # (« nom: a -> b [dépôt] »), toutes sections « … to be X: ». Pur.
@@ -437,6 +453,7 @@ module Beryl::CLI
         body << "#{v} #{VULN_MARK} — pas de mise à jour disponible" unless listed.includes?(package_name(v))
       end
       body << "pkg audit impossible" if st.ok && st.vulns.nil?
+      st.accepted.each { |n| body << "ℹ #{n}" }
       unless st.trace.empty?
         body << "trace du solveur (nouveaux paquets) :"
         body.concat(st.trace.map { |l| "\t#{l}" })
@@ -681,11 +698,14 @@ module Beryl::CLI
       end
       # Audit APRÈS la mise à jour en --apply : ne reste que ce qui n'a pas
       # (encore) de correctif.
-      vulns = audit(shell, !h.protected?)
+      vulns, accepted = accept_vulns(h, audit(shell, !h.protected?))
       if vulns.nil?
         PkgOps.log("upgrade", "#{h.short_name} : pkg audit impossible (base des vulnérabilités absente ?)")
       elsif alert = audit_alert({h.fqdn => vulns})
         STDERR.puts alert
+      end
+      if block = accepted_block(h.fqdn, accepted)
+        STDERR.puts block
       end
       if apply
         base_note = base && base > 0 ? " ; système : #{base} paquet(s) en attente (os-upgrade)" : ""
@@ -779,7 +799,8 @@ module Beryl::CLI
         return HostState.new(h.fqdn, false, output.strip.lines.last? || "paquet(s) introuvable(s)", vulns: nil)
       end
       trace = output.empty? ? [] of String : new_packages_trace(shell, output, pkgs)
-      HostState.new(h.fqdn, true, NOTE_OK, pending_lines(output), audit(shell, !h.protected?), trace)
+      vulns, accepted = accept_vulns(h, audit(shell, !h.protected?))
+      HostState.new(h.fqdn, true, NOTE_OK, pending_lines(output), vulns, trace, accepted)
     rescue ex
       HostState.new(h.fqdn, false, "erreur : #{ex.message}", vulns: nil)
     end

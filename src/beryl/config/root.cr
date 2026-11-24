@@ -640,6 +640,12 @@ module Beryl::Config
       @merged[YAML::Any.new("protected")]?.try(&.as_bool?) || false
     end
 
+    # `vuln_accepted:` — failles acceptées (paquet → `reason`, `until`),
+    # héritable. Lu par `Beryl::VulnAccept` (`beryl upgrade`).
+    def vuln_accepted : YAML::Any?
+      @merged[YAML::Any.new("vuln_accepted")]?
+    end
+
     # `installed: false` dans le host.yml → serveur PAS ENCORE installé par
     # `beryl bootstrap` (squelette de `scan --discover`, serveur en attente) :
     # les commandes de flotte (`update`, `upgrade`) le sautent au lieu d'un

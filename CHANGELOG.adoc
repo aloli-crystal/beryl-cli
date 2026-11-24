@@ -9,6 +9,15 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `upgrade` : failles acceptées (`vuln_accepted:`)
+
+* Clé héritable `vuln_accepted: { <paquet>: { reason, until } }` : un
+  paquet vulnérable sans correctif possible (logiciel en fin de vie
+  empaqueté par nous) sort de l'alerte, mais reste AFFICHÉ (« ℹ Failles
+  acceptées », raison et échéance), en vue de flotte aussi. `reason` et
+  `until` obligatoires ; après `until`, retour dans l'alerte (« ÉCHUE »).
+  Nom exact du paquet (`openssl111` ≠ `openssl111-devel`).
+
 === DNS du vRack : nom de service `bastions.<zone>`
 
 * Un enregistrement A par bastion (sans PTR) dans la zone servie par

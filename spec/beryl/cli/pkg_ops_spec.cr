@@ -319,6 +319,18 @@ describe "Beryl::CLI::Upgrade (audit et tableau de flotte)" do
     st = Beryl::CLI::Upgrade::HostState.new("b.example.net", true, "à jour", vulns: nil)
     Beryl::CLI::Upgrade.fleet_block(st).should eq("b.example.net\n\tpkg audit impossible")
   end
+
+  it "fleet_block : faille acceptée affichée à part, sans (vulnerable!)" do
+    note = "openssl111-1.1.1w_5 : faille acceptée jusqu'au 2027-05-31 — fin de vie"
+    st = Beryl::CLI::Upgrade::HostState.new("a.example.net", true, "à jour", vulns: [] of String, accepted: [note])
+    Beryl::CLI::Upgrade.fleet_block(st).should eq("a.example.net\n\tℹ #{note}")
+    Beryl::CLI::Upgrade.fleet_hint([st]).should be_nil
+  end
+
+  it "accepted_block : rien sans acceptation, sinon un bloc par host" do
+    Beryl::CLI::Upgrade.accepted_block("a.example.net", [] of String).should be_nil
+    Beryl::CLI::Upgrade.accepted_block("a.example.net", ["x"]).should eq("\n  ℹ Failles acceptées (`vuln_accepted`) — a.example.net :\n    x")
+  end
 end
 
 describe "Beryl::CLI::Upgrade.fleet_hint" do
