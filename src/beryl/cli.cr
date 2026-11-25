@@ -1,5 +1,6 @@
 require "option_parser"
 require "./cli/option_errors"
+require "./cli/hoist_globals"
 require "../beryl"
 require "./cli/prep_rescue"
 require "./cli/bake_seed"
@@ -59,9 +60,6 @@ require "./cli/monitoring"
 # *Migration depuis v0.2.0* : avant le 8 mai 2026, beryl utilisait
 # +~/.beryl/+ (non-XDG). Pour migrer : `mv ~/.beryl ~/.config/beryl`.
 module Beryl::CLI
-  # Options globales qui consomment l'argument suivant (forme « -c VALEUR »).
-  GLOBAL_FLAGS_WITH_VALUE = {"-c", "--config", "--transport"}
-
   # Racine de config par défaut (dynamique : honore `$XDG_CONFIG_HOME`
   # si défini au runtime). Voir `Beryl::Xdg.config_dir`.
   def self.default_config_root : String
@@ -72,6 +70,8 @@ module Beryl::CLI
     config_root = default_config_root
     # `--no-log` vaut partout sur la ligne : retiré avant tout analyseur.
     argv, no_log = Beryl::CLI::SessionLog.strip_flag(argv)
+    # `--transport`, `-c`/`--config` valent eux aussi partout : ramenés devant la sous-commande.
+    argv = hoist_globals(argv)
 
     # Sépare les options globales (avant la sous-commande) du reste.
     split_at = 0
@@ -90,14 +90,16 @@ module Beryl::CLI
     global_parser = OptionParser.new do |p|
       p.banner = usage_banner
       p.on("-c PATH", "--config=PATH", "Racine de configuration (défaut : ~/.config/beryl)") { |v| config_root = File.expand_path(v, home: true) }
-      p.on("--transport=MODE", "Transport SSH : public (défaut) ou overlay (via mesh Headscale)") do |v|
+      p.on("--transport=MODE", "Transport SSH : public (défaut), overlay (via mesh Headscale) ou direct (host caché joint par son IP publique, sans bastion)") do |v|
         case v
         when "public"
           Beryl.transport_mode = :public
         when "overlay"
           Beryl.transport_mode = :overlay
+        when "direct"
+          Beryl.transport_mode = :direct
         else
-          STDERR.puts "beryl : --transport=#{v} invalide (attendu : public ou overlay)"
+          STDERR.puts "beryl : --transport=#{v} invalide (attendu : public, overlay ou direct)"
           exit 64
         end
       end

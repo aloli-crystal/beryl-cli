@@ -9,6 +9,24 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Re-bootstrap d'un host caché : transport `direct`
+
+* `--transport=direct` (option globale) : un host caché (`vrack.proxy_jump`)
+  est joint par son adresse PUBLIQUE, sans bastion. Sert entre
+  l'installation et la recette `vrack-interface`, quand l'IP vRack n'est pas
+  encore posée (22 public encore ouvert).
+* `bootstrap` d'un host caché : déverrouillage et `sync … vrack-interface`
+  en transport `direct`, puis sync complet par le bastion. Avant : la
+  fiche déjà munie de `vrack.proxy_jump` (re-bootstrap), le déverrouillage
+  visait l'IP vRack, injoignable (« Connection timed out during banner
+  exchange ») et les recettes n'étaient pas posées.
+* Tâches de flotte : les processus enfants reçoivent le transport choisi
+  (`direct` comme `overlay`) ; avant, seul `overlay` était transmis.
+* Options globales (`--transport`, `-c`/`--config`, `--no-log`) acceptées
+  n'importe où sur la ligne (`beryl sync g --apply --transport=direct`).
+* ⚠ `headscale-authkey` : `--config=PATH` (config Headscale côté serveur)
+  devient `--headscale-config=PATH`, pour libérer `--config` global.
+
 === `upgrade` : failles acceptées (`vuln_accepted:`)
 
 * Clé héritable `vuln_accepted: { <paquet>: { reason, until } }` : un

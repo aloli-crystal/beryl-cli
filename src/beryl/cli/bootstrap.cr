@@ -486,19 +486,46 @@ module Beryl::CLI::Bootstrap
     # recettes (celles par défaut de la société : relais SMTP, supervision…),
     # pour qu'aucun serveur ne reste « nu », sans courrier ni alertes.
     ref = Beryl::CLI::AccountUtils.host_ref(host)
-    # /home, /opt et /usr/local/etc chiffrés (profil) : verrouillés au premier
-    # démarrage. Un `sync` écrirait SOUS leurs points de montage (fichiers
-    # masqués ensuite) et sudo n'a pas sa configuration → déverrouiller
-    # d'abord, avec la clé du serveur que ce bootstrap vient de ranger.
-    unless system_datasets.none?(&.encrypted)
-      STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl bootstrap")} [Étape 5] /home chiffré → `beryl unlock #{ref} --apply` avant les recettes"
-      # Services d'`after_unlock` pas encore installés : le sync qui suit les pose.
-      ucode = Beryl::CLI::Unlock.run(config_root, ["#{host.account_name}/#{host.domain_name}/#{host.short_name}", "--skip-after-unlock", "--apply"])
-      unless ucode == Beryl::CLI::Unlock::EXIT_OK
-        STDERR.puts "beryl : FreeBSD est installé, mais le déverrouillage a échoué (code #{ucode}) : recettes NON posées. " \
-                    "Relancez : beryl unlock #{ref} --apply, puis beryl sync #{ref} --apply"
-        return ucode
+    full_ref = "#{host.account_name}/#{host.domain_name}/#{host.short_name}"
+    # Host caché (`vrack.proxy_jump`, re-bootstrap) : beryl le joint d'ordinaire
+    # par son IP vRack via un bastion, mais l'interface vRack n'est pas encore
+    # posée. Déverrouillage et recette `vrack-interface` passent donc par
+    # l'IP publique (22 encore ouvert : `sshd-vrack-only` pas jouée), puis le
+    # sync complet reprend le chemin normal par le bastion.
+    hidden = host.hidden? && !host.public_address.nil?
+    direct_hint = hidden ? "--transport=direct " : ""
+    saved_transport = Beryl.transport_mode
+    begin
+      if hidden
+        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl bootstrap")} [Étape 5] host caché, vRack pas encore posé → IP publique, sans bastion, jusqu'à `vrack-interface`"
+        Beryl.transport_mode = :direct
       end
+      # /home, /opt et /usr/local/etc chiffrés (profil) : verrouillés au premier
+      # démarrage. Un `sync` écrirait SOUS leurs points de montage (fichiers
+      # masqués ensuite) et sudo n'a pas sa configuration → déverrouiller
+      # d'abord, avec la clé du serveur que ce bootstrap vient de ranger.
+      unless system_datasets.none?(&.encrypted)
+        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl bootstrap")} [Étape 5] /home chiffré → `beryl #{direct_hint}unlock #{ref} --apply` avant les recettes"
+        # Services d'`after_unlock` pas encore installés : le sync qui suit les pose.
+        ucode = Beryl::CLI::Unlock.run(config_root, [full_ref, "--skip-after-unlock", "--apply"])
+        unless ucode == Beryl::CLI::Unlock::EXIT_OK
+          STDERR.puts "beryl : FreeBSD est installé, mais le déverrouillage a échoué (code #{ucode}) : recettes NON posées. " \
+                      "Relancez : beryl #{direct_hint}unlock #{ref} --apply, puis " \
+                      "#{hidden ? "beryl --transport=direct sync #{ref} vrack-interface --apply, puis " : ""}beryl sync #{ref} --apply"
+          return ucode
+        end
+      end
+      if hidden
+        STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl bootstrap")} [Étape 5] enchaîne `beryl --transport=direct sync #{ref} vrack-interface --apply`"
+        vcode = Beryl::CLI::Apply.run(config_root, [full_ref, "vrack-interface", "--apply"])
+        unless vcode == Beryl::CLI::Apply::EXIT_OK
+          STDERR.puts "beryl : FreeBSD est installé, mais `vrack-interface` a échoué (code #{vcode}). Corrigez puis relancez : " \
+                      "beryl --transport=direct sync #{ref} vrack-interface --apply, puis beryl sync #{ref} --apply"
+          return vcode
+        end
+      end
+    ensure
+      Beryl.transport_mode = saved_transport
     end
     STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl bootstrap")} [Étape 5] enchaîne `beryl sync #{ref} --apply`"
     code = Beryl::CLI::Apply.run(config_root, ["#{host.account_name}/#{host.domain_name}/#{host.short_name}", "--apply"])

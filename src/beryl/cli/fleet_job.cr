@@ -184,7 +184,7 @@ module Beryl::CLI::FleetJob
   def self_cmd(config_root : String) : Array(String)
     exe = Process.executable_path || PROGRAM_NAME
     cmd = [exe, "-c", config_root]
-    cmd << "--transport=overlay" if Beryl.transport_mode == :overlay
+    cmd << "--transport=#{Beryl.transport_mode}" unless Beryl.transport_mode == :public
     cmd
   end
 

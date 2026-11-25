@@ -77,11 +77,15 @@ Chaque commande est utilisable sous sa forme longue ou sa forme courte :
 
 == Options globales
 
+À placer n'importe où sur la ligne (avant ou après la sous-commande).
+
 [cols="2,1,4",options="header"]
 |===
 |Long |Court |Description
 
 |`--config=PATH` |`-c` |Racine de configuration (défaut : `~/.config/beryl`)
+|`--transport=MODE` | |Transport SSH : `public` (défaut), `overlay` (mesh Headscale), `direct` (host caché joint par son IP publique, sans bastion)
+|`--no-log` | |Pas de journal de session
 |`--help` |`-h` |Aide globale
 |`--version` |`-v` |Version de beryl
 |===

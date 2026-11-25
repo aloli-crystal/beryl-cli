@@ -43,6 +43,16 @@ private def states(dir : String, fqdns : Array(String)) : Array(String)
 end
 
 describe Beryl::CLI::FleetJob do
+  it "self_cmd : les enfants reçoivent le transport (overlay, direct), pas le défaut public" do
+    OUJ.self_cmd("/cfg").should_not contain("--transport=public")
+    Beryl.transport_mode = :direct
+    OUJ.self_cmd("/cfg").should contain("--transport=direct")
+    Beryl.transport_mode = :overlay
+    OUJ.self_cmd("/cfg").should contain("--transport=overlay")
+  ensure
+    Beryl.transport_mode = :public
+  end
+
   it "canari = premier serveur qui a quelque chose à faire, puis parallèle ; un plantage ne bloque personne" do
     with_job_env do |child|
       hosts = %w[ok.a upd.b crash.c upd.d upd.e]

@@ -222,6 +222,27 @@ describe Beryl::Config::ResolvedHost do
     rh.rescue_ssh_host.should eq("ns9999.ip-1-2-3.eu") # rescue : service OVH public
   end
 
+  it "transport direct : host caché joint par son IP publique, sans ProxyJump" do
+    rh = Beryl::Config::Root.load(fixture("ssh-host-override")).resolve("rescuehidden")
+    rh.connection.options["ProxyJump"]?.should_not be_nil # défaut : par le bastion
+    Beryl.transport_mode = :direct
+    rh.ssh_host.should eq("ns9999.ip-1-2-3.eu")
+    conn = rh.connection
+    conn.host.should eq("ns9999.ip-1-2-3.eu")
+    conn.options["ProxyJump"]?.should be_nil
+  ensure
+    Beryl.transport_mode = :public
+  end
+
+  it "transport direct : host NON caché inchangé" do
+    rh = Beryl::Config::Root.load(fixture("ssh-host-override")).resolve("netbast")
+    before = rh.ssh_host
+    Beryl.transport_mode = :direct
+    rh.ssh_host.should eq(before)
+  ensure
+    Beryl.transport_mode = :public
+  end
+
   it "rescue_ssh_host : host NON caché → identique à ssh_host (aucun changement)" do
     rh = Beryl::Config::Root.load(fixture("ssh-host-override")).resolve("netbast")
     rh.hidden?.should be_false

@@ -31,3 +31,13 @@ describe "Beryl.transport_mode" do
     Beryl.use_overlay_transport?.should be_false
   end
 end
+
+describe "Beryl.transport_mode :direct" do
+  it "bascule à :direct (ni overlay)" do
+    Beryl.transport_mode = :direct
+    Beryl.use_direct_transport?.should be_true
+    Beryl.use_overlay_transport?.should be_false
+  ensure
+    Beryl.transport_mode = :public
+  end
+end

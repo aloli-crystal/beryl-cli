@@ -26,12 +26,20 @@ module Beryl
   end
 
   def self.transport_mode=(mode : Symbol) : Symbol
-    raise ArgumentError.new("transport_mode invalide : #{mode.inspect} (attendu :public ou :overlay)") unless mode == :public || mode == :overlay
+    raise ArgumentError.new("transport_mode invalide : #{mode.inspect} (attendu :public, :overlay ou :direct)") unless {:public, :overlay, :direct}.includes?(mode)
     @@transport_mode = mode
   end
 
   def self.use_overlay_transport? : Bool
     @@transport_mode == :overlay
+  end
+
+  # `:direct` : un host caché (`vrack.proxy_jump`) est joint par son adresse
+  # PUBLIQUE, sans rebond — serveur tout juste installé, dont l'interface
+  # vRack n'est pas encore posée (recette `vrack-interface`) et dont le 22
+  # public est encore ouvert (`sshd-vrack-only` pas encore jouée).
+  def self.use_direct_transport? : Bool
+    @@transport_mode == :direct
   end
 
   # Serveur en cours de traitement, repris dans le préfixe des journaux :

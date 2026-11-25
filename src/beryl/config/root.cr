@@ -1013,6 +1013,9 @@ module Beryl::Config
       # Plusieurs IP : la principale est la 1ʳᵉ de `vrack.ip: [principale, …]`,
       # liste EN LIGNE — `beryl fmt` n'en change pas l'ordre (il trie les
       # listes en bloc `- …`) ; `ssh_host:` l'emporte s'il est donné.
+      if hidden? && Beryl.use_direct_transport? && (pub = public_address)
+        return pub
+      end
       if hidden? && (vip = vrack_ips.first?)
         return vip
       end
@@ -1038,15 +1041,19 @@ module Beryl::Config
       if explicit = @merged[YAML::Any.new("rescue_ssh_host")]?.try(&.as_s?)
         return explicit
       end
-      if hidden?
-        if provider == "ovh" && (sn = ovh_service_name)
-          return sn
-        end
-        if ip = ovh_ipv4
-          return ip
-        end
+      if hidden? && (pub = public_address)
+        return pub
       end
       ssh_host
+    end
+
+    # Adresse publique d'un host caché (service OVH résoluble, sinon IPv4
+    # publique) : rescue, et transport `direct`. nil si inconnue.
+    def public_address : String?
+      if provider == "ovh" && (sn = ovh_service_name)
+        return sn
+      end
+      ovh_ipv4
     end
 
     # Vrai si l'opérateur a déclaré explicitement `ssh_host:` dans
@@ -1248,6 +1255,8 @@ module Beryl::Config
         # longue (zypper install de ~19 s sous `nc -w 15`, quimeo-twin,
         # 28 oct. 2026 → exit 255).
         opts["ServerAliveInterval"] = SERVER_ALIVE_INTERVAL
+      elsif Beryl.use_direct_transport? && hidden? && public_address
+        # Transport `direct` : adresse publique, aucun rebond.
       elsif !(jumps = proxy_jumps(eff_user)).empty?
         opts["ProxyJump"] = jumps.first
       end

@@ -53,7 +53,7 @@ module Beryl::CLI::HeadscaleAuthkey
       p.on("-d NAME", "--domain=NAME", "Forcer le domaine") { |v| domain_hint = v }
       p.on("-u NAME", "--user=NAME", "User Headscale (défaut : société du host)") { |v| user = v }
       p.on("-e DUR", "--expiration=DUR", "Durée de validité (défaut : 1h ; ex. 720h)") { |v| expiration = v }
-      p.on("--config=PATH", "Chemin config Headscale côté serveur (défaut : #{DEFAULT_CONFIG})") { |v| config_path = v }
+      p.on("--headscale-config=PATH", "Chemin config Headscale côté serveur (défaut : #{DEFAULT_CONFIG})") { |v| config_path = v }
       p.on("--ephemeral", "Clé éphémère (node retiré à la déconnexion — CI runners)") { ephemeral = true }
       p.on("--reusable", "Clé réutilisable (plusieurs nodes — sinon usage unique)") { reusable = true }
       p.on("--create-user", "Crée le user Headscale d'abord (idempotent)") { create_user = true }
