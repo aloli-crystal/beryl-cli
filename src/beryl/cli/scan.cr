@@ -1124,6 +1124,21 @@ module Beryl::CLI::Scan
     PoolSpec.data(short, disks, raid)
   end
 
+  # Mots que YAML 1.1 lit comme booléen ou null (`hostname: no` → false).
+  # L'émetteur Crystal ne cite pas `y`/`n` (non réservés en YAML 1.2), mais
+  # d'autres lecteurs (Ruby/Psych, yq…) les prennent pour des booléens.
+  YAML11_RESERVED = /\A(?:y|n|yes|no|on|off|true|false|null|~)\z/i
+
+  # Scalaire YAML sûr pour une chaîne écrite à la main dans `render_yaml` :
+  # nue si elle se relit telle quelle, sinon entre guillemets (`"no"`,
+  # `"123"`, `'#x'`…). Une chaîne JSON est un scalaire YAML double-quoté
+  # valide, d'où `to_json` pour les cas que `to_yaml` laisserait nus.
+  def self.yaml_scalar(value : String) : String
+    body = value.to_yaml.lchop("--- ").chomp
+    return value.to_json if body.includes?('\n') || YAML11_RESERVED.matches?(value)
+    body
+  end
+
   # Rend le YAML d'un host. Le fichier ne contient QUE ce qui est
   # spécifique (provider/service_name/hostname/disques/raid). Le
   # reste vient du merge (_default.yml, <domaine>.yml).
@@ -1153,47 +1168,48 @@ module Beryl::CLI::Scan
       # défaut du domaine change plus tard.
       effective_provider = provider_override || host.provider
       if effective_provider
-        io << "provider: " << effective_provider << '\n'
+        io << "provider: " << yaml_scalar(effective_provider) << '\n'
         case effective_provider
         when "ovh"
           if sn = (ovh_service_name_override || host.ovh_service_name)
-            io << "ovh:\n  service_name: " << sn << '\n'
+            io << "ovh:\n  service_name: " << yaml_scalar(sn) << '\n'
             # Nom commercial (gamme OVH) à CÔTÉ de service_name. Fallback sur la
             # valeur existante si l'API n'a rien renvoyé (pas d'écrasement).
             if cn = (ovh_commercial_override || host.ovh_commercial_name)
-              io << "  commercial_name: " << cn << '\n'
+              io << "  commercial_name: " << yaml_scalar(cn) << '\n'
             end
           end
         when "scaleway"
           sid = server_id_override || host.scaleway_server_id
           if sid
-            io << "scaleway:\n  server_id: " << sid << '\n'
+            io << "scaleway:\n  server_id: " << yaml_scalar(sid) << '\n'
             # Priorité à la zone découverte par le shortcut : c'est
             # la source autoritaire (l'API a confirmé que ce server_id
             # vit dans cette zone), plus fiable que le YAML parent.
             if zone = scaleway_zone_override || host.scaleway_zone
-              io << "  zone: " << zone << '\n'
+              io << "  zone: " << yaml_scalar(zone) << '\n'
             end
           end
         when "dedibox"
           sid = server_id_override || host.dedibox_server_id
           if sid
+            # Nu exprès : ID entier Dedibox (`dedibox_server_id` lit l'entier natif).
             io << "dedibox:\n  server_id: " << sid << '\n'
           end
         end
       end
       io << "\nfreebsd:\n"
-      io << "  hostname: " << short << '\n'
+      io << "  hostname: " << yaml_scalar(short) << '\n'
       io << "  zfs:\n"
       pools.each do |pool|
-        io << "    " << pool.name << ":              # nom du pool côté ZFS (`zpool list`)\n"
+        io << "    " << yaml_scalar(pool.name) << ":              # nom du pool côté ZFS (`zpool list`)\n"
         io << "      boot: true        # c'est le pool système (exactement un)\n" if pool.boot
         if mp = pool.mountpoint
-          io << "      mountpoint: " << mp << "   # point de montage FreeBSD\n"
+          io << "      mountpoint: " << yaml_scalar(mp) << "   # point de montage FreeBSD\n"
         end
         io << "      raid: " << pool.raid << "             # " << Beryl::Config::Zpool.legend(Beryl::Config::Zpool.possible_levels(pool.disks.size)) << "\n"
         io << "      disks:\n"
-        pool.disks.each { |d| io << "        - " << d.dev_path << "  # " << d.human_size << " " << d.kind << " " << d.model << '\n' }
+        pool.disks.each { |d| io << "        - " << yaml_scalar(d.dev_path) << "  # " << d.human_size << " " << d.kind << " " << d.model << '\n' }
       end
       # Bloc `hardware:` (specs déclarées par le provider) — alimente `beryl
       # info` hors-ligne. Fallback sur l'existant si l'API n'a rien renvoyé.
@@ -1201,13 +1217,13 @@ module Beryl::CLI::Scan
         io << "\nhardware:             # specs provider (beryl info) — ne pas éditer à la main\n"
         # Clés par ordre alphabétique, comme `beryl fmt` et `info --refresh`.
         io << "  cores: " << hw.cores << '\n'
-        io << "  cpu: " << hw.cpu << '\n'
+        io << "  cpu: " << yaml_scalar(hw.cpu) << '\n'
         unless hw.disks.empty?
           io << "  disks:\n"
-          hw.disks.each { |d| io << "    - " << d << '\n' }
+          hw.disks.each { |d| io << "    - " << yaml_scalar(d) << '\n' }
         end
         if r = hw.raid
-          io << "  raid: " << r << '\n'
+          io << "  raid: " << yaml_scalar(r) << '\n'
         end
         io << "  ram_gb: " << hw.ram_gb << '\n'
         io << "  threads: " << hw.threads << '\n'
@@ -1257,8 +1273,32 @@ module Beryl::CLI::Scan
       io << "# Mis à jour par `beryl scan` le " << Beryl.format_timestamp(Time.local) << '\n'
       io << "# Champs scan (provider/service_name/hostname/disques/raid) rafraîchis ;\n"
       io << "# vos autres clés (apply_recipes, proxy_jump…) sont préservées.\n"
-      io << result.to_yaml.sub(/\A---\n/, "")
+      io << quote_bare_yes_no(result.to_yaml.sub(/\A---\n/, ""))
     end
+  end
+
+  # Valeur nue `y`/`n` en fin de ligne `clé: y` ou d'élément `- y`.
+  BARE_YES_NO_LINE = /\A(\s*(?:- )*(?:- |[^\s#'"\-][^#'"]*?: ))([yYnN])\z/
+  # Ouverture d'un bloc littéral ou plié (`clé: |`, `- >-`…) : son contenu est du texte.
+  BLOCK_SCALAR_LINE = /(?:\A|: |- )[|>][+-]?\d*\z/
+
+  # Cite les valeurs `y`/`n` que l'émetteur Crystal laisse nues (non
+  # réservées en YAML 1.2, mais booléens pour un lecteur YAML 1.1 : un host
+  # `y` fusionné deviendrait `hostname: y`). Le contenu des blocs littéraux
+  # est laissé tel quel ; si le résultat ne se relit pas à l'identique, la
+  # sortie d'origine est rendue.
+  def self.quote_bare_yes_no(yaml : String) : String
+    block_indent : Int32? = nil
+    lines = yaml.split('\n').map do |line|
+      indent = line.size - line.lstrip.size
+      if (bi = block_indent) && (line.blank? || indent > bi)
+        next line
+      end
+      block_indent = BLOCK_SCALAR_LINE.matches?(line) ? indent : nil
+      line.sub(BARE_YES_NO_LINE) { %(#{$~[1]}"#{$~[2]}") }
+    end
+    quoted = lines.join('\n')
+    YAML.parse(quoted) == YAML.parse(yaml) ? quoted : yaml
   end
 
   # Fusion superficielle de deux blocs : sous-clés de l'ancien gardées,

@@ -119,6 +119,60 @@ describe Beryl::CLI::Scan do
       yaml.should contain("raid: 1")
       yaml.should_not contain("zdata:")
     end
+
+    it "cite un nom court mot réservé YAML 1.1 (`no` relu \"no\", pas false)" do
+      root = Beryl::Config::Root.load(File.join(FIXTURES, "multi-provider-domain"))
+      host = root.resolve("loulou", domain_hint: "initech.example")
+      yaml = Beryl::CLI::Scan.render_yaml(host, "no", single_zroot([sample_disk]))
+      yaml.should contain(%(hostname: "no"))
+      YAML.parse(yaml)["freebsd"]["hostname"].raw.should eq("no")
+    end
+
+    it "la fusion dans une fiche existante (`hostname: false`) rend la chaîne \"no\"" do
+      root = Beryl::Config::Root.load(File.join(FIXTURES, "multi-provider-domain"))
+      host = root.resolve("loulou", domain_hint: "initech.example")
+      scan_yaml = Beryl::CLI::Scan.render_yaml(host, "no", single_zroot([sample_disk]))
+      merged = Beryl::CLI::Scan.merge_scan_into("freebsd:\n  hostname: false\n", scan_yaml)
+      YAML.parse(merged)["freebsd"]["hostname"].raw.should eq("no")
+    end
+  end
+
+  describe ".quote_bare_yes_no" do
+    it "fusion d'un host `y` : `hostname: \"y\"`, pas `hostname: y`" do
+      root = Beryl::Config::Root.load(File.join(FIXTURES, "multi-provider-domain"))
+      host = root.resolve("loulou", domain_hint: "initech.example")
+      scan_yaml = Beryl::CLI::Scan.render_yaml(host, "y", single_zroot([sample_disk]))
+      merged = Beryl::CLI::Scan.merge_scan_into("freebsd:\n  hostname: true\n", scan_yaml)
+      merged.should contain(%(hostname: "y"))
+      YAML.parse(merged)["freebsd"]["hostname"].raw.should eq("y")
+    end
+
+    it "cite clés et éléments de liste ; laisse les blocs littéraux et les autres valeurs" do
+      yaml = "a: y\nl:\n- n\n- - Y\nm:\n  k: N\n  ok: yo\nt: |\n  a: y\n  - n\nu: n\n"
+      quoted = Beryl::CLI::Scan.quote_bare_yes_no(yaml)
+      quoted.should eq(%(a: "y"\nl:\n- "n"\n- - "Y"\nm:\n  k: "N"\n  ok: yo\nt: |\n  a: y\n  - n\nu: "n"\n))
+      YAML.parse(quoted).should eq(YAML.parse(yaml))
+    end
+  end
+
+  describe ".yaml_scalar" do
+    it "laisse nues les chaînes qui se relisent telles quelles" do
+      Beryl::CLI::Scan.yaml_scalar("loulou").should eq("loulou")
+      Beryl::CLI::Scan.yaml_scalar("ns1.ip-1-2-3.eu").should eq("ns1.ip-1-2-3.eu")
+      Beryl::CLI::Scan.yaml_scalar("/dev/nda0").should eq("/dev/nda0")
+      Beryl::CLI::Scan.yaml_scalar("AMD EPYC 4344P").should eq("AMD EPYC 4344P")
+    end
+
+    it "cite les mots réservés YAML 1.1, les nombres et les caractères spéciaux" do
+      %w[no yes on off y n N Yes true false null ~ 123 1.5 #x].each do |word|
+        quoted = Beryl::CLI::Scan.yaml_scalar(word)
+        quoted.should_not eq(word)
+        YAML.parse("k: #{quoted}")["k"].raw.should eq(word)
+      end
+      ["a: b", "x # y", ""].each do |word|
+        YAML.parse("k: #{Beryl::CLI::Scan.yaml_scalar(word)}")["k"].raw.should eq(word)
+      end
+    end
   end
 
   describe ".resolve_host_ipv4" do

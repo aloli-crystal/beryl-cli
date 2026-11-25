@@ -506,3 +506,23 @@ describe "Beryl::Config::ResolvedHost#connect_users (sans dépendre de l'ordre d
     FileUtils.rm_rf(dir) if dir
   end
 end
+
+describe "Beryl::Config::ResolvedHost#freebsd_hostname" do
+  it "rend la chaîne citée ; refuse clairement un `hostname: no` relu en booléen" do
+    dir = File.join(Dir.tempdir, "beryl-hostname-#{Random::Secure.hex(6)}")
+    path = File.join(dir, "acme", "example.net", "no.host.yml")
+    Dir.mkdir_p(File.dirname(path))
+    File.write(path, %(provider: local\nfreebsd:\n  hostname: "no"\n))
+    Beryl::Config::Root.load(dir).resolve("no").freebsd_hostname.should eq("no")
+
+    File.write(path, "provider: local\nfreebsd:\n  hostname: no\n")
+    host = Beryl::Config::Root.load(dir).resolve("no")
+    ex = expect_raises(Beryl::Config::ResolvedHost::InvalidHostname) { host.freebsd_hostname }
+    ex.message.to_s.should contain(%(hostname: "no"))
+
+    File.write(path, "provider: local\n")
+    Beryl::Config::Root.load(dir).resolve("no").freebsd_hostname.should be_nil
+  ensure
+    FileUtils.rm_rf(dir) if dir
+  end
+end

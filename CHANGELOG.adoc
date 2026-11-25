@@ -9,6 +9,19 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `scan` : nom court mot réservé YAML (`no`, `yes`, `on`…)
+
+* `scan` cite les valeurs qu'il écrit dans le `.host.yml` (hostname,
+  service_name, commercial_name, zone, pools, disques, cpu…) dès qu'elles ne
+  se reliraient pas telles quelles. Avant, `no.host.yml` recevait
+  `hostname: no`, relu `false` (YAML 1.1), et la fusion le propageait.
+* La fusion dans une fiche existante cite aussi les valeurs `y`/`n`, que
+  l'émetteur YAML de Crystal laisse nues alors qu'un lecteur YAML 1.1 les
+  prend pour des booléens (blocs littéraux `|`/`>` laissés tels quels).
+* `bootstrap` refuse, avant toute connexion, un `freebsd.hostname` qui n'est
+  pas une chaîne, avec la correction à faire (`hostname: "no"`). Avant, il
+  retombait en silence sur le nom court.
+
 === Re-bootstrap d'un host caché : transport `direct`
 
 * `--transport=direct` (option globale) : un host caché (`vrack.proxy_jump`)

@@ -1089,6 +1089,23 @@ module Beryl::Config
       freebsd_hash[YAML::Any.new(field)]?.try(&.as_s?)
     end
 
+    # `freebsd.hostname`. Lève si la valeur n'est pas une chaîne : un nom
+    # court mot réservé YAML 1.1 non cité (`hostname: no`) se relit en
+    # booléen/null, et retomber en silence sur le nom court masquerait la
+    # fiche erronée.
+    def freebsd_hostname : String?
+      val = freebsd_hash[YAML::Any.new("hostname")]?
+      return unless val
+      val.as_s? || raise InvalidHostname.new(
+        "#{fqdn} : `freebsd.hostname` vaut #{val.raw.inspect} (#{val.raw.class}), pas une chaîne — " \
+        "un nom court comme no/yes/on/off/true/null doit être cité dans le .host.yml " \
+        "(ex. `hostname: \"#{@short_name}\"`)."
+      )
+    end
+
+    class InvalidHostname < Exception
+    end
+
     def freebsd_int(field : String) : Int32?
       freebsd_hash[YAML::Any.new(field)]?.try(&.as_i?)
     end

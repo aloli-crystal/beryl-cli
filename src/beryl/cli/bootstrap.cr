@@ -93,6 +93,14 @@ module Beryl::CLI::Bootstrap
     root = Beryl::Config::Root.load(config_root)
     host = root.resolve(host_name, account_hint: account_hint, domain_hint: domain_hint)
     return EXIT_USAGE if Beryl::CLI::MachineKind.refuse_vps(host, "bootstrap")
+    # Lu dès maintenant : une fiche invalide (`hostname: no` relu `false`)
+    # est refusée AVANT toute connexion au rescue.
+    begin
+      hostname = host.freebsd_hostname || host.short_name
+    rescue ex : Beryl::Config::ResolvedHost::InvalidHostname
+      STDERR.puts "beryl : #{ex.message}"
+      return EXIT_USAGE
+    end
     Beryl.log_host = host.short_name
     host.apply_all_credentials_to_env!
 
@@ -305,7 +313,6 @@ module Beryl::CLI::Bootstrap
     timezone = host.freebsd_string("timezone") || "Europe/Paris"
     swap_gb = host.freebsd_int("swap_gb") || 4
     install_type = host.freebsd_string("install_type") || "distribution_sets"
-    hostname = host.freebsd_string("hostname") || host.short_name
     packages = host.freebsd_string_array("packages")
     sudoers = host.freebsd_string_array("sudoers")
     sudoers = ["%wheel ALL=(ALL) NOPASSWD:ALL"] if sudoers.empty?
