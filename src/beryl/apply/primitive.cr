@@ -63,6 +63,43 @@ module Beryl::Apply
         "sha256 -q #{Process.quote(path)} 2>/dev/null"
       end
     end
+
+    # État d'un chemin lu en UN seul appel distant (chaque appel coûte un
+    # aller-retour réseau) : deux lignes, la première selon `first`
+    # (empreinte SHA-256, ou nature `dir`/`other`/`absent`), la seconde
+    # `mode user:groupe` (vide si absent). Cf. `PathState.parse`.
+    def self.file_state(path : String, os : String) : String
+      %(h=$(#{sha256(path, os)}); s=$(#{mode_owner(path, os)} 2>/dev/null); printf '%s\\n%s\\n' "$h" "$s")
+    end
+
+    def self.dir_state(path : String, os : String) : String
+      q = Process.quote(path)
+      %(if [ -d #{q} ]; then k=dir; elif [ -e #{q} ]; then k=other; else k=absent; fi; ) +
+        %(s=$(#{mode_owner(path, os)} 2>/dev/null); printf '%s\\n%s\\n' "$k" "$s")
+    end
+  end
+
+  # Sortie de `Posix.file_state` / `Posix.dir_state` : première ligne
+  # (`head`), mode octal normalisé (`644`) et propriétaire `user:groupe`.
+  record PathState, head : String, mode : String?, owner : String? do
+    def self.parse(stdout : String) : PathState
+      lines = stdout.lines
+      mode, _, owner = (lines[1]? || "").strip.partition(' ')
+      new((lines[0]? || "").strip, mode.to_i?(8).try(&.to_s(8)), owner.empty? ? nil : owner)
+    end
+
+    # Le propriétaire diffère-t-il de `wanted` (`user` ou `user:groupe`) ?
+    # `user` seul ne compare que le propriétaire : sinon `postgres` ≠
+    # `postgres:postgres` et un chown à chaque passage.
+    def owner_differs?(wanted : String) : Bool
+      current = owner
+      return true unless current
+      wanted.includes?(':') ? current != wanted : current.partition(':')[0] != wanted
+    end
+
+    def mode_differs?(wanted : String) : Bool
+      wanted.to_i?(8).try(&.to_s(8)) != mode
+    end
   end
 
   record Context,
@@ -74,7 +111,10 @@ module Beryl::Apply
     # /etc/ssh/authorized_keys/<user> (/home chiffré). false quand la
     # connexion n'est pas root (rotate-key, connecté en tant que le compte) :
     # la copie est alors refaite ensuite, par sudo.
-    mirror : Bool = true
+    mirror : Bool = true,
+    # Lectures coûteuses mémorisées le temps d'un sync (ex. `sshd -T`), vidées
+    # par l'exécuteur dès qu'une étape a agi sur le serveur.
+    cache : Hash(String, String) = {} of String => String
 
   # Variable du coffre PROPRE À UN SERVEUR : `<HÔTE>__<NOM>` (nom court en
   # majuscules, tout caractère hors [A-Z0-9] → `_`). Serveur en tête : dans

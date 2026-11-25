@@ -41,7 +41,7 @@ describe "Beryl::Apply::Primitive.probe?" do
 
   it "une sonde cassée met l'étape en FAILED en dry-run, plus de « would apply » muet" do
     shell = FakeShell.new
-    shell.stub(/test -d/, exit_code: 127, stderr: "sh: test: not found\n")
+    shell.stub(/if \[ -d/, exit_code: 127, stderr: "sh: stat: not found\n")
     recipe = Beryl::Apply::Recipe.new(
       name: "dossiers", description: "", requires: [] of String,
       parameters: {} of String => YAML::Any, arguments: {} of String => YAML::Any,
@@ -51,6 +51,6 @@ describe "Beryl::Apply::Primitive.probe?" do
     report = Beryl::Apply::Executor.new(shell, dry_run: true).run([recipe])
     report.failed.should eq(1)
     report.applied.should eq(0)
-    report.entries.first.result.message.should contain("sonde `test -d")
+    report.entries.first.result.message.should contain("sonde `if [ -d")
   end
 end

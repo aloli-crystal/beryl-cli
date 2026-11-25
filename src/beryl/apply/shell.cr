@@ -13,6 +13,10 @@ module Beryl::Apply
   abstract class Shell
     abstract def exec(command : String, raise_on_error : Bool = true) : SSH::Result
     abstract def write_file(remote_path : String, content : String, mode : String? = nil) : Nil
+
+    # Libère la session (shell persistant) ; sans effet sinon.
+    def close : Nil
+    end
   end
 
   # Ligne `sh -c …` qui exécute `script` (sh POSIX) quel que soit le shell de

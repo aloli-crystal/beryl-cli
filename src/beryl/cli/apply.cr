@@ -389,18 +389,14 @@ module Beryl::CLI::Apply
     end
 
     # Escalade : si on n'est pas root, on vérifie que sudo NOPASSWD marche
-    # puis on enrobe le shell pour que les opérations root passent par sudo.
-    shell : Beryl::Apply::Shell
-    if ssh_user == "root"
-      shell = Beryl::Apply::SshShell.new(conn)
-    else
-      unless conn.exec("sudo -n true", raise_on_error: false).success?
-        STDERR.puts "beryl : #{host.fqdn} : #{ssh_user} ne peut pas sudo sans mot de passe " \
-                    "(sudo -n échoue). Vérifiez `%wheel NOPASSWD` + l'appartenance à wheel (ou `sudo: true`)."
-        return EXIT_SSH_FAILED
-      end
-      shell = Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(conn))
+    # (les opérations root passent alors par sudo, cf. `Apply.root_shell`).
+    if ssh_user != "root" && !conn.exec("sudo -n true", raise_on_error: false).success?
+      STDERR.puts "beryl : #{host.fqdn} : #{ssh_user} ne peut pas sudo sans mot de passe " \
+                  "(sudo -n échoue). Vérifiez `%wheel NOPASSWD` + l'appartenance à wheel (ou `sudo: true`)."
+      return EXIT_SSH_FAILED
     end
+    # Une seule session distante pour tout le sync, repli ssh par commande.
+    shell = opened = Beryl::Apply.root_shell(conn, ssh_user)
     vars = {
       "company"  => host.account_name,
       "fqdn"     => host.fqdn,
@@ -480,7 +476,7 @@ module Beryl::CLI::Apply
     end
     report = Beryl::Apply::Executor.new(shell, dry_run, context).run(recipes, recipe_args)
 
-    log "apply terminé pour #{host.fqdn}#{dry_run ? " (dry-run)" : ""} — #{report.summary_line}"
+    log "apply terminé pour #{host.fqdn}#{dry_run ? " (dry-run)" : ""} — #{report.summary_line} — #{report.timing_line}"
     # Fiche en mode Tang, serveur pas encore enrôlé : `tang-enroll` enchaîné
     # (recettes jouées sans échec seulement : tang-client, vRack, résolveur).
     if report.failed == 0 && os == Beryl::Apply::FREEBSD
@@ -511,6 +507,8 @@ module Beryl::CLI::Apply
   rescue ex
     STDERR.puts "beryl : #{host.fqdn} : erreur inattendue — #{ex.class}: #{ex.message}"
     EXIT_UNEXPECTED
+  ensure
+    opened.try(&.close)
   end
 
   @@fleet_root : Beryl::Config::Root? = nil

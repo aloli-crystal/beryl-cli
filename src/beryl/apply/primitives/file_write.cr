@@ -42,11 +42,14 @@ module Beryl::Apply
       end
 
       desired_hash = Digest::SHA256.hexdigest(content)
-      remote_hash = shell.exec(Posix.sha256(path, context.os), raise_on_error: false).stdout.strip
+      # Empreinte, mode et propriétaire en un seul appel. Fichier absent
+      # (empreinte vide) : il sera créé, mode et owner sont à poser.
+      state = PathState.parse(shell.exec(Posix.file_state(path, context.os), raise_on_error: false).stdout)
+      absent = state.head.empty?
 
-      need_write = remote_hash != desired_hash
-      need_chmod = mode_differs?(shell, path, mode, remote_hash.empty?, context.os)
-      need_chown = owner_differs?(shell, path, owner, remote_hash.empty?, context.os)
+      need_write = state.head != desired_hash
+      need_chmod = !mode.nil? && (absent || state.mode_differs?(mode))
+      need_chown = !owner.nil? && (absent || state.owner_differs?(owner))
 
       if !need_write && !need_chmod && !need_chown
         return StepResult.skipped("#{path} à jour")
@@ -78,24 +81,6 @@ module Beryl::Apply
         shell.exec("chown #{Process.quote(owner)} #{Process.quote(path)}")
       end
       StepResult.applied(msg)
-    end
-
-    # Vrai si `mode` est demandé et diffère du mode distant (comparaison
-    # en octal). Si le fichier est absent, il sera créé → on chmod.
-    private def mode_differs?(shell : Shell, path : String, mode : String?, file_absent : Bool, os : String) : Bool
-      return false unless mode
-      return true if file_absent
-      remote = shell.exec("#{Posix.mode(path, os)} 2>/dev/null", raise_on_error: false).stdout.strip
-      mode.to_i?(8) != remote.to_i?(8)
-    end
-
-    # Vrai si `owner` est demandé et diffère du propriétaire distant.
-    # `owner` peut être "user" ou "user:group".
-    private def owner_differs?(shell : Shell, path : String, owner : String?, file_absent : Bool, os : String) : Bool
-      return false unless owner
-      return true if file_absent
-      remote = shell.exec("#{Posix.owner(path, os, owner.includes?(':'))} 2>/dev/null", raise_on_error: false).stdout.strip
-      remote != owner
     end
   end
 

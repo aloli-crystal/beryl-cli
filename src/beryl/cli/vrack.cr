@@ -451,12 +451,12 @@ module Beryl::CLI
         log "✗ #{host.fqdn} injoignable ou pas FreeBSD (uname = #{uname.inspect})."
         return
       end
-      return Beryl::Apply::SshShell.new(conn) if cu == "root"
-      unless conn.exec("sudo -n true", raise_on_error: false).success?
+      if cu != "root" && !conn.exec("sudo -n true", raise_on_error: false).success?
         log "✗ #{cu}@#{host.fqdn} ne peut pas sudo sans mot de passe."
         return
       end
-      Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(conn))
+      # Un ssh par commande : vrack doit voir qu'une NOUVELLE connexion passe.
+      Beryl::Apply.root_shell(conn, cu, persistent: false)
     end
 
     # Monte la 1ʳᵉ IP vRack sur l'interface (primitive `netif`, idempotente,
@@ -545,7 +545,7 @@ module Beryl::CLI
     private def self.verify_via_bastion(host : Beryl::Config::ResolvedHost, proxy_jump : String, ip : String? = nil) : Bool
       target = ip || host.vrack_ips.first?
       return false unless target
-      conn = SSH::Connection.new(
+      conn = Beryl.ssh_connection(
         host: target,
         user: connect_user(host),
         port: host.port,
@@ -562,14 +562,15 @@ module Beryl::CLI
       target = ip || host.vrack_ips.first?
       return unless target
       cu = connect_user(host)
-      conn = SSH::Connection.new(
+      conn = Beryl.ssh_connection(
         host: target, user: cu, port: host.port,
         identity_file: host.identity_file, options: {"ProxyJump" => pj, "ConnectTimeout" => "10"},
       )
       return unless conn.exec("uname -s", raise_on_error: false).stdout.strip == "FreeBSD"
-      return Beryl::Apply::SshShell.new(conn) if cu == "root"
-      return unless conn.exec("sudo -n true", raise_on_error: false).success?
-      Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(conn))
+      return if cu != "root" && !conn.exec("sudo -n true", raise_on_error: false).success?
+      # Un ssh par commande : la re-vérification anti-lockout doit passer par
+      # une NOUVELLE connexion (une session ouverte masquerait la fermeture).
+      Beryl::Apply.root_shell(conn, cu, persistent: false)
     end
 
     # Ferme le 22 PUBLIC (pf), avec FILET anti-lockout. À n'appeler qu'après que

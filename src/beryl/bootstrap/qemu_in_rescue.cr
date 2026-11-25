@@ -858,7 +858,7 @@ module Beryl::Bootstrap
       # mais boucle qui continue — impossible de diagnostiquer sans
       # output. Maintenant, chaque échec affiche le motif (exit code,
       # stderr, classe d'exception).
-      conn = SSH::Connection.new(
+      conn = Beryl.ssh_connection(
         host: @rescue_conn.host,
         user: @installed_user,
         port: @installed_port,

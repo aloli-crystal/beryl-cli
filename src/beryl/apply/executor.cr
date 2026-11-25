@@ -62,6 +62,42 @@ module Beryl::Apply
     def summary_line : String
       "#{total} étape(s) : #{skipped} skipped, #{applied} applied, #{failed} failed"
     end
+
+    # Durée totale du déroulé et nombre d'appels distants (`exec` +
+    # `write_file`) : la mesure de ce que coûte un sync.
+    property elapsed : Time::Span = Time::Span.zero
+    property calls : Int32 = 0
+
+    def timing_line : String
+      "#{Report.seconds(elapsed)}, #{Report.calls(calls)} distant(s)"
+    end
+
+    # « 0,42 s » (virgule décimale).
+    def self.seconds(span : Time::Span) : String
+      "#{("%.2f" % span.total_seconds).tr(".", ",")} s"
+    end
+
+    def self.calls(count : Int32) : String
+      "#{count} appel#{count > 1 ? "s" : ""}"
+    end
+  end
+
+  # Décorateur qui compte les appels distants (cf. `Report#calls`).
+  class CountingShell < Shell
+    getter count = 0
+
+    def initialize(@inner : Shell)
+    end
+
+    def exec(command : String, raise_on_error : Bool = true) : SSH::Result
+      @count += 1
+      @inner.exec(command, raise_on_error)
+    end
+
+    def write_file(remote_path : String, content : String, mode : String? = nil) : Nil
+      @count += 1
+      @inner.write_file(remote_path, content, mode)
+    end
   end
 
   # Déroule des recettes déjà ordonnées (cf. `Resolver`) : pour chaque
@@ -77,11 +113,22 @@ module Beryl::Apply
   # rapport partiel est retourné. L'opérateur corrige et relance —
   # l'idempotence skippe ce qui était déjà OK.
   class Executor
-    def initialize(@shell : Shell, @dry_run : Bool = false, @context : Context = Context.new)
+    @shell : CountingShell
+
+    def initialize(shell : Shell, @dry_run : Bool = false, @context : Context = Context.new)
+      @shell = CountingShell.new(shell)
     end
 
     def run(recipes : Array(Recipe), recipe_args : Hash(String, Array(Hash(String, String))) = {} of String => Array(Hash(String, String))) : Report
       report = Report.new
+      started = Time.instant
+      run_recipes(report, recipes, recipe_args)
+      report.elapsed = Time.instant - started
+      report.calls = @shell.count
+      report
+    end
+
+    private def run_recipes(report : Report, recipes : Array(Recipe), recipe_args : Hash(String, Array(Hash(String, String)))) : Report
       recipe_args = self.class.merge_required_args(recipes, recipe_args)
       check_paths!(recipes, recipe_args)
       deferred = [] of Deferred
@@ -132,9 +179,9 @@ module Beryl::Apply
               log("#{recipe.name} › #{step.name} : reporté en fin d'apply (deferred)")
               next
             end
-            result = apply_step(primitive, clean)
+            result, cost = timed_step(primitive, clean)
             changed ||= result.outcome.applied?
-            record(report, recipe.name, step.name, result)
+            record(report, recipe.name, step.name, result, cost)
             if result.outcome.failed?
               run_deferred(report, deferred)
               return report
@@ -163,10 +210,21 @@ module Beryl::Apply
 
     private def run_deferred(report : Report, deferred : Array(Deferred)) : Nil
       deferred.each do |d|
-        result = apply_step(d.primitive, d.params)
-        record(report, d.recipe, d.step, result)
+        result, cost = timed_step(d.primitive, d.params)
+        record(report, d.recipe, d.step, result, cost)
       end
       deferred.clear
+    end
+
+    # `apply_step` chronométré : rend aussi « [0,42 s, 3 appels] » pour le
+    # journal. Une étape qui a agi vide `context.cache` : ce qui y était lu
+    # (`sshd -T`…) peut avoir changé.
+    private def timed_step(primitive : Primitive, params : Hash(String, YAML::Any)) : Tuple(StepResult, String)
+      started = Time.instant
+      before = @shell.count
+      result = apply_step(primitive, params)
+      @context.cache.clear if result.outcome.applied?
+      {result, "[#{Report.seconds(Time.instant - started)}, #{Report.calls(@shell.count - before)}]"}
     end
 
     private def apply_step(primitive : Primitive, params : Hash(String, YAML::Any)) : StepResult
@@ -181,9 +239,9 @@ module Beryl::Apply
       StepResult.failed(ex.message || "erreur de primitive")
     end
 
-    private def record(report : Report, recipe : String, step : String, result : StepResult) : Nil
+    private def record(report : Report, recipe : String, step : String, result : StepResult, cost : String? = nil) : Nil
       report << Report::Entry.new(recipe: recipe, step: step, result: result)
-      log("#{recipe} › #{step} : #{describe(result)}")
+      log("#{recipe} › #{step} : #{describe(result)}#{cost ? " #{cost}" : ""}")
     end
 
     # Option d'étape `if_changed: true` (valable pour TOUTE primitive) :

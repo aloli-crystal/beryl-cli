@@ -517,7 +517,7 @@ module Beryl::CLI::Rescue
     key = host.identity_file || raise MissingProviderConfig.new(
       "identity_file non résolu pour #{host.fqdn}"
     )
-    rescue_conn = SSH::Connection.new(
+    rescue_conn = Beryl.ssh_connection(
       host: host.rescue_ssh_host, user: "rescue", port: host.port, identity_file: key,
     )
     script = <<-BASH
@@ -635,7 +635,7 @@ module Beryl::CLI::Rescue
   private def self.ssh_root_is_linux?(host : Beryl::Config::ResolvedHost) : Bool
     key = host.identity_file
     return false unless key
-    conn = SSH::Connection.new(
+    conn = Beryl.ssh_connection(
       host: host.rescue_ssh_host,
       user: "root",
       port: host.port,
@@ -665,7 +665,7 @@ module Beryl::CLI::Rescue
     )
 
     # 3/4 — attente que sd-<id> réponde (rescue Debian prêt).
-    sd_conn = SSH::Connection.new(
+    sd_conn = Beryl.ssh_connection(
       host: host.rescue_ssh_host, user: sd_user, port: host.port, identity_file: key,
     )
     deadline = Time.instant + DEFAULT_SSH_WAIT_TIMEOUT

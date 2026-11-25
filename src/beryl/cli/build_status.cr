@@ -94,7 +94,9 @@ module Beryl::CLI::BuildStatus
                   "#{Beryl::CLI::SshProbe.compact_error(probe.stderr, probe.exit_code)}"
       return EXIT_USAGE
     end
-    shell = Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(host.connection(user)))
+    # Peu d’ppels par lecture, et `--follow` laisse la session muette entre
+    # deux lectures : un ssh par commande suffit.
+    shell = Beryl::Apply.root_shell(host.connection(user), user, persistent: false)
 
     loop do
       # --json --follow : progression en texte sur stderr, JSON final seul sur stdout.

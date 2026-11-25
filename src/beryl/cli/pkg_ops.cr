@@ -32,21 +32,21 @@ module Beryl::CLI
   module PkgOps
     # Shell root sur le host via le premier user de connexion qui répond ; nil
     # (motif SSH court journalisé) si aucun ne passe.
-    def self.connect(cmd : String, host : Beryl::Config::ResolvedHost) : Beryl::Apply::SudoShell?
+    def self.connect(cmd : String, host : Beryl::Config::ResolvedHost) : Beryl::Apply::Shell?
       user, probe = Beryl::CLI::SshProbe.reachable(host, Beryl::CLI::SshProbe::FREEBSD_PROBE)
       unless user
         log(cmd, "#{host.short_name} : #{Beryl::CLI::SshProbe.describe(probe.stderr, probe.exit_code)} " \
                  "(users tentés : #{host.connect_users.join(", ")})")
         return
       end
-      Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(host.connection(user)))
+      Beryl::Apply.root_shell(host.connection(user), user)
     rescue ex
       log(cmd, "#{host.short_name} : SSH KO — #{ex.message || "erreur de connexion"}")
       nil
     end
 
     # Exécute une commande pkg en root. Renvoie {ok, sortie}.
-    def self.run_pkg(shell : Beryl::Apply::SudoShell, cmd : String) : {Bool, String}
+    def self.run_pkg(shell : Beryl::Apply::Shell, cmd : String) : {Bool, String}
       res = shell.exec(cmd, raise_on_error: false)
       {res.success?, (res.stdout + res.stderr)}
     rescue ex
@@ -81,7 +81,7 @@ module Beryl::CLI
     # Host chiffré ET VERROUILLÉ ? (au moins une unité avec keystatus=unavailable).
     # Une opération qui écrit dans un point de montage chiffré non monté
     # corromprait l'état → on refuse tant que ce n'est pas `beryl unlock`. csh-safe.
-    def self.locked?(host : Beryl::Config::ResolvedHost, shell : Beryl::Apply::SudoShell) : Bool
+    def self.locked?(host : Beryl::Config::ResolvedHost, shell : Beryl::Apply::Shell) : Bool
       return false unless host.encrypted?
       host.encryption_units.any? do |u|
         ks = shell.exec("zfs get -H -o value keystatus #{Process.quote(u)}", raise_on_error: false).stdout.strip
@@ -134,7 +134,11 @@ module Beryl::CLI
           failures += 1
           next
         end
-        ok, output = PkgOps.run_pkg(shell, "pkg update")
+        ok, output = begin
+          PkgOps.run_pkg(shell, "pkg update")
+        ensure
+          shell.close
+        end
         if ok
           PkgOps.log("update", "#{h.short_name} : catalogue à jour")
         else
@@ -281,7 +285,7 @@ module Beryl::CLI
 
     # Trace du solveur pour les nouveaux paquets de `output` (plan d'un
     # dry-run), relancée en lecture seule ; vide s'il n'y en a pas.
-    def self.new_packages_trace(shell : Beryl::Apply::SudoShell, output : String, pkgs : Array(String)?) : Array(String)
+    def self.new_packages_trace(shell : Beryl::Apply::Shell, output : String, pkgs : Array(String)?) : Array(String)
       names = new_packages(output)
       return [] of String if names.empty?
       solver_trace(PkgOps.run_pkg(shell, software_cmd(false, pkgs, trace: true))[1], names)
@@ -720,6 +724,8 @@ module Beryl::CLI
         end
       end
       base && base > 0 ? :base_pending : :ok
+    ensure
+      shell.try(&.close)
     end
 
     # Sortie de flotte (dry-run, plusieurs serveurs) : par serveur, les mises
@@ -791,7 +797,7 @@ module Beryl::CLI
       unless user
         return HostState.new(h.fqdn, false, Beryl::CLI::SshProbe.describe(probe.stderr, probe.exit_code), vulns: nil)
       end
-      shell = Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(h.connection(user)))
+      shell = Beryl::Apply.root_shell(h.connection(user), user)
       pkgs, rejected = select_packages(named, recipes_only ? Beryl::CLI::Info.recipe_packages(config_root, [h]) : nil)
       return HostState.new(h.fqdn, false, outside_recipes(rejected), vulns: nil) unless rejected.empty?
       ok, output = pkgs && pkgs.empty? ? {true, ""} : PkgOps.run_pkg(shell, software_cmd(false, pkgs, require_all: !named.empty?))
@@ -803,6 +809,8 @@ module Beryl::CLI
       HostState.new(h.fqdn, true, NOTE_OK, pending_lines(output), vulns, trace, accepted)
     rescue ex
       HostState.new(h.fqdn, false, "erreur : #{ex.message}", vulns: nil)
+    ensure
+      shell.try(&.close)
     end
 
     # Services touchés par `changed` : relancés (--apply), signalés sinon.

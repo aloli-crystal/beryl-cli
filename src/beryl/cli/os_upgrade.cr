@@ -180,7 +180,7 @@ module Beryl::CLI::OsUpgrade
       Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::FAILED, "SSH : #{Beryl::CLI::SshProbe.compact_error(probe.stderr, probe.exit_code)}")
       return EXIT_FAILED
     end
-    shell = Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(host.connection(user)))
+    shell = Beryl::Apply.root_shell(host.connection(user), user)
     cur_major, cur_minor, _ = cur
 
     fetch_error : String? = nil
@@ -229,6 +229,8 @@ module Beryl::CLI::OsUpgrade
     STDERR.puts "beryl : #{host.fqdn} — erreur inattendue : #{ex.class}: #{ex.message}"
     Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::FAILED, "erreur inattendue : #{ex.message}")
     EXIT_FAILED
+  ensure
+    shell.try(&.close)
   end
 
   NOTE_UP     = "montée dispo"
@@ -300,7 +302,7 @@ module Beryl::CLI::OsUpgrade
     end
     up_needed = Beryl::FreebsdRelease.version_key(target) > {cur_major, cur_minor} || !to.nil?
     return HostState.new(host.fqdn, true, cur_raw, target, "#{NOTE_UP}#{via}") if up_needed
-    shell = Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(host.connection(user)))
+    shell = Beryl::Apply.root_shell(host.connection(user), user)
     case n = Beryl::CLI::Upgrade.base_pending(shell)
     when nil then HostState.new(host.fqdn, true, cur_raw, target, "#{NOTE_OK} (release ; correctifs non vérifiés, pas en pkgbase)#{via}")
     when 0
@@ -313,6 +315,8 @@ module Beryl::CLI::OsUpgrade
     end
   rescue ex
     HostState.new(host.fqdn, false, nil, nil, "erreur : #{ex.message}")
+  ensure
+    shell.try(&.close)
   end
 
   # Après une montée pkgbase, certaines confs de services base deviennent
@@ -562,9 +566,12 @@ module Beryl::CLI::OsUpgrade
 
     log "#{host.fqdn} : reboot…"
     Beryl::CLI::FleetJob.report(Beryl::CLI::FleetJob::RUNNING, "#{done} — redémarrage", touched: true)
+    # Par le shell de la montée (le user qui a répondu à la cascade) ; s'il est
+    # persistant, la session tombe avec le serveur et la réponse peut se perdre
+    # (avertissement « session interrompue », sans conséquence : code ignoré).
     shell.exec("shutdown -r now", raise_on_error: false)
     if wait_back(host)
-      new = Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(host.connection))
+      new = Beryl::Apply.root_shell(host.connection, host.connect_user, persistent: false)
         .exec("freebsd-version -r", raise_on_error: false).stdout.strip
       log "#{host.fqdn} : revenu — #{new}"
       # Host chiffré : il revient VERROUILLÉ (datasets non montés) → déverrouille

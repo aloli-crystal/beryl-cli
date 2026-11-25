@@ -31,13 +31,15 @@ module Beryl::Apply
       mode = string(params, "mode")
       q = Process.quote(path)
 
-      is_dir = Primitive.probe?(shell, "test -d #{q}")
-      if !is_dir && Primitive.probe?(shell, "test -e #{q}")
+      # Nature, mode et propriétaire en un seul appel distant.
+      state = PathState.parse(Primitive.read_probe(shell, Posix.dir_state(path, context.os)).stdout)
+      is_dir = state.head == "dir"
+      if state.head == "other"
         raise PrimitiveError.new("#{path} existe mais n'est pas un dossier — refus de clobberer.")
       end
 
-      need_owner = owner && current_owner(shell, path, is_dir, context.os, owner.includes?(':')) != owner
-      need_mode = mode && current_mode(shell, path, is_dir, context.os) != self.class.norm_mode(mode)
+      need_owner = owner && (!is_dir || state.owner_differs?(owner))
+      need_mode = mode && (!is_dir || state.mode_differs?(mode))
 
       if is_dir && !need_owner && !need_mode
         return StepResult.skipped("#{path} déjà conforme")
@@ -54,20 +56,6 @@ module Beryl::Apply
       shell.exec("chown #{Process.quote(owner)} #{q}") if need_owner && owner
       shell.exec("chmod #{Process.quote(mode)} #{q}") if need_mode && mode
       StepResult.applied(msg)
-    end
-
-    # `owner` sans groupe (« postgres ») : on lit le seul propriétaire, sinon
-    # « postgres:postgres » ≠ « postgres » et chown à chaque passage.
-    private def current_owner(shell : Shell, path : String, exists : Bool, os : String, with_group : Bool) : String?
-      return unless exists
-      r = Primitive.read_probe(shell, Posix.owner(path, os, with_group))
-      r.success? ? r.stdout.strip : nil
-    end
-
-    private def current_mode(shell : Shell, path : String, exists : Bool, os : String) : String?
-      return unless exists
-      r = Primitive.read_probe(shell, Posix.mode(path, os))
-      r.success? ? r.stdout.strip : nil
     end
   end
 

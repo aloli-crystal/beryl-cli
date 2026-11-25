@@ -99,4 +99,17 @@ describe Beryl::Apply::SshdConfigSet do
       shell, apply_params(%({key: ListenAddress, value: "100.64.0.5"})), dry_run: true, context: ctx)
     result.outcome.should eq(Beryl::Apply::Outcome::Skipped)
   end
+
+  it "ne lit sshd -T qu'une fois pour plusieurs clés du même sync" do
+    shell = FakeShell.new
+    shell.stub(/cat .*beryl\.conf/, stdout: "PermitRootLogin no\nX11Forwarding no\n")
+    shell.stub(/sshd -T/, stdout: "permitrootlogin no\nx11forwarding no\n")
+    context = ctx
+    %w[PermitRootLogin X11Forwarding].each do |key|
+      prim("sshd-config-set").apply(
+        shell, apply_params(%({key: #{key}, value: "no"})), dry_run: false, context: context
+      ).outcome.should eq(Beryl::Apply::Outcome::Skipped)
+    end
+    shell.commands.count(&.includes?("sshd -T")).should eq(1)
+  end
 end

@@ -111,7 +111,7 @@ module Beryl::Bootstrap
     end
 
     private def wait_for_mfsbsd : SSH::Connection
-      conn = SSH::Connection.new(
+      conn = Beryl.ssh_connection(
         host: @rescue_conn.host,
         user: @mfsbsd_user,
         port: @mfsbsd_port,

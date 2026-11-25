@@ -30,8 +30,7 @@ describe Beryl::Apply::SecretFile do
     ENV["T_PW"] = "s3cr3t"
     rendered = "it@popi.net|ssl0.ovh.net:s3cr3t\n"
     shell = FakeShell.new
-    shell.stub(/sha256 -q/, stdout: Digest::SHA256.hexdigest(rendered))
-    shell.stub(/stat -f %Lp/, stdout: "600") # mode déjà 0600
+    shell.stub(/sha256 -q/, stdout: "#{Digest::SHA256.hexdigest(rendered)}\n600 root:wheel\n") # mode déjà 0600
     result = prim("secret-file").apply(
       shell,
       apply_params({path: "/usr/local/etc/dma/auth.conf", mode: "0600",

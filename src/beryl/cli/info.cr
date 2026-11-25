@@ -333,7 +333,7 @@ module Beryl::CLI
         opts = {"ConnectTimeout" => "10"}
         jumps = host.proxy_jumps(eff_user)
         opts["ProxyJump"] = jumps.first unless jumps.empty?
-        conn = SSH::Connection.new(host: target, user: eff_user, port: host.port,
+        conn = Beryl.ssh_connection(host: target, user: eff_user, port: host.port,
           identity_file: host.identity_file, options: opts, jump_fallbacks: jumps.skip(1))
         res = conn.exec(cmd, raise_on_error: false)
         Probe.new(res.success?, res.stdout, res.stderr)

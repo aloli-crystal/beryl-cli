@@ -50,6 +50,9 @@ module Beryl::Apply
 
     HEADER = "# Géré par beryl (sshd-config-set). Ne pas éditer à la main.\n"
 
+    # Clé de `context.cache` pour la sortie de `sshd -T`.
+    EFFECTIVE_CACHE_KEY = "sshd -T"
+
     def name : String
       "sshd-config-set"
     end
@@ -96,7 +99,7 @@ module Beryl::Apply
       end
 
       if !changed && !include_added && shadows.empty?
-        if (effective = effective_values(shell, key)) && effective.none?(&.starts_with?(value.downcase))
+        if (effective = effective_values(shell, key, context)) && effective.none?(&.starts_with?(value.downcase))
           return StepResult.failed("#{key} : valeur effective (sshd -T) #{effective.join(", ")} ≠ #{value} — " \
                                    "imposée hors de sshd_config.d (sshd_config, bloc Match ?)")
         end
@@ -153,11 +156,15 @@ module Beryl::Apply
     end
 
     # Valeurs effectives de `key` d'après `sshd -T` (nil si sshd -T échoue ou
-    # ne la cite pas : rien à conclure).
-    private def effective_values(shell : Shell, key : String) : Array(String)?
-      res = shell.exec("sshd -T 2>/dev/null", raise_on_error: false)
-      return unless res.success?
-      values = res.stdout.lines.compact_map do |line|
+    # ne la cite pas : rien à conclure). `sshd -T` n'est lu qu'une fois par
+    # sync (`context.cache`, vidé dès qu'une étape agit sur le serveur).
+    private def effective_values(shell : Shell, key : String, context : Context) : Array(String)?
+      dump = context.cache[EFFECTIVE_CACHE_KEY]? || begin
+        res = shell.exec("sshd -T 2>/dev/null", raise_on_error: false)
+        return unless res.success?
+        context.cache[EFFECTIVE_CACHE_KEY] = res.stdout
+      end
+      values = dump.lines.compact_map do |line|
         name, _, rest = line.strip.partition(' ')
         rest.downcase if name.downcase == key.downcase
       end

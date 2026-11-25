@@ -14,6 +14,7 @@
 # (ssh-hardening, firewall-pf, headscale-*, …) qui les composent
 # vivent dans le dépôt beryl-recipes.
 require "./apply/shell"
+require "./apply/persistent_shell"
 require "./apply/primitive"
 require "./apply/primitives/pkg_install"
 require "./apply/primitives/pkg_remove"

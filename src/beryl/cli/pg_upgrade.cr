@@ -144,8 +144,9 @@ module Beryl::CLI::PgUpgrade
                   "#{Beryl::CLI::SshProbe.compact_error(probe.stderr, probe.exit_code)}."
       return EXIT_FAILED
     end
-    shell = Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(host.connection(user)))
-    Migration.new(shell, opts, host.fqdn).run
+    Beryl::Apply.with_root_shell(host.connection(user), user) do |shell|
+      Migration.new(shell, opts, host.fqdn).run
+    end
   rescue ex : Beryl::Config::Root::HostNotFound | Beryl::Config::Root::AmbiguousHost | Beryl::Config::Root::UnknownDomain | ArgumentError
     STDERR.puts "beryl : #{ex.message}"
     EXIT_USAGE

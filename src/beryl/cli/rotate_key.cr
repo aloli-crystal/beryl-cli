@@ -89,7 +89,8 @@ module Beryl::CLI::RotateKey
       host = root.resolve(old.fqdn)
       next unless Beryl::CLI::Apply.root_ssh_login(host) == Beryl::UnlockGate::PERMIT_ROOT_LOGIN
       begin
-        shell = Beryl::Apply::SudoShell.new(Beryl::Apply::SshShell.new(host.connection))
+        # Rotation de clés : chaque commande sur une connexion NOUVELLE.
+        shell = Beryl::Apply.root_shell(host.connection, host.connect_user, persistent: false)
         user_names(host).each do |user|
           shell.exec("test -d #{Beryl::UnlockGate::KEYS_DIR} || exit 0; " \
                      "f=$(getent passwd #{Process.quote(user)} | cut -d: -f6)/.ssh/authorized_keys; " \
@@ -144,13 +145,13 @@ module Beryl::CLI::RotateKey
       return false
     end
 
-    conn_a = SSH::Connection.new(host: host.ssh_host, user: user, port: host.port, identity_file: active_priv)
+    conn_a = Beryl.ssh_connection(host: host.ssh_host, user: user, port: host.port, identity_file: active_priv)
 
     # Reprise / idempotence : si l'ancienne ne se connecte PLUS mais la
     # nouvelle OUI, ce (host, user) est DÉJÀ rotationné → succès. Évite de
     # casser un host déjà fait lors d'un re-run après un échec partiel.
     unless conn_a.exec("true", raise_on_error: false).success?
-      conn_chk = SSH::Connection.new(host: host.ssh_host, user: user, port: host.port, identity_file: suivante_priv)
+      conn_chk = Beryl.ssh_connection(host: host.ssh_host, user: user, port: host.port, identity_file: suivante_priv)
       if conn_chk.exec("true", raise_on_error: false).success?
         log "  ✓ #{host.fqdn}/#{user} : déjà rotationné (nouvelle clé active)"
         return true
@@ -169,7 +170,7 @@ module Beryl::CLI::RotateKey
     end
 
     # Passe 2 : VÉRIFIE que la SUIVANTE se connecte AVANT de retirer l'active.
-    conn_b = SSH::Connection.new(host: host.ssh_host, user: user, port: host.port, identity_file: suivante_priv)
+    conn_b = Beryl.ssh_connection(host: host.ssh_host, user: user, port: host.port, identity_file: suivante_priv)
     unless conn_b.exec("true", raise_on_error: false).success?
       STDERR.puts "  ✗ #{host.fqdn}/#{user} : la NOUVELLE clé ne se connecte pas → on GARDE l'ancienne (zéro lock-out)."
       return false

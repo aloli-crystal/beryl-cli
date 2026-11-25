@@ -1277,7 +1277,7 @@ module Beryl::Config
       elsif !(jumps = proxy_jumps(eff_user)).empty?
         opts["ProxyJump"] = jumps.first
       end
-      SSH::Connection.new(
+      Beryl.ssh_connection(
         host: ssh_host,
         user: eff_user,
         port: port,
@@ -1305,7 +1305,7 @@ module Beryl::Config
     # un prompt.
     def rescue_connection : SSH::Connection
       warn_ssh_key_once
-      SSH::Connection.new(
+      Beryl.ssh_connection(
         host: rescue_ssh_host,
         user: "root",
         port: port,

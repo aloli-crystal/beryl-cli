@@ -9,6 +9,31 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `sync` ×7 plus rapide : shell persistant, lectures fusionnées, `IPQoS=ef`
+
+Mesuré sur un serveur de 157 étapes depuis un poste en Wi-Fi : 112 s → 15 s.
+
+* **Shell distant persistant** (`PersistentShell`) : une seule session
+  `ssh … sudo -n sh` par commande, les commandes passent sur son entrée
+  standard (protocole sh POSIX, sorties exactes, aucun état partagé entre
+  commandes). Repli automatique sur un ssh par commande si la session ne
+  s'établit pas ou tombe (la commande en vol est rapportée en échec, jamais
+  rejouée). Désactivable : `BERYL_SSH_PERSISTENT=0`.
+* **Point d'entrée commun** `Beryl::Apply.root_shell(conn, user, persistent:)` :
+  persistant pour `sync`, `upgrade`/`update`, `os-upgrade`, `pg-upgrade` ;
+  ssh par commande pour `vrack` et `rotate-key` (elles vérifient qu'une
+  NOUVELLE connexion passe) et `build-status`.
+* **Toutes les connexions** passent par `Beryl.ssh_connection`, qui demande
+  `IPQoS=ef` (shard `ssh` 0.2.7, réémis sur le rebond bastion). En Wi-Fi, un
+  aller-retour ssh sans terminal coûtait ~250 ms au marquage par défaut
+  (`none`), ~60 ms en `ef`.
+* **Lectures fusionnées** : `file-write`, `secret-file` et `directory` lisent
+  empreinte/nature, mode et propriétaire en un seul appel (au lieu de 2-3) ;
+  `sshd -T` n'est lu qu'une fois par sync.
+* **Journal** : durée et nombre d'appels distants par étape et pour le sync.
+* **Diagnostic** : `BERYL_SSH_TRACE=1` mesure à l'ouverture l'écho pur, une
+  commande vide, une lecture, et l'écho selon le marquage `IPQoS`.
+
 === `scan` : nom court mot réservé YAML (`no`, `yes`, `on`…)
 
 * `scan` cite les valeurs qu'il écrit dans le `.host.yml` (hostname,
