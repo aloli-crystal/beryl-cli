@@ -314,7 +314,7 @@ module Beryl::CLI::Env
       STDERR.puts "beryl env set : #{path} existe déjà dans le coffre #{account} — ajoutez --replace pour le remplacer."
       return 1
     end
-    value = STDIN.tty? ? prompt_value(path) : STDIN.gets_to_end
+    value = STDIN.tty? ? prompt_value(path) : piped_value(STDIN.gets_to_end)
     return 1 unless value
     if value.strip.empty?
       STDERR.puts "beryl env set : valeur vide — rien n'est écrit."
@@ -342,6 +342,14 @@ module Beryl::CLI::Env
   rescue ex
     STDERR.puts "beryl env set : #{ex.message}"
     1
+  end
+
+  # Valeur lue sur l'entrée (`gh api … | beryl env set …`). Une seule ligne :
+  # son retour final est retiré, comme le ferait `$(…)` (sinon un jeton
+  # garde son « \n », refusé dans un en-tête HTTP). Plusieurs lignes (clé
+  # PEM…) : gardée à l'identique, retour final compris.
+  def self.piped_value(raw : String) : String
+    raw.lines.size == 1 ? raw.chomp : raw
   end
 
   # Saisie masquée, deux fois ; nil (message déjà affiché) si elles diffèrent

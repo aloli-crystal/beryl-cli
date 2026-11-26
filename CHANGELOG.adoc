@@ -9,6 +9,14 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== `env set` : retour final retiré d'une valeur d'une ligne lue sur l'entrée (0.6.197)
+
+* `gh api … --jq .token | beryl env set …` posait le jeton AVEC son
+  « \n » final : refusé ensuite dans un en-tête HTTP (« invalid header
+  field value for Authorization », enregistrement de github-act-runner).
+  Une valeur d'une seule ligne perd désormais son retour final, comme avec
+  `$(…)` ; une valeur multi-ligne (clé PEM) reste à l'identique.
+
 === Dry-run : garde `command` sur un script pas encore écrit (0.6.196)
 
 * Une garde `unless` qui appelle un fichier qu'un `file-write` précédent

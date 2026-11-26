@@ -24,6 +24,16 @@ describe "beryl env set (insertion ciblée)" do
     res.should contain("# Coffre quimeo — notes de Philippe : ne pas retirer.")
   end
 
+  it "entrée d'une ligne : retour final retiré (jeton passé par gh api … --jq)" do
+    Beryl::CLI::Env.piped_value("ghr_ABC123\n").should eq("ghr_ABC123")
+    Beryl::CLI::Env.piped_value("ghr_ABC123\r\n").should eq("ghr_ABC123")
+    Beryl::CLI::Env.piped_value("ghr_ABC123").should eq("ghr_ABC123")
+  end
+
+  it "entrée multi-ligne : gardée à l'identique, retour final compris (clé PEM)" do
+    Beryl::CLI::Env.piped_value(PEM).should eq(PEM)
+  end
+
   it "section présente : clé ajoutée sous son en-tête, le reste intact" do
     res = Beryl::CLI::Env.insert_var(VAULT, "mail", "SMTP_RELAY_TO", "ops@example.net").not_nil!
     read(res, "mail", "SMTP_RELAY_TO").should eq("ops@example.net")
