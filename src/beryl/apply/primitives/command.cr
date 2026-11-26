@@ -56,6 +56,13 @@ module Beryl::Apply
       return StepResult.skipped("déjà fait (garde `unless` satisfaite)") if guard_res.success?
       guard_err = summary(guard_res.stderr)
       if Primitive.broken_probe?(guard_res.exit_code, guard_res.stderr)
+        # Dry-run : la garde appelle un fichier qu'une étape précédente aurait
+        # écrit (script posé par `file-write`), absent du serveur tant que
+        # rien n'est appliqué → l'étape serait jouée, ce n'est pas une panne.
+        if dry_run && (written = context.dry_files.keys.find { |path| guard.includes?(path) })
+          return StepResult.applied("lancerait : #{label(run)} (dry-run) — garde non jouable avant " \
+                                    "l'écriture de #{written} par une étape précédente")
+        end
         return StepResult.failed("garde `unless` cassée (code #{guard_res.exit_code}) : " \
                                  "#{guard_err.empty? ? "aucune sortie" : guard_err} — rien n'a été lancé")
       end

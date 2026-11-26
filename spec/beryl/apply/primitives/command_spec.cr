@@ -224,3 +224,35 @@ describe "Beryl::Apply::Command, garde qui échoue" do
     report.applied.should eq(0)
   end
 end
+
+describe "Beryl::Apply::Command, garde sur un script simulé (dry-run)" do
+  it "would apply quand la garde appelle un fichier qu'un file-write précédent aurait écrit" do
+    shell = FakeShell.new
+    shell.stub(/pkg-cache-client --check/, exit_code: 127, stderr: "sh: /usr/local/sbin/pkg-cache-client: not found\n")
+    context = ctx
+    context.dry_files["/usr/local/sbin/pkg-cache-client"] = "#!/bin/sh\n"
+    yaml = "run: \"/usr/local/sbin/pkg-cache-client x\"\nunless: \"/usr/local/sbin/pkg-cache-client --check x\"\n"
+    r = prim("command").apply(shell, apply_params(yaml), dry_run: true, context: context)
+    r.outcome.should eq(Beryl::Apply::Outcome::Applied)
+    r.message.should contain("écriture de /usr/local/sbin/pkg-cache-client par une étape précédente")
+  end
+
+  it "reste FAILED en --apply, même avec un contenu simulé" do
+    shell = FakeShell.new
+    shell.stub(/pkg-cache-client --check/, exit_code: 127, stderr: "sh: /usr/local/sbin/pkg-cache-client: not found\n")
+    context = ctx
+    context.dry_files["/usr/local/sbin/pkg-cache-client"] = "#!/bin/sh\n"
+    yaml = "run: \"/usr/local/sbin/pkg-cache-client x\"\nunless: \"/usr/local/sbin/pkg-cache-client --check x\"\n"
+    r = prim("command").apply(shell, apply_params(yaml), dry_run: false, context: context)
+    r.outcome.should eq(Beryl::Apply::Outcome::Failed)
+  end
+
+  it "reste FAILED en dry-run si la garde ne concerne aucun fichier simulé" do
+    shell = FakeShell.new
+    shell.stub(/autre --check/, exit_code: 127, stderr: "sh: autre: not found\n")
+    context = ctx
+    context.dry_files["/usr/local/sbin/pkg-cache-client"] = "#!/bin/sh\n"
+    r = prim("command").apply(shell, apply_params("run: autre\nunless: \"autre --check\"\n"), dry_run: true, context: context)
+    r.outcome.should eq(Beryl::Apply::Outcome::Failed)
+  end
+end

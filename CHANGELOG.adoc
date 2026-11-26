@@ -9,6 +9,13 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Dry-run : garde `command` sur un script pas encore écrit (0.6.196)
+
+* Une garde `unless` qui appelle un fichier qu'un `file-write` précédent
+  aurait écrit (ex. `/usr/local/sbin/pkg-cache-client --check`) n'est plus
+  « garde cassée » en dry-run : l'étape est annoncée « lancerait … », avec
+  la raison. En `--apply`, une garde introuvable reste un échec.
+
 === Recettes du vRack en premier, dry-run qui suit les fichiers simulés (0.6.195)
 
 * **Ordre** : `vrack-interface` puis `vrack-resolver`, quand elles sont
