@@ -9,6 +9,18 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
+=== Recettes du vRack en premier, dry-run qui suit les fichiers simulés (0.6.195)
+
+* **Ordre** : `vrack-interface` puis `vrack-resolver`, quand elles sont
+  présentes, passent avant toutes les autres recettes (leurs dépendances
+  d'abord). Une recette qui joint un service des bastions par son nom
+  interne sans le déclarer (`pkg-repo-quimeo` sur
+  `bastions.vrack.internal`) ne tombe plus sur « Host does not resolve »
+  au premier `sync` d'un serveur neuf (`bootstrap` compris).
+* **Dry-run** : un `file-write` simulé garde le contenu qu'il aurait écrit ;
+  un `line-in-file` suivant sur le même fichier le lit au lieu d'échouer sur
+  « introuvable », et le reste de la recette est prévisualisé.
+
 === `sync` ×7 plus rapide : shell persistant, lectures fusionnées, `IPQoS=ef`
 
 Mesuré sur un serveur de 157 étapes depuis un poste en Wi-Fi : 112 s → 15 s.

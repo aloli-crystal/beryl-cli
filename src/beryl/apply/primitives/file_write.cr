@@ -60,7 +60,11 @@ module Beryl::Apply
       actions << "mode #{mode}" if need_chmod
       actions << "owner #{owner}" if need_chown
       msg = "#{path} : #{actions.join(", ")}"
-      return StepResult.applied("#{msg} (dry-run)") if dry_run
+      if dry_run
+        # Contenu simulé, lu par les étapes suivantes du même dry-run.
+        context.dry_files[path] = content if need_write
+        return StepResult.applied("#{msg} (dry-run)")
+      end
 
       # write_file (re)crée le fichier appartenant à root (écriture via
       # sudo/SFTP) avec un mode par défaut → après TOUTE écriture il faut

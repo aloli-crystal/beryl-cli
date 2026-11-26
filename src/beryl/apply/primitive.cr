@@ -114,7 +114,11 @@ module Beryl::Apply
     mirror : Bool = true,
     # Lectures coûteuses mémorisées le temps d'un sync (ex. `sshd -T`), vidées
     # par l'exécuteur dès qu'une étape a agi sur le serveur.
-    cache : Hash(String, String) = {} of String => String
+    cache : Hash(String, String) = {} of String => String,
+    # Dry-run : contenu des fichiers qu'une étape précédente AURAIT écrits
+    # (`file-write`), par chemin. Une étape suivante qui lit le fichier
+    # (`line-in-file`) le prend ici au lieu de le croire absent du serveur.
+    dry_files : Hash(String, String) = {} of String => String
 
   # Variable du coffre PROPRE À UN SERVEUR : `<HÔTE>__<NOM>` (nom court en
   # majuscules, tout caractère hors [A-Z0-9] → `_`). Serveur en tête : dans

@@ -156,3 +156,31 @@ describe "Beryl::Apply::Resolver — order:" do
     end
   end
 end
+
+describe "Beryl::Apply::Resolver — recettes du vRack en premier" do
+  it "vrack-interface puis vrack-resolver avant toutes les autres, leurs dépendances d'abord" do
+    with_recipes({
+      "aaa-repo"        => "steps: []\n",
+      "base"            => "steps: []\n",
+      "nginx"           => "requires: [aaa-repo]\nsteps: []\n",
+      "users"           => "steps: []\n",
+      "vrack-interface" => "requires: [base]\nsteps: []\n",
+      "vrack-resolver"  => "requires: [vrack-interface]\nsteps: []\n",
+    }) do |dir|
+      names = Beryl::Apply::Resolver.new(dir).resolve(["nginx", "users", "vrack-resolver"]).map(&.name)
+      names.should eq(["base", "vrack-interface", "vrack-resolver", "aaa-repo", "nginx", "users"])
+    end
+  end
+
+  it "sans recette du vRack, l'ordre ne change pas" do
+    with_recipes({"nginx" => "steps: []\n", "repo" => "steps: []\n"}) do |dir|
+      Beryl::Apply::Resolver.new(dir).resolve(["repo", "nginx"]).map(&.name).should eq(["nginx", "repo"])
+    end
+  end
+
+  it "vrack-interface seule passe aussi en tête" do
+    with_recipes({"aaa" => "steps: []\n", "vrack-interface" => "steps: []\n"}) do |dir|
+      Beryl::Apply::Resolver.new(dir).resolve(["aaa", "vrack-interface"]).map(&.name).should eq(["vrack-interface", "aaa"])
+    end
+  end
+end

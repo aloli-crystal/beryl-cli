@@ -25,7 +25,16 @@ module Beryl::Apply
   #      dépendants. Ordre alphabétique à indegree égal (déterministe).
   #      `order: [a, b]` d'une recette ajoute l'arête a → b (b après a).
   #   3. Cycle → `Cycle` (liste des recettes impliquées).
+  #
+  # Recettes du vRack (`FIRST`) : présentes, elles passent avant toutes les
+  # autres (hors leurs propres dépendances). Une recette peut joindre un
+  # service des bastions par son nom interne (`bastions.vrack.internal`,
+  # dépôt pkg relayé) sans le déclarer dans ses `requires:` : l'interface
+  # vRack et le résolveur de la zone doivent alors déjà être posés.
   class Resolver
+    # Recettes jouées en premier quand elles sont présentes, dans cet ordre.
+    FIRST = %w[vrack-interface vrack-resolver]
+
     # Levée quand une recette référencée (demandée ou via `requires:`)
     # est introuvable dans le dépôt de recettes.
     class RecipeNotFound < Exception
@@ -99,6 +108,7 @@ module Beryl::Apply
         # `order:` : chaque dépendance passe après la précédente de la liste.
         recipe.order.each_cons_pair { |before, after| edges << {before, after} }
       end
+      first_edges(loaded).each { |edge| edges << edge }
       edges.each do |dep, name|
         indegree[name] += 1
         (dependents[dep] ||= [] of String) << name
@@ -122,6 +132,25 @@ module Beryl::Apply
       end
 
       result
+    end
+
+    # Arêtes `FIRST` → chaque autre recette chargée, sauf les dépendances
+    # (transitives) des recettes de `FIRST`, qui passent avant elles.
+    private def first_edges(loaded : Hash(String, Recipe)) : Array(Tuple(String, String))
+      firsts = FIRST.select { |n| loaded.has_key?(n) }
+      return [] of Tuple(String, String) if firsts.empty?
+
+      before = Set(String).new
+      pending = firsts.flat_map { |n| loaded[n].requires }
+      until pending.empty?
+        dep = pending.pop
+        next if before.includes?(dep) || !loaded.has_key?(dep)
+        before << dep
+        pending.concat(loaded[dep].requires)
+      end
+
+      others = loaded.keys.reject { |n| firsts.includes?(n) || before.includes?(n) }
+      firsts.flat_map { |f| others.map { |n| {f, n} } }
     end
   end
 end

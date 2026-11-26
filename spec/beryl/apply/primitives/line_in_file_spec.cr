@@ -59,3 +59,37 @@ describe Beryl::Apply::LineInFile do
     shell.ran?(/chown root:wheel/).should be_true
   end
 end
+
+describe "Beryl::Apply::LineInFile en dry-run après un file-write simulé" do
+  it "lit le contenu qu'un file-write précédent aurait écrit, sans échouer" do
+    shell = FakeShell.new
+    shell.stub(/cat /, exit_code: 1)
+    context = ctx
+    w = prim("file-write").apply(shell, apply_params({path: "/home/deploy/.zshenv", content: "export A=1\n"}.to_yaml), dry_run: true, context: context)
+    w.outcome.should eq(Beryl::Apply::Outcome::Applied)
+    r = prim("line-in-file").apply(shell, apply_params({path: "/home/deploy/.zshenv", line: "export B=2"}.to_yaml), dry_run: true, context: context)
+    r.outcome.should eq(Beryl::Apply::Outcome::Applied)
+    r.message.should contain("fichier écrit par une étape précédente")
+    context.dry_files["/home/deploy/.zshenv"].should eq("export A=1\nexport B=2\n")
+    shell.ran?(/cat /).should be_false
+    shell.writes.should be_empty
+  end
+
+  it "skip si le contenu simulé a déjà la ligne" do
+    shell = FakeShell.new
+    context = ctx
+    prim("file-write").apply(shell, apply_params({path: "/etc/x", content: "a\n"}.to_yaml), dry_run: true, context: context)
+    r = prim("line-in-file").apply(shell, apply_params({path: "/etc/x", line: "a"}.to_yaml), dry_run: true, context: context)
+    r.outcome.should eq(Beryl::Apply::Outcome::Skipped)
+  end
+
+  it "hors dry-run, ignore tout contenu simulé et lit le serveur" do
+    shell = FakeShell.new
+    shell.stub(/cat /, exit_code: 1)
+    context = ctx
+    context.dry_files["/etc/x"] = "a\n"
+    expect_raises(Beryl::Apply::Primitive::PrimitiveError, /introuvable/) do
+      prim("line-in-file").apply(shell, apply_params({path: "/etc/x", line: "b"}.to_yaml), dry_run: false, context: context)
+    end
+  end
+end

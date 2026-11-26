@@ -32,13 +32,24 @@ module Beryl::Apply
       match = string(params, "match")
       q = Process.quote(path)
 
-      read = shell.exec("cat #{q}", raise_on_error: false)
-      raise PrimitiveError.new("#{path} introuvable — `line-in-file` ne crée pas de fichier.") unless read.success?
-
-      current = read.stdout
+      # Dry-run : un fichier qu'une étape précédente aurait écrit (`file-write`)
+      # est lu dans son contenu simulé, pas sur le serveur où il n'existe pas
+      # encore (ou pas sous cette forme).
+      simulated = dry_run ? context.dry_files[path]? : nil
+      if simulated
+        current = simulated
+      else
+        read = shell.exec("cat #{q}", raise_on_error: false)
+        raise PrimitiveError.new("#{path} introuvable — `line-in-file` ne crée pas de fichier.") unless read.success?
+        current = read.stdout
+      end
       desired = self.class.ensure_line(current, line, match)
       return StepResult.skipped("#{path} : ligne déjà présente") if desired == current
-      return StepResult.applied("#{path} : ligne posée (dry-run)") if dry_run
+      if dry_run
+        context.dry_files[path] = desired if simulated
+        suffix = simulated ? ", fichier écrit par une étape précédente" : ""
+        return StepResult.applied("#{path} : ligne posée (dry-run#{suffix})")
+      end
 
       # write_file recrée le fichier (root, mode par défaut) : on relit puis
       # on remet le mode et le propriétaire d'origine.
