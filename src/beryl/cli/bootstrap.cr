@@ -487,7 +487,26 @@ module Beryl::CLI::Bootstrap
         STDERR.puts "[#{Beryl.format_timestamp(Time.local)}] #{Beryl.log_tag("beryl bootstrap")} [Étape 4] OVH : ⚠ monitoring OVH non rétabli (#{ex.message}) — à réactiver dans l'espace client OVH"
       end
     end
-    return EXIT_OK unless chain_apply
+    # `installed: false` d'un réglage commun (groupe, domaine, société) : beryl
+    # ne le retire pas (il vaut pour d'autres serveurs) ; tant qu'il reste,
+    # `sync` refuse ce serveur → arrêt ici avec la marche à suivre exacte.
+    inherited = inherited_not_installed(host)
+    return EXIT_OK unless chain_apply || inherited
+    if inherited
+      rel, scope = inherited
+      steps = [] of String
+      if chain_apply
+        short = Beryl::CLI::AccountUtils.host_ref(host)
+        direct = host.hidden? && !host.public_address.nil?
+        steps << "beryl #{direct ? "--transport=direct " : ""}unlock #{short} --apply" unless system_datasets.none?(&.encrypted)
+        steps << "beryl --transport=direct sync #{short} vrack-interface --apply" if direct
+        steps << "beryl sync #{short} --apply"
+      end
+      STDERR.puts "beryl : FreeBSD est installé sur #{host.fqdn}, mais `installed: false` dans #{rel} vaut pour #{scope} : " \
+                  "beryl ne le retire pas#{chain_apply ? ", recettes NON posées" : ""}. Retirez cette ligne" \
+                  "#{steps.empty? ? "." : ", puis lancez : #{steps.join(", puis ")}"}"
+      return chain_apply ? Beryl::CLI::Apply::EXIT_NOT_INSTALLED : EXIT_OK
+    end
 
     # Étape 5 : le serveur est installé et répond → on pose tout de suite ses
     # recettes (celles par défaut de la société : relais SMTP, supervision…),
@@ -632,6 +651,14 @@ module Beryl::CLI::Bootstrap
     Beryl::CLI::ConfigGit.commit([path], "bootstrap : #{host.fqdn} installé", false)
   rescue ex
     STDERR.puts "beryl : ⚠ #{host.fqdn} installé, mais `installed: false` n'a pas pu être retiré du host.yml (#{ex.message}) — retirez-le à la main."
+  end
+
+  # `installed: false` venu d'un réglage commun (et non du host.yml, que
+  # `mark_installed` vient de nettoyer) : {fichier, portée}, sinon nil.
+  def self.inherited_not_installed(host : Beryl::Config::ResolvedHost) : Tuple(String, String)?
+    return if host.installed?
+    rel, scope = Beryl::CLI::Apply.installed_origin(host)
+    scope ? {rel, scope} : nil
   end
 
   # Retire la ligne de PREMIER NIVEAU `installed: false` (commentaire de fin de

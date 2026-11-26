@@ -1,5 +1,6 @@
 require "../../spec_helper"
 require "../../../src/beryl/cli/apply"
+require "../../../src/beryl/cli/bootstrap"
 
 private FIXTURE = File.expand_path(File.join(__DIR__, "..", "..", "fixtures", "config", "ssh-host-override"))
 
@@ -60,6 +61,33 @@ describe "beryl sync et installed: false" do
     pending, installed = Beryl::CLI::Apply.split_installed(hosts)
     pending.map(&.short_name).should eq(["pending"])
     installed.map(&.short_name).should eq(["explicit", "ready"])
+  end
+
+  it "refuse aussi un serveur dont le groupe déclare installed: false" do
+    Beryl::CLI::Apply.run(INSTALLED_FLAG, ["grouped"]).should eq(Beryl::CLI::Apply::EXIT_NOT_INSTALLED)
+  end
+
+  it "nomme le host.yml quand le serveur lui-même est marqué" do
+    host = Beryl::Config::Root.load(INSTALLED_FLAG).resolve("pending")
+    Beryl::CLI::Apply.installed_origin(host).should eq({"example/example.net/pending.host.yml", nil})
+    msg = Beryl::CLI::Apply.not_installed_message(host)
+    msg.should contain("`installed: false` dans example/example.net/pending.host.yml")
+    msg.should contain("`beryl bootstrap pending --apply`, qui retire cette ligne")
+  end
+
+  it "nomme le _defaults.yml du groupe et sa portée quand le réglage est commun" do
+    host = Beryl::Config::Root.load(INSTALLED_FLAG).resolve("grouped")
+    Beryl::CLI::Apply.installed_origin(host).should eq({"example/example.net/attente/_defaults.yml", "tout le groupe attente"})
+    msg = Beryl::CLI::Apply.not_installed_message(host)
+    msg.should contain("`installed: false` dans example/example.net/attente/_defaults.yml vaut pour tout le groupe attente")
+    msg.should contain("Serveur déjà installé : retirez cette ligne")
+    Beryl::CLI::Bootstrap.inherited_not_installed(host).should eq({"example/example.net/attente/_defaults.yml", "tout le groupe attente"})
+  end
+
+  it "ne signale rien d'hérité pour un serveur installé ou marqué dans son host.yml" do
+    root = Beryl::Config::Root.load(INSTALLED_FLAG)
+    Beryl::CLI::Bootstrap.inherited_not_installed(root.resolve("ready")).should be_nil
+    Beryl::CLI::Bootstrap.inherited_not_installed(root.resolve("pending")).should be_nil
   end
 end
 

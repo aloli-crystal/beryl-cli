@@ -654,6 +654,20 @@ module Beryl::Config
       @merged[YAML::Any.new("installed")]?.try(&.as_bool?) != false
     end
 
+    # Fichier le plus spécifique qui déclare `installed:` pour ce serveur :
+    # son host.yml, puis le `_defaults.yml` de son groupe, le fichier du
+    # domaine, `_account.yml` ; nil si aucun (défaut global, ou clé absente).
+    def installed_source : String?
+      key = YAML::Any.new("installed")
+      return @node.source_path if @node.raw.has_key?(key)
+      if (g = @group) && g.raw.has_key?(key)
+        return g.source_path
+      end
+      return @domain.source_path if @domain.raw.has_key?(key)
+      return File.join(@account.path, "_account.yml") if @account.metadata.has_key?(key)
+      nil
+    end
+
     # `ssh_config: false` (host.yml, héritable domaine/groupe) : host absent des
     # fichiers de `beryl ssh-config` — ex. d'anciens serveurs que beryl ne suit
     # pas, joints par vos propres entrées de `~/.ssh/config`. Absent = présent.

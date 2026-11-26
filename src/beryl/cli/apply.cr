@@ -118,9 +118,7 @@ module Beryl::CLI::Apply
     named = list ? named_hosts(root, raw, account_hint, domain_hint) : Set(String).new
     pending, hosts = split_installed(hosts)
     if !pending.empty? && single_host
-      ref = Beryl::CLI::AccountUtils.host_ref(pending.first)
-      STDERR.puts "beryl : #{pending.first.fqdn} n'est pas encore installé (installed: false) — " \
-                  "lancez d'abord `beryl bootstrap #{ref} --apply`."
+      STDERR.puts not_installed_message(pending.first)
       return EXIT_NOT_INSTALLED
     end
     pending.each { |h| log "#{h.fqdn} : pas encore installé (installed: false) → sauté." }
@@ -196,9 +194,43 @@ module Beryl::CLI::Apply
     EXIT_UNEXPECTED
   end
 
-  # {non installés, installés} (`installed: false` dans le host.yml).
+  # {non installés, installés} (`installed: false`, host.yml ou réglage commun).
   def self.split_installed(hosts : Array(Beryl::Config::ResolvedHost)) : Tuple(Array(Beryl::Config::ResolvedHost), Array(Beryl::Config::ResolvedHost))
     hosts.partition { |h| !h.installed? }
+  end
+
+  # D'où vient le `installed: false` d'un serveur : {fichier relatif à la
+  # racine de configuration, portée du réglage}, portée nil quand c'est le
+  # host.yml du serveur lui-même.
+  def self.installed_origin(host : Beryl::Config::ResolvedHost) : Tuple(String, String?)
+    src = host.installed_source
+    return {"_default.yml", "tous les serveurs"} unless src
+    root = File.dirname(host.account.path)
+    rel = src.starts_with?("#{root}/") ? src[(root.size + 1)..] : src
+    scope = if src == host.node.source_path
+              nil
+            elsif (g = host.group) && src == g.source_path
+              "tout le groupe #{g.name}"
+            elsif src == host.domain.source_path
+              "tout le domaine #{host.domain.name}"
+            else
+              "toute la société #{host.account.name}"
+            end
+    {rel, scope}
+  end
+
+  # Refus d'un serveur `installed: false` : dit quel fichier le déclare et,
+  # pour un réglage commun (groupe, domaine, société), que beryl n'y touche pas.
+  def self.not_installed_message(host : Beryl::Config::ResolvedHost) : String
+    ref = Beryl::CLI::AccountUtils.host_ref(host)
+    rel, scope = installed_origin(host)
+    if scope
+      "beryl : #{host.fqdn} refusé : `installed: false` dans #{rel} vaut pour #{scope}. " \
+      "Serveur déjà installé : retirez cette ligne. Sinon : `beryl bootstrap #{ref} --apply`."
+    else
+      "beryl : #{host.fqdn} refusé : `installed: false` dans #{rel}. " \
+      "Lancez d'abord `beryl bootstrap #{ref} --apply`, qui retire cette ligne."
+    end
   end
 
   # La portée désigne-t-elle UN serveur (et non un domaine ou une société) ?
