@@ -9,17 +9,11 @@ et ce projet suit https://semver.org/lang/fr/[Semantic Versioning].
 
 == [Non publié]
 
-=== `user-update-keys` : lignes à options laissées aux recettes (0.6.198)
+=== `user-update-keys` : retour à la 0.6.197 (0.6.199)
 
-* Une ligne d'`authorized_keys` qui commence par des options
-  (`from="…",restrict ssh-ed25519 …`, `no-pty,…`) est posée par une recette
-  (serveurs de sauvegarde de `mariadb-daily-dump`, exécuteur de la CI de
-  `quimeo-app`) : `users` la laisse en place, dans son ordre, et ne la
-  compte plus parmi les clés à retirer. Avant, chaque sync la retirait puis
-  la recette la remettait : accès coupé quelques secondes à chaque fois.
-* Seules les clés sans options (celles de `keys:` / `ssh_keys:`) sont
-  gérées par `users` ; la copie en clair (`/etc/ssh/authorized_keys/<user>`,
-  /home chiffré) ne reçoit qu'elles, comme avant.
+* Annulation de la 0.6.198 (lignes à options laissées aux recettes) : la
+  solution n'est pas retenue. `users` gère de nouveau `authorized_keys`
+  comme un ensemble exact : une ligne absente de `keys:` est retirée.
 
 === `env set` : retour final retiré d'une valeur d'une ligne lue sur l'entrée (0.6.197)
 

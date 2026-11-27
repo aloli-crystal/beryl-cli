@@ -10,13 +10,6 @@ module Beryl::Apply
   # Idempotence : diff ligne par ligne, comparaison par (type + blob
   # base64) en ignorant le commentaire final.
   #
-  # Lignes À OPTIONS (`from="…",restrict ssh-ed25519 …`, `no-pty,…`) : posées
-  # par une recette (serveurs de sauvegarde de mariadb-daily-dump, exécuteur
-  # de la CI…), qui les gère à son préfixe. Laissées telles quelles, dans leur
-  # ordre, et hors de la comparaison : sans cela, chaque sync les retirait puis
-  # la recette les remettait (accès coupé quelques secondes à chaque fois).
-  # Seules les clés SANS options (celles de `keys:`) sont gérées ici.
-  #
   # GARDE-FOU : refus explicite de retirer une clé que beryl utilise
   # actuellement pour se connecter (`context.protected_keys`, dérivées
   # de `host.identity_file`). Sans ça, retirer cette clé du YAML puis
@@ -68,12 +61,9 @@ module Beryl::Apply
       end
 
       current_raw = shell.exec("cat #{Process.quote(home)}/.ssh/authorized_keys 2>/dev/null", raise_on_error: false).stdout
-      current_lines = current_raw.lines
+      current_ids = current_raw.lines
         .map(&.strip)
         .reject { |l| l.empty? || l.starts_with?('#') }
-      kept = current_lines.select { |l| with_options?(l) }
-      current_ids = current_lines
-        .reject { |l| with_options?(l) }
         .compact_map { |l| key_id(l) }
         .to_set
 
@@ -92,13 +82,8 @@ module Beryl::Apply
         )
       end
 
-      # Copie en clair : clés de `keys:` seulement, comme avant (les lignes à
-      # options des recettes visent des services de /home, absents tant
-      # qu'il n'est pas déverrouillé).
       content = desired_by_id.values.join("\n")
       content += "\n" unless content.empty?
-      home_content = (desired_by_id.values + kept).join("\n")
-      home_content += "\n" unless home_content.empty?
       # Copie en clair (/home chiffré) : à réécrire si absente ou différente.
       mirror = "#{Beryl::UnlockGate::KEYS_DIR}/#{user}"
       mirror_stale = context.mirror &&
@@ -120,7 +105,7 @@ module Beryl::Apply
       end
       return StepResult.applied("#{msg} (dry-run)") if dry_run
       shell.exec("mkdir -p #{Process.quote(home)}/.ssh && chmod 700 #{Process.quote(home)}/.ssh && chown #{Process.quote(user)} #{Process.quote(home)}/.ssh")
-      shell.write_file("#{home}/.ssh/authorized_keys", home_content, mode: "0600")
+      shell.write_file("#{home}/.ssh/authorized_keys", content, mode: "0600")
       shell.exec("chown #{Process.quote(user)} #{Process.quote(home)}/.ssh/authorized_keys")
       write_mirror(shell, mirror, content) if mirror_stale
       StepResult.applied(msg)
@@ -142,13 +127,6 @@ module Beryl::Apply
       blob = tokens[idx + 1]?
       return unless blob
       "#{tokens[idx]} #{blob}"
-    end
-
-    # Ligne qui commence par des options (premier mot qui n'est pas un type de
-    # clé) : posée par une recette, cf. `apply`.
-    private def with_options?(line : String) : Bool
-      first = line.strip.split(/\s+/, 2).first? || ""
-      !first.matches?(KEY_TYPE) && !key_id(line).nil?
     end
 
     # Commentaire de la ligne de `raw` portant la clé `id`, sinon « …<fin du blob> ».
