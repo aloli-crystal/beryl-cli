@@ -102,3 +102,47 @@ describe "user-update-keys : clés retirées nommées" do
     shell.writes.should be_empty
   end
 end
+
+describe "user-update-keys : lignes à options posées par une recette" do
+  it "laisse en place une ligne à options absente de `keys:` (rien à faire)" do
+    shell = FakeShell.new
+    with_home(shell, "ssh-ed25519 AAAAkeep ops@initech\n" \
+                     "from=\"192.0.2.0/24\",restrict ssh-ed25519 AAAAbackup deploy@sauvegarde\n")
+    result = prim("user-update-keys").apply(
+      shell,
+      apply_params(%({user: deploy, keys: ["ssh-ed25519 AAAAkeep ops@initech"]})),
+      dry_run: false, context: ctx,
+    )
+    result.outcome.should eq(Beryl::Apply::Outcome::Skipped)
+    shell.writes.should be_empty
+  end
+
+  it "réécriture : clés de `keys:` puis lignes à options gardées, dans leur ordre" do
+    shell = FakeShell.new
+    with_home(shell, "from=\"192.0.2.0/24\",restrict ssh-ed25519 AAAAbackup deploy@sauvegarde\n" \
+                     "ssh-ed25519 AAAAgone stagiaire@laptop\n" \
+                     "from=\"192.0.2.1\",no-pty ssh-ed25519 AAAAci ci@exemple\n")
+    result = prim("user-update-keys").apply(
+      shell,
+      apply_params(%({user: deploy, keys: ["ssh-ed25519 AAAAkeep ops@initech"]})),
+      dry_run: false, context: ctx,
+    )
+    result.message.should contain("+1 / -1 clé(s) (retirées : stagiaire@laptop)")
+    w = shell.writes.find! { |x| x.path == "/home/deploy/.ssh/authorized_keys" }
+    w.content.should eq("ssh-ed25519 AAAAkeep ops@initech\n" \
+                        "from=\"192.0.2.0/24\",restrict ssh-ed25519 AAAAbackup deploy@sauvegarde\n" \
+                        "from=\"192.0.2.1\",no-pty ssh-ed25519 AAAAci ci@exemple\n")
+  end
+
+  it "/home chiffré : la copie en clair ne reçoit que les clés de `keys:`" do
+    shell = FakeShell.new
+    with_home(shell, "from=\"192.0.2.1\",no-pty ssh-ed25519 AAAAci ci@exemple\n", mirror: "")
+    prim("user-update-keys").apply(
+      shell,
+      apply_params(%({user: deploy, keys: ["ssh-ed25519 AAAAkeep ops@initech"]})),
+      dry_run: false, context: ctx,
+    )
+    w = shell.writes.find! { |x| x.path == "/etc/ssh/authorized_keys/deploy" }
+    w.content.should eq("ssh-ed25519 AAAAkeep ops@initech\n")
+  end
+end
